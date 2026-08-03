@@ -26,3 +26,8 @@ tools/_spend*/
 tools/_baseline*/
 tools/_surface/
 tools/_vr.json
+# Paydown round captures (tools/perfbaseline.mjs --out, tools/paydown.mjs,
+# tools/staticmatrix.mjs): same rule — harness committed, output not.
+tools/_pay*/
+tools/_ab*/
+tools/_staticmatrix.png

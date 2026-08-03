@@ -1368,7 +1368,9 @@ export class Renderer3D {
   private ambientFx = new AmbientParticles();
   // base = the prop's placed scale; reveal eases it in as its tile's fog
   // dissipates (no more visibility popping).
-  private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3 }[] = [];
+  // `reveal` is the last reveal step actually written to the transform (see
+  // STATIC PROP TRANSFORMS in updateFogTint) — -1 means "never written".
+  private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3; reveal?: number }[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
@@ -1925,6 +1927,22 @@ export class Renderer3D {
       this.voidPlane.userData.noAO = true;
       this.scene.add(this.voidPlane);
     }
+
+    // THE SCENE ROOT MUST NOT MARK ITSELF DIRTY (paydown r1). This is what lets
+    // the static-transform work elsewhere in this file actually save anything.
+    //
+    // Object3D.updateMatrix() ends with `this.matrixWorldNeedsUpdate = true`,
+    // unconditionally. A Scene left on the default matrixAutoUpdate=true
+    // therefore recomposes its own (always identity) matrix every frame, flags
+    // itself dirty, and updateMatrixWorld sets `force = true` for the entire
+    // descent. `force` is what makes every node below re-multiply its
+    // matrixWorld even when the node itself is frozen — so with the root
+    // dirtying itself, freezing a prop saved only its own compose and none of
+    // the world multiplies underneath it.
+    //
+    // The scene root is at the identity and never moves, so nothing is given up.
+    this.scene.matrixAutoUpdate = false;
+    this.scene.updateMatrix();
 
     this.scene.add(this.floorGroup);
     this.scene.add(this.fogBank.group);
@@ -4443,6 +4461,14 @@ export class Renderer3D {
         mesh.receiveShadow = true;
         mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
         this.floorGroup.add(mesh);
+        // Chunk meshes sit at the origin and never move — only their INSTANCE
+        // matrices are ever rewritten (canopy camera courtesy), which is a
+        // different buffer. Freezing the object transform keeps three.js from
+        // recomposing an identity matrix for ~180 chunks on every frame.
+        // Compose once while parented, THEN freeze (see the prop freeze below
+        // for why the order matters).
+        mesh.updateMatrixWorld(true);
+        mesh.matrixAutoUpdate = false;
         if (kind.startsWith("cluster") || kind.startsWith("accent")) {
           for (let i = 0; i < list.length; i++) {
             const e = list[i].m.elements;
@@ -5203,6 +5229,35 @@ export class Renderer3D {
     // placed scale so the fog reveal can ease it in instead of popping it.
     for (const e of this.propEntries) {
       e.base = e.obj.scale.clone();
+      // FREEZE (paydown r1). A placed prop's transform changes only on the
+      // handful of frames its fog reveal is easing (updateFogTint recomputes it
+      // by hand there), so the whole subtree drops matrixAutoUpdate.
+      //
+      // What that buys, in three.js r169's updateMatrixWorld: with
+      // matrixAutoUpdate false the per-node compose is skipped, and because
+      // nothing then sets matrixWorldNeedsUpdate, the parent-multiply is skipped
+      // too and `force` stays false all the way down — so a frozen prop costs a
+      // pointer walk instead of a matrix compose plus a 4x4 multiply per mesh,
+      // across ~1150 prop meshes, every frame.
+      //
+      // NOT matrixWorldAutoUpdate=false, which is the trap: in r169 the
+      // matrixWorld composition is itself guarded by that flag, so setting it
+      // does not mean "skip my subtree" — it means "I will write matrixWorld
+      // myself". Setting it left every prop's matrixWorld at the identity, i.e.
+      // 887 props stacked on the map origin. It did not show up in a screenshot
+      // because the props that proved it were still under fog and invisible;
+      // tools/staticmatrix.mjs caught it by checking world positions directly.
+      //
+      // Safe because nothing animated lives under a prop: the torch pool and the
+      // hero lamp are children of the scene (addTorches), and the flame sprites
+      // are children of floorGroup, not of the sconce mesh they sit on.
+      e.reveal = -1; // force the first updateFogTint pass to write a transform
+      // Compose the placed transform for the whole subtree ONCE, while the
+      // engine is still willing to, then freeze. Doing it here rather than
+      // leaning on the first updateFogTint pass also covers the case where that
+      // pass early-returns because a fog-bank rebuild is in flight.
+      e.obj.updateMatrixWorld(true);
+      e.obj.traverse((o) => { o.matrixAutoUpdate = false; });
       const cell = groundByTile.get(e.tile);
       if (!cell) continue;
       // Whisper only — the baked contact stamp does the real grounding now.
@@ -5537,14 +5592,41 @@ export class Renderer3D {
     if (alphas.length !== map.w * map.h) return; // rebuild in flight
     // Props ride the same animated alpha: they scale in as their tile's fog
     // dissipates instead of visibility-popping into the frame.
+    //
+    // STATIC PROP TRANSFORMS (paydown r1). This loop used to write scale and
+    // visible on every one of the ~920 placed props EVERY FRAME, and every prop
+    // kept three.js's default matrixAutoUpdate — so the engine recomposed
+    // position/quaternion/scale into a matrix, and walked the whole subtree
+    // (~1150 meshes) to recompute world matrices, on every frame, for objects
+    // that are standing still in a dungeon. Nothing in src/render3d had ever set
+    // matrixAutoUpdate=false; this is the first place that does.
+    //
+    // A prop only moves when its tile's fog reveal eases it in, which is a
+    // second or two after the player first sees it and then never again. So the
+    // reveal is QUANTIZED to 1/128 steps and the transform is rewritten only on
+    // a step change — at which point the matrix is recomputed explicitly. The
+    // quantum is far finer than the 0.72..1.0 scale ramp it drives, so the ease
+    // is visually identical; what goes away is the per-frame rewrite.
     for (const e of this.propEntries) {
       const a = alphas[e.tile] ?? 1;
       const f = 1 - a;
-      e.obj.visible = f > 0.04;
+      const vis = f > 0.04;
+      const step = Math.round(Math.min(1, Math.max(0, f)) * 128);
+      if (e.reveal === step) {
+        // Visibility is not part of the transform, so it can flip without one.
+        if (e.obj.visible !== vis) e.obj.visible = vis;
+        continue;
+      }
+      e.reveal = step;
+      e.obj.visible = vis;
       if (e.base) {
         if (f < 0.999) e.obj.scale.copy(e.base).multiplyScalar(0.72 + 0.28 * f);
         else e.obj.scale.copy(e.base);
       }
+      // The engine no longer does this for us (frozen in buildFloor), so the
+      // one frame in which a prop actually changes pays for its own matrix.
+      e.obj.updateMatrix();
+      e.obj.updateMatrixWorld(true);
     }
     if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
   }
@@ -6810,6 +6892,42 @@ export class Renderer3D {
       }
 
       mesh.visible = inVision(mon.pos);
+      // OFF-SCREEN BODIES DO NOT GET MATRICES (paydown r1).
+      //
+      // three.js updates the whole scene graph's matrices before it culls
+      // anything, so a floor holding 205 rigged monsters was recomposing ~7300
+      // matrices per frame — measured, tools/staticmatrix.mjs — when only the
+      // dozen or two in the player's vision are ever drawn. Rigs are deep
+      // (~35 nodes each once the skeleton is counted), and the monsters alone
+      // were 96% of all remaining per-frame matrix work on floor 17.
+      //
+      // THE MECHANISM MATTERS, and the obvious one does not work. Setting
+      // matrixWorldAutoUpdate=false looks like "skip my subtree" and is not:
+      // in r169 (three.module.js:7772) the child recursion is UNCONDITIONAL —
+      //
+      //     for ( ... ) { const child = children[i]; child.updateMatrixWorld( force ); }
+      //
+      // — and the flag only guards whether THIS node composes its own
+      // matrixWorld. Setting it therefore skips nothing and quietly leaves the
+      // node's matrixWorld at the identity (which is how the prop freeze below
+      // first parked 887 props on the map origin). The flag that actually
+      // removes work is matrixAutoUpdate, which skips the compose itself; and
+      // because nothing then sets matrixWorldNeedsUpdate, the parent-multiply
+      // is skipped too and `force` stays false for the rest of the subtree.
+      //
+      // Toggled only on a visibility CHANGE, so the traverse is paid on
+      // transitions rather than every frame. Cannot change a rendered pixel:
+      // WebGLRenderer.projectObject already skips invisible subtrees, so the
+      // matrices being skipped are exactly the ones nothing reads. Coming back
+      // on screen is safe because mesh.position is rewritten every frame below
+      // whether or not the body is visible — re-enabling the flag makes the
+      // next walk recompose the root, which forces every bone under it, before
+      // anything is drawn.
+      if (mesh.userData.mtxLive !== mesh.visible) {
+        mesh.userData.mtxLive = mesh.visible;
+        const live = mesh.visible;
+        mesh.traverse((o) => { o.matrixAutoUpdate = live; });
+      }
       // Enraged bodies burn for the duration (see applyHitFlash). Pulsed and
       // phase-offset per monster so a full room reads as a crowd catching
       // fire rather than one strobing mass.

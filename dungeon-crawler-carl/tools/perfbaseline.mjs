@@ -24,28 +24,30 @@
 // Usage: node tools/perfbaseline.mjs --port 5282 [--seconds 12] [--out dir]
 import { chromium } from "playwright";
 import { mkdirSync, writeFileSync } from "node:fs";
-import { execFileSync } from "node:child_process";
+import { probeLoad as probeLoadShared, foreignLoadPct, waitForIdle as waitForIdleShared } from "./_boxload.mjs";
 
-// CONTAMINATION METER. A sibling workflow runs headless browsers on this same
-// laptop, and a frame time measured while it is hammering the CPU is not a
-// number about this game. Rather than assert "the box was idle", every scene
-// records what the box was ACTUALLY doing on either side of its sample window,
-// plus the GPU engine's own utilisation — so a reader can see for themselves
-// whether the wall-clock rows are trustworthy or only bounding.
-const probeLoad = () => {
-  try {
-    const ps = `$c=(Get-Counter '\\Processor(_Total)\\% Processor Time' -SampleInterval 1 -MaxSamples 3).CounterSamples|%{$_.CookedValue};` +
-      `$g=0; try{$g=((Get-Counter '\\GPU Engine(*engtype_3D)\\Utilization Percentage' -SampleInterval 1 -MaxSamples 1 -ErrorAction Stop).CounterSamples|Measure-Object CookedValue -Sum).Sum}catch{};` +
-      `$h=@(Get-Process chrome-headless-shell -ErrorAction SilentlyContinue).Count;` +
-      `Write-Output ("{0:N1},{1:N1},{2}" -f (($c|Measure-Object -Average).Average),$g,$h)`;
-    const out = execFileSync("powershell", ["-NoProfile", "-Command", ps], { encoding: "utf8", timeout: 30000 }).trim();
-    const [cpu, gpu3d, shells] = out.split(",");
-    return { cpuPct: Number(cpu), gpu3dPct: Number(gpu3d), otherHeadlessShells: Number(shells) };
-  } catch (e) { return { error: String(e.message).slice(0, 120) }; }
-};
+// CONTAMINATION METER — shared with every other perf tool in here, so they all
+// gate on one definition of "clean". See tools/_boxload.mjs for why counting
+// chrome-headless-shell and thresholding machine-wide CPU% were both wrong, and
+// why the foreign-CPU sum is now computed with an explicit loop that cannot
+// silently return a confidently-clean zero.
+let ownPid = process.pid;
+const probeLoad = () => probeLoadShared(ownPid);
+
+// How much foreign browser CPU we will tolerate across a sample, in % of the
+// whole machine. Not zero: a parked sibling browser still ticks timers, and
+// demanding a literal zero would never sample. 3% of a 16-thread box is under
+// half a core — below the point where it can move a 16.7 ms frame budget.
+const FOREIGN_LOAD_LIMIT = Number(flagEarly("--foreignlimit", 3));
+function flagEarly(n, d) { const i = process.argv.indexOf(n); return i >= 0 ? Number(process.argv[i + 1]) : d; }
+
+const waitForIdle = (label) => waitForIdleShared(label, { limitPct: FOREIGN_LOAD_LIMIT, ownPid });
 
 const flag = (n, d) => { const i = process.argv.indexOf(n); return i >= 0 ? process.argv[i + 1] : d; };
 const port = flag("--port", "5282");
+// --awaitidle: block for a quiet box and retry any sample the box dirtied.
+const awaitIdle = process.argv.includes("--awaitidle");
+const maxAttempts = Number(flag("--attempts", 4));
 const base = `http://localhost:${port}`;
 const seconds = Number(flag("--seconds", 12));
 const outDir = flag("--out", "tools/_baseline");
@@ -82,6 +84,11 @@ const browser = await chromium.launch({
     // NO --disable-gpu-vsync / --disable-frame-rate-limit: player pacing.
   ],
 });
+// Claim our own process tree so probeLoad can tell OUR browser from a sibling's.
+// Seeded from THIS node process, not browser.process() — that method is not on
+// the Browser object in this Playwright version, and Playwright's chrome.exe is
+// a direct child of us anyway, so the tree walk finds it and its renderers.
+ownPid = process.pid;
 const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: dpr });
 page.on("pageerror", (e) => console.error("PAGE ERROR:", e.message));
 // A program built after boot is a multi-hundred-ms frame the player sees. The
@@ -295,9 +302,28 @@ for (const scene of SELECTED) {
   lateShaders = []; // only count builds that land inside the sampled window
 
   // ---- sample ----
-  const loadBefore = probeLoad();
-  console.log("  box load BEFORE sample:", JSON.stringify(loadBefore));
-  const sample = await page.evaluate(({ secs, combat }) => new Promise((resolve) => {
+  // Retried under the idle gate: a wall-clock contract number measured while
+  // another browser is hammering the box is not a number about this game.
+  let loadBefore, loadAfter, sample, attempt = 0, sampleForeignLoad = null;
+  for (;;) {
+    attempt++;
+    if (awaitIdle) await waitForIdle(`scene "${scene.id}" sample (attempt ${attempt})`);
+    loadBefore = probeLoad();
+    console.log(`  box load BEFORE sample (attempt ${attempt}):`, JSON.stringify(loadBefore));
+    sample = await runSample();
+    loadAfter = probeLoad();
+    // The number that decides trust: foreign browser CPU burned DURING the
+    // window we just measured, not before it and not after it.
+    sampleForeignLoad = foreignLoadPct(loadBefore, loadAfter);
+    console.log(`  box load AFTER sample: ${JSON.stringify(loadAfter)}\n  FOREIGN LOAD DURING SAMPLE: ${sampleForeignLoad}% of box (limit ${FOREIGN_LOAD_LIMIT}%)`);
+    if (!awaitIdle) break;
+    if (sampleForeignLoad !== null && sampleForeignLoad <= FOREIGN_LOAD_LIMIT) { console.log("  [idle gate] sample is CLEAN — no foreign browser competed for this window"); break; }
+    if (attempt >= maxAttempts) { console.warn(`  [idle gate] ${maxAttempts} attempts all contended — reporting the last as an UPPER BOUND`); break; }
+    console.warn("  [idle gate] a foreign browser worked during the window — DISCARDING this sample and retaking it");
+  }
+
+  async function runSample() {
+    return page.evaluate(({ secs, combat }) => new Promise((resolve) => {
     const R = window.__dcc.renderer;
     const s = window.__pb;
     s.calls = 0; s.tris = 0; s.n = 0; s.upd.length = 0; s.ren.length = 0;
@@ -401,7 +427,8 @@ for (const scene of SELECTED) {
       }
     };
     requestAnimationFrame(tick);
-  }), { secs: seconds, combat: scene.combat });
+    }), { secs: seconds, combat: scene.combat });
+  }
   // ---- SCENE ASSERTION. A frame that does not contain what it claims is worse
   // than a missing frame, so prove the window was gameplay before believing it:
   // the crawler alive, and the #recap death/verdict panel NOT on screen.
@@ -426,13 +453,12 @@ for (const scene of SELECTED) {
   const sceneValid = claim.playerHp > 0 && !claim.recapPanelUp;
   console.log(`  SCENE ASSERTION: ${sceneValid ? "OK" : "*** MISSED ***"} ${JSON.stringify(claim)}`);
 
-  const loadAfter = probeLoad();
-  console.log("  box load AFTER sample:", JSON.stringify(loadAfter));
   // The wall-clock rows are only a CONTRACT number on an idle box. Say so in
   // the artifact rather than leaving it to a reader's memory of the session.
-  const busy = Math.max(loadBefore.cpuPct ?? 0, loadAfter.cpuPct ?? 0) > 45
-    || (loadBefore.otherHeadlessShells ?? 0) > 0 || (loadAfter.otherHeadlessShells ?? 0) > 0;
-  const wallClockTrust = busy ? "CONTAMINATED (other browsers/CPU load during sample — wall-clock rows are an UPPER BOUND, not the contract)" : "clean (box idle)";
+  const busy = sampleForeignLoad === null || sampleForeignLoad > FOREIGN_LOAD_LIMIT;
+  const wallClockTrust = busy
+    ? `CONTAMINATED (foreign browsers burned ${sampleForeignLoad}% of the box during this window — wall-clock rows are an UPPER BOUND, not the contract)`
+    : `clean (foreign browser load during the window: ${sampleForeignLoad}% of the box)`;
   console.log("  wall-clock trust:", wallClockTrust);
 
   // ---- PER-PASS GPU TIME, same session, same staged scene.
@@ -529,7 +555,7 @@ for (const scene of SELECTED) {
   const shot = `${outDir}/${scene.id}.png`;
   await page.screenshot({ path: shot });
 
-  const row = { scene: scene.id, label: scene.label, url, gpu, gameGpu, staged, shot, passGpu, loadBefore, loadAfter, wallClockTrust, sceneValid, sceneClaim: claim, status: sceneValid ? "OK" : "MISSED_NOT_GAMEPLAY", lateShaderBuilds: lateShaders.slice(0, 10), lateShaderCount: lateShaders.length, ...sample };
+  const row = { scene: scene.id, label: scene.label, url, gpu, gameGpu, staged, shot, passGpu, loadBefore, loadAfter, wallClockTrust, sampleForeignLoadPct: sampleForeignLoad, sampleAttempts: attempt, idleGate: awaitIdle, sceneValid, sceneClaim: claim, status: sceneValid ? "OK" : "MISSED_NOT_GAMEPLAY", lateShaderBuilds: lateShaders.slice(0, 10), lateShaderCount: lateShaders.length, ...sample };
   results.push(row);
   console.log(JSON.stringify({
     scene: scene.id, status: sceneValid ? "OK" : "MISSED_NOT_GAMEPLAY",
