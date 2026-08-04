@@ -482,3 +482,80 @@ describe("touch layout: hit testing", () => {
     }
   });
 });
+/**
+ * THE COMPACT PRESET (the owner's verdict, on real glass). Compact is the
+ * DEFAULT; `large` preserves the previous spacious cluster as a choice. The
+ * contract: compact must be strictly SMALLER (footprint) without ever being
+ * strictly WORSE (tap targets, reach, safe areas).
+ */
+describe("layout preset: COMPACT default vs LARGE", () => {
+  const bbox = (z: ZoneTable) => {
+    const ids = Object.keys(z.controls) as ControlId[];
+    const x0 = Math.min(...ids.map((id) => z.controls[id].x));
+    const y0 = Math.min(...ids.map((id) => z.controls[id].y));
+    const x1 = Math.max(...ids.map((id) => z.controls[id].x + z.controls[id].w));
+    const y1 = Math.max(...ids.map((id) => z.controls[id].y + z.controls[id].h));
+    return { w: x1 - x0, h: y1 - y0, area: (x1 - x0) * (y1 - y0) };
+  };
+
+  it("an absent preset (old pref blob, bare call) computes as compact", () => {
+    const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    expect(z.preset).toBe("compact");
+    expect(DEFAULT_LAYOUT_PREFS.preset).toBe("compact");
+  });
+
+  it("compact's cluster footprint is smaller than large's on every device", () => {
+    for (const d of DEVICES) {
+      const c = bbox(computeZones(d.w, d.h, d.safe as Insets, prefs()));
+      const l = bbox(computeZones(d.w, d.h, d.safe as Insets, prefs({ preset: "large" })));
+      expect.soft(c.area, `${d.name} compact ${Math.round(c.area)} vs large ${Math.round(l.area)}`)
+        .toBeLessThan(l.area);
+    }
+  });
+
+  it("compact never shrinks a hit target below MIN_TARGET, on any device or slider", () => {
+    for (const d of DEVICES) {
+      for (const slider of SLIDERS) {
+        const z = computeZones(d.w, d.h, d.safe as Insets, prefs(slider));
+        for (const id of Object.keys(z.controls) as ControlId[]) {
+          const r = hitRect(z, id);
+          expect.soft(r.w, `${d.name} ${id}`).toBeGreaterThanOrEqual(MIN_TARGET);
+          expect.soft(r.h, `${d.name} ${id}`).toBeGreaterThanOrEqual(MIN_TARGET);
+        }
+      }
+    }
+  });
+
+  it("compact ability chips hold the 9 mm floor where the pack has room (iPhone 13)", () => {
+    const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    for (const id of ["slot1", "slot2", "slot3"] as ControlId[]) {
+      expect.soft(z.controls[id].w * z.mmPerPx, id).toBeGreaterThanOrEqual(9);
+    }
+  });
+
+  it("compact keeps the reach invariant: every combat control inside comfortable", () => {
+    for (const d of DEVICES) {
+      const z = computeZones(d.w, d.h, d.safe as Insets, prefs());
+      for (const id of COMBAT_CONTROLS) {
+        expect.soft(z.controls[id].fromPivot, `${d.name} ${id}`)
+          .toBeLessThanOrEqual(z.comfortable + 0.001);
+      }
+    }
+  });
+
+  it("no compact control's hit rect crosses the bottom safe inset (the home indicator)", () => {
+    // The owner's screenshot: the iOS home indicator over the bottom chip row.
+    const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    for (const id of Object.keys(z.controls) as ControlId[]) {
+      const c = z.controls[id];
+      expect.soft(c.y + c.h, id).toBeLessThanOrEqual(z.safe.y + z.safe.h + 0.001);
+    }
+  });
+
+  it("the satellites paint a tier below the abilities on compact (demotion, not deletion)", () => {
+    const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    expect(z.controls.lock.vis).toBeLessThan(z.controls.slot1.vis);
+    expect(z.controls.map.vis).toBeLessThan(z.controls.slot1.vis);
+    expect(z.controls.context.vis).toBeLessThan(z.controls.slot1.vis);
+  });
+});

@@ -1275,6 +1275,21 @@
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.2),
           inset 0 0 16px rgba(0,0,0,0.5), 0 0 16px -3px rgba(242,193,78,0.55),
           0 3px 10px rgba(0,0,0,0.55); }
+      /* LOCKED SLOTS ARE FACTS, NOT CONTROLS (the owner's screenshot: two
+         full-size locked circles — one of them the LARGEST disc on the glass,
+         the empty ultimate — advertising an absence). hudLayout paints an
+         empty ability slot at 40% of its tier (inline width/height, which is
+         why the SIZE cannot live here); this rule quiets what remains: a
+         faint socket, the engraved lock scaled to the disc instead of a fixed
+         32px well that would overflow it. The flask keeps its own treatment —
+         a spent flask is a live control refilling, not a lock. */
+      body.touch #skills .skill.empty:not(#flask-chip) {
+        opacity: calc(var(--chip-op) * 0.4); border-width: 1.5px;
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.8), 0 1px 4px rgba(0,0,0,0.4); }
+      body.touch #skills .skill.empty::before { width: 62%; height: 62%;
+        margin: 0; transform: translate(-50%, -50%); }
+      body.touch #skills .skill.empty::after { width: 42%; height: 42%;
+        margin: 0; transform: translate(-50%, -50%); }
 
       /* ---- chips this layer owns: MAP, and the context pill ---- */
       #hud-chips { display: none; }
@@ -1303,6 +1318,10 @@
         font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
         touch-action: none; box-shadow: 0 0 18px rgba(201,162,75,0.25); }
       body.touch #t-stairs.on { display: block; }
+      /* COMPACT demotes the context pill's chrome with the rest of the
+         satellites — same label, less padding, one type size down. */
+      body.touch[data-tpreset="compact"] #t-stairs { padding: 10px 15px;
+        font-size: 11px; }
 
       /* ---- the top status band ----
          Everything transient lives up here, above the world and clear of both
