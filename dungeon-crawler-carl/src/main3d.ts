@@ -33,6 +33,7 @@ import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
+import { TouchDebugOverlay } from "./input/touchDebug";
 import { TouchShell } from "./input/touchShell";
 import { HudLayout, parseSafeOverride } from "./ui/hudLayout";
 import {
@@ -502,6 +503,12 @@ const tStairsEl = document.getElementById("t-stairs")!;
 // no element, so a per-element binding could never see a tap on the dungeon
 // floor. Mouse events are never claimed, so desktop play is untouched.
 touch.bind(document, document.body);
+// The owner's 30-second diagnostic (`?touchdebug=1`): live touch count, dots
+// at every delivered touch point, the FSM per zone and a rolling event tail.
+// Works on production; presentation-only; exists only when asked for.
+if (lookParams.get("touchdebug") === "1" || lookParams.has("touchdebug")) {
+  new TouchDebugOverlay(touch);
+}
 touch.castModes = [...touchPrefs.castMode];
 touch.flickDash = touchPrefs.flickDash;
 touch.twoFingerDash = touchPrefs.twoFingerDash;
@@ -3653,6 +3660,7 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
   const pct = (v: number): string => `${Math.round(v * 100)}%`;
   const onOff = (v: boolean): string => (v ? "ON" : "OFF");
   const rows = [
+    { id: "preset", name: "Layout", hint: "COMPACT keeps the cluster tight in the corner; LARGE spreads it out", value: touchPrefs.preset.toUpperCase() },
     { id: "handed", name: "Handedness", hint: "mirrors the stick, the cluster and every HUD anchor", value: touchPrefs.handed.toUpperCase() },
     { id: "stickScale", name: "Stick size", hint: "floating stick radius", value: pct(touchPrefs.stickScale) },
     { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
@@ -3779,6 +3787,7 @@ function renderTouchSettings(): void {
   // never where you can go.
   const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset", "thumbMm"]);
   const PICKS: Record<string, string[]> = {
+    preset: ["COMPACT", "LARGE"],
     handed: ["RIGHT", "LEFT"],
     haptics: ["OFF", "LIGHT", "FULL"],
     tapToMove: ["ON", "OFF"], stickRecenter: ["ON", "OFF"],
@@ -3817,7 +3826,7 @@ function renderTouchSettings(): void {
  * veil and the glass shows the chips moving under it; release brings it back.
  */
 function wireTouchPeek(): void {
-  const PEEK = new Set(["stickScale", "buttonScale", "opacity", "thumbMm", "hudInset", "handed"]);
+  const PEEK = new Set(["stickScale", "buttonScale", "opacity", "thumbMm", "hudInset", "handed", "preset"]);
   const el = kbTouchCfg;
   if (!el || el.dataset.peekWired === "1") return;
   el.dataset.peekWired = "1";
@@ -3837,6 +3846,7 @@ function setTouchPref(id: string, raw: string | undefined): void {
   if (raw === undefined) return;
   const v = raw.toLowerCase();
   if (id === "handed") touchPrefs.handed = v === "left" ? "left" : "right";
+  else if (id === "preset") touchPrefs.preset = v === "large" ? "large" : "compact";
   else if (id === "haptics" && (v === "off" || v === "light" || v === "full")) {
     touchPrefs.haptics = v;
   } else if (id === "tapToMove") touchPrefs.tapToMove = v === "on";
@@ -3862,6 +3872,7 @@ function stepTouchPref(id: string, dir = 1): void {
     return Math.round(Math.min(hi, Math.max(lo, n)) * 100) / 100;
   };
   if (id === "handed") touchPrefs.handed = touchPrefs.handed === "right" ? "left" : "right";
+  else if (id === "preset") touchPrefs.preset = touchPrefs.preset === "compact" ? "large" : "compact";
   else if (id === "stickScale") touchPrefs.stickScale = step(touchPrefs.stickScale, 0.7, 1.4, 0.1);
   else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
   else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
@@ -10542,6 +10553,9 @@ if (new URLSearchParams(location.search).has("debug")) {
         // Measured: 80 of 80, all verdicts `aimed`.
         verdicts: () => touch.verdicts(),
         clearVerdicts: () => touch.clearVerdicts(),
+        // The FSM snapshot the ?touchdebug=1 overlay paints, for batteries
+        // that assert "a synthetic gesturestart no longer suspends play".
+        fsm: () => touch.debugState(),
         lastWorldTap,
         clickMoveTarget: clickMove.target,
         lockedTargetId,

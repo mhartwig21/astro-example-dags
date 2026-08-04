@@ -348,6 +348,116 @@ moved row gets one re-aimed tap — a human thumb does both without thinking.
 
 ---
 
+## ROUND 6 — REAL GLASS DISAGREED WITH EVERY GREEN BATTERY
+
+The owner played production on a real iPhone (Safari, landscape) and reported,
+verbatim: *"The mobile experience for controls looks much worse than wild
+rift. They all spread out and take up so much space. You also can't move and
+press an action at the same time. The mobile controls we had before all the
+AAA looping were much much better than this."* Every emulated multi-touch
+battery was green at the time. Both halves of that report were real, and one
+of them was structurally invisible to the harness.
+
+### 6.1 The multi-touch killer: we were suspending ourselves on `gesturestart`
+
+`touchShell.bindAuthority()` treated iOS `gesturestart` as "the OS has taken
+the finger" and raised the `system-gesture` suspend reason — which
+`cancelAll()`s every live pointer and then holds input deaf until 120 ms after
+`gestureend` plus the 120 ms modal gate. But **Safari fires `gesturestart` the
+moment a SECOND finger touches the glass** — on every two-finger moment,
+regardless of `touch-action`, regardless of whether a pinch ever engages.
+Move-thumb + ability-thumb IS a two-finger moment, so on a real iPhone the
+layer cancelled both fingers the instant you tried to move and act at once.
+Chromium **never fires GestureEvents**, so no CDP battery could ever see it:
+the emulator was not lying about our FSM, it was silent about Safari's.
+
+The fix follows the principle the adjacent `contextmenu` comment already
+states: *a gesture we preventDefault()ed is a gesture the OS did NOT take.*
+The handlers now `preventDefault()` (which is exactly how Safari is told to
+keep native pinch-zoom out) and raise nothing. If Safari ever truly takes the
+fingers it says so per pointer with `pointercancel`, and `onUp()` refunds each
+role individually. Verified as far as emulation can:
+`tools/_mobile/ios_gesture_probe.mjs` drives real CDP two-finger play and
+dispatches synthetic `gesturestart`/`gesturechange` storms through the same
+listeners Safari would — 11 checks / 0 FAIL: no suspend reason raised, the
+stick keeps its pointer through the storm (30.96 tiles), and a second-finger
+chip press mid-storm casts while movement continues (8.37 tiles).
+
+Three defensive fixes rode along, all aimed at the same class of
+real-iOS-only failure:
+
+* **The preventDefault discipline.** iOS makes document-level touch listeners
+  passive BY DEFAULT, and pointer events cannot veto Safari's recognisers at
+  all — when they stay live, the second finger's touchstart engages pinch
+  arbitration and Safari answers with `touchcancel` on the FIRST finger.
+  `TouchController.bind()` now also binds non-passive capture-phase
+  `touchstart`/`touchmove` and preventDefaults ONLY gameplay-surface touches
+  (same predicate as the pointer router), so panels keep native scrolling.
+* **Stale pointer ids route instead of dying.** A pointerdown for an id the
+  role map still holds means the old lift NEVER arrived (backgrounding, a
+  system sheet). The old guard swallowed the new press — one lost pointerup
+  made a spot on the glass permanently deaf on any browser that reuses ids.
+  The stale role is now refunded (`dropRole`) and the new press routes;
+  `test/touchIntent.test.ts` "2.9x" holds all three cases.
+* **Dead roles expire.** `cancelAll()` marks roles dead so the trailing lift
+  is eaten, but the TTL reaper skipped dead roles entirely — they could block
+  their id forever. They now expire at `POINTER_TTL` like everything else.
+
+### 6.2 COMPACT is the default layout, LARGE is the choice
+
+The sprawl was real: on the owner's Safari-chromed viewport the cluster read
+as eight full-size coins across half the screen, two of them LOCKED slots —
+one of those the largest disc on the glass (the empty ultimate) — with the
+home indicator over the bottom row. The classifier was right (`compact` is a
+ROOM tier and Safari-chromed landscape is short); what was wrong is that
+nothing downstream got more economical for it.
+
+`LayoutPrefs.preset` (persisted in TouchPrefs, stepper in CUSTOMISE CONTROLS,
+live-preview PEEK): **`compact` is the default** — an absent preset in an old
+pref blob computes as compact, not as what it looked like before. Compact is
+the same arc grammar with the economy turned up: chips at the low end of the
+9-11 mm band (`CHIP_MM_COMPACT = 9.2`, 56 px on a phone — hit rects still
+floor at 44), a compressed radial ladder (`ARC_CORNER_COMPACT`: outermost
+combat chip 1.32 rf vs 1.42, map 1.48 vs 1.56), quieter hero tiers (ult 1.28
+vs 1.42), satellites a further tier down (0.52 vs 0.64), and a 0.52 band
+share vs 0.58. Locked ability slots stop advertising absence: `hudLayout`
+paints an `.empty` slot at 40% of its tier (floor 22 px) and the CSS quiets
+it to a faint socket. Measured on an iPhone 13 landscape: cluster bounding
+box **270x154 compact vs 311x172 large** (–22% area), no control crossing the
+21 px bottom inset. `test/touchLayout.test.ts` "layout preset" pins all of
+it: compact strictly smaller on every device, never below MIN_TARGET, ability
+chips >= 9 mm where the pack has room, reach invariant intact, bottom inset
+clear. Frames: `tools/_mobile/compact-r1/` (`compact-l3.png` is the
+locked-slot demotion; `compact-l12` vs `large-l12` is the footprint).
+
+### 6.3 `?touchdebug=1` — the owner's phone is the instrument now
+
+Emulation cannot fire a native GestureEvent and cannot prove what Safari
+delivers, so production carries a 30-second diagnostic
+(`src/input/touchDebug.ts`, flag-gated, presentation-only, passive
+listeners): live touch count with a ring drawn at every DELIVERED touch
+point, the FSM per zone (`stick DOWN · btn aiming(2) · roles 2:stick 3:chip ·
+suspend [...]`), and a rolling last-5 event tail (start/end/CANCEL with
+pointer ids, plus `gest:*` lines when Safari's recogniser wakes). One
+screenshot while holding move + tapping an ability answers the question no
+battery can: **did iOS deliver the second touch at all, or did our machine
+drop it?** Two dots + `suspend []` + a working game = fixed. One dot while
+two fingers are down = Safari ate the touch before the page saw it (a
+`TOUCHCANCEL` line right after `gest:start` names the killer). The harness
+reads the same snapshot via `__dcc.touch.fsm()`.
+
+### 6.4 What round 6 cannot claim
+
+The gesture fix and the preventDefault discipline are **verified against our
+own listeners, not against Safari** — Chromium cannot fire a native
+GestureEvent, does not run WebKit's touch arbitration, and reports
+`maxTouchPoints` wrong under emulation (§0). The claim "move-while-acting now
+works on the owner's iPhone" is therefore UNVERIFIED until the owner holds
+move + taps an ability on production, ideally once with `?touchdebug=1`. That
+screenshot is the round's real exit gate.
+
+---
+
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it
