@@ -53,7 +53,7 @@ import { Renderer3D } from "./render3d/renderer3d";
 import { QUALITY_PRESETS, type QualityChoice } from "./render3d/quality";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
+import { clearRun, knownTips, loadRun, recordTips, saveRun, seedTips, type RunMode } from "./persist/save";
 
 import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
@@ -67,6 +67,7 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import { Onramp, type OnrampEvent } from "./ui/onramp";
+import { Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -646,6 +647,11 @@ function enterCasting(modeLabel: string, launch: () => void): void {
   document.getElementById("m-cast-mode")!.textContent = modeLabel;
   menuEl.classList.add("casting");
   if (charSelect) charSelect.mode = "casting";
+  // TUTORIAL.md B0: the campfire intro rides the casting stage — the scene
+  // where the crawler/name decisions already happen; zero extra screens.
+  // (Deferred a microtask: the guide adapter is declared later in this
+  // module — same TDZ discipline as the ?runback boot path.)
+  queueMicrotask(() => { if (menuOpen && menuEl.classList.contains("casting")) maybeCampfireBeat(); });
 }
 function exitCasting(): void {
   pendingLaunch = null;
@@ -1207,6 +1213,10 @@ function openMenu(): void {
   document.getElementById("m-board-day")!.textContent = challengeDay ?? serverToday();
   void refreshBoard();
   renderCareer();
+  // TUTORIAL.md B9: the second organic check-in — the menu has doors too.
+  // Microtasked for the same TDZ reason as the ?runback boot path: openMenu()
+  // runs during module evaluation, before the guide adapter is declared.
+  queueMicrotask(() => maybeMenuBeat());
 }
 function closeMenu(): void {
   menuOpen = false;
@@ -1907,6 +1917,18 @@ function hideOverlay(el: HTMLElement): void {
 }
 
 function openDraftModal(): void {
+  // TUTORIAL.md B3: the first-ever level-up draft gets Mordecai's one framing
+  // beat BEFORE the draft UI — it rides the pause the modal already owns
+  // (dlgOpen pauses the solo loop exactly like an open draft would). ESC and
+  // the single choice both land in the draft: there is no way to lose it.
+  if (guide && guideBeat === null && !dlgOpen && me(state).pendingRewards.length === 0
+    && me(state).pendingUpgrades.length > 0) {
+    const beat = guide.draftOpen();
+    if (beat) {
+      guideShow(beat, () => { renderDraft(state); showOverlay(draftEl); });
+      return;
+    }
+  }
   renderDraft(state);
   showOverlay(draftEl);
 }
@@ -6094,31 +6116,44 @@ let mmFlashPending = false;
 
 dlgChoicesEl.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest(".dlg-choice") as HTMLElement | null;
-  if (btn?.dataset.choice) answerDialogue(btn.dataset.choice);
+  if (!btn?.dataset.choice) return;
+  // A tutorial beat borrows the surface, not the sim: answers route to the
+  // guide adapter below, never to state.dialogue.
+  if (guideBeat) guideAnswer(btn.dataset.choice);
+  else answerDialogue(btn.dataset.choice);
 });
 dlgTextEl.addEventListener("click", () => dlgFinishType());
 // The dialogue owns the keyboard while open (captureMode holds game binds):
 // 1-9 answer, Space/Enter skip the typewriter, Esc is a polite farewell.
+// Guide beats additionally SWALLOW their keys (stopImmediatePropagation):
+// they can sit over the check-in menu, whose own Enter/Escape handlers
+// (casting stage) must not fire through the panel.
 window.addEventListener("keydown", (e) => {
   if (!dlgOpen) return;
   if (e.key === "Escape") {
-    if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
-    closeDialogueUi();
+    if (guideBeat) guideClose(); // ESC = farewell, one input, everywhere
+    else {
+      if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
+      closeDialogueUi();
+    }
     e.stopImmediatePropagation();
     return;
   }
-  if ((e.key === " " || e.key === "Enter") && dlgShown < dlgTotalChars()) {
-    dlgFinishType();
+  if (e.key === " " || e.key === "Enter") {
+    if (dlgShown < dlgTotalChars()) dlgFinishType();
+    if (guideBeat) e.stopImmediatePropagation();
     return;
   }
   const n = Number(e.key);
   if (Number.isInteger(n) && n >= 1 && n <= 9) {
     (dlgChoicesEl.children[n - 1] as HTMLButtonElement | undefined)?.click();
+    if (guideBeat) e.stopImmediatePropagation();
   }
 }, true);
 
 /** Per-frame dialogue sync: the sim session is the truth, the panel follows. */
 function updateDialogueUi(s: GameState): void {
+  if (guideBeat) return; // a tutorial beat holds the surface; the sim has no session
   const session = s.runKind === "roam" ? s.dialogue ?? null : null;
   if (!session || session.playerId !== me(s).id || session.done) {
     if (dlgOpen) closeDialogueUi();
@@ -6147,6 +6182,115 @@ function updateDialogueUi(s: GameState): void {
   if (fresh) openDialogueUi(session, s);
   dlgStartType(session.lines.map((l) => l.text));
   dlgRenderChoices(session);
+}
+
+// ======================= THE GUIDE (TUTORIAL.md) ===========================
+// Mordecai's once-ever first-session beats, rendered through the SHIPPED
+// #dialogue presentation. The pure sequencer lives in src/ui/guide.ts; this
+// adapter renders beats and persists them on the SHIPPED tips ledger
+// (recordTips / dcc:tips:v1) — shown = consumed, the tips convention.
+// state.dialogue remains exclusively Roam's: no beat touches the sim, the
+// replay wire, or the announcer channel. dlgOpen doubles as the pause gate
+// (the solo loop already drops time while a conversation is up), so no beat
+// can ever share a frame with live combat.
+//
+// Link arrivals (?daily= / ?c= / ?rush / ?join= / ?runback=) skip the menu
+// beats (B0/B9) — a card dragged them in; nothing may delay the run. In-run
+// beats attach to pauses the player already took, so they cost nothing.
+const linkArrival =
+  params.has("daily") || params.has("c") || params.has("rush") ||
+  params.has("join") || params.has("runback");
+const guide: Guide | null = !net && !testMode && !cleanMode ? new Guide(knownTips()) : null;
+
+let guideBeat: GuideBeat | null = null;      // the active beat (panel up)
+let guideAfter: (() => void) | null = null;  // continuation armed on close
+let guideChoices: GuideChoice[] = [];
+/** Safe-room "one beat per surface visit" latch (reset when the room closes). */
+let guideSrVisitSpent = false;
+/** Tab the closing beat asked the auto-opening safe-room panel to show. */
+let guideSrTab: "shop" | "abil" | null = null;
+
+function guideRenderChoices(): void {
+  dlgChoicesEl.innerHTML = guideChoices.map((c, i) =>
+    `<button class="dlg-choice${c.effect === "close" ? " bye" : ""}" data-choice="${esc(c.id)}">` +
+    `<span class="dnum">${i + 1}</span><span class="dlabel">${esc(c.label)}</span></button>`,
+  ).join("");
+}
+
+/** Open a beat on the dialogue surface. Ledgered the moment it is shown. */
+function guideShow(beat: GuideBeat, after?: () => void): void {
+  if (guideBeat || dlgOpen) return; // one beat at a time; never over Roam chat
+  guideBeat = beat;
+  guideAfter = after ?? null;
+  guideChoices = [...beat.choices];
+  recordTips([beat.key]); // shown = consumed — never replays, even off a skip
+  dlgOpen = true;
+  dlgSessionId = -1;
+  dlgLinesKey = "";
+  dlgEl.classList.add("guide", "tut"); // .tut lifts z over the check-in menu
+  dlgPortraitImg.src = "/icons/portraits/mordecai.svg";
+  dlgNameEl.textContent = "Mordecai";
+  dlgRoleEl.textContent = "Guide";
+  dlgKickerEl.textContent = "◆ THE GUIDE ◆";
+  input.captureMode = true; // digits answer, not cast, while the panel is up
+  dlgEl.style.display = "flex";
+  requestAnimationFrame(() => dlgEl.classList.add("show"));
+  dlgStartType(beat.lines);
+  guideRenderChoices();
+}
+
+/** Close the active beat (farewell / ESC) and run its continuation. */
+function guideClose(): void {
+  if (!guideBeat) return;
+  const after = guideAfter;
+  guideBeat = null;
+  guideAfter = null;
+  guideChoices = [];
+  closeDialogueUi();
+  window.setTimeout(() => { if (!dlgOpen) dlgEl.classList.remove("tut"); }, 240);
+  after?.();
+}
+
+/** Apply a beat choice (click or digit — the dialogue key handler routes). */
+function guideAnswer(choiceId: string): void {
+  const c = guideChoices.find((x) => x.id === choiceId);
+  if (!guideBeat || !c) return;
+  if (c.effect === "reply" && c.reply) {
+    guideChoices = guideChoices.filter((x) => x !== c); // asked and answered
+    dlgStartType([c.reply]);
+    guideRenderChoices();
+    return;
+  }
+  if (c.effect === "skipAll") {
+    // The global skip: every beat ledgered, the remaining onramp lines
+    // silenced (guide.skipped — onrampObserve reads it), one goodbye left.
+    if (guide) recordTips(guide.skipAll());
+    guideChoices = [{ id: "go", label: "Let's go.", effect: "close" }];
+    if (c.reply) dlgStartType([c.reply]);
+    guideRenderChoices();
+    return;
+  }
+  if (c.effect === "open" && c.open) {
+    if (c.open === "shop") guideSrTab = "shop";
+    else if (c.open === "bench") guideSrTab = "abil";
+    // "draft" needs no arming: the continuation passed to guideShow opens it.
+  }
+  guideClose();
+}
+
+/** B0 — the campfire intro: organic fresh crawlers, at the casting stage. */
+function maybeCampfireBeat(): void {
+  if (!guide || linkArrival || !freshCrawler) return;
+  const beat = guide.campfire();
+  if (beat) guideShow(beat);
+}
+
+/** B9 — the second organic check-in, panel stage, with a finished run. */
+function maybeMenuBeat(): void {
+  if (!guide || linkArrival) return;
+  if (!menuOpen || menuEl.classList.contains("casting") || dlgOpen) return;
+  const beat = guide.menuReturn(loadHistory().length);
+  if (beat) guideShow(beat);
 }
 
 // ---- Contract ledger (right rail, collapsible) ----
@@ -7484,7 +7628,11 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
 // module never touches the sim); the System just addresses the fresh meat,
 // ≤6 lines, floor 1 only, naming the ACTUAL controls for the device.
 const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
+// "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences BOTH voices: a
+// persisted skip suppresses the onramp on later boots too (the live-session
+// half of the same rule is the guide.skipped check inside onrampObserve).
 const onramp: Onramp | null = freshCrawler && !net && !testMode
+  && !knownTips().includes("tut.skipAll")
   ? new Onramp(touchMode, {
       move: "WASD",
       attack: "Left click",
@@ -7498,6 +7646,7 @@ let onrampItems = -1;
  *  at most one first-time System line on the tutorial-card surface. */
 function onrampObserve(intent: Intent): void {
   if (!onramp || state.floor !== 1 || state.status !== "playing") return;
+  if (guide?.skipped) return; // B0's skip declined the hand-holding mid-session
   const p = state.players[0];
   if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
   const say = (ev: OnrampEvent): void => {
@@ -7641,6 +7790,9 @@ function dismissTutorialForTransition(): void {
 // data already lives on Player/GameState; this only formats it.
 const recapEl = document.getElementById("recap")!;
 let recapFor: GameState["status"] | null = null;
+// TUTORIAL.md B8: Mordecai's first-verdict aside — cached at the status edge
+// (the verdict re-renders as boards arrive; the once-ever take happens once).
+let recapGuideLine: string | null = null;
 
 // THE VERDICT (COMPETITIVE.md 6). One job: convert the end of a run into the
 // start of the next one, in under eight seconds of reading. Everything on the
@@ -7986,6 +8138,14 @@ function renderRecap(s: GameState): void {
       ? "TRY THIS DUNGEON AGAIN <kbd>R</kbd>"
       : "RUN IT BACK <kbd>R</kbd>";
   }
+  // TUTORIAL.md B8: the corner-man's aside, above the CTA it points at — a
+  // guide-framed plate inside the shipped layout, never a modal over the
+  // numbers. Once ever (cached at the status edge); absent on reruns.
+  {
+    const aside = document.getElementById("recap-guide")!;
+    aside.style.display = recapGuideLine ? "flex" : "none";
+    if (recapGuideLine) document.getElementById("recap-guide-line")!.textContent = recapGuideLine;
+  }
 
   // ---- Beat 1: THE GRADE ------------------------------------------------
   // A test-chamber start is HANDED its depth; it did not earn it, and the
@@ -8302,9 +8462,13 @@ let submitVisibility: "public" | "private" = "public";
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
 function maybeShowRecap(s: GameState): void {
-  if (s.status === "playing") { recapFor = null; return; }
+  if (s.status === "playing") { recapFor = null; recapGuideLine = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
+  // B8 fires on the first ever run end, solo only (guide is null under net /
+  // test mode; a rush death is DEATH IS A DOOR's moment, not this one).
+  recapGuideLine = guide ? guide.verdictLine() : null;
+  if (recapGuideLine) recordTips(["tut.runback"]);
   // (A ?c= run's one end-of-run claim comparison renders in renderRecap's
   // note slot — NICHE.md 4.2/§5: compared once, at the end, never live.)
 
@@ -11095,8 +11259,30 @@ async function main(): Promise<void> {
     if (settlementShopOpen && (inSafeRoom || !!net || !settlementShopFor(state, lp))) {
       settlementShopOpen = false;
     }
-    if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
-      srTab = "shop"; // every safe room opens on today's shelf
+    // TUTORIAL.md B5/B6/B7: at most ONE Mordecai beat per safe-room visit,
+    // shown before the panel (the sim is already paused — shipped safe-room
+    // behavior). The panel itself opens the moment the beat closes; a beat
+    // choice may pre-pick its tab (shop / bench) via guideSrTab.
+    if (!inSafeRoom) guideSrVisitSpent = false;
+    if (guide && inSafeRoom && !draftPending && !guideSrVisitSpent && !dlgOpen
+      && srEl.style.display !== "flex") {
+      guideSrVisitSpent = true; // one beat per surface visit, spent either way
+      const seen = new Set([...knownTips(), ...(lp.tipsSeen ?? [])]);
+      const beat = guide.safeRoomBeat({
+        // The System demonstrates the Show first; Mordecai debriefs after.
+        showMet: seen.has("interference") || seen.has("sponsors") || seen.has("favorites"),
+        // Socketing is POSSIBLE on this visit: socket 1 open + a glyph in
+        // hand or the shelf stocking the Glyph Cache. Never as theory.
+        glyphReady: lp.level >= CONFIG.glyphSocket1Level
+          && ((lp.glyphs && (lp.glyphs.bench.length > 0
+            || lp.glyphs.slots.some((s) => s.some(Boolean)) || lp.glyphs.ultimate.some(Boolean)))
+            || (state.safeRoom?.available.includes("glyph_cache") ?? false)),
+      });
+      if (beat) guideShow(beat);
+    }
+    if (srEl.style.display !== "flex" && inSafeRoom && !draftPending && !dlgOpen) {
+      srTab = guideSrTab ?? "shop"; // every safe room opens on today's shelf
+      guideSrTab = null;            // ...unless the beat's choice picked one
       shopView = "stock";
       shopSel = null;
       renderSafeRoom(state);

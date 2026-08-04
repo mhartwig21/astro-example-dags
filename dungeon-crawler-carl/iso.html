@@ -464,7 +464,8 @@
                                   LEDGER, NICHE.md 4.3: contracts/stamps/streak,
                                   toggled by the "ledger" binding, default L)
                                 · #dialogue 22 (Roam NPC
-                                  conversation — letterboxed cut, portrait left)
+                                  conversation — letterboxed cut, portrait left;
+                                  .tut tutorial beats lift it to 29, over #menu)
                                 · #saferoom 24 · #draft 25 · #keys 26
                                 · #rushgate 26 (THE STARTING GUN — rivals pre-run
                                   hold; never coexists with #keys: it exists only
@@ -5608,6 +5609,29 @@
           0 0 30px rgba(217,142,74,0.16), 0 12px 34px rgba(0,0,0,0.6); }
       #dialogue.guide .dlg-kicker { color: var(--ember); }
       #dialogue.guide .dlg-nameplate b { color: #f5cf82; }
+      /* Tutorial beats (TUTORIAL.md): Mordecai borrows this surface at the
+         campfire and the second check-in, which sit UNDER #menu (z 28) — the
+         .tut lift puts the beat over the check-in scene. 29 stays under the
+         #rotate gate (z 40); #loading (29) is boot-only and never coexists. */
+      #dialogue.tut { z-index: 29; }
+      /* TUTORIAL.md B8: the corner-man's aside inside the verdict — portrait
+         chip, one line, ember keyline. A plate, never a modal: the numbers
+         are the star and the RUN IT BACK CTA below it stays unobstructed. */
+      #recap .guide-aside { display: flex; align-items: center; gap: 10px;
+        margin-top: 10px; padding: 7px 12px; border-radius: 3px;
+        background: linear-gradient(180deg, rgba(58,40,22,0.5), rgba(20,13,8,0.6));
+        border: 1px solid rgba(217,142,74,0.45); border-left: 3px solid var(--ember); }
+      #recap .guide-aside .ga-portrait { flex: 0 0 40px; width: 40px; height: 40px;
+        border-radius: 3px; overflow: hidden; border: 1px solid #8a6d3b;
+        background: #100c08; }
+      #recap .guide-aside .ga-portrait img { display: block; width: 100%; height: 100%;
+        object-fit: cover; }
+      #recap .guide-aside .ga-body { min-width: 0; }
+      #recap .guide-aside .ga-body b { display: block; font-family: var(--display);
+        font-variant: small-caps; font-size: 10px; letter-spacing: 0.2em;
+        color: var(--ember); }
+      #recap .guide-aside .ga-body span { font-size: 12.5px; color: #ecdfc4;
+        line-height: 1.4; }
 
       /* Quest tracker (right rail, under the party roster zone): collapsible
          contract ledger in the glass HUD family — fight-screen chrome, not
@@ -6786,6 +6810,12 @@
           <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
+        <!-- TUTORIAL.md B8: Mordecai's once-ever aside, above the CTA his
+             line points at. Hidden by default; renderRecap shows it once. -->
+        <div class="guide-aside" id="recap-guide" style="display:none">
+          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
+          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
+        </div>
         <div class="rfoot">
           <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
           <button class="dismiss" id="recap-new">NEW CONTRACT</button>

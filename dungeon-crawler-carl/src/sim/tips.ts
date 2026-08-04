@@ -33,4 +33,8 @@ export const TIPS: Record<string, string> = {
     "COURTESY EXPLANATION: an OVERRANK is a rank past the printed maximum. The draft lottery occasionally offers one. This is not a bug; it is a promotional event.",
   achievementClaim:
     "COURTESY EXPLANATION: that unlock queued a LOOT BOX. It will not open itself — collect it from a Safe Room's ACHIEVEMENTS tab. The System does not ship rewards to your door.",
+  collapse:
+    "COURTESY EXPLANATION: this floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the hazard. The stairs are down. Punctuality is survivable. Sentiment is not.",
+  draftBanked:
+    "COURTESY EXPLANATION: your level-up minted a DRAFT — it's banked in the badge by your cockpit, it does not spoil. Cash it somewhere quiet.",
 };

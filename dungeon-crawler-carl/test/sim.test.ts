@@ -5513,6 +5513,49 @@ describe("first-contact System tips", () => {
     expect(p.tipsSeen).toContain("interference");
     expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("COURTESY EXPLANATION"))).toBe(true);
   });
+
+  it("the first Safe→Warning transition explains the collapse clock, once ever (TUTORIAL.md B4)", () => {
+    const g = createGame(975);
+    g.timeRemaining = g.timeBudget * CONFIG.warningFraction - 0.001;
+    step(g, idle(), 1 / 60);
+    expect(g.phase).toBe("warning");
+    expect(g.players[0].tipsSeen).toContain("collapse");
+    expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("on a clock"))).toBe(true);
+    // A later run on the same ledger (tipsSeen seeded from the save): the
+    // phase still turns, the explanation does not re-file.
+    const r = restoreGame({
+      seed: 976, floor: 1,
+      player: { hp: 100, level: 1, xp: 0, xpToNext: 20, gold: 0, tipsSeen: ["collapse"] },
+    });
+    r.timeRemaining = r.timeBudget * CONFIG.warningFraction - 0.001;
+    step(r, idle(), 1 / 60);
+    expect(r.phase).toBe("warning");
+    expect(r.announcements.some((a) => a.kind === "tip")).toBe(false);
+  });
+
+  it("the first banked draft comes with the badge explanation, once ever (TUTORIAL.md B3)", () => {
+    const g = createGame(977);
+    const p = g.players[0];
+    p.xp = p.xpToNext; // one level-up on the next XP grant
+    p.facing = { x: 1, y: 0 };
+    p.attackPower = 9999;
+    g.monsters.length = 0;
+    g.monsters.push(mkMon({ id: 1, pos: { x: p.pos.x + 0.8, y: p.pos.y }, xp: 1 }));
+    step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+    expect(p.level).toBe(2);
+    expect(p.tipsSeen).toContain("draftBanked");
+    expect(g.announcements.some((a) => a.kind === "tip" && a.text.includes("DRAFT"))).toBe(true);
+    // The second level-up mints a draft silently — the System said it once.
+    p.xp = p.xpToNext;
+    g.monsters.push(mkMon({ id: 2, pos: { x: p.pos.x + 0.8, y: p.pos.y }, xp: 1 }));
+    let rerun = false;
+    for (let i = 0; i < 240 && p.level < 3; i++) {
+      step(g, { move: { x: 0, y: 0 }, attack: true, aim: { x: 1, y: 0 }, useStairs: false }, 1 / 60);
+      if (g.announcements.some((a) => a.kind === "tip" && a.text.includes("DRAFT"))) rerun = true;
+    }
+    expect(p.level).toBe(3);
+    expect(rerun).toBe(false);
+  });
 });
 
 describe("boss poise: interrupts are earned (decay + stagger grace)", () => {

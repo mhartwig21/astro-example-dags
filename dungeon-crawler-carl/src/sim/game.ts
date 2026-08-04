@@ -3367,6 +3367,9 @@ function grantXp(state: GameState, p: Player, amount: number): void {
   if (p.level > before) {
     const jump = p.level - before > 1 ? ` (+${p.level - before} levels)` : "";
     announce(state, "levelup", `${p.name} hits LEVEL ${p.level}${jump}! The System offers an evolution.`);
+    // First-ever banked draft (TUTORIAL.md B3/§5): the badge flow explained
+    // once — this is what makes the draft reachable by badge-blind players.
+    systemTip(state, p, "draftBanked");
   }
 }
 
@@ -4823,6 +4826,9 @@ function updateTimer(state: GameState, dt: number): void {
     if (state.phase === "safe") {
       state.phase = "warning";
       announce(state, "progress", "The floor is destabilizing. The clock is your enemy now.");
+      // First-ever Safe→Warning (TUTORIAL.md B4): the collapse rule explained
+      // the moment it first bites, once per crawler, in the System's voice.
+      for (const p of state.players) systemTip(state, p, "collapse");
     }
   }
 }
