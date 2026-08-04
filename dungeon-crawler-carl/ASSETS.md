@@ -169,6 +169,7 @@ pointers for the audio sources too.
 | `sfx/barks/bark_{skel,org,hum,mech,air}_{aggro,pain,death}_{a,b}.ogg` (30 files) | Synthesized in-repo by `tools/audio/gen-sfx-barks.mjs` (five archetype-family voices; SOUNDPLAN row 9) | this project | CC0 (own work) |
 | `sfx/{ident,ident_high,stamp,count_tick,count_go,ledger_bank,door_close,draft_pick,draft_bank,descend_whoosh,verdict,till}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (the System's stinger language — one shared bell timbre) | this project | CC0 (own work) |
 | `sfx/boss_{phase,punish,down}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (dedicated boss beats; SOUNDPLAN row 15) | this project | CC0 (own work) |
+| `music/band_{undercroft,sewers,garden,ruins,ironworks,approach}.ogg`, `music/menu.ogg` | Synthesized in-repo by `tools/audio/gen-music-beds.mjs` (SOUNDPLAN §3: the six band ambiences + the campfire check-in bed; stereo, mastered to -23 LUFS-I / ≤-6 dBTP, loop-fold seams — deterministic, rerun is byte-identical) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.
