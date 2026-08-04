@@ -3906,6 +3906,23 @@ renderCamZoom();
 // THE CYCLE PUTS AUTO FIRST because it is the honest default, then walks
 // cheapest-to-best so the row reads like a ladder.
 const PERF_CYCLE: QualityChoice[] = ["auto", "low", "medium", "high"];
+// PLAYER RING (owner call: the persistent MOBA circle is not the house style —
+// D4/PoE2 ground the hero with shadow and light, so the ring is opt-in).
+const ANCHORRING_KEY = "dcc:anchorring:v1";
+const kbAnchorRing = document.getElementById("kb-anchorring")!;
+let anchorRingOn = localStorage.getItem(ANCHORRING_KEY) === "1";
+renderer.setAnchorRing(anchorRingOn);
+kbAnchorRing.textContent = anchorRingOn ? "ON" : "OFF";
+kbAnchorRing.addEventListener("click", () => {
+  anchorRingOn = !anchorRingOn;
+  localStorage.setItem(ANCHORRING_KEY, anchorRingOn ? "1" : "0");
+  renderer.setAnchorRing(anchorRingOn);
+  kbAnchorRing.textContent = anchorRingOn ? "ON" : "OFF";
+  pushLogLine(anchorRingOn
+    ? "PLAYER RING: ON. A courtesy circle, crawler. Try not to read into it."
+    : "PLAYER RING: OFF. You are expected to recognize yourself.");
+});
+
 const kbPerfMode = document.getElementById("kb-perfmode")!;
 const kbPerfNote = document.getElementById("kb-perfmode-note")!;
 function renderPerfMode(): void {

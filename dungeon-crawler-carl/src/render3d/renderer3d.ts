@@ -1574,12 +1574,24 @@ export class Renderer3D {
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
   // PLAYER ANCHOR RING (FX r2): the LoL player circle — a persistent
-  // kit-colored ground ring under the LOCAL crawler only, so "find yourself
-  // in the brawl" survives a 12-body floor-15 mob. One mesh, one draw call.
+  // kit-colored ground ring under the LOCAL crawler only. OFF BY DEFAULT
+  // (owner call): the persistent circle is a MOBA convention — Diablo 4 and
+  // PoE2 ground the character with shadow and lighting alone, and that is
+  // this game's register. It survives as an opt-in accessibility/readability
+  // toggle in the SYSTEM panel, because losing yourself in a 12-body pile is
+  // a real problem for some players even if the default answer is the
+  // contact shadow and rim, not a decal.
   // (The rival-ghost block that used to live beside this is gone — the owner
   // removed the ghost layer; NICHE.md §5 bans it.)
   private anchorRing: THREE.Mesh | null = null;
   private anchorHex = 0;
+  private anchorRingOn = false;
+
+  /** SYSTEM-panel toggle: show the kit-colored ring under the local crawler. */
+  setAnchorRing(on: boolean): void {
+    this.anchorRingOn = on;
+    if (!on && this.anchorRing) this.anchorRing.visible = false;
+  }
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (faded copies)
   // Containers that may spawn knocked on their side (place() tipped variants).
   private static TIPPABLE = new Set([
@@ -7753,7 +7765,7 @@ export class Renderer3D {
       }
       mesh.visible = true;
       // The local crawler's anchor ring rides the smoothed mesh position.
-      if (pl === p) { // p = the camera-owner (localPlayerId, else first)
+      if (pl === p && this.anchorRingOn) { // p = the camera-owner (localPlayerId, else first)
         const hex = Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff;
         if (!this.anchorRing || this.anchorHex !== hex) {
           if (this.anchorRing) this.scene.remove(this.anchorRing);
