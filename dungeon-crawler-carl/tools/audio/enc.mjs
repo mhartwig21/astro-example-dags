@@ -13,7 +13,10 @@ export function renderOgg(outPath, samples, { q = 4 } = {}) {
   const tmp = join(tmpdir(), `dcc-gen-${process.pid}-${Math.random().toString(36).slice(2)}.wav`);
   writeWav(tmp, samples);
   mkdirSync(dirname(outPath), { recursive: true });
-  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", tmp, "-c:a", "libvorbis", "-q:a", String(q), outPath]);
+  // bitexact: without it the Ogg muxer randomizes the stream serial per run,
+  // so a rerun of a DETERMINISTIC generator still byte-diffed (measured).
+  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", tmp,
+    "-c:a", "libvorbis", "-q:a", String(q), "-fflags", "+bitexact", "-flags", "+bitexact", outPath]);
   rmSync(tmp, { force: true });
   console.log(`wrote ${outPath} (${samples.length} samples, ${(samples.length / 48000).toFixed(2)}s)`);
 }
