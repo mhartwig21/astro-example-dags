@@ -224,12 +224,20 @@ export function peakDb(x) {
  * `rmsDb`, then if the peak exceeds `peakDb` soft-limit (tanh) down to the
  * ceiling. Deterministic, no look-ahead pretensions — a one-shot mastering
  * pass whose output the measure script re-verifies from the encoded file.
+ *
+ * `iters` (default 1 = the original single pass, byte-stable for existing
+ * generators): high-crest material (sparse clicks — the skeletal barks) loses
+ * several dB of RMS to the peak limiter in one pass and lands far under its
+ * family target (SFX r2 critic: skel sat -24.9…-26.5 vs the -18 target).
+ * Iterating normalize→limit converges RMS onto the target while the ceiling
+ * pins the peaks — each tanh pass shaves the crest instead of the loudness.
  */
-export function master(x, { rmsDb: target, peakDb: ceiling, windowSec = 0.4 }) {
-  const cur = momentaryDb(x, windowSec);
-  gain(x, target - cur);
-  const p = peakDb(x);
-  if (p > ceiling) {
+export function master(x, { rmsDb: target, peakDb: ceiling, windowSec = 0.4, iters = 1 }) {
+  for (let k = 0; k < iters; k++) {
+    const cur = momentaryDb(x, windowSec);
+    gain(x, target - cur);
+    const p = peakDb(x);
+    if (p <= ceiling) break;
     const c = db(ceiling);
     const drive = db(p) / c;
     const norm = Math.tanh(drive);

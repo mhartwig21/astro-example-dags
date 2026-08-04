@@ -158,9 +158,15 @@ for (const [fam, synth] of Object.entries(FAMS)) {
       const seed = (fam.charCodeAt(0) << 16) ^ (ev.charCodeAt(0) << 8) ^ (v + 1);
       let x = synth(ev, v, rng(seed >>> 0));
       x = verb(x, { time: 0.3, wet: 0.08, damp: 0.5 });
-      // Pre-encode ceiling -7.5: vorbis overshoots clicky transients by up
-      // to ~1.5dB, and the -6 family ceiling is judged on the ENCODED file.
-      master(x, { rmsDb: -18, peakDb: -7.5, windowSec: 0.25 });
+      // Pre-encode ceiling -8.5: vorbis overshoots the saturated clicks by
+      // up to ~2dB (measured -5.5 encoded from a -7.5 ceiling on skel), and
+      // the -6 family ceiling is judged on the ENCODED file.
+      // iters + the 0.4s window (the same window measure.mjs judges with):
+      // one-pass mastering let the peak limiter eat ~7dB of RMS on the
+      // high-crest skeletal clicks (SFX r2 critic MAJOR — skel barks sat
+      // -24.9…-26.5 momentary vs the -18 family target, 6-8dB under the
+      // other species). Iterating converges every family onto the target.
+      master(x, { rmsDb: -18, peakDb: -8.5, windowSec: 0.4, iters: 8 });
       declick(x);
       renderOgg(`${OUT}bark_${fam}_${ev}_${v === 0 ? "a" : "b"}.ogg`, x);
     }
