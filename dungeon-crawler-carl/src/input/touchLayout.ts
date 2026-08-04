@@ -108,20 +108,52 @@ export const THUMB_STRETCH_MM = 66;
 export const STICK_MM = 11;
 /** 1.5 mm of contact jitter over this throw is 4.8 deg of aim error. */
 export const AIM_THROW_MM = 18;
-/** Middle of the 9-11 mm comfortable-target band. */
+/** Minimum touch target, both axes. Visual size may be smaller; the rect is not. */
+export const MIN_TARGET = 44;
+/** Middle of the 9-11 mm comfortable-target band. The HAND's ceiling on a chip. */
 export const CHIP_MM = 10.5;
 /**
- * THE COMPACT PRESET'S CHIP — the low end of the same 9-11 mm band, never
- * below it. Compact means less padding, spread and decoration, not a target a
- * thumb misses: the OWNER, on a real iPhone in Safari landscape (shortest
- * viewport in the matrix — browser chrome eats ~50 of 390 pt), reported the
- * default cluster "spread out and taking up so much space", and the July
- * layout it replaced held eight controls in a 320x256 box. 9.2 mm is 56 px on
- * a phone (hit rects still floor at MIN_TARGET), and the compact arc tables
- * below shrink the SPREAD — radial ladder, band share, satellite decoration —
- * which is where the sprawl actually lived.
+ * THE COMPACT PRESET'S CHIP — the low end of the same 9-11 mm band. Compact
+ * means less padding, spread and decoration, not a target a thumb misses.
  */
 export const CHIP_MM_COMPACT = 9.2;
+
+/**
+ * THE DISC IS A SCREEN QUANTITY; THE TARGET UNDER IT IS A HAND QUANTITY.
+ *
+ * The one place §2.0's register needed a second column. The owner's verdict on
+ * the r3 cluster was *"the boxes are too big and overlaping"* — with the
+ * ARRANGEMENT accepted — and both halves of that are measurable against the
+ * reference rather than arguable. Measured off `wr_01_hud_default_layout.jpg`
+ * (1024x461, the DEFAULT layout, editor open at neutral size) and confirmed on
+ * `wr_03_aim_tidalwave.jpg` (1024x458, live gameplay):
+ *
+ *   ability disc   58 px / 461  and  57 px / 458   ->  0.125 of viewport height
+ *   basic attack   85 px / 461  and  85 px / 458   ->  0.185 (= 1.47x an ability)
+ *   ultimate       60 px / 461                     ->  1.03x an ability
+ *   centre pitch   71.8, 73.2, 72.7 px on 58 px discs -> 1.24x their diameter
+ *
+ * Ours measured 0.164 and 0.246 with a pitch of 0.86 — 31% oversized and a
+ * literal 8 px of disc-on-disc overlap. Both numbers came from treating the
+ * chip as a pure HAND quantity: 9.2 mm is a correct target size and a wrong
+ * DISC size, because Wild Rift runs full-screen while we run under ~50 pt of
+ * Safari chrome, so the same millimetre is a bigger share of our frame. The
+ * eye reads the share; the thumb presses the target. So:
+ *
+ *   VISUAL disc   min(hand ceiling, reference share of the short edge)
+ *   HIT rect      max(MIN_TARGET, visual) — never smaller, ever
+ *
+ * `min` is what makes one formula right on both ends of the matrix: on a phone
+ * the frame binds (42.8 px on an iPhone 13, under a 44 px target — exactly the
+ * split `ControlRect.vis` exists for), on an iPad the hand binds (47.9 px, the
+ * unchanged tablet number, because 0.125 of an 834 px slab would be a 20 mm
+ * coin). The floor stops the paint drifting so far under its own target that
+ * the disc stops advertising where to press.
+ */
+export const CHIP_VH = 0.143;
+export const CHIP_VH_COMPACT = 0.125;
+/** The paint may be smaller than the target it serves — but not by much. */
+export const CHIP_VIS_FLOOR = 0.85 * MIN_TARGET;
 
 /**
  * Finger travel that promotes a chip press to AIMING. There is NO time term
@@ -321,12 +353,14 @@ interface ArcSpec { id: ControlId; ang: number; rf: number; size: number }
  *   - ONE LARGE PRIMARY anchored IN the corner. `rf: 0` — the pivot IS its
  *     centre, parked a hair off the safe corner. Ours is MELEE (slot0),
  *     hold-to-repeat, the forgiving press, exactly WR's basic attack.
- *   - THE FAN: the other three actives plus the ultimate on ONE tight ring
- *     around the primary (`rf: 1` = ring radius = primary radius + chip
- *     radius + a small gap), sweeping from just below the inboard horizontal
- *     (-10 deg, WR starts its fan at about -13) up past vertical (92 deg).
- *     The ultimate takes the TOP of the fan and a distinct size — the one
- *     chip that is different inside the organism.
+ *   - THE FAN: the other three actives plus the ultimate on ONE ring around
+ *     the primary, at the four angles MEASURED off `wr_01` rather than
+ *     eyeballed — the four ability centres sit at -13.6, 19.9, 57.3 and 91.9
+ *     degrees about that frame's basic-attack centre. (r3 approximated them as
+ *     -10/22/54/92; the correction is under 4 degrees and it matters, because
+ *     WR's own steps are what let the ring stay small while the discs still
+ *     clear each other — see `cornerRing`.) The ultimate takes the TOP of the
+ *     fan and a distinct size — the one chip different inside the organism.
  *   - UTILITIES TUCKED, NOT ORBITING: the flask and the context pill run
  *     inboard along the BOTTOM edge (WR's summoner-spell row), and LOCK / MAP
  *     drop to small sockets in the fan's outer notches (WR parks its level-up
@@ -340,14 +374,14 @@ interface ArcSpec { id: ControlId; ang: number; rf: number; size: number }
  */
 const ARC_CORNER: ArcSpec[] = [
   { id: "slot0", ang: 0, rf: 0, size: 1.50 },  // THE PRIMARY: melee, in the corner
-  { id: "slot1", ang: -10, rf: 1.00, size: 1.00 },
-  { id: "slot2", ang: 22, rf: 1.00, size: 1.00 },
-  { id: "slot3", ang: 54, rf: 1.00, size: 1.00 },
-  { id: "slot4", ang: 92, rf: 1.05, size: 1.26 }, // the ult: top of the fan, distinct
-  { id: "flask", ang: -6, rf: 1.75, size: 0.82 },
-  { id: "context", ang: -4, rf: 2.45, size: 0.82 },
-  { id: "lock", ang: 38, rf: 1.62, size: 0.62 },
-  { id: "map", ang: 73, rf: 1.60, size: 0.62 },
+  { id: "slot1", ang: -14, rf: 1.00, size: 1.00 },
+  { id: "slot2", ang: 20, rf: 1.00, size: 1.00 },
+  { id: "slot3", ang: 57, rf: 1.00, size: 1.00 },
+  { id: "slot4", ang: 92, rf: 1.05, size: 1.16 }, // the ult: top of the fan, distinct
+  { id: "flask", ang: -6, rf: 1.52, size: 0.82 },
+  { id: "context", ang: -4, rf: 2.02, size: 0.82 },
+  { id: "lock", ang: 38, rf: 1.46, size: 0.62 },
+  { id: "map", ang: 74, rf: 1.72, size: 0.62 },
 ];
 
 /**
@@ -359,20 +393,35 @@ const ARC_CORNER: ArcSpec[] = [
  */
 const ARC_CORNER_COMPACT: ArcSpec[] = [
   { id: "slot0", ang: 0, rf: 0, size: 1.50 },
-  { id: "slot1", ang: -10, rf: 1.00, size: 1.00 },
-  { id: "slot2", ang: 22, rf: 1.00, size: 1.00 },
-  { id: "slot3", ang: 54, rf: 1.00, size: 1.00 },
-  { id: "slot4", ang: 92, rf: 1.05, size: 1.22 },
-  { id: "flask", ang: -6, rf: 1.75, size: 0.80 },
-  { id: "context", ang: -4, rf: 2.45, size: 0.80 },
-  { id: "lock", ang: 38, rf: 1.62, size: 0.60 },
-  { id: "map", ang: 73, rf: 1.60, size: 0.60 },
+  { id: "slot1", ang: -14, rf: 1.00, size: 1.00 },
+  { id: "slot2", ang: 20, rf: 1.00, size: 1.00 },
+  { id: "slot3", ang: 57, rf: 1.00, size: 1.00 },
+  { id: "slot4", ang: 92, rf: 1.05, size: 1.12 },
+  { id: "flask", ang: -6, rf: 1.52, size: 0.80 },
+  { id: "context", ang: -4, rf: 2.02, size: 0.80 },
+  { id: "lock", ang: 38, rf: 1.46, size: 0.60 },
+  { id: "map", ang: 74, rf: 1.72, size: 0.60 },
 ];
 
-/** Edge gap between the primary's rim and a fan chip's rim, CSS px. */
+/** Minimum edge gap between the primary's rim and a fan chip's rim, CSS px. */
 const RING_GAP: Record<LayoutPreset, number> = { compact: 8, large: 12 };
-/** The fan's angular step (deg) — sets the spacing floor's chord factor. */
-const RING_STEP = 32;
+
+/** The four chips that ride the corner fan, inboard-to-up. */
+const FAN_IDS: ControlId[] = ["slot1", "slot2", "slot3", "slot4"];
+
+/**
+ * WILD RIFT'S FAN PITCH, MEASURED: neighbouring ability centres sit 1.24 disc
+ * diameters apart (71.8 / 73.2 / 72.7 px on 58 px discs in `wr_01`, and
+ * 69.7 px on 57 px discs in `wr_03`). That is a real 0.24-diameter gap —
+ * adjacent with daylight, NOT edges kissing.
+ *
+ * r3 read the same frames as "neighbours visually kiss" and shipped a 48 px
+ * pitch on 56 px discs, i.e. 8 px of overlap, which is what the owner saw. The
+ * number was never a judgement call; it was a measurement nobody took.
+ */
+const FAN_PITCH = 1.24;
+/** Daylight `separate()` insists on between two padded hit rects. */
+const SEP_GAP = 2;
 
 /**
  * SIDE GRIP (tablet-s / tablet-l) — fan -46 to +46 degrees, SYMMETRIC about
@@ -409,11 +458,59 @@ const ARC_SIDE_COMPACT: ArcSpec[] = [
 
 const RAD = Math.PI / 180;
 
-/** Minimum touch target, both axes. Visual size may be smaller; the rect is not. */
-export const MIN_TARGET = 44;
-
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
+}
+
+/**
+ * THE CORNER RING IS SOLVED, NOT CHOSEN.
+ *
+ * r3 wrote the ring as "primary radius + chip radius + a small gap" and then
+ * discovered that a floor derived from the 44 px hit rects (83.4 px) was the
+ * value actually binding on every phone — so the authored formula was dead
+ * code and the fan's spacing was whatever the relaxation pass happened to
+ * leave. This solves for the smallest ring that satisfies all three things the
+ * arrangement actually owes, at the CURRENT chip size:
+ *
+ *   1. clear the primary's rim by `RING_GAP`;
+ *   2. put every neighbouring pair `FAN_PITCH` diameters apart — Wild Rift's
+ *      measured gap, the thing the owner asked for;
+ *   3. keep the padded 44 px HIT RECTS axis-separated, so the strict
+ *      non-overlap invariant holds by construction rather than by luck.
+ *
+ * Solving (2) and (3) together is why the fan angles are now `wr_01`'s own:
+ * on r3's eyeballed -10/22/54/92 the 22->54 chord runs diagonally, which is
+ * the worst case for an axis-aligned rect, and rule 3 alone would have forced
+ * a 106 px ring where the pitch only wanted 96. At the measured
+ * -14/20/57/92 the two rules land within 1% of each other (91.6 vs 92.0 px on
+ * an iPhone 13) and the ring comes out at 2.16 chip diameters — `wr_01`'s own
+ * 2.09, to within the width of a rim.
+ */
+function cornerRing(arc: ArcSpec[], chipBase: number, gap: number): number {
+  const hit = (s: ArcSpec): number => Math.max(MIN_TARGET, chipBase * s.size);
+  const prim = arc.find((s) => s.id === "slot0");
+  const fan = arc.filter((s) => FAN_IDS.includes(s.id)).sort((a, b) => a.ang - b.ang);
+  if (!prim || fan.length === 0) return 0;
+  // 1. the fan hugs the primary, but never rides on it.
+  let R = chipBase * (prim.size + fan[0].size) / 2 + gap;
+  for (const s of fan) {
+    // ...and the padded rects clear it on an axis, whatever the angle.
+    const ax = Math.max(Math.abs(Math.cos(s.ang * RAD)), Math.abs(Math.sin(s.ang * RAD))) * s.rf;
+    if (ax > 1e-6) R = Math.max(R, ((hit(prim) + hit(s)) / 2 + SEP_GAP) / ax);
+  }
+  for (let i = 0; i + 1 < fan.length; i++) {
+    const a = fan[i], b = fan[i + 1];
+    // Offsets at R = 1, so each constraint divides straight into a radius.
+    const ux = Math.cos(a.ang * RAD) * a.rf - Math.cos(b.ang * RAD) * b.rf;
+    const uy = Math.sin(a.ang * RAD) * a.rf - Math.sin(b.ang * RAD) * b.rf;
+    const dist = Math.hypot(ux, uy), axis = Math.max(Math.abs(ux), Math.abs(uy));
+    // 2. Wild Rift's gap, in the discs' OWN units (the ult is wider, so the
+    //    pair that includes it earns proportionally more room).
+    if (dist > 1e-6) R = Math.max(R, FAN_PITCH * chipBase * (a.size + b.size) / 2 / dist);
+    // 3. and the 44 px floor's own claim, which on small chips outruns (2).
+    if (axis > 1e-6) R = Math.max(R, ((hit(a) + hit(b)) / 2 + SEP_GAP) / axis);
+  }
+  return R;
 }
 
 export function computeZones(
@@ -445,7 +542,14 @@ export function computeZones(
   // quantity and the stick radius a STICK-hand one. Borrowing the stick's
   // radius for the aim throw is contradiction 2, and it made maximum range and
   // "never mind" the same gesture at the small end of the matrix.
-  const chipBase0 = clamp((compact ? CHIP_MM_COMPACT : CHIP_MM) / mmPerPx, MIN_TARGET, 76) * bs;
+  // THE CHIP: the smaller of what the hand can comfortably hit and what the
+  // reference gives a disc on this frame (see CHIP_VH). On a phone the frame
+  // binds and the paint drops below its own 44 px target — which is exactly
+  // what `ControlRect.vis` is for, and exactly what Wild Rift does.
+  const chipBase0 = clamp(Math.min(
+    (compact ? CHIP_MM_COMPACT : CHIP_MM) / mmPerPx,
+    (compact ? CHIP_VH_COMPACT : CHIP_VH) * shortEdge,
+  ), CHIP_VIS_FLOOR, 76) * bs;
   const aimThrow = clamp(AIM_THROW_MM / mmPerPx, 88, 124) * bs;
   const stickRadius = clamp(STICK_MM / mmPerPx, 56, 76) * ss;
   // THE THRESHOLD ORDERING IS STRUCTURAL, not a coincidence of the defaults:
@@ -496,6 +600,24 @@ export function computeZones(
   // clamped ultimate would fold into the ring.
   const bandFrac = side ? 0.46 : 1 - READ_BAND;
   const extentCap = side ? 0.46 : compact ? 0.57 : 0.58;
+  /*
+   * RULE 2'S BUDGET HAS AN ARITHMETIC FLOOR, AND IT IS NOW WRITTEN DOWN.
+   *
+   * The share is the rule; this is the point below which the share stops
+   * being satisfiable by anything. A corner fan is three ranks of padded
+   * targets tall — the dipped first ability, the middle of the arc, the
+   * ultimate — and a padded target is `MIN_TARGET + SEP_GAP` whatever the
+   * chip size, so 3 x 46 px is the shortest a NINE-control cluster can be
+   * once the discs are already at the floor. It binds in exactly one cell of
+   * the declared matrix (a 293 px Pixel 5, 1.4x buttons, the player's inset
+   * slider at its 32 px maximum: 0.57 x 229 asks for 130.5 px of a cluster
+   * that cannot go below 136). Before this round the packer met that number
+   * by letting hit rects overlap, which is the trade the restored non-overlap
+   * invariant exists to refuse. Every other cell is governed by the share.
+   */
+  const extentBudget = Math.max(
+    extentCap * safe.h, side ? 0 : 3 * (MIN_TARGET + SEP_GAP),
+  );
   const readFloor = safe.y + READ_BAND * safe.h;
   const box = {
     x0: mirror ? safe.x : Math.max(safe.x, stickZone.x + stickZone.w),
@@ -525,7 +647,6 @@ export function computeZones(
     ...arc.filter((s) => COMBAT_CONTROLS.includes(s.id)).map((s) => s.rf),
   );
   const sPrim = arc.find((s) => s.id === "slot0")?.size ?? 1.5;
-  const sFan = arc.find((s) => s.id === "slot1")?.size ?? 1.0;
   let chipBase = chipBase0;
   let controls = {} as Record<ControlId, ControlRect>;
   let arcRadius = 0;
@@ -542,42 +663,58 @@ export function computeZones(
       ));
     } else {
       // CORNER GRIP: the ring is CHIP-scaled, not reach-scaled — the fan must
-      // hug the primary whatever the thumb length. `rf = 1` is the ring:
-      // primary radius + fan-chip radius + RING_GAP, floored so two adjacent
-      // 44 px tap circles on a RING_STEP chord can never collide, and capped
-      // so the outermost combat control stays inside `comfortable` (when the
-      // cap binds, chips crowd, `clusterFits` fails and the size steps down —
-      // the same honest answer the slider gets).
-      const ringGeom = chipBase * (sPrim + sFan) / 2 + RING_GAP[preset];
-      const ringFloor = (MIN_TARGET + 2) / (2 * Math.sin((RING_STEP / 2) * RAD));
+      // hug the primary whatever the thumb length. `cornerRing` solves for the
+      // smallest radius that clears the primary, holds Wild Rift's measured
+      // pitch AND keeps the padded hit rects apart; the caps here are the only
+      // things allowed to shrink it, and when they bind the chips crowd,
+      // `clusterFits` fails and the size steps down — the honest answer.
       arcRadius = Math.min(
-        Math.max(ringGeom, ringFloor),
+        cornerRing(arc, chipBase, RING_GAP[preset]),
         (comfortable - 2) / maxCombatRf,
         0.62 * safe.h,
       );
-      // The primary is anchored IN the corner: its centre is the pivot.
+      /*
+       * THE CLUSTER IS CORNER-ANCHORED — NOT JUST THE PRIMARY.
+       *
+       * The primary's centre is still the pivot and still the corner CHIP, but
+       * the fan dips BELOW it: `wr_01`'s first ability sits 30 px lower than
+       * the basic attack's centre and its rim hangs 17 px past the attack's
+       * (which is why WR's whole corner floats ~50 px off the frame edge
+       * rather than jamming into it). r3 anchored on the primary alone, so on
+       * an iPhone 13 that first chip landed 13 px outside the safe box, the
+       * box clamp shoved it back up, and the clamp — not the arc — set the
+       * pitch: 46 px where the ring had asked for 56. Anchoring on whatever
+       * reaches furthest down/outboard puts the whole organism a hair off the
+       * safe corner and hands the spacing back to the geometry.
+       */
       const primHalf = Math.max(MIN_TARGET, chipBase * sPrim) / 2;
-      const outer = safe.x + safe.w - primHalf - 2;
+      let drop = primHalf, out = primHalf;
+      for (const s of arc) {
+        const half = Math.max(MIN_TARGET, chipBase * s.size) / 2;
+        drop = Math.max(drop, -Math.sin(s.ang * RAD) * arcRadius * s.rf + half);
+        out = Math.max(out, -Math.cos(s.ang * RAD) * arcRadius * s.rf + half);
+      }
+      const outer = safe.x + safe.w - out - 2;
       pivot = {
         x: mirror ? vw - outer : outer,
-        y: safe.y + safe.h - primHalf - 2,
+        y: safe.y + safe.h - drop - 2,
       };
       // THE FAN GOES ELLIPTICAL BEFORE THE CHIPS SHRINK. On a short safe box
       // (a Pixel 5, or a player-padded inset) the full circular fan cannot fit
-      // the posture's extent budget — and WR's own default fan is not circular
-      // either: its ring radii measure 180 -> 113 px climbing from the first
-      // ability to the top of the fan (wr_01), i.e. the TOP compresses. `sy`
-      // scales every chip's vertical offset so the tallest combat chip meets
-      // the budget; the relaxation pass restores neighbour spacing sideways,
-      // which flattens the fan exactly the way WR's editor does. Chips only
-      // step down 5% when even a 0.55 squeeze cannot fit the glass.
+      // the posture's extent budget — and WR's own fan is not a true circle
+      // either: measured off `wr_01`, its four ability centres sit 130 / 113 /
+      // 115 / 127 px from the attack button, so the MIDDLE of the arc pulls in
+      // by about 10%. `sy` scales every chip's vertical offset so the tallest
+      // combat chip meets the budget; chips only step down 5% when even a 0.55
+      // squeeze cannot fit the glass. The budget is measured from the deepest
+      // dip, not from the primary, because that is where the cluster now ends.
       let rise = 0;
       for (const s of arc) {
         if (!COMBAT_CONTROLS.includes(s.id) || s.ang <= 0) continue;
         rise = Math.max(rise,
           Math.sin(s.ang * RAD) * arcRadius * s.rf + Math.max(MIN_TARGET, chipBase * s.size) / 2);
       }
-      const maxRise = extentCap * safe.h - primHalf - 1;
+      const maxRise = extentBudget - drop - 1;
       sy = rise > 0 ? clamp(maxRise / rise, 0.55, 1) : 1;
     }
     controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout, side ? 1 : sy);
@@ -587,13 +724,13 @@ export function computeZones(
       // refined against the MEASURED extent, not the predicted one.
       for (let t = 0; t < 4 && sy > 0.551; t++) {
         const ext = combatExtent(controls);
-        const budget = extentCap * safe.h;
+        const budget = extentBudget;
         if (ext <= budget + 0.4) break;
         sy = Math.max(0.55, sy - (ext - budget) / Math.max(40, arcRadius * 1.05));
         controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout, sy);
       }
     }
-    if (attempt >= 12 || clusterFits(controls, comfortable, keepout, safe, extentCap)) break;
+    if (attempt >= 12 || clusterFits(controls, comfortable, keepout, extentBudget)) break;
     chipBase *= 0.95;
   }
 
@@ -612,9 +749,10 @@ export function computeZones(
    * measured 37 px, so tap-to-move — a whole verb — had nowhere to land.
    *
    * The fix is precedence, not geometry. §2.10 evaluates chips BEFORE zones,
-   * and `hitControl` pads every rect to 44 px plus 6 px of slack while
-   * `separate()` leaves only 2 px of daylight between neighbours: adjacent hit
-   * rects therefore overlap, so the cluster exposes no tappable interior. A
+   * and `hitControl` pads every rect to 44 px plus 6 px of SLACK on each side
+   * while the packer leaves neighbours only `SEP_GAP` (2 px) of daylight: the
+   * padded search boxes therefore still overlap even though the rects
+   * themselves are disjoint, so the cluster exposes no tappable interior. A
    * finger in the cluster hits a chip; a finger anywhere else on the right of
    * the screen gets the world.
    */
@@ -685,10 +823,18 @@ export function computeZones(
   );
   const cancelBand: Rect = wantBand
     ? { x: cancelX, y: cancelY, w: cancelW, h: bandHeight }
-    // Zero-area, and parked at the bottom-inboard corner of the CASTING half
-    // so a consumer that paints it unconditionally paints nothing rather than
-    // painting it over the stick.
-    : { x: clamp(clusterLeft - 12, safe.x, safe.x + safe.w), y: safe.y + safe.h - bandHeight, w: 0, h: 0 };
+    // Zero-area, and parked INBOARD of the cluster — which is its LEFT edge
+    // for a right-handed grip and its RIGHT edge mirrored. The mirrored case
+    // used to take `clusterLeft` too, i.e. the far side of the cluster, where
+    // the clamp to `safe.x` could drop the (zero-area, but still located)
+    // rect inside the primary's own hit box; a consumer testing "does the
+    // cancel band overlap a chip" then answered yes about a band that does
+    // not exist. A degenerate rect still has a position, so its position has
+    // to be right.
+    : {
+      x: clamp(mirror ? clusterRight + 12 : clusterLeft - 12, safe.x, safe.x + safe.w),
+      y: safe.y + safe.h - bandHeight, w: 0, h: 0,
+    };
 
   const anchorX = mirror ? vw - vw * 0.22 : vw * 0.22;
   const stickAnchor: Vec2 = {
@@ -731,26 +877,28 @@ function placeCluster(
 }
 
 /**
- * THE SPACING METRIC IS CIRCULAR, BECAUSE THE CLUSTER IS (the WR round).
+ * THE STRICT INVARIANT IS BACK: NO TWO PADDED 44 px HIT RECTS MAY OVERLAP.
  *
- * The old invariant demanded axis-aligned 44 px BOXES never overlap, which
- * forbids the one thing Wild Rift's corner is made of: a tight arc whose
- * neighbours visually kiss (wr_01: ability discs at centre spacing ~= their
- * own diameter). What a thumb actually needs is an EXCLUSIVE LANDING ZONE,
- * and the router resolves by NEAREST CENTRE (`controlAt`), so the honest
- * floor is a centre distance: at >= MIN_TARGET + 2 apart, every chip keeps an
- * exclusive corridor at least 46 px wide through the Voronoi split — the same
- * guarantee the boxes gave, without banning the arc. Bigger chips scale the
- * floor at 0.82x their mean hit size, which allows up to ~18% visual overlap
- * between hero discs — deliberately: WR overlaps its edges, and the paint
- * (`vis`) is never larger than the hit rect. What stays forbidden outright is
- * a chip whose padded rect covers a NEIGHBOUR'S CENTRE (the Pixel 5 "tapping
- * DASH drank a potion" bug) — structural here, since dmin always exceeds any
- * padded half-rect.
+ * r3 relaxed this to a centre-distance floor for one reason — it had read the
+ * reference as "neighbours' edges visually kiss" and an axis-aligned rule
+ * forbids overlap outright. The reference says otherwise (`FAN_PITCH`: a real
+ * 0.24-diameter gap), so the relaxation bought nothing and cost the property
+ * that made the Pixel 5 "tapping DASH drank a potion" bug impossible: with
+ * rects disjoint, no chip's padded rect can contain a neighbour's centre, the
+ * nearest-centre router and the DOM can never disagree, and every chip keeps a
+ * corridor at least `MIN_TARGET + SEP_GAP` wide on one axis.
+ *
+ * It costs nothing now because `cornerRing` sizes the ring to satisfy it up
+ * front (constraint 3 there) instead of leaving it to the relaxation pass.
  */
-function minCentreDist(a: ControlRect, b: ControlRect): number {
-  const mean = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
-  return Math.max(MIN_TARGET + 2, 0.82 * mean);
+function needAxis(a: ControlRect, b: ControlRect, axis: "w" | "h"): number {
+  return (Math.max(MIN_TARGET, a[axis]) + Math.max(MIN_TARGET, b[axis])) / 2 + SEP_GAP;
+}
+
+/** Do two controls' padded hit rects intersect? The one thing never allowed. */
+function rectsOverlap(a: ControlRect, b: ControlRect, slack = 0): boolean {
+  return Math.abs(a.cx - b.cx) < needAxis(a, b, "w") - slack &&
+    Math.abs(a.cy - b.cy) < needAxis(a, b, "h") - slack;
 }
 
 /** Vertical extent of the combat cluster's padded hit rects. */
@@ -768,7 +916,7 @@ function combatExtent(controls: Record<ControlId, ControlRect>): number {
 /** Did the attempt pack cleanly AND keep every combat control in reach? */
 function clusterFits(
   controls: Record<ControlId, ControlRect>, comfortable: number, keepout: Rect,
-  safe: Rect, extentCap: number,
+  extentBudget: number,
 ): boolean {
   const ids = Object.keys(controls) as ControlId[];
   for (const id of COMBAT_CONTROLS) {
@@ -780,7 +928,7 @@ function clusterFits(
   // chips), so the budget is enforced here instead.
   const tops = COMBAT_CONTROLS.map((id) => controls[id].cy - Math.max(MIN_TARGET, controls[id].h) / 2);
   const bots = COMBAT_CONTROLS.map((id) => controls[id].cy + Math.max(MIN_TARGET, controls[id].h) / 2);
-  if (Math.max(...bots) - Math.min(...tops) > extentCap * safe.h + 0.5) return false;
+  if (Math.max(...bots) - Math.min(...tops) > extentBudget + 0.5) return false;
   // A chip left sitting on the crawler is a failed pack, not a cosmetic
   // problem: it is the §1.2 bug (chrome inside a thumb's territory) aimed at
   // the one thing the player is actually looking at.
@@ -792,31 +940,33 @@ function clusterFits(
   }
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
-      const a = controls[ids[i]], b = controls[ids[j]];
-      const d = Math.hypot(a.cx - b.cx, a.cy - b.cy);
       // 0.75 px of slack: the relaxation converges, it does not solve.
-      if (d < minCentreDist(a, b) - 0.75) return false;
+      if (rectsOverlap(controls[ids[i]], controls[ids[j]], 0.75)) return false;
     }
   }
   return true;
 }
 
 /**
-   * NO TWO CHIPS MAY CROWD PAST `minCentreDist`, AND NONE MAY LEAVE THE
-   * CLUSTER BOX.
+   * NO TWO PADDED HIT RECTS MAY OVERLAP, AND NONE MAY LEAVE THE CLUSTER BOX.
    *
    * The arc is authored in angles and radius fractions, so its spacing scales
-   * with `arcRadius` — but the 46 px centre-distance floor does not. Below it
-   * the router's nearest-centre split gives a chip less than a thumb's worth
-   * of exclusive corridor, and (the measured Pixel 5 bug) one chip's rect can
-   * cover another's CENTRE, at which point `controlAt()` and the DOM path
-   * disagree and the DOM wins: tapping DASH drank a potion.
+   * with `arcRadius` — but the 44 px hit floor does not. Where they collide,
+   * one chip's rect can cover another's CENTRE, at which point `controlAt()`
+   * and the DOM path disagree and the DOM wins: the measured Pixel 5 bug where
+   * tapping DASH drank a potion.
    *
-   * This is a few passes of pair relaxation: push crowded pairs apart along
+   * This is a few passes of pair relaxation: push overlapping pairs apart along
    * the line between their centres, re-clamp into the safe box AND into the
    * posture's cluster band, repeat. The band clamp is what makes §4.2a's
    * rule 1 structural — a chip pushed out of a collision cannot escape upward
    * into the read band, it has to travel sideways instead.
+   *
+   * On the corner grip this pass should now find NOTHING to do: `cornerRing`
+   * sizes the fan so the rects are already disjoint, so the arc the player sees
+   * is the authored arc rather than whatever relaxation converged to. It stays
+   * because the side grip, the size slider and the crawler keepout can all
+   * still produce a collision.
    *
    * Order-stable because every pair moves both members by the same half-step,
    * and bounded because each pass strictly reduces total penetration or stops.
@@ -826,7 +976,6 @@ function separate(
   keepout: Rect,
 ): void {
   const ids = Object.keys(controls) as ControlId[];
-  const GAP = 2; // a hair of daylight, so "adjacent" never rounds into "over"
   const fit = (c: ControlRect): void => {
     const halfW = Math.max(MIN_TARGET, c.w) / 2, halfH = Math.max(MIN_TARGET, c.h) / 2;
     c.cx = clamp(c.cx, box.x0 + halfW, Math.max(box.x0 + halfW, box.x1 - halfW));
@@ -863,16 +1012,17 @@ function separate(
       for (let j = i + 1; j < ids.length; j++) {
         const a = controls[ids[i]], b = controls[ids[j]];
         const dx = b.cx - a.cx, dy = b.cy - a.cy;
-        const len = Math.hypot(dx, dy);
-        const pen = minCentreDist(a, b) + GAP - len;
-        if (pen <= 0) continue;
+        const penX = needAxis(a, b, "w") - Math.abs(dx);
+        const penY = needAxis(a, b, "h") - Math.abs(dy);
+        if (penX <= 0 || penY <= 0) continue;
         moved = true;
+        const len = Math.hypot(dx, dy);
         // Push along the LINE BETWEEN THE CENTRES — the direction the circular
         // metric actually measures — so a jammed pair can slide around a
         // clamped edge instead of grinding into it. Coincident centres have no
         // direction; break the tie deterministically rather than divide by 0.
         const ux = len > 1e-6 ? dx / len : 1, uy = len > 1e-6 ? dy / len : 0;
-        const push = pen / 2 + 0.25;
+        const push = Math.min(penX, penY) / 2 + 0.25;
         a.cx -= ux * push; a.cy -= uy * push;
         b.cx += ux * push; b.cy += uy * push;
       }
