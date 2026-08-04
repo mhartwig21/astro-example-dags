@@ -328,11 +328,27 @@ export class TouchShell {
       raise("system-gesture");
       setTimeout(() => clear("system-gesture"), 200);
     });
+    // iOS GESTUREEVENTS ARE NOT "THE OS TOOK THE FINGER" — THEY ARE "A SECOND
+    // FINGER EXISTS". Safari fires `gesturestart` the moment two touches are
+    // live, on every two-finger moment, INCLUDING move-thumb + ability-thumb —
+    // regardless of touch-action, regardless of whether a pinch ever engages.
+    // The previous handler raised `system-gesture` here, which cancelAll()ed
+    // BOTH pointers and then held input deaf until 120 ms after gestureend
+    // plus the modal gate: on a real iPhone that made moving while pressing
+    // an action IMPOSSIBLE, while every CDP battery stayed green because
+    // Chromium never fires GestureEvents at all. (The owner's report, on
+    // production glass: "you can't move and press an action at the same
+    // time." This was why.)
+    //
+    // The contextmenu rule above already states the principle: a gesture we
+    // preventDefault()ed is a gesture the OS did NOT take. preventDefault on
+    // gesturestart is exactly how Safari is told to keep its pinch-zoom out
+    // of the game surface; and if Safari ever DOES take the fingers, it says
+    // so per pointer with pointercancel, which onUp() refunds role by role.
+    // So: veto the native gesture, raise nothing, cancel nothing.
     for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
       document.addEventListener(g, (e) => {
-        e.preventDefault();
-        if (g === "gesturestart") raise("system-gesture");
-        if (g === "gestureend") setTimeout(() => clear("system-gesture"), 120);
+        if (e.cancelable !== false) e.preventDefault();
       }, { passive: false });
     }
   }

@@ -673,3 +673,50 @@ describe("2.4b: the aim throw is its own quantity", () => {
     expect(Math.hypot(a.x, a.y)).toBeCloseTo(50, 9);
   });
 });
+
+/**
+ * STALE POINTER IDS (the real-iOS class of failure). iOS Safari can lose a
+ * lift outright — backgrounding, an incoming call, a system sheet — and some
+ * browsers then REUSE the id. The old guard swallowed every later press with
+ * a held id, which turned one lost pointerup into a permanently deaf spot on
+ * the glass. A pointerdown for an id we still hold means the old gesture is
+ * over BY DEFINITION: refund the stale role, route the new press.
+ */
+describe("2.9x stale pointer ids route instead of dying", () => {
+  it("an id left dead by a suspend cycle presses again and moves the stick", () => {
+    r.down(1, STICK.x, STICK.y);
+    r.c.suspend("modal"); // marks the role dead; its trailing lift is eaten
+    r.c.resume("modal");
+    r.wait(MODAL_GATE_MS + 60);
+    // The lift never arrives (the platform emitted nothing). Same id again:
+    r.down(1, STICK.x, STICK.y).move(1, STICK.x + 50, STICK.y);
+    const i = r.intent();
+    expect(Math.hypot(i.move.x, i.move.y)).toBeGreaterThan(0);
+  });
+
+  it("a live chip role whose lift was lost is refunded, not doubled, by the reused id", () => {
+    // A chip press promoted to AIMING, then the stream desyncs and the same
+    // id lands on the stick. The stale aim must resolve as cancel (no cast,
+    // nothing queued), and the NEW press must own the stick immediately.
+    r.down(3, CH.slot1.cx, CH.slot1.cy).wait(30)
+      .move(3, CH.slot1.cx + 60, CH.slot1.cy);
+    r.poll();
+    r.down(3, STICK.x, STICK.y).move(3, STICK.x + 50, STICK.y);
+    const i = r.intent();
+    expect(i.cast).toEqual([false, false, false, false, false]);
+    expect(Math.hypot(i.move.x, i.move.y)).toBeGreaterThan(0);
+  });
+
+  it("dead roles expire: an unlifted dead id stops blocking after POINTER_TTL", () => {
+    r.down(1, STICK.x, STICK.y);
+    r.c.suspend("modal");
+    r.c.resume("modal");
+    r.wait(POINTER_TTL + 100);
+    r.poll(); // the reaper runs in sample()
+    // The map no longer holds the dead record, so this routes as a fresh press
+    // even under the old guard's semantics.
+    r.down(1, STICK.x, STICK.y).move(1, STICK.x + 50, STICK.y);
+    const i = r.intent();
+    expect(Math.hypot(i.move.x, i.move.y)).toBeGreaterThan(0);
+  });
+});
