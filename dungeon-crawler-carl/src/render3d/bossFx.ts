@@ -137,6 +137,35 @@ export function makeShieldMat(): THREE.ShaderMaterial {
 // visible: the wave moving up the cord is the boss's health bar refilling. A
 // static line would read as decoration; the motion IS the mechanic.
 // ---------------------------------------------------------------------------
+// APPEARANCE r2 major #4: the finale's cords photographed as "flat untextured
+// white streaks crossing the whole screen" — i.e. debug geometry. A straight
+// constant-brightness strip IS a debug line no matter what pulses ride it, so
+// the cord now owns three things a laser cannot have:
+//   SAG    — the strip hangs (vertex catenary, deepest mid-span), so it reads
+//            as a physical cord strung between two bodies, and its crossing
+//            of background geometry reads as "hanging in front" rather than
+//            "clipping through".
+//   TAPER  — thin at the add, thickening toward the boss: the DIRECTION of
+//            the feed is in the silhouette, not only in the pulse motion.
+//   RIPPLE — the filament's center undulates along its length, pinned at both
+//            ends; energy, not a ruler line.
+// Long cords also dim across their middle (the far half of a cross-arena cord
+// is context, not signal), which is what retires the "crosses the whole
+// screen at full white" read while depthTest stays off — the kill-order rule
+// (LoL/D4: a cord the bodies occlude answers nothing) is not negotiable.
+const TETHER_VERT = /* glsl */ `
+  uniform float uSag;
+  varying vec2 vUv;
+  void main() {
+    vUv = uv;
+    vec3 p = position;
+    // Local +z maps to world +y after the cord's flat-lay rotation (the
+    // -PI/2 X-rotation in cordBeat/update); subtract to sag DOWNWARD.
+    float sagArc = sin(vUv.x * 3.14159265);
+    p.z -= uSag * sagArc * sagArc;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(p, 1.0);
+  }`;
+
 const TETHER_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform vec3 uCore;
@@ -145,16 +174,26 @@ const TETHER_FRAG = /* glsl */ `
   uniform float uDim;
   varying vec2 vUv;
   void main() {
-    float cross = abs(vUv.y - 0.5) * 2.0;
-    float core = smoothstep(0.55, 0.0, cross);
-    float sheath = smoothstep(1.0, 0.25, cross);
-    // FEED PULSES travelling add -> boss (uv.x 0 at the add, 1 at the boss).
+    // Undulating filament center, pinned at both ends (uv.x 0 = add, 1 = boss).
+    float pin = sin(vUv.x * 3.14159265);
+    float center = 0.5
+      + 0.10 * pin * sin(vUv.x * max(uLen, 1.0) * 1.7 - uTime * 3.4)
+      + 0.05 * pin * sin(vUv.x * max(uLen, 1.0) * 4.3 + uTime * 5.1);
+    // Taper: the cord is ~45% width at the add end, full width at the boss.
+    float taper = mix(0.45, 1.0, smoothstep(0.0, 0.85, vUv.x));
+    float cross = abs(vUv.y - center) * 2.0 / taper;
+    float core = smoothstep(0.42, 0.0, cross);
+    float sheath = smoothstep(1.0, 0.22, cross);
+    // FEED PULSES travelling add -> boss.
     float travel = fract(vUv.x * max(uLen, 1.0) * 0.5 - uTime * 1.15);
-    float pulse = smoothstep(0.86, 1.0, travel) * smoothstep(0.4, 0.0, cross);
+    float pulse = smoothstep(0.84, 1.0, travel) * smoothstep(0.5, 0.0, cross);
     float wob = 0.82 + 0.18 * sin(vUv.x * 9.0 - uTime * 4.0);
-    float a = clamp((core * 0.55 + sheath * 0.16 + pulse * 0.9) * wob, 0.0, 0.9) * uDim;
-    vec3 col = mix(uColor, uCore, clamp(core * 0.6 + pulse, 0.0, 1.0))
-             * (1.2 + 2.6 * pulse + 1.1 * core);
+    // End fades + the long-cord mid dim: signal lives at the bodies.
+    float ends = smoothstep(0.0, 0.10, vUv.x) * (0.6 + 0.4 * smoothstep(1.0, 0.88, vUv.x));
+    float midDim = 1.0 - smoothstep(6.0, 16.0, uLen) * 0.45 * pin;
+    float a = clamp((core * 0.5 + sheath * 0.13 + pulse * 0.95) * wob * ends * midDim, 0.0, 0.9) * uDim;
+    vec3 col = mix(uColor, uCore, clamp(core * 0.55 + pulse, 0.0, 1.0))
+             * (1.1 + 2.6 * pulse + 1.0 * core);
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
@@ -165,8 +204,9 @@ export function makeTetherMat(): THREE.ShaderMaterial {
       uColor: { value: new THREE.Color(ASK_PAL.adds.mid) },
       uCore: { value: new THREE.Color(ASK_PAL.adds.core) },
       uTime: { value: 0 }, uLen: { value: 4 }, uDim: { value: 1 },
+      uSag: { value: 0.3 },
     },
-    vertexShader: VERT,
+    vertexShader: TETHER_VERT,
     fragmentShader: TETHER_FRAG,
     transparent: true,
     depthWrite: false,
@@ -861,11 +901,13 @@ export class BossFx {
   private sporeMats = new Map<number, THREE.ShaderMaterial>();
   private plateGeo = new THREE.PlaneGeometry(1, 1);
   private shieldGeo = new THREE.SphereGeometry(1, 20, 14);
-  private tetherGeo = new THREE.PlaneGeometry(1, 1);
+  // 40 length segments: the tether vertex shader bends the strip into a sag
+  // arc, and a 1-quad plane cannot bend. Width stays one segment.
+  private tetherGeo = new THREE.PlaneGeometry(1, 1, 40, 1);
   private punishGeo = new THREE.PlaneGeometry(1, 1);
   private markGeo = new THREE.PlaneGeometry(1, 1);
   private aideGeo = new THREE.PlaneGeometry(1, 1);
-  private cordGeo = new THREE.PlaneGeometry(1, 1);
+  private cordGeo = new THREE.PlaneGeometry(1, 1, 40, 1); // segmented: sag arc
   private shellGeo = new THREE.SphereGeometry(1, 22, 12, 0, Math.PI * 2, 0, Math.PI * 0.56);
   private seenMarks = new Set<number>();
   private propTick = 0;
@@ -1469,6 +1511,9 @@ export class BossFx {
     slot.mesh.scale.set(len, 0.42, 1);
     slot.mesh.rotation.set(-Math.PI / 2, 0, -Math.atan2(dz, dx));
     slot.mat.uniforms.uLen.value = len;
+    // The hang deepens with span, capped so a cross-arena cord does not drag
+    // the floor (chest height is 1.35; max sag keeps mid-span above waist).
+    slot.mat.uniforms.uSag.value = Math.min(0.55, 0.10 + len * 0.045);
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(pal.mid);
     (slot.mat.uniforms.uCore.value as THREE.Color).setHex(pal.core);
   }
@@ -1701,6 +1746,7 @@ export class BossFx {
           const tm = cord.material as THREE.ShaderMaterial;
           tm.uniforms.uTime.value = time;
           tm.uniforms.uLen.value = len;
+          tm.uniforms.uSag.value = Math.min(0.55, 0.10 + len * 0.045);
           tm.uniforms.uDim.value = dim;
           // FORCED ON (r3 major). The COUNCIL format is one body plus tethered
           // aides that shield it and hand over their verb on death, so the KILL

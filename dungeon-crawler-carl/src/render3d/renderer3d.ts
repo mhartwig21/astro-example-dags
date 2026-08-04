@@ -987,6 +987,22 @@ export class Renderer3D {
           // trees stay living green-blue, dark brick stays warm — not concrete.
           "  vec3 wChroma = mix(vec3(1.0), clamp(wAlb0 / max(dot(wAlb0, vec3(0.299, 0.587, 0.114)), 0.03), 0.0, 2.4), 0.55);\n" +
           "  wlFogSil = uWlMurk * wChroma * (wMurk * wFog * wDepth);\n" +
+          // FORM IN THE DARK (appearance r2 major #3). The depth crush above is
+          // right about TEXTURE — repeating tile hash must die with distance —
+          // but it killed SHAPE with it: wDepthPre is squared, so past ~6 walk
+          // tiles every wall block collapsed into the same navy value as the
+          // floor void and 40-60% of a walk frame read as empty slab. LoL's
+          // dark corners stay interesting because the dark still contains
+          // MASSES. So a second, structure-only term survives further out:
+          // keyed to geometry HEIGHT (floors at y~0 get none — the void stays
+          // a void) with extra on upward faces, so raised blocks read as a
+          // faint top-lit skyline. It falls off exponentially (~e^-0.05d, vs
+          // the crush's square) and carries NO albedo hash — value only, in
+          // the murk hue over the surface's own cooled chroma, so it can
+          // never re-introduce the tiling-blob failure the crush fixed.
+          "  float wFormFall = exp(-0.05 * max(wD - 2.5, 0.0));\n" +
+          "  float wForm = smoothstep(0.25, 1.35, vWlPos.y) * (0.55 + 0.45 * wUp) * (0.80 + 0.30 * wNz);\n" +
+          "  wlFogSil += uWlMurk * wChroma * (wForm * wFog * wFormFall * 0.75);\n" +
           // ---- ATMOSPHERE: THE DARKNESS GETS A HUE ----
           //
           // Measured on the shipping build: ONE hue cluster spanning a 45-degree
@@ -1756,6 +1772,21 @@ export class Renderer3D {
   private static ARRIVAL_T = 0.9;
   private addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
+  }
+  // CAMERA WEIGHT ON BIG HITS (appearance r2 major #6). Across twelve fight
+  // burst frames including a 2155 crit, the impact read on the TARGET (flash,
+  // gibs, shake dust) but never in the LENS: trauma jitters the camera's
+  // position, which vsync and the iso distance largely launder out, and
+  // nothing ever touched the FRAME ITSELF. So big hits now also kick a
+  // punch-in: an instant ~0-4.5% zoom step that releases over ~200 ms
+  // (attack-instant, linear release — the asymmetry is what reads as a hit
+  // rather than a zoom). It rides projHalfHeight() beside the boss borrow and
+  // the aim widen, so the safe-area clamp stays in agreement by construction.
+  // Presentation only; the sim never learns the camera moved.
+  private hitPunch = 0;
+  private static PUNCH_ZOOM = 0.045; // fraction of half-height at full punch
+  private addHitPunch(amount: number): void {
+    this.hitPunch = Math.min(1, this.hitPunch + amount);
   }
   private particles: {
     mesh: THREE.Mesh;
@@ -2758,6 +2789,30 @@ export class Renderer3D {
         }
       }
     }
+    // THE HERO OCCLUSION GHOST'S PROGRAM (appearance r2). The buried-crawler
+    // x-ray is MeshBasicMaterial + USE_SKINNING with toneMapped off — a
+    // permutation nothing else in the scene uses, created at build time but
+    // INVISIBLE until the first real burial, so prewarm's traverseVisible
+    // never compiled it and the first 18-body pile minted it mid-fight
+    // (caught by [shader-guard] in the r2 capture session). One sub-pixel
+    // twin here pays for it behind the loading screen.
+    {
+      const gmat = new THREE.MeshBasicMaterial({
+        color: 0x4fd1ff, transparent: true, opacity: 0.5, depthWrite: false, fog: false,
+      });
+      gmat.toneMapped = false;
+      gmat.depthTest = false;
+      const bone = new THREE.Bone();
+      const sm = new THREE.SkinnedMesh(skinGeo, gmat);
+      sm.add(bone);
+      sm.bind(new THREE.Skeleton([bone]));
+      const g = new THREE.Group();
+      g.add(sm);
+      g.scale.setScalar(0.003);
+      g.position.set(fx, 0.5, fz);
+      this.scene.add(g);
+      out.push(g);
+    }
     // The geometries and the 1x1 stand-in texture are only needed while the zoo
     // is resident; the caller releases them (see prewarm). The MATERIALS are
     // deliberately never disposed — three.js refcounts programs and destroys
@@ -2940,6 +2995,23 @@ export class Renderer3D {
    * quarter of the poll traffic.
    */
   matSweepEvery = 4;
+
+  /**
+   * Ask the catcher to sweep at the END OF THIS FRAME, cadence be damned.
+   *
+   * THE CADENCE'S RESIDUE IS THE BURST FRAMES (appearance r2, major #8). At
+   * matSweepEvery=4 a material can be created and then DRAWN for up to three
+   * frames before the sweep that would have parked it — and materials are not
+   * minted uniformly: they arrive in bursts on exactly the frames that build
+   * things (a floor rebuild on descent, a fresh body kind entering the
+   * reconcile). Those construction paths call this, so the window for them is
+   * zero at the cost of one WeakSet-probe traverse on frames that were
+   * already paying for construction. The steady-state poll-traffic trade that
+   * chose 4 over 1 is untouched.
+   */
+  private matSweepNow(): void {
+    this.matSweepTick = this.matSweepEvery - 1;
+  }
 
   private sweepNewMaterials(): void {
     if (!this.matSweepArmed || this.matSweepBusy) return;
@@ -3294,6 +3366,9 @@ export class Renderer3D {
       }
     });
     if (m.animations.length) this.attachClipAnimator(g, m.animations);
+    // Any frame that instantiates a model may mint material permutations
+    // (shading/flash clones follow); make sure this frame's sweep runs.
+    this.matSweepNow();
     return g;
   }
 
@@ -3440,6 +3515,15 @@ export class Renderer3D {
       if (!next || (current === name && !force)) return;
       const prev = actions[current];
       next.reset().play();
+      // THE RANKS BREATHE OUT OF STEP (appearance r2 major #5). reset() puts
+      // every loop at time 0, and every mixer is fed the same dt — so a rank
+      // of toy soldiers or a room of idling skeletons that entered "idle" on
+      // the same frame held IDENTICAL poses forever, which is what the
+      // motion-burst frames photographed as statues. Looping clips now start
+      // at this rig's own golden-ratio phase, so a crowd playing one clip is
+      // a crowd of individuals. One-shots are untouched: an attack must start
+      // at its wind-up, not somewhere inside it.
+      if (LOOPING.has(name)) next.time = animPhase * (durations[name] ?? 0);
       if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
       current = name;
       if (!LOOPING.has(name)) busy = durations[name];
@@ -4002,8 +4086,10 @@ export class Renderer3D {
     // reads as a landing instead of a hard cut between worlds.
     const at = this.arrival / Renderer3D.ARRIVAL_T;
     const arrive = 1 + 0.09 * at * at;
+    // The hit punch-in (see addHitPunch): instant kick, ~200 ms release.
+    const punch = 1 - Renderer3D.PUNCH_ZOOM * this.hitPunch;
     return THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
-      this.bossFx.zoom * aimWide * arrive;
+      this.bossFx.zoom * aimWide * arrive * punch;
   }
 
   private applyProjection(): void {
@@ -4049,6 +4135,47 @@ export class Renderer3D {
   /** The render skin id for a player: their campfire pick, else the seeded look. */
   static skinIdFor(pl: { id: number; skin?: string }, seed: number): string {
     return pl.skin && `c:${pl.skin}` in Renderer3D.SKIN_MODEL ? `c:${pl.skin}` : heroSkin(seed, pl.id);
+  }
+
+  /**
+   * THE BURIAL GOVERNOR for the hero occlusion ghost (blocker #1). The ghost
+   * pass (buildPlayerMesh) can only answer "is this fragment covered", not
+   * "covered by WHOM", and the hero's own head covers his own torso in every
+   * frame — so the material rests at opacity 0 and this object-level test
+   * fades it in only while live bodies are actually stacked on the crawler:
+   * two-plus non-dormant monsters either interpenetrating his tile or
+   * standing between him and the camera inside melee range. Eased at ~6/s so
+   * a mob stepping past causes a flicker of nothing.
+   */
+  private updateHeroGhost(mesh: THREE.Group, pl: Player, state: GameState, dt: number): void {
+    const gmat = mesh.userData.ghostMat as THREE.MeshBasicMaterial | undefined;
+    const ghosts = mesh.userData.ghostMeshes as THREE.Object3D[] | undefined;
+    if (!gmat || !ghosts || ghosts.length === 0) return;
+    let cover = 0;
+    if (pl.alive) {
+      const cx = this.camera.position.x - mesh.position.x;
+      const cz = this.camera.position.z - mesh.position.z;
+      const cl = Math.hypot(cx, cz) || 1;
+      const ux = cx / cl, uz = cz / cl;
+      for (const m of state.monsters) {
+        if (m.hp <= 0 || m.dormant) continue;
+        const dx = m.pos.x - pl.pos.x, dz = m.pos.y - pl.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > 6.76) continue; // 2.6^2 — beyond this nothing overlaps the body
+        const d = Math.sqrt(d2);
+        const along = dx * ux + dz * uz; // ground component toward the camera
+        if (d < 0.85 || (along > 0.25 && along > d * 0.55)) cover++;
+        if (cover >= 2) break;
+      }
+    }
+    const want = cover >= 2 ? 0.55 : 0;
+    const cur = (mesh.userData.ghostOp as number) ?? 0;
+    const next = Math.abs(want - cur) < 0.004 ? want : cur + (want - cur) * Math.min(1, dt * 6);
+    if (next === cur && (next > 0) === ghosts[0].visible) return;
+    mesh.userData.ghostOp = next;
+    gmat.opacity = next;
+    const on = next > 0.004;
+    for (const g of ghosts) g.visible = on;
   }
 
   private buildPlayerMesh(skin: string): THREE.Group {
@@ -4127,6 +4254,87 @@ export class Renderer3D {
         dirG.add(dsh);
         model.add(dirG);
         model.userData.dirShadow = dirG;
+      }
+      // THE CRAWLER NEVER DISAPPEARS (appearance r2 BLOCKER #1). In an
+      // 18-body pack the hero is bodily COVERED — rim light, accent trim and
+      // the kick light are all surface treatments, and a surface you cannot
+      // see cannot carry a read. LoL never loses the player because the
+      // player's read does not depend on line of sight. So the hero gets the
+      // ARPG occlusion pass (D4/PoE rule): a second draw of the skinned body
+      // in the skin's accent color with depthFunc GREATER — it renders ONLY
+      // where something already wrote nearer depth, i.e. exactly the pixels
+      // where the crawler is buried. Unoccluded frames pay nothing visible
+      // (zero fragments pass), and the pile turns into a colored silhouette
+      // of your own pose moving inside it.
+      //
+      // ONLY SKINNED MESHES: the body is the rig's skinned surface; weapon /
+      // shield attachment nodes are rigid meshes whose visibility applyLoadout
+      // toggles per-equipment, and a ghost of a hidden arsenal would float.
+      // Sharing the skeleton keeps the silhouette on-pose for free. Material
+      // is MeshBasicMaterial (skips every std-material traversal: character
+      // shading, hit flash, dissolve all test isMeshStandardMaterial) and the
+      // meshes carry noAO like the other non-body helpers.
+      //
+      // GATED ON ACTUALLY BEING BURIED — capture caught why. A depth test
+      // cannot tell "a mob covers the crawler" from "the crawler's own torso
+      // sits behind his own head": the first capture of this pass had the
+      // hero's head permanently ballooned white by his own ghost's rear
+      // parts, in an empty corridor. So the ghost rests at opacity 0 and the
+      // per-frame player loop fades it in only while the object-level burial
+      // test says bodies are stacked on the crawler (see updateHeroGhost) —
+      // exactly the frames the silhouette exists for, and the only frames
+      // where self-overlap glow is invisible because the body is covered.
+      {
+        // NORMAL blending, saturated accent, not an additive wash: the first
+        // capture ran this additive at 0.3 and the silhouette disappeared
+        // into the pile's own colors — a burial read has to REPLACE the
+        // occluder's pixels with the hero's color (the D4 treatment), not
+        // brighten them.
+        const gmat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(shade.accent),
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          fog: false,
+        });
+        // Bypass the ACES grade: the buried-frame scene is torch-warm and
+        // pink-lit, and a tone-mapped mid-cyan at 0.5 measured invisible in
+        // capture. The silhouette is UI-grade information, like the plates.
+        gmat.toneMapped = false;
+        // FULL-SHAPE X-RAY, not a depth-Greater residue. Two captures proved
+        // the per-fragment version illegible: with the hero half-covered the
+        // pass produces scattered patches behind whichever bodies happen to
+        // overlap, and 0.55 cyan patches vanish inside a pink-lit brawl. The
+        // burial governor already guarantees this only draws on frames where
+        // the body is genuinely covered, so the honest read is the LoL/D4
+        // one — the crawler's whole pose, flat accent, straight through the
+        // pile. Visible slivers still show through at 1-minus-opacity.
+        gmat.depthTest = false;
+        const bodies: THREE.SkinnedMesh[] = [];
+        model.traverse((o) => {
+          const m = o as THREE.SkinnedMesh;
+          if (m.isSkinnedMesh && !m.userData.noAO) bodies.push(m);
+        });
+        const ghosts: THREE.SkinnedMesh[] = [];
+        for (const m of bodies) {
+          const ghost = new THREE.SkinnedMesh(m.geometry, gmat);
+          ghost.bind(m.skeleton, m.bindMatrix);
+          ghost.bindMode = m.bindMode;
+          ghost.position.copy(m.position);
+          ghost.quaternion.copy(m.quaternion);
+          ghost.scale.copy(m.scale);
+          ghost.renderOrder = 6; // after the pile has written its depth
+          ghost.castShadow = false;
+          ghost.receiveShadow = false;
+          ghost.frustumCulled = m.frustumCulled;
+          ghost.userData.noAO = true;
+          ghost.userData.heroGhost = true;
+          ghost.visible = false;
+          m.parent?.add(ghost);
+          ghosts.push(ghost);
+        }
+        model.userData.ghostMat = gmat;
+        model.userData.ghostMeshes = ghosts;
       }
       model.userData.skinId = skin;
       return model;
@@ -7469,6 +7677,7 @@ export class Renderer3D {
       for (const d of this.dying) this.scene.remove(d.mesh);
       this.dying = [];
       this.buildFloor(state);
+      this.matSweepNow(); // a rebuild is a material burst; sweep it this frame
     }
     if (state.exploredVersion !== this.lastExploredVersion) {
       this.lastExploredVersion = state.exploredVersion;
@@ -7576,6 +7785,7 @@ export class Renderer3D {
         this.anchorRing.position.set(mesh.position.x, 0.045, mesh.position.z);
         (this.anchorRing.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
       }
+      this.updateHeroGhost(mesh, pl, state, dt);
       this.applyLoadout(mesh, pl);
       // Weapon trail on the melee swing edge (attackSwing jumps up), plus a
       // compact commit glint at the hands — the swing's t=0 evidence must be
@@ -8201,7 +8411,38 @@ export class Renderer3D {
           ud.revealed = true; // don't double-awaken on the reveal that follows
           ud.wasDormant = true;
           playM(mon.kind === "greeter" ? "dormant_stand" : "dormant_floor");
+          // SET DRESSING THAT IS SECRETLY ALIVE STAYS SECRETLY ALIVE — but not
+          // STONE (appearance r2 major #5): the Inactive poses are single held
+          // frames, so a showroom rank photographed identically across every
+          // burst frame. A body pretending to be an object still breathes:
+          // standing units get a slow sub-degree sway plus a rare mechanical
+          // settle-tick (a wind-up toy holding still, not a statue), floor
+          // bones stay dead — bones are allowed to be bones. Per-id phase so a
+          // rank never moves in unison; amplitudes sit at the edge of notice,
+          // because the trap must stay a trap while the room reads inhabited.
+          if (mon.kind === "greeter" || mon.kind === "toysoldier") {
+            if (ud.dormYaw === undefined) {
+              ud.dormYaw = mesh.rotation.y;
+              ud.dormSy = mesh.scale.y;
+            }
+            const ph = (mon.id % 61) * 0.618;
+            // Breath: ~1.2% of height, ~4 s period.
+            mesh.scale.y = (ud.dormSy as number) * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
+            // The settle-tick: every ~5-8 s (per id) a quick 3-degree head
+            // check that eases out over ~0.4 s. Smooth pulse, no RNG.
+            const period = 5 + (mon.id % 4);
+            const cyc = (time + ph * period) % period;
+            const tick = Math.max(0, 1 - cyc / 0.4);
+            mesh.rotation.y = (ud.dormYaw as number) +
+              0.016 * Math.sin(time * 0.45 + ph) +
+              0.05 * tick * tick * Math.sin(ph * 9.7);
+          }
         } else {
+        if (ud.dormYaw !== undefined) {
+          // Sprung: hand the body back to the live path exactly as it was.
+          mesh.scale.y = ud.dormSy as number;
+          ud.dormYaw = undefined;
+        }
         if (ud.wasDormant) {
           ud.wasDormant = false;
           playFirstM("awaken", "hit"); // SPRUNG: rise/jolt out of the pose
@@ -9359,6 +9600,8 @@ export class Renderer3D {
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    // The punch-in releases in ~200 ms (attack was instant at the hit).
+    this.hitPunch = Math.max(0, this.hitPunch - dt * 5);
     const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
     const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
@@ -9951,8 +10194,15 @@ export class Renderer3D {
       if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
       if (h.kind === "crit") this.addTrauma(0.3);
       if (h.killed && h.kind !== "player") this.addTrauma(0.25);
+      // The lens answers the big beats (appearance r2 #6): crits, kills and
+      // taking a real hit each kick the punch-in. Chip damage adds nothing —
+      // the channel only opens on the hits the sim already calls moments.
+      if (h.kind === "player") this.addHitPunch(0.55);
+      if (h.kind === "crit") this.addHitPunch(0.6);
+      if (h.killed && h.kind !== "player") this.addHitPunch(0.4);
       if (h.overkill && h.kind !== "player") {
         this.addTrauma(0.2);
+        this.addHitPunch(0.5);
         // The corpse this kill removes (next reconcile) gets launched.
         this.overkillMarks.push({ x: h.pos.x, y: h.pos.y, dir: h.dir, t: 0.5 });
       }
