@@ -211,6 +211,84 @@ regression eventually gets waved through.
 
 ---
 
+## ROUND 4 (mobile-wr) — THE FIX ROUND: four blockers, six majors, and the STYLE half
+
+The wr-a/wr-surf audit round found the layer correct and the NEW SURFACES and
+the SKIN not. This round fixed all four blockers, all six majors, and shipped
+the control skin. Verified with real CDP touch on iPhone 13 / iPad Pro 11 /
+Pixel 5: `tools/_mobile/wrfix1.mjs`, **54 checks / 0 FAIL** (one WARN below),
+frames + report under `tools/_mobile/wr-fix1/`.
+
+**Blockers.** (1) The RESULT CARD's sharesheet was a trap on a phone — buttons
+at y=558 on a 342px glass, no scroll, no backdrop close. The card is a flex
+column now: `.sbody` scrolls, the action rail is pinned (all four actions
+measured 165x58, hit-tested), `attachPanel` gives it the ✕ / backdrop / swipe.
+(2) Top-menu dropdown taps ALSO registered as world taps at the row's centre —
+`isGameplayTarget` now files `.topmenu`/`.topbtn` as UI wherever they hang.
+(3) Tap-to-lock: `measureChips` caches measured while a chip's layer was
+hidden poisoned the router with 0x0 rects at the origin (controlAt said null
+where the LOCK chip visibly was — the DOM path then ate the tap); zero
+measurements now fall back to the zone table, and `screenTapTarget` grants a
+moving target a lag allowance (`TAP_LAG_S` x its own speed in screen px) so
+poll latency cannot make a runner un-lockable. (4) THE RUSH tile on compact:
+the menu footer is gone on compact AND the compact masthead slimmed
+(`--hero-h` 44, welcome line dropped) so the funnel's two public tiles sit
+fully on a 293px glass; the top-menus themselves now scroll
+(`max-height: calc(100vh - 64px)`) so the CRAWLER menu's last rows exist on
+compact at all.
+
+**Majors.** READY is 220x48 everywhere; the CRAWL LEDGER got `attachPanel`
+closers (✕ verified closing it by touch on all three devices); the K panel's
+perf row is drag-scroll reachable and cycles under a thumb; the touch settings
+rows render as `.kb-row ctl-row` (measurable by the same probes as every other
+row) and HOLDING a layout stepper drops the panel to a 0.14-opacity veil so
+the cluster previews live underneath (wr_01/wr_06's editor idea in our
+grammar); `#bosscall`'s 236px floor yields to `min(236px, 34vh)` so the
+marquee stays off the controls on short screens; the recap's action rail
+split — only RUN IT BACK / NEW CONTRACT pin (one opaque 67px row), the other
+three flow with the copy they belong to, and the desktop rail is reassembled
+byte-identical via `display: contents` + `order`.
+
+**The skin (wr_01-04, decided against the frames, drawn in house language).**
+Chip faces are dark glass (radial rgba stack) with the identity in a 2px gold
+rim; the rim is the state channel — bright gold ready, dimmed bronze cooling
+(icon recedes with it), warm bloom on the ultimate. Cooldowns carry NUMERIC
+seconds on the face (`.cdnum`, tabular, touch-only — wr_04's '42') over the
+existing sweep. Three size tiers measured on every device (iPhone:
+ult 95 / attack 82 / abilities 68 / flask 63 / LOCK 45 / MAP 41): satellites
+paint a tier down through a new `vis` field on `ControlRect` — the HIT rect
+never drops below 44 (the router pads), only the paint shrinks. The LOCK chip
+is an icon now (drawn reticle, no words on chips). The stick nub is a
+hard-edged disc — dark outline ring + lit rim — that survives bright floors.
+And every live aim draws wr_04's missing piece: a cyan MAX-RANGE boundary
+around the CRAWLER (`buildRangeRing`, faint fill only under 8 tiles), keyed
+and disposed like the indicator, cleared on lift.
+
+**Two non-touch fixes that fell out.** three.js's `compileAsync` poll crashes
+with `reading 'isReady'` when a polled material is disposed mid-flight (the
+late shader-catcher compiles exactly when telegraph teardowns mint and destroy
+materials) — the poll is now ours, with the one guard three forgot, and the
+aim layer's materials are shared singletons that are never disposed (each drag
+frame was minting ~8 and disposing the previous 8). The phone-boot pageerror
+is gone from the battery.
+
+**The WARN, on the record.** iPad tap-lock needed one re-aimed tap under the
+harness: with monster AND crawler world-static and clickMove null, the
+projection still sweeps ±40px over seconds (slow camera motion), and
+SwiftShader's ~1fps polling spans a whole second of it where a 60fps device
+spans ~1px. Forensics in the probe comments; a human thumb re-aims
+continuously, which is what the retry models.
+
+**Desktop guard.** `deskdeep.mjs`: identical scores on this branch and on the
+stashed baseline (the two long-standing FAILs — `ability keys 1-4` counting
+melee/stuntdouble "NOTHING", and F-on-injunction attribution — reproduce at
+0/4 on the BASELINE and 2/4 here; pre-existing probe semantics, not a
+regression; the probe needs a cd-attribution fix on the desktop track).
+`touch close chrome is NOT injected on a fine pointer` still PASSES, and the
+recap/sharesheet rails render desktop-identical by construction.
+
+---
+
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it

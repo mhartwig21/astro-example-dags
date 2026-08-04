@@ -40,7 +40,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
+import { aimAnchor, aimSpecFor, castRange, isPlacedShape } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -3743,6 +3743,7 @@ function renderTouchSettings(): void {
       applyTouchPrefs();
       renderTouchSettings();
     });
+    wireTouchPeek();
   }
   // Thumb length varies more than screen size does, so the layout is a
   // setting rather than a constant. Numeric prefs get a real -/+ stepper with
@@ -3774,9 +3775,35 @@ function renderTouchSettings(): void {
             `<button type="button" data-tp="${r.id}" data-set="${v}"` +
             `${v === r.value ? ' class="on"' : ""}>${v}</button>`).join("") + `</span>`
           : `<span class="ctl-pick"><button type="button" data-tp="${r.id}">${r.value}</button></span>`;
-      return `<div class="ctl-row"><span class="ctl-name">${r.name}<small>${r.hint}</small></span>` +
+      // `kb-row` TOO: the settings ledger is ONE row component everywhere in
+      // the K panel, and every probe/style that measures `.kb-row` must see
+      // these rows — they rendered as unmeasurable foreign markup before
+      // (wr-surf r1 MAJOR: zero .kb-row in #kb-page-controls, UNESTABLISHED).
+      return `<div class="kb-row ctl-row"><span class="kb-name ctl-name">${r.name}<small>${r.hint}</small></span>` +
         control + `</div>`;
     }).join("");
+}
+
+/**
+ * LIVE PREVIEW THROUGH THE PANEL (Wild Rift's layout editor shows the cluster
+ * while you drag its sliders — wr_01/wr_06). The K panel covers the cluster it
+ * is resizing, so while a finger HOLDS a layout stepper the panel drops to a
+ * veil and the glass shows the chips moving under it; release brings it back.
+ */
+function wireTouchPeek(): void {
+  const PEEK = new Set(["stickScale", "buttonScale", "opacity", "thumbMm", "hudInset", "handed"]);
+  const el = kbTouchCfg;
+  if (!el || el.dataset.peekWired === "1") return;
+  el.dataset.peekWired = "1";
+  const stop = (): void => document.body.classList.remove("peek");
+  el.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("touch")) return;
+    const key = (e.target as HTMLElement).closest<HTMLElement>("[data-tp]");
+    if (key && PEEK.has(key.dataset.tp ?? "")) document.body.classList.add("peek");
+  });
+  el.addEventListener("pointerup", stop);
+  el.addEventListener("pointercancel", stop);
+  el.addEventListener("pointerleave", stop);
 }
 
 /** A named pick, straight from a button. The pref is the source of truth. */
@@ -5503,7 +5530,8 @@ function updateSkills(s: GameState): void {
           ? ` title="${esc(`${ABILITY_INFO[e.ability].name} — ${composedText(s, e.ability)}`)}"`
           : "";
         return `<div class="${cls}" data-i="${i}"${tip}><span class="key">${bind}</span>${gpips}${icon}` +
-          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
+          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span>` +
+          `<span class="cdnum"></span></div>`;
       })
       .join("") +
       // Flask chip (cockpit-style): charges on the pip row; the radial
@@ -5539,6 +5567,15 @@ function updateSkills(s: GameState): void {
       : Math.max(0, Math.min(1, remaining / base));
     chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
+    // Numeric seconds on the cooling chip (wr_04's '42') — touch CSS shows it,
+    // the desktop hotbar keeps sweeps only. Write only on change: this runs
+    // per frame and a same-value textContent write still dirties layout.
+    const cdTxt = !ready && remaining > 0.05 ? String(Math.ceil(remaining)) : "";
+    if (chip.dataset.cdnum !== cdTxt) {
+      chip.dataset.cdnum = cdTxt;
+      const n = chip.querySelector(".cdnum");
+      if (n) n.textContent = cdTxt;
+    }
     // Ready-flash (audit #4): the moment a REAL cooldown completes, the chip
     // blooms once. "armed" only while a sweep is actually running, so loadout
     // rebuilds and already-ready chips never flash spuriously.
@@ -10598,17 +10635,34 @@ function pollTouch(): void {
 
 /** Thumb radius (CSS px) around a tap that still counts as "on that monster". */
 const TAP_BODY_RADIUS = 46;
+/**
+ * A MOVING TARGET EARNS A WIDER NET. The tap is judged against the monster's
+ * position at POLL time, but the finger aimed at where the body was drawn one
+ * or more frames earlier — under load (or a 3fps harness) that gap exceeded
+ * the fixed 46px and made real moving targets un-lockable (wr-surf r1
+ * BLOCKER: 75-266px of drift between projection and poll). The allowance is
+ * a quarter second of the monster's OWN speed in screen px: a stationary
+ * boss gains nothing, a sprinting hound gains exactly what its sprint costs
+ * the aim. Presentation-side leniency only — no sim rule.
+ */
+const TAP_LAG_S = 0.25;
 
 /** Nearest living monster whose body projects within a thumb of (x, y). */
 function screenTapTarget(x: number, y: number): { id: number } | null {
   let best: { id: number } | null = null;
-  let bestD = TAP_BODY_RADIUS * TAP_BODY_RADIUS;
+  let bestScore = Infinity;
+  // Screen px per world tile, from two projections of the crawler's own row.
+  const me0 = me(state);
+  const a = renderer.worldToScreen(me0.pos.x, 0, me0.pos.y);
+  const b = renderer.worldToScreen(me0.pos.x + 1, 0, me0.pos.y);
+  const pxPerTile = a.visible && b.visible ? Math.hypot(b.x - a.x, b.y - a.y) : 46;
   for (const m of state.monsters) {
     if (m.hp <= 0 || m.dormant) continue;
     const p = renderer.worldToScreen(m.pos.x, 0.8, m.pos.y);
     if (!p.visible) continue;
-    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
-    if (d < bestD) { bestD = d; best = m; }
+    const reach = TAP_BODY_RADIUS + (m.speed > 0 ? m.speed * TAP_LAG_S * pxPerTile : 0);
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < reach && d < bestScore) { bestScore = d; best = m; }
   }
   return best;
 }
@@ -10669,6 +10723,17 @@ attachPanel(keysEl, { close: () => { hideSheet(); if (kbOpen) toggleKeybinds(); 
 attachPanel(draftEl, {
   close: () => { if (draftEl.style.display === "flex") dismissDraftModal(); },
   done: "BANK IT FOR LATER",
+});
+// THE CRAWL LEDGER shipped after the last touch pass with ZERO touch closers —
+// only the L key / Escape (wr-surf r1 MAJOR: a one-way door on glass).
+attachPanel(ledgerEl, { close: () => { if (ledgerOpen) toggleLedger(); } });
+// THE RESULT CARD's sheet: ✕ + backdrop + swipe close, the pinned .sbtns rail
+// already carries CLOSE. `done: null` — a second full-width DONE bar under
+// four action buttons would bury the actions it duplicates.
+attachPanel(shareEl, {
+  close: () => shareEl.classList.remove("on"),
+  done: null,
+  scroller: () => shareEl.querySelector(".sbody"),
 });
 
 /**
@@ -11175,12 +11240,20 @@ async function main(): Promise<void> {
         // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
         // teach itemisation: a glyph that grows the nova grows the circle.
         renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
+        // THE MAX-RANGE RING rides the CRAWLER while the shape rides the
+        // anchor (wr_04): the reach boundary is what a throw is judged
+        // against. For a placed shape the boundary is the furthest the
+        // centre can land; for a skillshot it is the flight reach.
+        renderer.setAimRange(p.pos, spec.range > 0
+          ? spec.range
+          : (isPlacedShape(spec.shape) ? spec.radius : 0));
         // ...and the camera LEADS the aim, because a 14.4-tile bolt does not
         // fit in the 8.5 tiles a phone shows above the crawler: measured, 8.1%
         // of the line's vertices were on the glass. Presentation only.
         renderer.setAimLead(dir, Math.max(spec.range, anchor.distance + spec.radius));
       } else {
         renderer.setAimIndicator(null);
+        renderer.setAimRange(null, 0);
         renderer.setAimLead(null, 0);
       }
       // TARGET SELECTION IS DRAWN. `lockedTargetId` steered `pickTarget` and

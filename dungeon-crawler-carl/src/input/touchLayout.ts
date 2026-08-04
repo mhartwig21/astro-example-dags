@@ -182,6 +182,14 @@ export interface ControlRect extends Rect {
   cy: number;
   /** Distance of the centre from the class pivot (CSS px). */
   fromPivot: number;
+  /**
+   * VISUAL diameter, in CSS px — the disc the shell paints, centred on
+   * (cx, cy). `w`/`h` stay the HIT rect and never drop below `MIN_TARGET`;
+   * this may. The split is what buys Wild Rift's size hierarchy (wr_01/03:
+   * utilities visibly smaller than abilities) without shrinking a single
+   * touch target: a 38 px LOCK disc still owns a 44 px padded hit box.
+   */
+  vis: number;
 }
 
 export interface ZoneTable {
@@ -313,9 +321,12 @@ const ARC_CORNER: ArcSpec[] = [
   // Wild Rift makes it the biggest and the most distinct button on the glass.
   { id: "slot4", ang: 82, rf: 0.63, size: 1.42 },
   { id: "slot3", ang: 51, rf: 0.81, size: 1.00 },
-  { id: "lock", ang: 36, rf: 1.06, size: 0.80 },
+  // SATELLITES PAINT A TIER DOWN (wr_01/03: WR's utilities are visibly
+  // smaller than its abilities; ours measured near ability-sized, which is
+  // what made the cluster read as nine similar coins). Hit stays >= 44.
+  { id: "lock", ang: 36, rf: 1.06, size: 0.64 },
   { id: "context", ang: 28, rf: 1.30, size: 0.86 },
-  { id: "map", ang: 23, rf: 1.56, size: 0.80 },
+  { id: "map", ang: 23, rf: 1.56, size: 0.64 },
 ];
 
 /**
@@ -333,8 +344,8 @@ const ARC_SIDE: ArcSpec[] = [
   { id: "slot4", ang: 46, rf: 0.60, size: 1.42 }, // ultimate: top of the fan AND the biggest chip
   { id: "flask", ang: -46, rf: 0.58, size: 0.92 },
   { id: "context", ang: -22, rf: 0.34, size: 0.86 },
-  { id: "lock", ang: 24, rf: 0.36, size: 0.80 },
-  { id: "map", ang: -46, rf: 0.94, size: 0.80 },
+  { id: "lock", ang: 24, rf: 0.36, size: 0.64 },
+  { id: "map", ang: -46, rf: 0.94, size: 0.64 },
 ];
 
 const RAD = Math.PI / 180;
@@ -533,7 +544,12 @@ export function computeZones(
   const inboardGap = mirror
     ? (stickZone.x - 12) - (clusterRight + 12)
     : (clusterLeft - 12) - (stickZone.x + stickZone.w + 12);
-  const wantBand = side || inboardGap >= 96;
+  // POSTURE DECIDES, NOT THE GAP (§2.0 register + the §4.2a derivation): a
+  // corner grip ships `origin`, full stop. The old `|| inboardGap >= 96`
+  // escape hatch was dormant until the satellite chips slimmed down — then a
+  // Pixel 5 suddenly earned a band that sits one aimThrow inboard of the
+  // nearest chip, which is exactly the placement the derivation rejects.
+  const wantBand = side;
   const cancelMode: "band" | "origin" = wantBand ? "band" : "origin";
   const cancelW = side
     ? Math.min(safe.w * 0.42, Math.max(180, arcRadius * 1.4))
@@ -581,13 +597,15 @@ function placeCluster(
   const controls = {} as Record<ControlId, ControlRect>;
   for (const spec of arc) {
     const size = Math.max(MIN_TARGET, chipBase * spec.size);
+    // The paint may be smaller than the target, never the other way round.
+    const vis = Math.min(size, Math.max(30, chipBase * spec.size));
     const dx = Math.cos(spec.ang * RAD) * arcRadius * spec.rf;
     const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf;
     const cx = mirror ? pivot.x + dx : pivot.x - dx;
     const cy = pivot.y - dy;
     controls[spec.id] = {
       id: spec.id, cx, cy, x: cx - size / 2, y: cy - size / 2, w: size, h: size,
-      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
+      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y), vis,
     };
   }
   separate(controls, box, pivot, keepout);

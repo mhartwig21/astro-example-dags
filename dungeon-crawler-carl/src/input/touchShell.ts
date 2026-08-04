@@ -64,11 +64,18 @@ body.modal #t-layer { display: none; }
 #t-ghost::after { content: ""; position: absolute; left: 50%; top: 50%;
   width: 26%; height: 26%; margin: -13% 0 0 -13%; border-radius: 50%;
   background: rgba(201,162,75,0.85); }
-#t-stick2 { border-radius: 50%; border: 2px solid rgba(201,162,75,0.62);
-  background: radial-gradient(circle, rgba(0,0,0,0.30), rgba(0,0,0,0.10));
+#t-stick2 { border-radius: 50%; border: 2px solid rgba(201,162,75,0.8);
+  background: radial-gradient(circle, rgba(8,6,4,0.08), rgba(8,6,4,0.34) 88%);
+  box-shadow: 0 0 0 1px rgba(8,19,26,0.7), inset 0 0 0 1px rgba(8,19,26,0.5);
   opacity: 0; transition: opacity 90ms linear; }
-#t-nub2 { border-radius: 50%; background: rgba(201,162,75,0.72);
-  box-shadow: 0 0 14px rgba(201,162,75,0.45); opacity: 0; }
+/* The nub is a HARD-EDGED disc (wr_04: WR's stays legible mid-walk on a bright
+   riverbank). The old soft gold blob faded into the Garden's lawn; a dark
+   outline ring plus a lit rim holds it on bright floors and dark alike. */
+#t-nub2 { border-radius: 50%;
+  background: radial-gradient(circle at 42% 36%, #f2deb4, #c9a24b 58%, #8a6d3b);
+  border: 2px solid rgba(8,19,26,0.85);
+  box-shadow: 0 0 0 1.5px rgba(242,222,180,0.5), 0 2px 6px rgba(0,0,0,0.55);
+  opacity: 0; }
 /* RETURN-HOME CANCEL, DRAWN (MOBILE.md 2.4c + the corner-grip decision in
    touchLayout). A corner grip ships no band, because every placement that
    clears the movement thumb also sits one aimThrow inboard of the nearest chip
@@ -91,11 +98,26 @@ body.modal #t-layer { display: none; }
   transition: opacity 110ms linear, transform 110ms ease-out; }
 #t-cancel.on { opacity: 1; }
 #t-cancel.armed { background: rgba(57,200,232,0.30); border-style: solid; }
+/* The one control with a WORD in it wanted an icon (wr_03: WR never letters a
+   chip). A reticle drawn in the chip's own border language — ring + centre
+   dot — reads "target" at 38px where 'LOCK' read as an unstyled debug pill. */
 #t-lock { display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; border: 2px solid rgba(201,162,75,0.55);
-  background: rgba(8,19,26,0.62); color: #c9a24b; pointer-events: auto;
-  font: 700 10px/1 "Barlow Condensed", system-ui, sans-serif;
-  letter-spacing: 0.08em; touch-action: none; }
+  border-radius: 50%; border: 2px solid rgba(201,162,75,0.75);
+  background: radial-gradient(circle at 50% 30%, rgba(31,24,15,0.62), rgba(10,8,5,0.75) 72%);
+  color: #c9a24b; pointer-events: auto; touch-action: none;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.45); }
+#t-lock .tl-ret { position: relative; width: 52%; height: 52%;
+  border: 2px solid currentColor; border-radius: 50%; }
+#t-lock .tl-ret::before { content: ""; position: absolute; left: 50%; top: 50%;
+  width: 24%; height: 24%; margin: -12% 0 0 -12%; border-radius: 50%;
+  background: currentColor; }
+/* Four ticks: the reticle's cardinal marks, one gradient, no extra nodes. */
+#t-lock .tl-ret::after { content: ""; position: absolute; inset: -28%;
+  background:
+    linear-gradient(currentColor, currentColor) 50% 0 / 2px 22% no-repeat,
+    linear-gradient(currentColor, currentColor) 50% 100% / 2px 22% no-repeat,
+    linear-gradient(currentColor, currentColor) 0 50% / 22% 2px no-repeat,
+    linear-gradient(currentColor, currentColor) 100% 50% / 22% 2px no-repeat; }
 #t-lock.on { border-color: #39c8e8; color: #eaf9ff; background: rgba(57,200,232,0.28); }
 #t-layer .press { animation: t-press 140ms ease-out; }
 @keyframes t-press { from { transform: scale(0.86); } to { transform: scale(1); } }
@@ -138,7 +160,8 @@ export class TouchShell {
     this.ocancel.textContent = "✕";
     this.ocancel.setAttribute("aria-label", "Cancel the cast");
     this.lock = el("div", "t-lock", "tl");
-    this.lock.textContent = "LOCK";
+    this.lock.innerHTML = `<span class="tl-ret"></span>`;
+    this.lock.setAttribute("aria-label", "Target lock");
     this.lock.dataset.tctl = "lock";
     this.layer.append(this.ghost, this.stick, this.nub, this.cancel, this.ocancel, this.lock);
     document.body.appendChild(this.layer);
@@ -335,21 +358,39 @@ export class TouchShell {
     });
   }
 
-  /** Cache the measured rect of every chip the router may need to hit-test. */
+  /**
+   * Cache the measured rect of every chip the router may need to hit-test.
+   *
+   * A chip measured while its layer is hidden (boot behind #loading, a modal,
+   * body.checkin) reports a 0x0 box at the ORIGIN — getBoundingClientRect on a
+   * display:none subtree — and if no relayout ever fires again (a phone never
+   * resizes) the router carries that ghost forever. Measured on an iPhone 13:
+   * `controlAt()` said null where the LOCK chip visibly was, so the DOM path
+   * ate the tap the table did not own and a monster tap toggled sticky-lock
+   * instead (wr-surf r1 BLOCKER). The ZONE TABLE is the layout's source of
+   * truth (hudLayout paints from it), so a zero DOM measurement falls back to
+   * the table rect instead of poisoning the cache.
+   */
   measureChips(): void {
     const c = this.o.controller;
+    const table = (id: ControlId): { x: number; y: number; w: number; h: number } | null => {
+      const t = this.zones.controls[id];
+      return t ? { x: t.x, y: t.y, w: t.w, h: t.h } : null;
+    };
     const put = (id: ControlId, sel: string): void => {
       const e = document.querySelector(sel) as HTMLElement | null;
       if (!e) { c.setControlRect(id, null); return; }
       const r = e.getBoundingClientRect();
-      c.setControlRect(id, r.width > 0 ? { x: r.x, y: r.y, w: r.width, h: r.height } : null);
+      c.setControlRect(id, r.width > 0 ? { x: r.x, y: r.y, w: r.width, h: r.height } : table(id));
     };
     for (let i = 0; i <= 4; i++) put(`slot${i}` as ControlId, `#skills .skill[data-i="${i}"]`);
     put("flask", "#flask-chip");
     put("context", "#t-stairs");
     this.placeLock();
     const r = this.lock.getBoundingClientRect();
-    c.setControlRect("lock", { x: r.x, y: r.y, w: r.width, h: r.height });
+    c.setControlRect("lock", r.width > 0
+      ? { x: r.x, y: r.y, w: r.width, h: r.height }
+      : table("lock"));
   }
 
   /**
@@ -366,9 +407,11 @@ export class TouchShell {
    */
   private placeLock(): void {
     const l = this.zones.controls.lock;
-    this.lock.style.width = `${l.w}px`;
-    this.lock.style.height = `${l.h}px`;
-    this.lock.style.transform = `translate3d(${l.x}px, ${l.y}px, 0)`;
+    // Visual tier: paint the small disc, centred; the router pads to 44.
+    const v = l.vis ?? l.w;
+    this.lock.style.width = `${v}px`;
+    this.lock.style.height = `${v}px`;
+    this.lock.style.transform = `translate3d(${l.cx - v / 2}px, ${l.cy - v / 2}px, 0)`;
   }
 
   /** Size + place everything the shell owns, from the zone table. */

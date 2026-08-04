@@ -177,9 +177,13 @@ export class HudLayout {
       const el = chipEl(id);
       if (!el) continue;
       const c = z.controls[id];
-      el.style.width = `${Math.round(c.w)}px`;
-      el.style.height = `${Math.round(c.h)}px`;
-      el.style.transform = `translate3d(${Math.round(c.x)}px, ${Math.round(c.y)}px, 0)`;
+      // Paint the VISUAL disc, centred on the hit rect's own centre. The hit
+      // target is still >= 44px: the router pads every cached rect to 44
+      // (`controlAt`), so a smaller paint never shrinks what a thumb can hit.
+      const v = Math.round(c.vis ?? c.w);
+      el.style.width = `${v}px`;
+      el.style.height = `${v}px`;
+      el.style.transform = `translate3d(${Math.round(c.cx - v / 2)}px, ${Math.round(c.cy - v / 2)}px, 0)`;
     }
     // The context chip is a labelled pill, not a disc: centre it on the arc
     // point instead of sizing it, so "DESCEND" never gets clipped to a circle.
@@ -195,9 +199,10 @@ export class HudLayout {
     const z = this.zones, el = this.mapChip;
     if (!z || !el) return;
     const c = z.controls.map;
-    el.style.width = `${Math.round(c.w)}px`;
-    el.style.height = `${Math.round(c.h)}px`;
-    el.style.transform = `translate3d(${Math.round(c.x)}px, ${Math.round(c.y)}px, 0)`;
+    const v = Math.round(c.vis ?? c.w);
+    el.style.width = `${v}px`;
+    el.style.height = `${v}px`;
+    el.style.transform = `translate3d(${Math.round(c.cx - v / 2)}px, ${Math.round(c.cy - v / 2)}px, 0)`;
   }
 
   /**

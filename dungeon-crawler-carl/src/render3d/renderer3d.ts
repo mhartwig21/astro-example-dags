@@ -58,7 +58,7 @@ import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegra
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
-  AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, disposeAimShape,
+  AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, buildRangeRing, disposeAimShape,
   type AimIndicatorShape,
 } from "./aimIndicator";
 
@@ -3075,11 +3075,38 @@ export class Renderer3D {
   private async compileForComposer(): Promise<void> {
     const prev = this.renderer.getRenderTarget();
     this.renderer.setRenderTarget(this.composer.renderTarget1);
+    let materials: Set<THREE.Material>;
     try {
-      await this.renderer.compileAsync(this.scene, this.camera);
+      // compile() initiates every program build (parallel-link capable) and
+      // returns the material set compileAsync would poll.
+      materials = this.renderer.compile(this.scene, this.camera) as Set<THREE.Material>;
     } finally {
       this.renderer.setRenderTarget(prev);
     }
+    // THE POLL IS OURS, NOT three's, AND THE DIFFERENCE IS ONE GUARD.
+    // three.compileAsync's checkMaterialsReady does
+    // `properties.get(material).currentProgram.isReady()` on a bare setTimeout:
+    // a material DISPOSED while the poll is in flight (a telegraph rebuild
+    // mid-drag, a corpse dissolve expiring, a floor teardown — the late-catcher
+    // compiles exactly when such materials are being minted and destroyed) has
+    // no `currentProgram`, the timer callback throws `reading 'isReady'`
+    // outside any promise, and the page gets an uncatchable error — reproduced
+    // on 3 phone-class boots and both aim-line devices (r1 audit note). A
+    // disposed material has nothing left to wait for; it leaves the set.
+    const props = (this.renderer as unknown as {
+      properties: { get: (m: THREE.Material) => { currentProgram?: { isReady: () => boolean } } };
+    }).properties;
+    await new Promise<void>((resolve) => {
+      const check = (): void => {
+        for (const m of [...materials]) {
+          const prog = props.get(m)?.currentProgram;
+          if (!prog || prog.isReady()) materials.delete(m);
+        }
+        if (materials.size === 0) { resolve(); return; }
+        setTimeout(check, 10);
+      };
+      check();
+    });
   }
 
   async prewarm(state: GameState, onStep?: (done: number, total: number) => void): Promise<void> {
@@ -3980,6 +4007,41 @@ export class Renderer3D {
     ind.clear();
     for (const m of buildAimShape(kind, range, radius, arc, stroke, minSpan)) ind.add(m);
   }
+
+  /**
+   * THE MAX-RANGE RING (wr_04, MOBILE.md §3.1): the cast's reach drawn as a
+   * world circle around the CRAWLER while an aim is live — the aim shape
+   * itself rides the anchor, this rides the origin. Separate group because
+   * the two have different centres; same key discipline as the indicator.
+   */
+  setAimRange(center: Vec2 | null, r: number): void {
+    // Under ~3 tiles the ring would sit inside the crawler's own footprint
+    // noise; melee does not need a range circle.
+    if (!center || r < 3) {
+      if (this.aimRangeGrp) this.aimRangeGrp.visible = false;
+      this.aimRangeKey = "";
+      return;
+    }
+    if (!this.aimRangeGrp) {
+      const g = new THREE.Group();
+      g.name = "aimRange";
+      g.renderOrder = 3970;
+      this.aimRangeGrp = g;
+      this.scene.add(g);
+    }
+    const grp = this.aimRangeGrp;
+    grp.visible = true;
+    grp.position.set(center.x, 0.06, center.y);
+    const stroke = Math.max(0.09, 2 * this.aimWorldPerPx());
+    const key = `${r.toFixed(2)}|${stroke.toFixed(3)}`;
+    if (this.aimRangeKey === key) return;
+    this.aimRangeKey = key;
+    for (const c of grp.children.slice()) disposeAimShape(c);
+    grp.clear();
+    for (const m of buildRangeRing(r, stroke)) grp.add(m);
+  }
+  private aimRangeGrp: THREE.Group | null = null;
+  private aimRangeKey = "";
 
   /**
    * World units per CSS pixel at the ground plane, from the live orthographic
