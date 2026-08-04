@@ -194,10 +194,11 @@ lap: 60-96s for ambient beds.
 | THE IRONWORKS (13-15) | The machine floor. Actual rhythm arrives: 90-96 BPM industrial pulse, vent hiss, clank accents on the off-beats, conveyor drone. | 90-96 BPM | 64-85s (bar-exact) | Synth |
 | THE APPROACH (16-18) | Showtime dread. Broadcast mains hum, low brass-ish drone cluster, a distant crowd-texture layer that NEVER resolves into cheering. The studio is watching. | drone + 45 BPM heartbeat pulse | 80-96s | Synth |
 | Menu / campfire | The check-in. Small, warm-ish, tired: soft pad + slow filtered arp, the only near-friendly cue in the game. | ~65 BPM | 60-75s | Synth |
-| Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. | — | as-is | Existing |
+| Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. **r2: the source's fade-out tail trimmed + 2s loop crossfade** (`fix-beds.mjs`; seam step 20.7dB→0.8dB, LUFS preserved). | — | as-is | Existing |
+| (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. Not repaired — §3's UNDERCROFT band bed replaces it as the default ambience; fix only if it survives phase B as the fallback. | — | — | Existing |
 | Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). | — | as-is | Existing |
 | Boss themes | Keep epic/tides/colossal (+ shipped final-phase escalation to colossal). Optional P2: a generated percussion LAYER the engine adds at low HP instead of a full bed swap. | — | as-is | Existing (CC-BY credited) |
-| Collapse | Keep, re-encode WAV→OGG. | — | as-is | Existing |
+| Collapse | Keep, re-encode WAV→OGG. **r2: seam click + true peak fixed** (`fix-beds.mjs`: -2.0dB, 25ms loop crossfade → -1.4 dBTP, seam 0.3dB). Level vs the -20 LUFS family target stays phase C's. | — | as-is | Existing |
 
 Band beds replace `music_dungeon` via `floorBand(state.floor)` in the
 director's music selector (one-line routing change per the existing seam);

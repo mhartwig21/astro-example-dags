@@ -155,8 +155,8 @@ pointers for the audio sources too.
 | `sfx/level_up,victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles | Kenney | CC0 |
 | `sfx/heal,dash,bolt,death.ogg` | Kenney — Digital Audio | Kenney | CC0 |
 | `music/dungeon.ogg` | [Loopable Dungeon Ambience](https://opengameart.org/content/loopable-dungeon-ambience) | JaggedStone | CC0 |
-| `music/safe_room.ogg` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) (re-encoded MP3→OGG q3, format only; -18.0 LUFS preserved) | The Cynic Project (cynicmusic.com) | CC0 |
-| `music/collapse.ogg` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) (re-encoded WAV→OGG q4, format only; -8.1 LUFS preserved) | Ville Nousiainen, loop by XCVG | CC0 |
+| `music/safe_room.ogg` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) (re-encoded MP3→OGG q3; SFX r2: source's fade-out tail trimmed + 2s loop crossfade via `tools/audio/fix-beds.mjs` — the fade made every loop restart step 20.7dB. -18.0 LUFS preserved, 157.9s→143.1s) | The Cynic Project (cynicmusic.com) | CC0 |
+| `music/collapse.ogg` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) (re-encoded WAV→OGG q4; SFX r2: -2.0dB trim + 25ms loop crossfade via `tools/audio/fix-beds.mjs` — the source loop had a seam click and +0.52 dBTP true peak; now -1.4 dBTP, seam delta 0.3dB) | Ville Nousiainen, loop by XCVG | CC0 |
 | `music/battle_theme_a.ogg` | [Battle Theme A](https://opengameart.org/content/battle-theme-a) | cynicmusic (The Cynic Project) | CC0 |
 | `music/boss_epic.ogg` | [Boss Battle Music](https://opengameart.org/content/boss-battle-music) | Juhani Junkala (SubspaceAudio) | CC0 |
 | `sfx/dot_burn.ogg` | [Fire Crackling](https://opengameart.org/content/fire-crackling) (trimmed to a 0.4s tick) | AntumDeluge | CC0 |

@@ -29,18 +29,36 @@ if (files.length === 0) {
 }
 
 const SR = 48000;
+// Decode at the file's own channel count and mix down 0.5/0.5 ourselves:
+// ffmpeg's `-ac 1` downmix uses 0.707 coefficients, which INFLATED peak
+// readings by up to +3dB on correlated stereo (the beds — collapse.ogg
+// measured "+3.4 dBFS" while its per-channel/true peak was +0.52 dBTP).
+// Peak is judged across real channels; RMS metrics on the 0.5 mono mix.
 function decode(file) {
-  const raw = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", file, "-ac", "1", "-ar", String(SR), "-f", "f32le", "-"], { maxBuffer: 1 << 30 });
-  return new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength >> 2);
+  const ch = Number(execFileSync("ffprobe", ["-v", "error", "-select_streams", "a:0", "-show_entries", "stream=channels", "-of", "csv=p=0", file]).toString().trim()) || 1;
+  const raw = execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-i", file, "-ar", String(SR), "-f", "f32le", "-"], { maxBuffer: 1 << 30 });
+  const inter = new Float32Array(raw.buffer, raw.byteOffset, raw.byteLength >> 2);
+  const n = Math.floor(inter.length / ch);
+  const mono = new Float32Array(n);
+  let chPeak = 0;
+  for (let i = 0; i < n; i++) {
+    let s = 0;
+    for (let c = 0; c < ch; c++) {
+      const v = inter[i * ch + c];
+      s += v;
+      const a = Math.abs(v);
+      if (a > chPeak) chPeak = a;
+    }
+    mono[i] = s / ch;
+  }
+  return { mono, chPeak };
 }
 
 const dbf = (v) => 20 * Math.log10(Math.max(1e-12, v));
 const rows = [];
 for (const file of files) {
-  const x = decode(file);
+  const { mono: x, chPeak: peak } = decode(file);
   const n = x.length;
-  let peak = 0;
-  for (let i = 0; i < n; i++) peak = Math.max(peak, Math.abs(x[i]));
   // momentary proxy: max 400ms RMS
   const w = Math.min(n, Math.round(0.4 * SR));
   let sum = 0;
