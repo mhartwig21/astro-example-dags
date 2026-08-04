@@ -1,0 +1,46 @@
+[
+ [
+  "menu geometry 1366x768",
+  "{\"solo\":{\"w\":473,\"h\":80,\"x\":575,\"y\":260},\"daily\":{\"w\":473,\"h\":68,\"x\":575,\"y\":347},\"tile\":{\"w\":153,\"h\":139,\"x\":575,\"y\":422},\"ratioSoloTile\":0.58,\"ratioSoloDaily\":1.18,\"tabsWrapped\":true,\"tabRows\":2,\"tabs\":[{\"t\":\"TODAY\",\"y\":355},{\"t\":\"DEEPEST\",\"y\":355},{\"t\":\"FASTEST\",\"y\":355},{\"t\":\"KILLS\",\"y\":388},{\"t\":\"RIVALS\",\"y\":388}],\"board\":{\"w\":232,\"h\":254,\"x\":1065,\"y\":342},\"list\":{\"w\":202,\"h\":144,\"x\":1080,\"y\":439},\"emptyText\":\"board offline — the server keeps the score\",\"emptyBox\":{\"w\":202,\"h\":86},\"voidBelow\":58,\"panel\":{\"w\":765,\"h\":540,\"x\":553,\"y\":114},\"ics\":[{\"mask\":\"party.svg\",\"color\":\"rgb(169, 159, 140)\"},{\"mask\":\"skull.svg\",\"color\":\"rgb(192, 57, 47)\"},{\"mask\":\"marker.svg\",\"color\":\"rgb(217, 142, 74)\"}]}"
+ ],
+ [
+  "menu hero luminance 1366x768",
+  "{\"meanLuma\":3,\"maxLuma\":72.4,\"stddev\":17.2,\"px\":271955}"
+ ],
+ [
+  "abil-ach fit 1366x768",
+  "{\"overflowers\":[{\"sel\":\"#ach-section\",\"over\":100,\"client\":558}],\"cards\":13,\"cols\":2,\"card\":\"356x84\",\"pane\":558}"
+ ],
+ [
+  "tutorial stock 1366x768",
+  "{\"mount\":\"never mounted\",\"vis\":{\"ok\":false,\"why\":\"absent\"},\"shotMs\":10387,\"stillShownAfterShot\":false,\"raster\":null}"
+ ],
+ [
+  "tutorial nobackdrop 1366x768",
+  "{\"mount\":\"never mounted\",\"vis\":{\"ok\":false,\"why\":\"absent\"},\"shotMs\":11096,\"stillShownAfterShot\":false,\"raster\":null}"
+ ],
+ [
+  "menu geometry 1600x900",
+  "{\"solo\":{\"w\":555,\"h\":91,\"x\":673,\"y\":323},\"daily\":{\"w\":555,\"h\":68,\"x\":673,\"y\":421},\"tile\":{\"w\":180,\"h\":150,\"x\":673,\"y\":496},\"ratioSoloTile\":0.61,\"ratioSoloDaily\":1.34,\"tabsWrapped\":true,\"tabRows\":2,\"tabs\":[{\"t\":\"TODAY\",\"y\":421},{\"t\":\"DEEPEST\",\"y\":421},{\"t\":\"FASTEST\",\"y\":421},{\"t\":\"KILLS\",\"y\":457},{\"t\":\"RIVALS\",\"y\":457}],\"board\":{\"w\":272,\"h\":273,\"x\":1247,\"y\":408},\"list\":{\"w\":242,\"h\":156,\"x\":1262,\"y\":512},\"emptyText\":\"board offline — the server keeps the score\",\"emptyBox\":{\"w\":242,\"h\":92},\"voidBelow\":64,\"panel\":{\"w\":896,\"h\":588,\"x\":648,\"y\":156},\"ics\":[{\"mask\":\"party.svg\",\"color\":\"rgb(169, 159, 140)\"},{\"mask\":\"skull.svg\",\"color\":\"rgb(192, 57, 47)\"},{\"mask\":\"marker.svg\",\"color\":\"rgb(217, 142, 74)\"}]}"
+ ],
+ [
+  "menu hero luminance 1600x900",
+  "{\"meanLuma\":3.1,\"maxLuma\":73.8,\"stddev\":17.7,\"px\":374400}"
+ ],
+ [
+  "abil-ach fit 1600x900",
+  "{\"overflowers\":[],\"cards\":13,\"cols\":3,\"card\":\"264x94\",\"pane\":547}"
+ ],
+ [
+  "menu geometry 2560x1440",
+  "{\"solo\":{\"w\":992,\"h\":107,\"x\":1067,\"y\":589},\"daily\":{\"w\":992,\"h\":68,\"x\":1067,\"y\":702},\"tile\":{\"w\":326,\"h\":167,\"x\":1067,\"y\":777},\"ratioSoloTile\":0.64,\"ratioSoloDaily\":1.57,\"tabsWrapped\":true,\"tabRows\":2,\"tabs\":[{\"t\":\"TODAY\",\"y\":679},{\"t\":\"DEEPEST\",\"y\":679},{\"t\":\"FASTEST\",\"y\":679},{\"t\":\"KILLS\",\"y\":679},{\"t\":\"RIVALS\",\"y\":718}],\"board\":{\"w\":360,\"h\":318,\"x\":2083,\"y\":666},\"list\":{\"w\":330,\"h\":193,\"x\":2098,\"y\":778},\"emptyText\":\"board offline — the server keeps the score\",\"emptyBox\":{\"w\":330,\"h\":98},\"voidBelow\":95,\"panel\":{\"w\":1434,\"h\":669,\"x\":1038,\"y\":386},\"ics\":[{\"mask\":\"party.svg\",\"color\":\"rgb(169, 159, 140)\"},{\"mask\":\"skull.svg\",\"color\":\"rgb(192, 57, 47)\"},{\"mask\":\"marker.svg\",\"color\":\"rgb(217, 142, 74)\"}]}"
+ ],
+ [
+  "menu hero luminance 2560x1440",
+  "{\"meanLuma\":3,\"maxLuma\":73.1,\"stddev\":17.3,\"px\":964080}"
+ ],
+ [
+  "abil-ach fit 2560x1440",
+  "{\"overflowers\":[],\"cards\":13,\"cols\":5,\"card\":\"264x109\",\"pane\":368}"
+ ]
+]

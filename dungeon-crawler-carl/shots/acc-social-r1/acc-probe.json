@@ -1,0 +1,554 @@
+[
+ [
+  "menu geom 1366x768",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 575,
+    "y": 256,
+    "w": 458,
+    "h": 97
+   },
+   "daily": {
+    "x": 575,
+    "y": 360,
+    "w": 458,
+    "h": 60
+   },
+   "ratioSoloDaily": 1.62,
+   "tiles": [
+    {
+     "w": 148,
+     "h": 139
+    },
+    {
+     "w": 148,
+     "h": 139
+    },
+    {
+     "w": 148,
+     "h": 139
+    }
+   ],
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 1064,
+     "y": 350,
+     "right": 1115,
+     "w": 52
+    },
+    {
+     "t": "DEEPEST",
+     "x": 1122,
+     "y": 350,
+     "right": 1189,
+     "w": 66
+    },
+    {
+     "t": "FASTEST",
+     "x": 1196,
+     "y": 350,
+     "right": 1259,
+     "w": 64
+    },
+    {
+     "t": "KILLS",
+     "x": 1266,
+     "y": 350,
+     "right": 1310,
+     "w": 44
+    },
+    {
+     "t": "RIVALS",
+     "x": 1317,
+     "y": 350,
+     "right": 1371,
+     "w": 54
+    }
+   ],
+   "stripRight": 1282,
+   "stripScroll": 89,
+   "board": {
+    "x": 1049,
+    "y": 337,
+    "w": 248,
+    "h": 263
+   },
+   "list": {
+    "x": 1064,
+    "y": 401,
+    "w": 218,
+    "h": 186
+   },
+   "empty": {
+    "w": 218,
+    "h": 186,
+    "text": "THE BOARD IS DARKthe server keeps the score — the standings "
+   },
+   "voidBelow": 0,
+   "ics": [
+    {
+     "mask": "party.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "skull.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "marker.svg\")",
+     "color": "rgb(169, 159, 140)"
+    }
+   ],
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   }
+  }
+ ],
+ [
+  "menu clips 1366x768",
+  [
+   {
+    "kind": "anc-x",
+    "sel": ".bt",
+    "by": ".panel",
+    "cutR": 53,
+    "cutL": -764,
+    "text": "RIVALS"
+   }
+  ]
+ ],
+ [
+  "menu fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   },
+   "panelOffscreen": {
+    "r": 0,
+    "b": 0,
+    "t": 0,
+    "l": 0
+   },
+   "liveScrollers": [
+    {
+     "sel": ".m-cols",
+     "axis": "x",
+     "over": 74,
+     "client": 722
+    }
+   ]
+  }
+ ],
+ [
+  "menu hero luma 1366x768",
+  {
+   "meanLuma": 3.5,
+   "maxLuma": 75.6,
+   "px": 421632
+  }
+ ],
+ [
+  "ladder 1366x768",
+  "DID NOT OPEN"
+ ],
+ [
+  "career 1366x768",
+  "DID NOT OPEN"
+ ],
+ [
+  "abil-ach fit 1366x768",
+  {
+   "paneOver": 0,
+   "paneClient": 495,
+   "cards": 13,
+   "cols": 3,
+   "card": "234x88",
+   "scrollbarVisible": false
+  }
+ ],
+ [
+  "abil clips 1366x768",
+  []
+ ],
+ [
+  "menu geom 1600x900",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 673,
+    "y": 314,
+    "w": 539,
+    "h": 109
+   },
+   "daily": {
+    "x": 673,
+    "y": 430,
+    "w": 539,
+    "h": 68
+   },
+   "ratioSoloDaily": 1.6,
+   "tiles": [
+    {
+     "w": 175,
+     "h": 150
+    },
+    {
+     "w": 175,
+     "h": 150
+    },
+    {
+     "w": 175,
+     "h": 150
+    }
+   ],
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 1246,
+     "y": 412,
+     "right": 1305,
+     "w": 59
+    },
+    {
+     "t": "DEEPEST",
+     "x": 1312,
+     "y": 412,
+     "right": 1387,
+     "w": 75
+    },
+    {
+     "t": "FASTEST",
+     "x": 1394,
+     "y": 412,
+     "right": 1466,
+     "w": 72
+    },
+    {
+     "t": "KILLS",
+     "x": 1473,
+     "y": 412,
+     "right": 1523,
+     "w": 50
+    },
+    {
+     "t": "RIVALS",
+     "x": 1530,
+     "y": 412,
+     "right": 1591,
+     "w": 61
+    }
+   ],
+   "stripRight": 1504,
+   "stripScroll": 87,
+   "board": {
+    "x": 1231,
+    "y": 399,
+    "w": 288,
+    "h": 291
+   },
+   "list": {
+    "x": 1246,
+    "y": 467,
+    "w": 258,
+    "h": 210
+   },
+   "empty": {
+    "w": 258,
+    "h": 210,
+    "text": "THE BOARD IS DARKthe server keeps the score — the standings "
+   },
+   "voidBelow": 0,
+   "ics": [
+    {
+     "mask": "party.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "skull.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "marker.svg\")",
+     "color": "rgb(169, 159, 140)"
+    }
+   ],
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   }
+  }
+ ],
+ [
+  "menu clips 1600x900",
+  [
+   {
+    "kind": "anc-x",
+    "sel": ".bt",
+    "by": ".panel",
+    "cutR": 47,
+    "cutL": -882,
+    "text": "RIVALS"
+   }
+  ]
+ ],
+ [
+  "menu fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   },
+   "panelOffscreen": {
+    "r": 0,
+    "b": 0,
+    "t": 0,
+    "l": 0
+   },
+   "liveScrollers": [
+    {
+     "sel": ".m-cols",
+     "axis": "x",
+     "over": 72,
+     "client": 846
+    }
+   ]
+  }
+ ],
+ [
+  "menu hero luma 1600x900",
+  {
+   "meanLuma": 3.8,
+   "maxLuma": 78.1,
+   "px": 579600
+  }
+ ],
+ [
+  "ladder 1600x900",
+  "DID NOT OPEN"
+ ],
+ [
+  "career 1600x900",
+  "DID NOT OPEN"
+ ],
+ [
+  "abil-ach fit 1600x900",
+  {
+   "paneOver": 0,
+   "paneClient": 547,
+   "cards": 13,
+   "cols": 3,
+   "card": "264x94",
+   "scrollbarVisible": false
+  }
+ ],
+ [
+  "abil clips 1600x900",
+  []
+ ],
+ [
+  "menu geom 2560x1440",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 1067,
+    "y": 577,
+    "w": 992,
+    "h": 123
+   },
+   "daily": {
+    "x": 1067,
+    "y": 707,
+    "w": 992,
+    "h": 76
+   },
+   "ratioSoloDaily": 1.62,
+   "tiles": [
+    {
+     "w": 326,
+     "h": 167
+    },
+    {
+     "w": 326,
+     "h": 167
+    },
+    {
+     "w": 326,
+     "h": 167
+    }
+   ],
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 2098,
+     "y": 667,
+     "right": 2165,
+     "w": 67
+    },
+    {
+     "t": "DEEPEST",
+     "x": 2172,
+     "y": 667,
+     "right": 2258,
+     "w": 86
+    },
+    {
+     "t": "FASTEST",
+     "x": 2265,
+     "y": 667,
+     "right": 2347,
+     "w": 83
+    },
+    {
+     "t": "KILLS",
+     "x": 2354,
+     "y": 667,
+     "right": 2411,
+     "w": 57
+    },
+    {
+     "t": "RIVALS",
+     "x": 2418,
+     "y": 667,
+     "right": 2487,
+     "w": 69
+    }
+   ],
+   "stripRight": 2428,
+   "stripScroll": 59,
+   "board": {
+    "x": 2083,
+    "y": 654,
+    "w": 360,
+    "h": 342
+   },
+   "list": {
+    "x": 2098,
+    "y": 727,
+    "w": 330,
+    "h": 256
+   },
+   "empty": {
+    "w": 330,
+    "h": 256,
+    "text": "THE BOARD IS DARKthe server keeps the score — the standings "
+   },
+   "voidBelow": 1,
+   "ics": [
+    {
+     "mask": "party.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "skull.svg\")",
+     "color": "rgb(169, 159, 140)"
+    },
+    {
+     "mask": "marker.svg\")",
+     "color": "rgb(169, 159, 140)"
+    }
+   ],
+   "panel": {
+    "x": 1038,
+    "y": 374,
+    "w": 1434,
+    "h": 693
+   }
+  }
+ ],
+ [
+  "menu clips 2560x1440",
+  [
+   {
+    "kind": "anc-x",
+    "sel": ".bt",
+    "by": ".panel",
+    "cutR": 15,
+    "cutL": -1379,
+    "text": "RIVALS"
+   }
+  ]
+ ],
+ [
+  "menu fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 1038,
+    "y": 374,
+    "w": 1434,
+    "h": 693
+   },
+   "panelOffscreen": {
+    "r": 0,
+    "b": 0,
+    "t": 0,
+    "l": 0
+   },
+   "liveScrollers": [
+    {
+     "sel": ".m-cols",
+     "axis": "x",
+     "over": 44,
+     "client": 1376
+    }
+   ]
+  }
+ ],
+ [
+  "menu hero luma 2560x1440",
+  {
+   "meanLuma": 3.8,
+   "maxLuma": 78.8,
+   "px": 1488960
+  }
+ ],
+ [
+  "ladder 2560x1440",
+  "DID NOT OPEN"
+ ],
+ [
+  "career 2560x1440",
+  "DID NOT OPEN"
+ ],
+ [
+  "abil-ach fit 2560x1440",
+  {
+   "paneOver": 0,
+   "paneClient": 368,
+   "cards": 13,
+   "cols": 5,
+   "card": "264x109",
+   "scrollbarVisible": false
+  }
+ ],
+ [
+  "abil clips 2560x1440",
+  []
+ ]
+]

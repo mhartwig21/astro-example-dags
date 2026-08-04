@@ -83,6 +83,12 @@ export interface FloorTheme {
   propTint?: Record<string, number>;
   // Present = this band is an open-air district (see OpenAirSpec above).
   openAir?: OpenAirSpec;
+  // HUE-COMPETITION GUARD (FX r2 #6). True = this band's own dressing owns
+  // the red/orange slice (molten seams, ember crates), so the generic warm
+  // danger telegraphs re-hue to crimson-magenta — a slice the environment
+  // never uses — and the 0.2s "that ground is a threat" parse keeps its
+  // color margin. Boss ASK colors and non-warm tells are never remapped.
+  dangerCrimson?: boolean;
   // Cinematic rig + grade for the band (theme.ts BandMood). Applied on floor
   // build: lights, environment gradient, split-tone grade, vignette, void.
   mood: BandMood;
@@ -370,6 +376,9 @@ export const FLOOR_THEMES: FloorTheme[] = [
     // the cyan surviving only in the mood's rim light. 3:1 warm-over-fill.
     torchColor: 0xff8632, torchIntensity: 3.8,
     background: 0x060a14,
+    // The foundry owns orange-red (molten channels, forge embers, red
+    // crates): warm danger telegraphs shift to crimson-magenta here.
+    dangerCrimson: true,
     landmark: { // an abandoned workshop
       pillarKey: "pillar_decorated", pillarScale: 0.9,
       centerpieceKey: "table_round_medium", centerpieceScale: 1.1,

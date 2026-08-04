@@ -746,7 +746,52 @@ function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: numb
  * eras or accounts, so a row here would silently contradict the row there.
  * Falls through to the legacy shape only when the competitive API is dark.
  */
+/** The empty campfire board is DESIGNED CONTENT (social r1 — BOARD OFFLINE
+ *  used to be an 86px apology floating in a 254px module): the System's
+ *  headline, the plain reason, and three ghost rows that hold the shape of
+ *  the score to come. `ol.empty` centers it and owns the module's height. */
+function boardEmptyHtml(head: string, sub: string): string {
+  // Eight ghosts, not three: rows 4-8 only show at tall viewports (CSS),
+  // where the module is ~200px taller and three thin bars left a ~170px dead
+  // band under the skeleton (r3).
+  return `<li class="none"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
+    `${'<i class="ghost"></i>'.repeat(8)}</li>`;
+}
+
+/** One skeleton row: a ghost of `.brow`'s own grid (rank / name / seal chip /
+ *  result). Shared by the panel-scale empty states and the career shelf, so
+ *  every skeleton in the product mirrors the geometry of the rows to come. */
+function skelRowsHtml(n: number): string {
+  return `<div class="skelrows">${
+    ('<div class="skelrow"><i class="sk-rank"></i><i class="sk-nm"></i>' +
+     '<i class="sk-chip"></i><i class="sk-res"></i></div>').repeat(n)}</div>`;
+}
+
+/** The same design at PANEL scale (social r2): with the server dark, THE
+ *  STANDINGS was one italic line in the corner of up to 96% of a 1440p
+ *  viewport, on the same day the menu board got TUNING IN + ghost rows for
+ *  the identical condition. One condition, one voice. The block centers in
+ *  the frame (`.set-empty` is flex:1) and `fitPanel` refuses to hug it, so
+ *  loading/offline tabs hold the same frame as their populated siblings. */
+function setEmptyHtml(head: string, sub: string): string {
+  // r3: the skeleton mirrors the real board's geometry at the real board's
+  // width (eight `.brow`-shaped rows; CSS shows five on a laptop, all eight
+  // taller at 1440p) — the r2 version was five 13px stripes in a 560px block,
+  // which at 2560x1440 read as a rendering mistake centered in a void.
+  return `<div class="set-empty"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
+    skelRowsHtml(8) + `</div>`;
+}
+
 async function refreshBoard(): Promise<void> {
+  // Every path in the inner refresh rewrites the list, so whether the empty
+  // state owns the module's height is settled ONCE, after whichever path ran:
+  // empty = not a single real row landed.
+  await refreshBoardInner();
+  const list = document.getElementById("m-board-list")!;
+  list.classList.toggle("empty", !list.querySelector("li:not(.none)"));
+}
+
+async function refreshBoardInner(): Promise<void> {
   const list = document.getElementById("m-board-list")!;
   const dayEl = document.getElementById("m-board-day")!;
   try {
@@ -756,7 +801,8 @@ async function refreshBoard(): Promise<void> {
     })) as social.BoardPage;
     dayEl.textContent = boardTab === "today" ? (challengeDay ?? dayFromMs(Date.now())) : "ALL-TIME";
     if (page.entries.length === 0) {
-      list.innerHTML = '<li class="none">no crawlers on this board yet — be the first</li>';
+      list.innerHTML = boardEmptyHtml("AN OPEN CONTRACT",
+        "no crawler is on this board yet — the first name up stays up");
       return;
     }
     list.innerHTML = page.entries.map((r, i) => {
@@ -779,18 +825,20 @@ async function refreshBoard(): Promise<void> {
       // self-reported; they are shown only when the sealed boards are dark, and
       // they are never allowed to look like the sealed ones.
       dayEl.textContent = "ALL-TIME · UNSEALED LEGACY";
-      list.innerHTML = (data.entries.length
+      list.innerHTML = data.entries.length
         ? data.entries.slice(0, 10).map((e, i) =>
             `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
             `<span class="seal claimed" title="self-reported, from before verification — never replayed">UNSEALED</span>` +
             `<span class="res${e.won ? " win" : ""}">${alltimeRes(boardTab, e)}</span></li>`,
           ).join("")
-        : '<li class="none">nobody has claimed this board yet</li>')
-        + '<li class="none">THE STANDINGS are offline — these are legacy, self-reported rows</li>';
+          + '<li class="none">THE STANDINGS are offline — these are legacy, self-reported rows</li>'
+        : boardEmptyHtml("AN UNCLAIMED BOARD",
+            "the sealed standings are dark and no legacy row claims this — it is yours to take");
       const nms = list.querySelectorAll(".nm");
       data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
     } catch {
-      list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+      list.innerHTML = boardEmptyHtml("THE BOARD IS DARK",
+        "the server keeps the score — the standings return with the signal");
     }
     return;
   }
@@ -806,7 +854,8 @@ async function refreshBoard(): Promise<void> {
           `<li><span class="rank">${i + 1}</span><span class="nm"></span>` +
           `<span class="res${e.won ? " win" : ""}">${e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`}</span></li>`,
         ).join("")
-      : '<li class="none">no crawlers on the board yet — be the first</li>';
+      : boardEmptyHtml("AN OPEN CONTRACT",
+          "no crawler has signed today's dungeon — the first name up stays up");
     // Names are player-supplied: set via textContent, never innerHTML.
     const nms = list.querySelectorAll(".nm");
     data.entries.slice(0, 10).forEach((e, i) => { nms[i].textContent = e.name; });
@@ -831,7 +880,8 @@ async function refreshBoard(): Promise<void> {
       }
     }
   } catch {
-    list.innerHTML = '<li class="none">board offline — the server keeps the score</li>';
+    list.innerHTML = boardEmptyHtml("THE BOARD IS DARK",
+      "the server keeps the score — the standings return with the signal");
   }
 }
 
@@ -1058,11 +1108,18 @@ function renderCareer(): void {
     `<div class="best"><b>${bests.fastestClearSec !== null ? fmt(bests.fastestClearSec) : "—"}</b><small>FASTEST CLEAR</small></div>` +
     `<div class="best"><b>${bests.mostKills.toLocaleString()}</b><small>MOST KILLS</small></div>` +
     `<div class="best"><b>${bests.peakViewers.toLocaleString()}</b><small>PEAK VIEWERS</small></div>`;
-  document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
+  // The module hides entirely with zero finished runs (no empty shrine), but
+  // the RECENT EPISODES list still owns the same designed empty state as its
+  // sibling board module above it (social r2 minor 8a) — one condition, one
+  // voice, and a belt against any future path that shows the panel early.
+  const careerList = document.getElementById("m-career-list")!;
+  careerList.innerHTML = history.slice(0, 5).map((r) =>
     `<li><span class="rank">${r.mode === "daily" ? '<i class="dia"></i>' : "·"}</span>` +
     `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
     `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${social.count(r.kills, "kill")}`}</span></li>`,
-  ).join("");
+  ).join("") || boardEmptyHtml("NO EPISODES FILED",
+    "finish a crawl and the System starts your reel");
+  careerList.classList.toggle("empty", history.length === 0);
 }
 
 function openMenu(): void {
@@ -6280,6 +6337,13 @@ interface DmgLive {
   crit: boolean;
   color: string; // numeral face hex — merges repaint with the same palette
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
+  // Type-size multiplier. Incoming (kind "player") numbers run 0.78: they
+  // were photographed DOMINATING dense fights (1862/2160/1885 in every
+  // floor-15 frame) while the attacks causing them had almost no FX — the
+  // number was playing the enemy's attack, which is backwards. The HP bar,
+  // the crimson body flash and the new incoming-slash streaks carry the
+  // threat read; the numeral is bookkeeping.
+  scale: number;
 }
 const dmgLive: DmgLive[] = [];
 // ONE NUMBER PER TARGET PER BEAT. The window was 520 ms and the merge radius
@@ -6481,7 +6545,7 @@ function dmgShade(hex: string, k: number): string {
 }
 /** Paints the numeral and RETURNS its box at peak pop — the de-overlap test
  *  needs the drawn size, and only this function knows it. */
-function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0): { pop: number; cw: number; ch: number } {
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0, scale = 1): { pop: number; cw: number; ch: number } {
   let canvas = el.firstElementChild as HTMLCanvasElement | null;
   if (!canvas || canvas.tagName !== "CANVAS") {
     canvas = document.createElement("canvas");
@@ -6494,7 +6558,7 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   // crit read as a crit at arm's length and still leave the monster under it
   // visible — the hierarchy (crit ~1.5x the body) is preserved exactly, the
   // absolute scale is not.
-  const px = crit ? 26 : 21;
+  const px = Math.round((crit ? 26 : 21) * scale);
   const pad = crit ? 8 : 7;
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return { pop: dmgPop(crit, merges), cw: text.length * px * 0.62, ch: px }; }
@@ -6657,7 +6721,7 @@ function spawnDamageNumber(h: HitEvent): void {
         rec.el.style.color = rec.color;
       }
       rec.el.getAnimations().forEach((a) => a.cancel());
-      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges);
+      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges, rec.scale);
       const box = dmgMeasure(rec.el, pn.pop, pn.cw, pn.ch, rec.crit ? "c" : "n");
       // RE-ANCHOR AND RE-PLACE ON MERGE. A rolling counter grows a digit at a
       // time (83 -> 854 -> 3872), so the box that was clear when it was two
@@ -6723,8 +6787,10 @@ function spawnDamageNumber(h: HitEvent): void {
     el, key, wx: h.pos.x, wz: h.pos.y, sx: s.x, sy: s.y, bw: 0, bh: 0, row: 0,
     total: h.amount, merges: 0, born: now, crit, color,
     stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
+    scale: h.kind === "player" ? 0.78 : 1, // see DmgLive.scale
   };
-  const pn = paintNumeral(el, dmgText(rec, sign), color, crit);
+  if (h.kind === "player") el.style.opacity = "0.92";
+  const pn = paintNumeral(el, dmgText(rec, sign), color, crit, 0, rec.scale);
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip. This runs BEFORE the
   // measure — the shield opens a second line box and the reservation has to
@@ -6898,15 +6964,31 @@ function plateOverHud(x: number, y: number): boolean {
 //
 // So plates are now PLACED, nearest-first, exactly like the damage numbers:
 // the closest monster keeps its natural spot and anything that would collide
-// walks upward in PLATE_STACK steps. A plate that cannot find a clear slot in
-// PLATE_STACK_MAX steps is DROPPED if it is resting (ambient information is
-// allowed to lose an argument with legibility) and force-placed if it is
-// engaged (you are being told about a specific fight; that one wins).
+// walks upward in PLATE_STACK steps.
+//
+// THE PACK RULE (appearance r2 BLOCKER #2 — this file's r3 note said
+// "legibility and density are separate problems and both have to be solved
+// or the fix is a swap", and the capture of a real 18-body pack at HIGH
+// proved the r3 cut was a swap after all: every engaged plate was
+// FORCE-PLACED after 5 steps of climbing, so the pile stacked ~14 identical
+// ticks into a 45px tower with the damage numbers landing on top). What LoL
+// actually does in a pile is not "stack all the bars in a column" — bars sit
+// on their units and the pile's interior bars simply lose. So:
+//   - an ENGAGED plate walks at most 2 steps hunting a clear slot. A bar
+//     two-plus steps off its body is no longer over the thing it describes;
+//   - exactly ONE engaged plate per frame may ignore the collision rule: the
+//     NEAREST one (iteration is nearest-first), seated at its NATURAL anchor
+//     — over its own mob, not at the top of a tower. That is the body you
+//     are fighting; the rest of the pile reads as a pile;
+//   - a RESTING plate near two already-placed plates is dropped before it
+//     even hunts: ambient information loses the argument with density.
 const PLATE_STACK = 9; // px per de-overlap step
-const PLATE_STACK_MAX = 5;
+const PLATE_STACK_MAX = 5; // resting plates may hunt this far
+const PLATE_STACK_MAX_ENGAGED = 2; // an engaged bar stays near its body
 const plateBoxes: { x: number; y: number; w: number }[] = [];
 function plateSeat(x: number, y: number, w: number, engaged: boolean): number | null {
-  for (let step = 0; step <= PLATE_STACK_MAX; step++) {
+  const maxSteps = engaged ? PLATE_STACK_MAX_ENGAGED : PLATE_STACK_MAX;
+  for (let step = 0; step <= maxSteps; step++) {
     const cy = y - step * PLATE_STACK;
     let clear = true;
     for (const b of plateBoxes) {
@@ -6914,10 +6996,20 @@ function plateSeat(x: number, y: number, w: number, engaged: boolean): number | 
     }
     if (clear) { plateBoxes.push({ x, y: cy, w }); return cy; }
   }
-  if (!engaged) return null;
-  const cy = y - PLATE_STACK_MAX * PLATE_STACK;
-  plateBoxes.push({ x, y: cy, w });
-  return cy;
+  return null;
+}
+/** The one collision-exempt seat per frame: natural anchor, no climbing. */
+function plateSeatForced(x: number, y: number, w: number): number {
+  plateBoxes.push({ x, y, w });
+  return y;
+}
+/** Placed plates already crowding this anchor's neighborhood. */
+function plateCrowd(x: number, y: number): number {
+  let near = 0;
+  for (const b of plateBoxes) {
+    if (Math.abs(x - b.x) < 52 && Math.abs(y - b.y) < 30) near++;
+  }
+  return near;
 }
 
 function updateMobPlates(s: GameState): void {
@@ -6926,6 +7018,7 @@ function updateMobPlates(s: GameState): void {
   mobPlateSeen.clear();
   plateBoxes.length = 0;
   let shown = 0;
+  let engagedForced = false; // the pack rule's one exempt seat this frame
   const you = s.players.find((pl) => pl.alive) ?? s.players[0];
   const px = you?.pos.x ?? 0, pz = you?.pos.y ?? 0;
   // Nearest first, so the monsters actually in the fight keep their natural
@@ -6966,8 +7059,17 @@ function updateMobPlates(s: GameState): void {
     // are being told about a specific fight and the fight wins — but ambient
     // information must not litter someone else's zone.
     if (!engaged && plateOverHud(sp.x, sp.y)) continue;
-    const seatY = plateSeat(sp.x, sp.y, m.elite ? 68 : engaged ? 40 : 34, engaged);
-    if (seatY === null) continue; // no clear slot and only ambient to say
+    // Density gate (the pack rule): a resting plate does not join a crowd.
+    if (!engaged && plateCrowd(sp.x, sp.y) >= 2) continue;
+    const w = m.elite ? 68 : engaged ? 40 : 34;
+    let seatY = plateSeat(sp.x, sp.y, w, engaged);
+    if (seatY === null && engaged && !engagedForced) {
+      // The nearest contested engaged plate wins its natural spot; every
+      // other bar in the pile loses rather than building the tower.
+      engagedForced = true;
+      seatY = plateSeatForced(sp.x, sp.y, w);
+    }
+    if (seatY === null) continue; // the pile already reads as a pile
     let plate = mobPlateLive.get(m.id);
     if (!plate) {
       plate = mobPlatePool.pop() ?? makeMobPlate();
@@ -8663,7 +8765,13 @@ function fitPanel(panel: HTMLElement): void {
   const body = frame?.querySelector<HTMLElement>("#ladder-body, #career-body");
   if (frame && body) {
     frame.classList.remove("hugs");
-    if (body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
+    // ...but a designed empty/loading state is built to CLAIM the frame, not
+    // to be hugged (social r2: the BANDS tab collapsed the frame 737->172px
+    // into a letterbox strip because the hug pass graded a loading line like
+    // a short document — sibling tabs of one screen must not resize the
+    // world by 5x). `.set-empty` centers itself in the full frame instead.
+    if (!body.querySelector(".set-empty")
+      && body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
   }
   // A list the reader has explicitly unfolded is not the fit pass's business
   // any more.
@@ -9060,12 +9168,16 @@ async function renderLadderBody(): Promise<void> {
   const body = document.getElementById("ladder-body")!;
   document.getElementById("ladder-sub")!.textContent =
     `rules era ${ERA} — every ranked row is a proof the server re-executed, not a number it was told`;
-  body.innerHTML = `<ul class="board"><li class="none">the network is counting…</li></ul>`;
+  // The tuning state is the DESIGNED one, and it claims the whole frame
+  // immediately — including on a tab switch, so the frame never letterboxes
+  // between a click and the fetch it started (the BANDS hug-jump, social r2).
+  body.innerHTML = setEmptyHtml("TUNING IN", "the network is counting…");
+  fitPanel(ladderEl); // clears a lingering `hugs` from the previous tab NOW
   try {
     if (!events) events = (await competitive.events()) as social.EventsView;
   } catch {
-    body.innerHTML = `<ul class="board"><li class="none">the board is offline — the server keeps the ` +
-      `score, and it will still be there when the signal is back</li></ul>`;
+    body.innerHTML = setEmptyHtml("THE BOARD IS DARK",
+      "the server keeps the score, and it will still be there when the signal is back");
     return;
   }
   if (ladderTab === "contracts") {
@@ -9228,11 +9340,23 @@ async function refreshRivals(): Promise<void> {
 }
 
 async function openLadder(): Promise<void> {
-  myAccount = await accountToken();
-  await refreshRivals();
+  // THE FRAME OPENS ON THE CLICK, the network fetches INTO it (social r2:
+  // this used to await accountToken + refreshRivals before adding `.on`, so
+  // the primary nav button gave nothing back for 2.5-6.9 measured seconds.
+  // Riot's client acknowledges a nav click the same frame). The tuning
+  // skeleton is only painted over an empty body — a reopen keeps last
+  // renders' rows on screen while the refresh lands, which is also what the
+  // reference does.
   closeSets();
   recapEl.style.display = "none";
   ladderEl.classList.add("on");
+  const body = document.getElementById("ladder-body")!;
+  if (!body.firstChild) {
+    body.innerHTML = setEmptyHtml("TUNING IN", "the network is counting…");
+    fitPanel(ladderEl);
+  }
+  myAccount = await accountToken();
+  await refreshRivals();
   await renderLadder();
 }
 
@@ -9395,8 +9519,14 @@ async function enterDailyContract(day: string | null): Promise<void> {
 
 const ULT_LANES: AbilityId[] = ["airstrike", "cataclysm", "bullettime"];
 
+/** The zero chart's silhouette: a plausible death curve (deaths thin with
+ *  depth, tick up at each band's boss floor). Fixed, not random — a skeleton
+ *  is a shape, not data, and it must not shimmer between renders. */
+const HISTO_GHOST_CURVE = [34, 52, 74, 60, 48, 82, 44, 36, 62, 30, 25, 46, 22, 17, 33, 12, 9, 20];
+
 function histogramHtml(byFloor: number[]): string {
   const max = Math.max(1, ...byFloor);
+  const total = byFloor.reduce((a, b) => a + (b ?? 0), 0);
   let bars = "";
   let axis = "";
   for (let f = 1; f <= CONFIG.finalFloor; f++) {
@@ -9405,22 +9535,34 @@ function histogramHtml(byFloor: number[]): string {
     // an assumed 108px track, so the moment a short viewport shortened the
     // track the bars drew straight through the floor axis and the band strip.
     // The track's height is CSS's business; the bar only knows its share.
-    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
-    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}%" ` +
+    const h = total === 0 ? HISTO_GHOST_CURVE[f - 1]
+      : n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
+    const cls = total === 0 ? " ghost" : n === 0 ? " none" : f > 12 ? " deep" : "";
+    bars += `<div class="hb${cls}" style="height:${h}%" ` +
       `title="${n} run${n === 1 ? "" : "s"} ended on floor ${f}">${n > 0 ? `<i>${n}</i>` : ""}</div>`;
     axis += `<span>${f}</span>`;
   }
-  return `<div class="histo">${bars}</div><div class="histax">${axis}</div>` +
+  // AN EMPTY PLOT IS CONTENT (r3): with zero runs the plot region was a raw
+  // ~110px band of stone above a fully-labelled axis. The ghost curve holds
+  // the shape of the chart to come, and the System says what draws it.
+  const zero = total === 0
+    ? `<div class="hzero"><b>NO EPISODES ON FILE</b>` +
+      `<span>the first bar draws where your first run ends</span></div>`
+    : "";
+  return `<div class="histo">${bars}${zero}</div><div class="histax">${axis}</div>` +
     `<div class="bandstrip">${[0, 1, 2, 3, 4, 5].map((b) => `<span>${social.bandName(b)}</span>`).join("")}</div>`;
 }
 
 function masteryHtml(rows: { ultimate: string; xp: number }[]): string {
   const byId = new Map(rows.map((r) => [r.ultimate, r.xp]));
+  // The glyph rides an engraved plate in the shared ink — the menu tiles'
+  // one-glyph-treatment discipline (r3); raw 26px gold pictorials read as
+  // emoji. Gold stays on the level and the bar, where the ranking lives.
   return ULT_LANES.map((id) => {
     const m = social.masteryLevel(byId.get(id) ?? 0);
     const info = ABILITY_INFO[id];
     return `<div class="mrow">` +
-      `<i class="mic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+      `<span class="micbox"><i class="mic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i></span>` +
       `<div><div class="mname">${esc(info?.name ?? id)}</div>` +
       `<div class="mbar"><i style="width:${Math.round((m.into / m.need) * 100)}%"></i></div></div>` +
       `<div class="mlvl">LVL ${m.level}<small>${m.into} / ${m.need}</small></div></div>`;
@@ -9612,12 +9754,17 @@ async function renderCareerSet(): Promise<void> {
         ],
       ) +
       // MASTERY rides under it: it is drawn from the same sealed population,
-      // so it belongs on the sealed side of the boundary.
+      // so it belongs on the sealed side of the boundary. (One wrapper per
+      // section: at tall viewports each column's closing SECTION docks to the
+      // column floor — see the `.ccol > :last-child` rule — and that only
+      // works on a section that moves as one block.)
+      `<div class="csec">` +
       `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
       `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
       `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
       masteryHtml(prof?.mastery ?? []) +
+      `</div>` +
       `</div>` +
       // ...and THIS BROWSER'S ledger stands beside it, counting every run
       // including the ones nobody certified, and saying so instead of standing
@@ -9640,6 +9787,7 @@ async function renderCareerSet(): Promise<void> {
       ) +
       // MILESTONES is drawn from the same local `history` as the ledger above
       // it, so it belongs on this side of the boundary too.
+      `<div class="csec">` +
       `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
       // A TRIMMABLE TAIL, ONE PER COLUMN. Both this and YOUR LAST RUNS grow
@@ -9657,8 +9805,10 @@ async function renderCareerSet(): Promise<void> {
       ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
       `</div>` +
       `</div>` +
+      `</div>` +
       // COLUMN THREE: the band records, and the shelf of runs that back them.
       `<div class="ccol">` +
+      `<div class="csec">` +
       `<div class="rsec" style="color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
       // THE BARS ARE TIME, AND THE HEADING SAYS "BESTS", so the chart read
@@ -9674,20 +9824,29 @@ async function renderCareerSet(): Promise<void> {
       `Bars are TIME IN THE BAND — <b style="color:var(--gold-hi)">shorter is better</b>, ` +
       `and the gold one is your quickest.</div>` +
       `<div>${(() => {
-        const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
-        const timed = bandBests.filter((x): x is number => !!x);
+        // ALL SIX BANDS, ALWAYS (r3). A fresh browser's ledger is `[]`, and
+        // mapping it rendered NOTHING — a heading and an explainer above
+        // ~350px of stone. The bands are known; an unclaimed band is a named
+        // row with an em-dash, which is a design, not an absence.
+        const bands = Array.from({ length: 6 }, (_, i) => bandBests[i] ?? null);
+        const scale = Math.max(1, ...bands.map((x) => x ?? 0));
+        const timed = bands.filter((x): x is number => !!x);
         const fastest = timed.length > 0 ? Math.min(...timed) : -1;
-        return bandBests.map((t, i) =>
+        return bands.map((t, i) =>
           `<div class="splitrow${t ? "" : " empty"}${t && t === fastest ? " best" : ""}">` +
           `<span class="sname">${social.bandName(i)}</span>` +
           `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
           `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`).join("");
       })()}</div>` +
+      `</div>` +
 
       // THE SHELF SITS UNDER THE BAND RECORDS instead of taking a full-width
       // band below the columns — both are the server's view of runs you can
       // still play back, and moving it here is what buys the panel most of the
-      // height it was overflowing by.
+      // height it was overflowing by. With nothing sealed yet the shelf still
+      // stands (r3): three skeleton rows in the board's own geometry hold the
+      // shape of the episodes to come, in the voice every other empty board
+      // on this surface already speaks.
       (prof && prof.recent.length
         ? `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
           `font-family:var(--display);` +
@@ -9696,7 +9855,13 @@ async function renderCareerSet(): Promise<void> {
           `board position. This is a shelf, not a ladder: no ranks, no podium.</div>` +
           `<ul class="board fitlist" data-fitmin="1" data-fitnoun="run">` +
           `${prof.recent.map(recentRowHtml).join("")}</ul></div>`
-        : "") +
+        : `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
+          `font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS</div>` +
+          `<div class="cnamesub" style="margin-bottom:6px">${prof
+            ? "The shelf holds your replayable episodes — it fills as the server seals them."
+            : "The shelf holds your replayable episodes; the server keeps it, and it returns with the signal."}</div>` +
+          skelRowsHtml(3) + `</div>`) +
       `</div>` +
     `</div>`;
   fitPanel(careerEl);
@@ -9704,11 +9869,17 @@ async function renderCareerSet(): Promise<void> {
 }
 
 async function openCareerSet(): Promise<void> {
-  myAccount = await accountToken();
-  await refreshRivals();
+  // Frame first, fetch into it — same contract as openLadder (social r2).
   closeSets();
   recapEl.style.display = "none";
   careerEl.classList.add("on");
+  const body = document.getElementById("career-body")!;
+  if (!body.firstChild) {
+    body.innerHTML = setEmptyHtml("PULLING YOUR FILE", "the network is finding your episodes…");
+    fitPanel(careerEl);
+  }
+  myAccount = await accountToken();
+  await refreshRivals();
   await renderCareerSet();
 }
 careerEl.addEventListener("click", (e) => {
@@ -10685,13 +10856,18 @@ async function main(): Promise<void> {
       // hang for drama, ordinary kills get a couple of frames. Non-kill CRITS
       // get a single-frame tick (the accumulator cap keeps flurries sane), and
       // OVERKILL blows hang longest — deleting something should feel like it.
+      // Combat FX r1: retuned toward BACKLOG #15.1's approved 60-90ms band for
+      // crits/kill blows. The old 22/35/60ms sat under two 60Hz frames for the
+      // common cases — a freeze nobody perceives is latency, not weight. The
+      // caps are the horde guard and they DON'T move: a flurry saturates at
+      // 120-140ms total exactly as before, it just gets there in fewer hits.
       for (const h of frameHits) {
         if (h.overkill) { hitStop = Math.min(0.14, hitStop + 0.1); continue; }
         if (!h.killed) {
-          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.022);
+          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.045);
           continue;
         }
-        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
+        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.09 : h.kind === "player" ? 0.09 : 0.06));
       }
 
       saveAcc += dt;

@@ -163,6 +163,7 @@ pointers for the audio sources too.
 | `sfx/dot_poison.ogg` | [bubbles 'pop'](https://opengameart.org/content/bubbles-pop) (pitched down ~20%) | farfadet46 | CC0 |
 | `sfx/dot_chill.ogg` | [Freeze Spell](https://opengameart.org/content/freeze-spell-0) (first 0.5s, faded) | artisticdude | CC0 |
 | `sfx/band_sting.ogg` | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) (jingles_PIZZA07) | Kenney | CC0 |
+| `sfx/steps/step_{stone,grass,metal,wet}_{a,b,c}.wav` | Synthesized in-repo by `scripts/gen-footsteps.mjs` (deterministic — rerun the script to reproduce byte-for-byte) | this project | CC0 (own work) |
 
 Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), the combat-feel trio
 `sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and

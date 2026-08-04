@@ -243,6 +243,73 @@ describe("audio director", () => {
   });
 });
 
+describe("audio director: footsteps (appearance r1)", () => {
+  it("drops a footfall per stride walked, surfaced by band", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id); // primes the stride tracker
+    // Walk 1.2 tiles over three frames — one stride boundary crossed.
+    for (let i = 0; i < 3; i++) {
+      p.pos.x += 0.4;
+      director.frame(state, [], [], p.id);
+    }
+    const steps = sink.ids().filter((i) => i.startsWith("step_"));
+    expect(steps).toHaveLength(1);
+    expect(steps[0]).toMatch(/^step_stone_[abc]$/); // floor 1 = THE UNDERCROFT
+    const opts = sink.played.find((s) => s.id.startsWith("step_"))!.opts!;
+    expect(opts.rate).toBeGreaterThanOrEqual(0.92);
+    expect(opts.rate).toBeLessThanOrEqual(1.08);
+  });
+
+  it("keeps stepping with fresh variants as the walk continues", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    for (let i = 0; i < 12; i++) {
+      p.pos.x += 0.4;
+      director.frame(state, [], [], p.id);
+    }
+    const steps = sink.ids().filter((i) => i.startsWith("step_"));
+    expect(steps.length).toBeGreaterThanOrEqual(3);
+    expect(new Set(steps).size).toBeGreaterThan(1); // variants cycle
+  });
+
+  it("changes surface with the band: THE GARDEN walks on grass", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.floor = 8;
+    director.frame(state, [], [], p.id);
+    for (let i = 0; i < 4; i++) {
+      p.pos.x += 0.4;
+      director.frame(state, [], [], p.id);
+    }
+    const steps = sink.ids().filter((i) => i.startsWith("step_"));
+    expect(steps.length).toBeGreaterThanOrEqual(1);
+    for (const s of steps) expect(s).toMatch(/^step_grass_[abc]$/);
+  });
+
+  it("a teleport is not a stride: no footfall on a positional jump", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    p.pos.x += 6; // Blindside / respawn / descent snap
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => i.startsWith("step_"))).toHaveLength(0);
+  });
+
+  it("dead crawlers do not walk", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    p.alive = false;
+    for (let i = 0; i < 6; i++) {
+      p.pos.x += 0.4; // corpse dragged by whatever physics — still no steps
+      director.frame(state, [], [], p.id);
+    }
+    expect(sink.ids().filter((i) => i.startsWith("step_"))).toHaveLength(0);
+  });
+});
+
 describe("audio director: status cues + band sting (launch polish #3)", () => {
   it("DoT ticks sound as their element, never as a blow", () => {
     const { sink, director, state } = setup();

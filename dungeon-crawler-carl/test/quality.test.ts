@@ -487,7 +487,7 @@ describe("quality: a phone is a phone even when it will not say so", () => {
     expect(guessQuality(gl, { coarse: false, shortEdge: 2000 })).toMatch(/low|medium/);
   });
 
-  it("never guesses HIGH — an unknown machine starts on a mode that promises something", () => {
+  it("never guesses HIGH on an UNKNOWN machine — it starts on a mode that promises something", () => {
     const cases: Parameters<typeof guessQuality>[1][] = [
       {}, { coarse: false }, { coarse: true, shortEdge: 1440 },
       { coarse: false, shortEdge: 3840 }, { coarse: true, shortEdge: 2000 },
@@ -496,5 +496,38 @@ describe("quality: a phone is a phone even when it will not say so", () => {
       expect.soft(guessQuality(null, hint), `hint ${JSON.stringify(hint)}`).not.toBe("high");
       expect.soft(QUALITY_PRESETS[guessQuality(null, hint)].contract.budgetMs).not.toBeNull();
     }
+  });
+
+  it("an IDENTIFIED discrete GPU boots HIGH; integrated and ambiguous parts do not", () => {
+    const glFor = (renderer: string) => ({
+      getExtension: () => ({ UNMASKED_RENDERER_WEBGL: 1 }),
+      getParameter: () => renderer,
+    } as unknown as WebGL2RenderingContext);
+    // The measured case this branch exists for (tools/_ad4/capture.json):
+    // an RTX 5090 Laptop GPU was booting MEDIUM at pixelRatio 1.4.
+    const discrete = [
+      "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (NVIDIA, NVIDIA GeForce GTX 1660 Ti Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (AMD, AMD Radeon RX 7800 XT Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (Intel, Intel(R) Arc(TM) A770 Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "NVIDIA Quadro RTX 4000/PCIe/SSE2",
+    ];
+    for (const r of discrete) {
+      expect.soft(guessQuality(glFor(r), { coarse: false }), r).toBe("high");
+    }
+    // The contract hardware and its relatives stay on the promising mode.
+    const notDiscrete = [
+      "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "ANGLE (Intel, Intel(R) Arc(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)", // Meteor Lake iGPU
+      "ANGLE (AMD, AMD Radeon(TM) Graphics Direct3D11 vs_5_0 ps_5_0, D3D11)", // APU
+      "llvmpipe (LLVM 15.0.7, 256 bits)",
+    ];
+    for (const r of notDiscrete) {
+      expect.soft(guessQuality(glFor(r), { coarse: false }), r).toBe("medium");
+    }
+    // A phone-shaped device never reaches the discrete branch.
+    expect(guessQuality(glFor("NVIDIA GeForce RTX 9999"), { coarse: true, shortEdge: 390 }))
+      .toBe("low");
   });
 });

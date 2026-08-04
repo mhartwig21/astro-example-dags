@@ -1093,20 +1093,31 @@ export interface DeviceHint {
 /**
  * STARTUP GUESS — used for the very first frames, before any frame time exists.
  *
- * IT NEVER GUESSES HIGH. The four-rung ladder started an unknown machine at its
- * TOP rung and let the tuner descend, on the argument that guessing low ships a
- * permanently softer frame to hardware that never needed it. That argument does
- * not survive the re-cut: HIGH is now explicitly the mode with NO frame-rate
- * promise, so booting an unidentified machine into it means the default
- * experience is an unbounded frame time chosen on the player's behalf. MEDIUM
- * is the mode that promises 30 fps and looks like the game, so MEDIUM is where
- * an unknown machine starts, and the tuner climbs to HIGH from there if the
- * machine demonstrates the headroom. Guessing costs at most a few seconds of
- * being one rung conservative; guessing wrong the other way costs a stutter the
- * player never opted into.
+ * IT NEVER GUESSES HIGH **ON AN UNKNOWN MACHINE**. The four-rung ladder started
+ * every machine at its TOP rung and let the tuner descend; the re-cut swung to
+ * "never HIGH at boot" — and appearance r2 measured what THAT costs: an RTX
+ * 5090 Laptop GPU booted into MEDIUM at pixelRatio 1.4, twice, verified on the
+ * game's own context (tools/_ad4/capture.json). The machines most able to show
+ * the HIGH art were buying the softer middle preset for the first minutes of
+ * every session, because the climb needs a sub-11 ms mean over three windows
+ * and vsync pins the mean near 16.7 — on a 120 Hz panel the tuner can climb,
+ * on a 60 Hz one it may never. A default should not depend on the panel.
+ *
+ * So the guess now reads the one fact the measurement said matters: an
+ * IDENTIFIED DISCRETE ADAPTER boots HIGH. On those parts HIGH is close to free
+ * — MEASURED.fight has the RTX delivering 20.1 ms at HIGH against 17.8 at LOW —
+ * and the runtime tuner still owns the exceptional case (an old dGPU that
+ * misses frames steps down within two windows, and `ceiling` keeps it there).
+ * The match is deliberately conservative: strings that name a discrete product
+ * line (GeForce/RTX/GTX/Quadro, Radeon RX/PRO/VII, Arc A/B-series). "Intel
+ * Arc Graphics" (Meteor Lake iGPU), "AMD Radeon Graphics" (APU) and every
+ * unidentifiable string stay on MEDIUM — the mode that promises something.
  *
  * The one place the guess still goes DOWN on sight is a phone.
  */
+const DISCRETE_GPU =
+  /geforce|\brtx\b|\bgtx\b|quadro|radeon(\(tm\))?\s+(rx|pro|vii)\b|\barc(\(tm\))?\s+[ab]\d{3}/i;
+
 export function guessQuality(
   gl?: WebGLRenderingContext | WebGL2RenderingContext | null, hint?: DeviceHint,
 ): QualityName {
@@ -1136,6 +1147,10 @@ export function guessQuality(
   if (/adreno|mali|powervr|apple a\d/i.test(renderer)) {
     return dpr >= 3 ? "low" : "medium";
   }
+  // AN IDENTIFIED DISCRETE GPU BOOTS AT THE TOP — see the doc comment above.
+  // Ordered after the mobile branches on purpose: a phone-shaped device never
+  // reaches this line even if its renderer string were exotic.
+  if (DISCRETE_GPU.test(renderer)) return "high";
   return "medium";
 }
 

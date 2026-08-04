@@ -1,0 +1,293 @@
+[
+ [
+  "ladder open 1366x768",
+  {
+   "opened": true,
+   "openMs": 6904
+  }
+ ],
+ [
+  "ladder fit 1366x768",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1366x768",
+  []
+ ],
+ [
+  "ladder-bands fit 1366x768",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 93,
+    "y": 298,
+    "w": 1180,
+    "h": 172
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career open 1366x768",
+  {
+   "opened": true,
+   "openMs": 2541
+  }
+ ],
+ [
+  "career fit 1366x768",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1366x768",
+  []
+ ],
+ [
+  "ladder open 1600x900",
+  {
+   "opened": true,
+   "openMs": 3984
+  }
+ ],
+ [
+  "ladder fit 1600x900",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1600x900",
+  []
+ ],
+ [
+  "ladder-bands fit 1600x900",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 210,
+    "y": 357,
+    "w": 1180,
+    "h": 186
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career open 1600x900",
+  {
+   "opened": true,
+   "openMs": 2612
+  }
+ ],
+ [
+  "career fit 1600x900",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1600x900",
+  []
+ ],
+ [
+  "ladder open 2560x1440",
+  {
+   "opened": true,
+   "openMs": 6052
+  }
+ ],
+ [
+  "ladder fit 2560x1440",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 2560x1440",
+  []
+ ],
+ [
+  "ladder-bands fit 2560x1440",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 486,
+    "y": 604,
+    "w": 1587,
+    "h": 233
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career open 2560x1440",
+  {
+   "opened": true,
+   "openMs": 2710
+  }
+ ],
+ [
+  "career fit 2560x1440",
+  {
+   "rootScroll": {
+    "over": 0,
+    "hint": "morebelow"
+   },
+   "fitmore": [],
+   "frame": {
+    "x": 486,
+    "y": 281,
+    "w": 1587,
+    "h": 878
+   },
+   "frameOffscreen": {
+    "b": 0,
+    "r": 0
+   },
+   "docOver": {
+    "x": 0,
+    "y": 0
+   },
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 2560x1440",
+  []
+ ]
+]
