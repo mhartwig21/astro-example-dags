@@ -1,0 +1,62 @@
+[
+ [
+  "abil ach 1366x768",
+  {
+   "docOverY": 0,
+   "panel": {
+    "y": 59,
+    "h": 603,
+    "bottom": 662
+   },
+   "section": {
+    "h": 475,
+    "scrollOver": 0
+   },
+   "gridCols": 3,
+   "cards": 13,
+   "liveScrollers": [],
+   "clippedText": [],
+   "viewportOverflow": -106
+  }
+ ],
+ [
+  "abil ach 1600x900",
+  {
+   "docOverY": 0,
+   "panel": {
+    "y": 67,
+    "h": 669,
+    "bottom": 736
+   },
+   "section": {
+    "h": 525,
+    "scrollOver": 0
+   },
+   "gridCols": 3,
+   "cards": 13,
+   "liveScrollers": [],
+   "clippedText": [],
+   "viewportOverflow": -164
+  }
+ ],
+ [
+  "abil ach 2560x1440",
+  {
+   "docOverY": 0,
+   "panel": {
+    "y": 228,
+    "h": 518,
+    "bottom": 746
+   },
+   "section": {
+    "h": 353,
+    "scrollOver": 0
+   },
+   "gridCols": 5,
+   "cards": 13,
+   "liveScrollers": [],
+   "clippedText": [],
+   "viewportOverflow": -694
+  }
+ ]
+]

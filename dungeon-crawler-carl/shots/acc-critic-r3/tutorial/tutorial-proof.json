@@ -1,0 +1,74 @@
+[
+ [
+  "tutorial 1366x768",
+  {
+   "mount": "shown",
+   "vis": {
+    "ok": true,
+    "effOpacity": 1,
+    "box": {
+     "x": 12,
+     "y": 100,
+     "w": 251,
+     "h": 178
+    }
+   },
+   "shotMs": 13290,
+   "stillShownAfterShot": true,
+   "proof": {
+    "meanDiff": 26.1,
+    "diffFrac": 0.583,
+    "px": 44678
+   },
+   "PASS": true
+  }
+ ],
+ [
+  "tutorial 1600x900",
+  {
+   "mount": "shown",
+   "vis": {
+    "ok": true,
+    "effOpacity": 1,
+    "box": {
+     "x": 12,
+     "y": 100,
+     "w": 251,
+     "h": 222
+    }
+   },
+   "shotMs": 13744,
+   "stillShownAfterShot": true,
+   "proof": {
+    "meanDiff": 26.2,
+    "diffFrac": 0.567,
+    "px": 55722
+   },
+   "PASS": true
+  }
+ ],
+ [
+  "tutorial 2560x1440",
+  {
+   "mount": "shown",
+   "vis": {
+    "ok": true,
+    "effOpacity": 1,
+    "box": {
+     "x": 12,
+     "y": 100,
+     "w": 251,
+     "h": 271
+    }
+   },
+   "shotMs": 31687,
+   "stillShownAfterShot": true,
+   "proof": {
+    "meanDiff": 25.4,
+    "diffFrac": 0.476,
+    "px": 68021
+   },
+   "PASS": true
+  }
+ ]
+]

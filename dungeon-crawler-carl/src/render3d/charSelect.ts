@@ -87,13 +87,34 @@ const DRESSING: DressSpec[] = [
   { key: "crates_stacked", x: 3.9, z: 2.2, h: 1.0, rot: 5.5, shadow: true },
 ];
 
-/** Two camera moods, lerped between: the fire burns BEHIND the check-in panel
- *  while you pick a mode, then the casting call brings the lineup center
- *  stage for the actual pick. */
+/** Two camera moods, lerped between: the campfire holds the OPEN side of the
+ *  frame while you pick a mode, then the casting call brings the lineup
+ *  center stage for the actual pick. */
 const CAMERA_POSES = {
   backdrop: { fov: 46, pos: new THREE.Vector3(0, 2.7, 9.8), look: new THREE.Vector3(0, 1.1, -0.4) },
   casting: { fov: 45, pos: new THREE.Vector3(0, 2.2, 8.1), look: new THREE.Vector3(0, 0.95, -0.7) },
 } as const;
+
+// social r2 — THE COMPOSITION, NOT JUST THE RIG. The r1 light lift was real
+// (ambient 1.9->3.2, hemisphere added, rim 1.1->1.9, fire 46->64) and moved
+// the hero region's mean luminance 3.0 -> only 3.5% at 1366, because the
+// backdrop pose kept the campfire dead-center of the CANVAS — which is
+// dead-center BEHIND the check-in panel. The 40% of the frame the panel
+// leaves open (left of it) got the arc's dark outer arm and no fire at all;
+// a fire cannot light a region it is not in. The backdrop pose now TRUCKS
+// RIGHT — pure translation, no rotation, so the lineup still faces the
+// camera — until the campfire sits at ~24% of the frame width: the center
+// of the open region. The panel is width-tokened (56vw) and right-docked
+// (3.5vw pad), so that fraction holds at every 16:9 viewport, and the truck
+// is computed from the live aspect so ultrawides keep it too. CASTING is
+// untouched: the panel is gone in that stage and center is correct.
+const FIRE_SCREEN_FRAC = 0.24; // campfire's target x, as a fraction of frame width
+/** World-units truck that puts the fire at FIRE_SCREEN_FRAC for this aspect. */
+function backdropTruck(aspect: number): number {
+  const pose = CAMERA_POSES.backdrop;
+  const halfW = Math.tan((pose.fov * Math.PI) / 360) * (pose.pos.z - FIRE_Z) * aspect;
+  return (1 - 2 * FIRE_SCREEN_FRAC) * halfW; // NDC shift * half width
+}
 
 export class CharSelectScene {
   selected: CrawlerSkin;
@@ -114,6 +135,7 @@ export class CharSelectScene {
   private readonly slots: Slot[] = [];
   private readonly raycaster = new THREE.Raycaster();
   private readonly fireLight: THREE.PointLight;
+  private emberLight: THREE.PointLight | null = null; // fills the fire's own base (r3)
   private readonly halo: THREE.SpotLight; // drifts to the chosen crawler
   private flames: THREE.Mesh[] = [];
   private sparks: THREE.Points | null = null;
@@ -135,22 +157,31 @@ export class CharSelectScene {
 
     // Night: readable ambient (KayKit palettes want light), a cold rim from
     // behind, and the fire doing the character work.
-    this.scene.add(new THREE.AmbientLight(0x232030, 1.9));
-    const rim = new THREE.DirectionalLight(0x38486e, 1.1);
+    // social r1 — LIGHT IT TO EARN THE SPACE: the hero region left of the
+    // check-in panel measured 3% mean luminance at 1366 (the screens critic:
+    // "you cannot tell three characters are standing there"). The rig now
+    // spends real light on the lineup: a brighter warm ambient floor, a
+    // moonlight hemisphere so silhouettes separate from the treeline, a
+    // stronger cold rim, and a fire that actually carries to the arc. Still
+    // night — the target is D2's campfire, not noon.
+    this.scene.add(new THREE.AmbientLight(0x2b2836, 3.2));
+    this.scene.add(new THREE.HemisphereLight(0x3a4668, 0x2a1c10, 0.9));
+    const rim = new THREE.DirectionalLight(0x38486e, 1.9);
     rim.position.set(-4, 6, -8);
     this.scene.add(rim);
-    this.fireLight = new THREE.PointLight(0xff8c3a, 46, 22, 2);
+    this.fireLight = new THREE.PointLight(0xff8c3a, 64, 26, 2);
     this.fireLight.position.set(FIRE_X, 1.1, FIRE_Z);
     this.fireLight.castShadow = true;
     this.scene.add(this.fireLight);
-    this.halo = new THREE.SpotLight(0xf5e6bf, 18, 14, 0.34, 0.55, 1.6);
+    this.halo = new THREE.SpotLight(0xf5e6bf, 26, 14, 0.34, 0.55, 1.6);
     this.halo.position.set(0, 6.5, 2.5);
     this.scene.add(this.halo, this.halo.target);
 
-    // Ground: a worn dark clearing.
+    // Ground: a worn dark clearing (lifted with the rest of the rig so the
+    // firelight has something to bounce off in the frame).
     const ground = new THREE.Mesh(
       new THREE.CircleGeometry(16, 40),
-      new THREE.MeshStandardMaterial({ color: 0x181310, roughness: 0.95 }),
+      new THREE.MeshStandardMaterial({ color: 0x1e1712, roughness: 0.95 }),
     );
     ground.rotation.x = -Math.PI / 2;
     ground.receiveShadow = true;
@@ -199,9 +230,15 @@ export class CharSelectScene {
     // Ember-lit logs: the fire light sits INSIDE the ring, so the faces the
     // camera sees would otherwise render pitch black — the emissive is the
     // glow of wood that has been burning a while.
+    // social r3 (lighting rig): 0.32 was tuned before the flames' additive
+    // brightness went up — against the lit flame the camera-facing log faces
+    // and their hard point-light shadows measured near-black and read as
+    // paper-cutout shards. The ember glow carries further now, and a small
+    // shadowless ember fill (below) lifts the fire's own base the way real
+    // coals throw light back at the ring.
     const logMat = new THREE.MeshStandardMaterial({
       color: 0x4a3524, roughness: 0.9,
-      emissive: 0xff5a1f, emissiveIntensity: 0.32,
+      emissive: 0xff5a1f, emissiveIntensity: 0.62,
     });
     const logs = new THREE.Group();
     const logGeo = new THREE.CylinderGeometry(0.06, 0.075, 0.8, 6);
@@ -215,6 +252,16 @@ export class CharSelectScene {
     }
     logs.position.set(FIRE_X, 0, FIRE_Z);
     this.scene.add(logs);
+
+    // The ember fill: a short-throw, shadowless warm light AT coal height.
+    // The main fireLight sits at y=1.1 (so it reaches the lineup); from up
+    // there the log ring lights its tops and leaves its camera-facing sides
+    // and its own ground shadows pitch black. Coals light a fire from below;
+    // this is that, and it reaches nothing but the ring and the dirt.
+    const ember = new THREE.PointLight(0xff7a2a, 7, 4.5, 2);
+    ember.position.set(FIRE_X, 0.3, FIRE_Z + 0.12);
+    this.scene.add(ember);
+    this.emberLight = ember;
 
     // Flames: three nested cones, emissive, additive — flicker via scale.
     const flameSpec = [
@@ -358,7 +405,8 @@ export class CharSelectScene {
 
     // Fire: flicker the light + jitter the flame cones on mixed sines.
     const n = Math.sin(tSec * 11.3) * 0.35 + Math.sin(tSec * 23.7 + 1.7) * 0.2 + Math.sin(tSec * 5.1 + 4.2) * 0.45;
-    this.fireLight.intensity = 46 + n * 9;
+    this.fireLight.intensity = 64 + n * 12; // flicker rides the r1 base, not the old one
+    if (this.emberLight) this.emberLight.intensity = 7 + n * 1.6; // coals breathe with the flame
     this.flames.forEach((f, i) => {
       const w = Math.sin(tSec * (9 + i * 3.1) + i * 2.4);
       f.scale.set(1 + w * 0.08, 1 + Math.sin(tSec * (7.5 + i * 2.3)) * 0.13, 1 + w * 0.08);
@@ -388,17 +436,20 @@ export class CharSelectScene {
     this.halo.position.lerp(sel.anchor.position.clone().add(new THREE.Vector3(0.4, 5.6, 2.2)), Math.min(1, dt * 6));
 
     // Glide the camera toward the active pose (check-in backdrop vs the
-    // casting call) — a slow dolly, not a cut.
+    // casting call) — a slow dolly, not a cut. The backdrop pose carries the
+    // aspect-aware truck (see backdropTruck) that frames the campfire in the
+    // open region beside the panel instead of behind it.
+    const el = this.gl.domElement;
+    const aspect = el.clientWidth / Math.max(1, el.clientHeight);
     const pose = CAMERA_POSES[this.mode];
+    const truck = this.mode === "backdrop" ? backdropTruck(aspect) : 0;
     const k = Math.min(1, dt * 3);
-    this.camPos.lerp(pose.pos, k);
-    this.camLook.lerp(pose.look, k);
+    this.camPos.lerp(new THREE.Vector3(pose.pos.x + truck, pose.pos.y, pose.pos.z), k);
+    this.camLook.lerp(new THREE.Vector3(pose.look.x + truck, pose.look.y, pose.look.z), k);
     this.camFov += (pose.fov - this.camFov) * k;
     this.camera.position.copy(this.camPos);
     this.camera.lookAt(this.camLook);
 
-    const el = this.gl.domElement;
-    const aspect = el.clientWidth / Math.max(1, el.clientHeight);
     if (Math.abs(aspect - this.camera.aspect) > 1e-3 || Math.abs(this.camFov - this.camera.fov) > 0.05) {
       this.camera.aspect = aspect;
       this.camera.fov = this.camFov;
