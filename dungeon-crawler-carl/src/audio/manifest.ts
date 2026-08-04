@@ -84,8 +84,10 @@ export const AUDIO_MANIFEST = {
 
   // Music beds — crossfaded by the director based on game state.
   music_dungeon: { url: "/audio/music/dungeon.ogg", bus: "music", volume: 0.5, loop: true },
-  music_safe: { url: "/audio/music/safe_room.mp3", bus: "music", volume: 0.5, loop: true },
-  music_collapse: { url: "/audio/music/collapse.wav", bus: "music", volume: 0.65, loop: true },
+  // Both re-encoded to OGG (SOUNDPLAN §1.4 rows 19/20): format conversion
+  // only, measured LUFS unchanged (-18.0 / -8.1), banked 8.4MB of payload.
+  music_safe: { url: "/audio/music/safe_room.ogg", bus: "music", volume: 0.5, loop: true },
+  music_collapse: { url: "/audio/music/collapse.ogg", bus: "music", volume: 0.65, loop: true },
   // Battle rotation (regular combat; picked per floor — see director.ts).
   music_battle_a: { url: "/audio/music/battle_theme_a.ogg", bus: "music", volume: 0.5, loop: true },
   music_battle_b: { url: "/audio/music/battle_music.ogg", bus: "music", volume: 0.5, loop: true },
