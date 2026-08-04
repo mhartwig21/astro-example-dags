@@ -98,27 +98,6 @@ body.modal #t-layer { display: none; }
   transition: opacity 110ms linear, transform 110ms ease-out; }
 #t-cancel.on { opacity: 1; }
 #t-cancel.armed { background: rgba(57,200,232,0.30); border-style: solid; }
-/* The one control with a WORD in it wanted an icon (wr_03: WR never letters a
-   chip). A reticle drawn in the chip's own border language — ring + centre
-   dot — reads "target" at 38px where 'LOCK' read as an unstyled debug pill. */
-#t-lock { display: flex; align-items: center; justify-content: center;
-  border-radius: 50%; border: 2px solid rgba(201,162,75,0.75);
-  background: radial-gradient(circle at 50% 30%, rgba(31,24,15,0.62), rgba(10,8,5,0.75) 72%);
-  color: #c9a24b; pointer-events: auto; touch-action: none;
-  box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.45); }
-#t-lock .tl-ret { position: relative; width: 52%; height: 52%;
-  border: 2px solid currentColor; border-radius: 50%; }
-#t-lock .tl-ret::before { content: ""; position: absolute; left: 50%; top: 50%;
-  width: 24%; height: 24%; margin: -12% 0 0 -12%; border-radius: 50%;
-  background: currentColor; }
-/* Four ticks: the reticle's cardinal marks, one gradient, no extra nodes. */
-#t-lock .tl-ret::after { content: ""; position: absolute; inset: -28%;
-  background:
-    linear-gradient(currentColor, currentColor) 50% 0 / 2px 22% no-repeat,
-    linear-gradient(currentColor, currentColor) 50% 100% / 2px 22% no-repeat,
-    linear-gradient(currentColor, currentColor) 0 50% / 22% 2px no-repeat,
-    linear-gradient(currentColor, currentColor) 100% 50% / 22% 2px no-repeat; }
-#t-lock.on { border-color: #39c8e8; color: #eaf9ff; background: rgba(57,200,232,0.28); }
 #t-layer .press { animation: t-press 140ms ease-out; }
 @keyframes t-press { from { transform: scale(0.86); } to { transform: scale(1); } }
 @media (prefers-reduced-motion: reduce) {
@@ -144,9 +123,7 @@ export class TouchShell {
   private nub: HTMLElement;
   private cancel: HTMLElement;
   private ocancel: HTMLElement;
-  private lock: HTMLElement;
   private raf = 0;
-  private locked = false;
 
   constructor(private readonly o: ShellOpts) {
     injectStyle();
@@ -159,11 +136,7 @@ export class TouchShell {
     this.ocancel = el("div", "t-ocancel", "tl");
     this.ocancel.textContent = "✕";
     this.ocancel.setAttribute("aria-label", "Cancel the cast");
-    this.lock = el("div", "t-lock", "tl");
-    this.lock.innerHTML = `<span class="tl-ret"></span>`;
-    this.lock.setAttribute("aria-label", "Target lock");
-    this.lock.dataset.tctl = "lock";
-    this.layer.append(this.ghost, this.stick, this.nub, this.cancel, this.ocancel, this.lock);
+    this.layer.append(this.ghost, this.stick, this.nub, this.cancel, this.ocancel);
     document.body.appendChild(this.layer);
     // The context chip already exists in iso.html; tell the router it is ours.
     const stairs = document.getElementById("t-stairs");
@@ -402,32 +375,6 @@ export class TouchShell {
     for (let i = 0; i <= 4; i++) put(`slot${i}` as ControlId, `#skills .skill[data-i="${i}"]`);
     put("flask", "#flask-chip");
     put("context", "#t-stairs");
-    this.placeLock();
-    const r = this.lock.getBoundingClientRect();
-    c.setControlRect("lock", r.width > 0
-      ? { x: r.x, y: r.y, w: r.width, h: r.height }
-      : table("lock"));
-  }
-
-  /**
-   * Park the LOCK chip WHERE THE TABLE SAYS.
-   *
-   * This used to measure the cluster and hang the chip above it, because the
-   * ability chips were still placed by their own CSS and a table-placed chip
-   * landed on top of the ultimate. `ui/hudLayout.ts` now paints the cluster
-   * from the same table, so the two agree — and the measured version had
-   * become the bug: photographed on `i1/iphone13-land-combat.png` and
-   * `i1/pixel5-land-combat.png`, it hung the chip in the top-right corner
-   * against the boss health plate, which is the exact §4.2a rule-1 violation
-   * the table exists to make impossible.
-   */
-  private placeLock(): void {
-    const l = this.zones.controls.lock;
-    // Visual tier: paint the small disc, centred; the router pads to 44.
-    const v = l.vis ?? l.w;
-    this.lock.style.width = `${v}px`;
-    this.lock.style.height = `${v}px`;
-    this.lock.style.transform = `translate3d(${l.cx - v / 2}px, ${l.cy - v / 2}px, 0)`;
   }
 
   /** Size + place everything the shell owns, from the zone table. */
@@ -449,9 +396,6 @@ export class TouchShell {
     this.cancel.style.width = `${b.w}px`;
     this.cancel.style.height = `${b.h}px`;
     this.cancel.style.transform = `translate3d(${b.x}px, ${b.y}px, 0)`;
-    this.placeLock();
-    const op = Math.max(0.35, Math.min(1, this.o.opacity ?? 1));
-    this.lock.style.opacity = String(op);
     this.ghost.style.opacity = "0.34";
   }
 
@@ -528,12 +472,6 @@ export class TouchShell {
     );
   }
 
-  /** Paint the LOCK chip state; the host owns the actual lock. */
-  setLocked(on: boolean): void {
-    if (this.locked === on) return;
-    this.locked = on;
-    this.lock.classList.toggle("on", on);
-  }
 
   setPrefs(prefs: LayoutPrefs, opacity?: number): void {
     Object.assign(this.o.prefs, prefs);

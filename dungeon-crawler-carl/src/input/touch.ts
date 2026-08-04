@@ -538,7 +538,6 @@ export interface TouchSample {
   /** The context chip: descend / talk / open — maps to Intent.useStairs. */
   stairsEdge: boolean;
   mapEdge: boolean;
-  lockToggleEdge: boolean;
   /** Flick-on-stick or two-finger tap; the host casts whatever slot holds dash. */
   dashEdge: boolean;
   /** Screen-space world-zone taps for the host to raycast. */
@@ -680,12 +679,11 @@ export class TouchController {
   private readonly sampleOut: TouchSample = {
     move: null, pressedSlot: -1, aimingSlot: -1, aimDir: null, aimFrac: 0, aimCancel: false,
     castHeld: this.castHeld, castEdges: this.castEdges, flaskEdge: false, stairsEdge: false,
-    mapEdge: false, lockToggleEdge: false, dashEdge: false, worldTaps: this.worldTaps, active: false,
+    mapEdge: false, dashEdge: false, worldTaps: this.worldTaps, active: false,
   };
   private flaskPending = false;
   private stairsPending = false;
   private mapPending = false;
-  private lockPending = false;
   private dashPending = false;
 
   // ------------------------------------------------------------- geometry
@@ -852,7 +850,7 @@ export class TouchController {
       this.castEdges.length = 0;
       this.worldTaps.length = 0;
       this.flaskPending = this.stairsPending = this.mapPending = false;
-      this.lockPending = this.dashPending = false;
+      this.dashPending = false;
     }
   }
 
@@ -993,7 +991,6 @@ export class TouchController {
       if (ctl === "flask") { this.flaskPending = true; this.fb("press"); return { kind: "chip", control: ctl, ...base }; }
       if (ctl === "context") { this.stairsPending = true; this.fb("press"); return { kind: "chip", control: ctl, ...base }; }
       if (ctl === "map") { this.mapPending = true; this.fb("press"); return { kind: "chip", control: ctl, ...base }; }
-      if (ctl === "lock") { this.lockPending = true; this.fb("press"); return { kind: "chip", control: ctl, ...base }; }
       if (slot === undefined) return { kind: "ignored", ...base };
       // A dead chip must REFUSE at pointerdown, buzz, and never enter AIMING.
       if (this.canCast && !this.canCast(slot)) {
@@ -1293,13 +1290,12 @@ export class TouchController {
     s.flaskEdge = this.flaskPending;
     s.stairsEdge = this.stairsPending;
     s.mapEdge = this.mapPending;
-    s.lockToggleEdge = this.lockPending;
     s.dashEdge = this.dashPending;
     this.flaskPending = this.stairsPending = this.mapPending = false;
-    this.lockPending = this.dashPending = false;
+    this.dashPending = false;
     s.active = this.touched || s.move !== null || this.castHeld[0] || this.aimingSlot >= 0 ||
       this.castEdges.length > 0 || this.worldTaps.length > 0 ||
-      s.flaskEdge || s.stairsEdge || s.mapEdge || s.lockToggleEdge || s.dashEdge;
+      s.flaskEdge || s.stairsEdge || s.mapEdge || s.dashEdge;
     this.touched = false;
     if (s.active) this.lastInputAt = now;
     return s;

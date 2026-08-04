@@ -46,11 +46,11 @@ export interface Rect { x: number; y: number; w: number; h: number }
 /** Controls the layout owns. Chips keep their DOM home; these are hit rects. */
 export type ControlId =
   | "slot0" | "slot1" | "slot2" | "slot3" | "slot4"
-  | "flask" | "context" | "lock" | "map";
+  | "flask" | "context" | "map";
 
 /** Controls a player must press mid-fight — the reach invariant covers these. */
 export const COMBAT_CONTROLS: ControlId[] = [
-  "slot0", "slot1", "slot2", "slot3", "slot4", "flask", "context", "lock",
+  "slot0", "slot1", "slot2", "slot3", "slot4", "flask", "context",
 ];
 
 /**
@@ -380,7 +380,12 @@ const ARC_CORNER: ArcSpec[] = [
   { id: "slot4", ang: 92, rf: 1.05, size: 1.16 }, // the ult: top of the fan, distinct
   { id: "flask", ang: -6, rf: 1.52, size: 0.82 },
   { id: "context", ang: -4, rf: 2.02, size: 0.82 },
-  { id: "lock", ang: 38, rf: 1.46, size: 0.62 },
+  // NO LOCK CHIP (owner, on glass): "an aim icon that doesn't do anything".
+  // It toggled sticky target lock — a real setting whose effect is invisible
+  // in the moment you press it, on a crosshair that promises aiming. Wild Rift
+  // has no such button; its attack button carries the targeting. The behaviour
+  // survives as the SYSTEM-panel "Sticky target lock" row, where a preference
+  // belongs. Removing it also gives the fan back its quietest slot.
   { id: "map", ang: 74, rf: 1.72, size: 0.62 },
 ];
 
@@ -399,7 +404,7 @@ const ARC_CORNER_COMPACT: ArcSpec[] = [
   { id: "slot4", ang: 92, rf: 1.05, size: 1.12 },
   { id: "flask", ang: -6, rf: 1.52, size: 0.80 },
   { id: "context", ang: -4, rf: 2.02, size: 0.80 },
-  { id: "lock", ang: 38, rf: 1.46, size: 0.60 },
+  // no lock chip — see the corner-grip table above
   { id: "map", ang: 74, rf: 1.72, size: 0.60 },
 ];
 
@@ -438,7 +443,7 @@ const ARC_SIDE: ArcSpec[] = [
   { id: "slot4", ang: 46, rf: 0.60, size: 1.42 }, // ultimate: top of the fan AND the biggest chip
   { id: "flask", ang: -46, rf: 0.58, size: 0.92 },
   { id: "context", ang: -22, rf: 0.34, size: 0.86 },
-  { id: "lock", ang: 24, rf: 0.36, size: 0.64 },
+  // no lock chip — see the corner-grip table above
   { id: "map", ang: -46, rf: 0.94, size: 0.64 },
 ];
 
@@ -452,7 +457,7 @@ const ARC_SIDE_COMPACT: ArcSpec[] = [
   { id: "slot4", ang: 46, rf: 0.60, size: 1.28 },
   { id: "flask", ang: -46, rf: 0.58, size: 0.84 },
   { id: "context", ang: -22, rf: 0.34, size: 0.74 },
-  { id: "lock", ang: 24, rf: 0.36, size: 0.52 },
+  // no lock chip — see the corner-grip table above
   { id: "map", ang: -46, rf: 0.94, size: 0.52 },
 ];
 

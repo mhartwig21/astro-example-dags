@@ -547,6 +547,39 @@ side-by-side with the ratio table is
 
 ---
 
+## ROUND 9 — THE LOCK CHIP IS GONE
+
+The owner, on their phone, on the round-8 build: *"Yes phone is much better!
+Though there's an aim icon that doesn't do anything we should get rid of."*
+
+They were describing the LOCK chip, and "doesn't do anything" was the honest
+report of a real design fault rather than a bug. The chip toggled sticky target
+lock — a genuine preference — but a preference has no visible effect at the
+moment you press it, and this one was drawn as a reticle, which promises
+aiming. Wild Rift ships no such button; in WR the attack button carries all the
+targeting there is. So the chip was removed everywhere rather than restyled:
+
+- `touchLayout.ts` — `"lock"` is off the `ControlId` union, out of
+  `COMBAT_CONTROLS`, and out of all four grip tables. The fan is one chip
+  quieter and the reach/overlap invariants have one fewer rect to satisfy.
+- `touchShell.ts` — the `#t-lock` element, its reticle CSS, `placeLock()`,
+  its `measureChips` branch and `setLocked()` are deleted.
+- `touch.ts` — `lockPending` and the `lockToggleEdge` field are deleted; the
+  sample no longer carries an edge nothing can raise.
+- `main3d.ts` — the toggle block in `pollTouch` is gone. **The behaviour
+  survives**: the SYSTEM panel's "Sticky target lock" row is now its only
+  control, and `applyTouchPrefs()` drops `lockedTargetId` when the row goes
+  off — the clearing the chip used to do. Tap-to-lock-and-swing on a monster
+  is untouched.
+
+Verified: tsc clean, full vitest **1278/1278** (`touchLayout.test.ts`'s
+satellite-tier assertion now reads `map` and `context`), `battery_focus.mjs`
+5/5 and `ios_gesture_probe.mjs` **11/11** against the live layout — the probes
+drive the shell with real CDP touches, so they exercise the `apply()` and
+`measureChips()` paths the removal edited.
+
+---
+
 ## ROUND 7 (mobile-wr r3) — THE ARRANGEMENT WAS THE THING, AND THREE ROUNDS NEVER TOUCHED IT
 
 The owner, after the compact round deployed: *"It still doesn't look wild

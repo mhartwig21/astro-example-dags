@@ -564,6 +564,9 @@ function applyTouchPrefs(): void {
   touch.twoFingerDash = touchPrefs.twoFingerDash;
   touch.stick.recenter = touchPrefs.stickRecenter;
   stickyLock = touchPrefs.stickyLock;
+  // Turning the preference off must also DROP whatever is currently held —
+  // otherwise the last locked monster survives the setting that created it.
+  if (!stickyLock) lockedTargetId = null;
   touchShell.setPrefs(touchPrefs, touchPrefs.opacity);
   hud.setOpacity(touchPrefs.opacity);
   document.documentElement.style.setProperty("--hud-pad", `${touchPrefs.hudInset}px`);
@@ -3672,7 +3675,7 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
     { id: "stickRecenter", name: "Stick recentring", hint: "the origin follows a thumb that drifts", value: onOff(touchPrefs.stickRecenter) },
     { id: "flickDash", name: "Flick to dash", hint: "flick the movement stick to dash", value: onOff(touchPrefs.flickDash) },
     { id: "twoFingerDash", name: "Two-finger dash", hint: "tap the world with two fingers to dash", value: onOff(touchPrefs.twoFingerDash) },
-    { id: "stickyLock", name: "Sticky target lock", hint: "the LOCK chip keeps its target through taps", value: onOff(touchPrefs.stickyLock) },
+    { id: "stickyLock", name: "Sticky target lock", hint: "a tapped monster stays your target until you tap another", value: onOff(touchPrefs.stickyLock) },
   ];
   // Slot 0 is the basic attack: hold-to-repeat, no mode to choose.
   const slotName = ["", "Slot 2", "Slot 3", "Slot 4", "Ultimate"];
@@ -10674,16 +10677,6 @@ function pollTouch(): void {
   // Edges ACCUMULATE (input/touchIntent.ts): a tap taken while a panel has
   // the sim paused must still land when the world thaws.
   accumulateTouch(touchEdges, touchHeld);
-  if (touchHeld.lockToggleEdge) {
-    // The LOCK chip is a sticky-lock toggle: on for a boss fight, off for a
-    // pack. Clearing it drops whatever was held.
-    stickyLock = !stickyLock;
-    if (!stickyLock) lockedTargetId = null;
-    touchPrefs.stickyLock = stickyLock;
-    saveTouchPrefs(touchPrefs);
-    touchShell.setLocked(stickyLock);
-    haptics.fire("lock");
-  }
   if (touchHeld.mapEdge) toggleMinimapExpand();
   // World-zone taps: the host owns the raycast, so the sim stays screen-blind.
   for (const tap of touchHeld.worldTaps) {

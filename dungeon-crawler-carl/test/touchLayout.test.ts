@@ -660,7 +660,6 @@ describe("layout preset: COMPACT default vs LARGE", () => {
 
   it("the satellites paint a tier below the abilities on compact (demotion, not deletion)", () => {
     const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
-    expect(z.controls.lock.vis).toBeLessThan(z.controls.slot1.vis);
     expect(z.controls.map.vis).toBeLessThan(z.controls.slot1.vis);
     expect(z.controls.context.vis).toBeLessThan(z.controls.slot1.vis);
   });
