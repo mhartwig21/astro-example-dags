@@ -25,6 +25,7 @@ import {
   WIRE_MIN_GAP_MS, type CrewRow,
 } from "../src/server/crewWire";
 import { handlePlayerDeath } from "../src/sim/game";
+import { serverDayAt } from "../src/ui/social";
 import type { GameState } from "../src/sim/types";
 
 // ---- flip arithmetic (pure) ------------------------------------------------
@@ -67,6 +68,29 @@ describe("the flip hour is a config, not a constant (4.5)", () => {
     const plain = dailyEvent(noon);
     expect(plain.day).toBe("2026-08-04");
     expect(plain.opensAt).toBe(Date.parse("2026-08-04T00:00:00Z"));
+  });
+
+  // The CLIENT half of the same coherence (funnel r2 major 1): every screen
+  // that gates on "today" reads the server's day, and this is the arithmetic
+  // that keeps it current between fetches.
+  it("serverDayAt: the server's day beats the local guess, and advances across the learned flip", () => {
+    // 00:20 UTC on the browser's clock, flip configured 19:00: the server's
+    // "today" is still 08-04 while the local clock says 08-05 — the exact
+    // window where R on the live daily used to drop the rule and the re-sign.
+    const t = Date.parse("2026-08-05T00:20:00Z");
+    expect(serverDayAt({ day: "2026-08-04", flipsAt: Date.parse("2026-08-05T19:00:00Z") }, t, "2026-08-05"))
+      .toBe("2026-08-04");
+    // Past the flip instant with no fresh fetch: advance locally, one day…
+    expect(serverDayAt({ day: "2026-08-04", flipsAt: Date.parse("2026-08-05T19:00:00Z") },
+      Date.parse("2026-08-05T19:00:01Z"), "2026-08-05")).toBe("2026-08-05");
+    // …or several (a tab parked over a weekend).
+    expect(serverDayAt({ day: "2026-08-04", flipsAt: Date.parse("2026-08-05T19:00:00Z") },
+      Date.parse("2026-08-07T20:00:00Z"), "2026-08-07")).toBe("2026-08-07");
+    // Day known but flip instant not (the events row carries no countdown):
+    // hold the server's day — it is fresher than any local guess.
+    expect(serverDayAt({ day: "2026-08-04", flipsAt: null }, t, "2026-08-05")).toBe("2026-08-04");
+    // No server ever answered: the local UTC day is the only day there is.
+    expect(serverDayAt(null, t, "2026-08-05")).toBe("2026-08-05");
   });
 });
 
@@ -216,6 +240,11 @@ describe("THE FRONT DOOR: /rush + /open-parties list forming races (4.5)", () =>
     const c = await connect(port, v.code, "Katia", true);
     await new Promise((r) => setTimeout(r, 200));
     expect(posts.length).toBe(1);
+    // §7's wire number is measured off DURABLE rows, not the deploy-reset
+    // gauge: every dispatched ping writes usage_events kind wire_post.
+    const rows = server.db!.listEvents("wire_post");
+    expect(rows.length).toBe(1);
+    expect(rows[0].data).toEqual({ event: "race_forming", crewId: crew.crewId });
     a.close(); b.close(); c.close();
   });
 
@@ -258,7 +287,55 @@ describe("THE FRONT DOOR: /rush + /open-parties list forming races (4.5)", () =>
     expect(posts[0].content).toMatch(/CARL TOOK THE DUNGEON/);
     expect(posts[0].content).toMatch(/Donut: .*\(CONCEDED\)/);
     expect(posts[0].content).toContain(`join=${encodeURIComponent(code)}`); // the rematch door
+    // The recap ping is on durable record too (§7).
+    expect(server.db!.listEvents("wire_post")
+      .some((r) => (r.data as { event: string; crewId: string }).event === "race_recap"
+        && (r.data as { crewId: string }).crewId === crew.crewId)).toBe(true);
+    // …and the race deposited crew_seat rows — the derived "who races with
+    // this crew" that lets the flip ping carry the crew's own board line
+    // (4.6 event 4) with the crew row still holding no member list. Both
+    // seats count: the conceded-and-gone racer raced too.
+    const racers = server.db!.crewRacerAccounts(crew.crewId, 0);
+    expect(racers.length).toBe(2);
     a.close();
+  });
+
+  it("crewBoardLine: the crew's best verified row on the closed day, by rank — derived, never stored (4.6 event 4)", async () => {
+    // Ride the recap test's crew_seat rows: those accounts are "the crew".
+    const reg = await fetch(`http://127.0.0.1:${port}/crew`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Board Crew", webhook: "https://discord.com/api/webhooks/777/tok" }),
+    });
+    const crew = (await reg.json()) as { crewId: string; codePrefix: string };
+    const yday = flipDayFromMs(Date.now() - 86_400_000, 0);
+    const store = server.db!.competitive;
+    const mkRun = (id: string, acct: string, name: string, floor: number): void =>
+      store.insertServerVouched({
+        id, accountId: acct, displayName: name, eventId: "daily-" + yday,
+        // mode "coop" partySize 1 IS the ranked solo ruleset (RANKED_SOLO_RULESET)
+        seed: dailySeed(yday), mode: "coop", runKind: "race", partySize: 1,
+        won: false, floor, timeTicks: 18_000, kills: 40, level: 8,
+        state: "verified", rulesHash: "testhash", createdAt: Date.now(),
+      }, Date.now());
+    // A stranger tops the board; the crew's best is second.
+    mkRun("r2-stranger", "acct-stranger", "Stranger", 12);
+    mkRun("r2-crewbest", "acct-crew-1", "Donut", 9);
+    mkRun("r2-crewalso", "acct-crew-2", "Katia", 5);
+    server.db!.logEvent("crew_seat", `${crew.codePrefix}NIGHTLY`, "acct-crew-1", { crewId: crew.crewId }, Date.now());
+    server.db!.logEvent("crew_seat", `${crew.codePrefix}NIGHTLY`, "acct-crew-2", { crewId: crew.crewId }, Date.now());
+    const line = (server as unknown as { crewBoardLine: (id: string) => string | null })
+      .crewBoardLine(crew.crewId);
+    expect(line).toBe("YOUR CREW ON YESTERDAY'S BOARD: DONUT — #2, FLOOR 9 OF 18.");
+    // A crew whose accounts have no row on the closed day gets NO line.
+    const reg2 = await fetch(`http://127.0.0.1:${port}/crew`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: "Rowless", webhook: "https://discord.com/api/webhooks/778/tok" }),
+    });
+    const rowless = (await reg2.json()) as { crewId: string };
+    expect((server as unknown as { crewBoardLine: (id: string) => string | null })
+      .crewBoardLine(rowless.crewId)).toBeNull();
   });
 
   it("registration refuses non-Discord webhooks (SSRF is not a feature)", async () => {
@@ -307,18 +384,21 @@ function crewRow(o: Partial<CrewRow> = {}): CrewRow {
 
 function wireRig(rows: CrewRow[], enabled = true): {
   wire: CrewWire; posts: string[]; clock: { now: number };
+  posted: { crewId: string; event: string }[];
 } {
   const store = new CrewStore(new Database(":memory:"));
   for (const r of rows) store.register(r);
   const posts: string[] = [];
+  const posted: { crewId: string; event: string }[] = [];
   const clock = { now: Date.parse("2026-08-04T12:00:00Z") };
   const wire = new CrewWire(store, {
     enabled,
     baseUrl: "https://x.test",
     post: async (_url, content) => { posts.push(content); },
     now: () => clock.now,
+    onPosted: (crewId, event) => { posted.push({ crewId, event }); },
   });
-  return { wire, posts, clock };
+  return { wire, posts, clock, posted };
 }
 
 describe("the crew wire's discipline (4.6)", () => {
@@ -399,5 +479,41 @@ describe("the crew wire's discipline (4.6)", () => {
     const up = wire.upcomingWindows(Date.parse("2026-08-05T00:00:00Z"));
     expect(up.length).toBe(1);
     expect(up[0].at).toBe(Date.parse("2026-08-11T21:00:00Z"));
+  });
+
+  it("every DISPATCHED post reports to onPosted with its 4.6 event name — dropped ones don't (§7's durable ping)", () => {
+    const { wire, posted, clock } = wireRig([crewRow()]);
+    wire.raceForming("DAILY-2026-08-04-RUSH-XX", 2, 4, 30_000);
+    expect(posted).toEqual([{ crewId: "ABCD1234", event: "race_forming" }]);
+    // Inside the rate-limit gap: the post is dropped AND unreported — a
+    // wire_post row for a ping Discord never got would poison the §7 number.
+    wire.raceRecap("ABCD1234", "X TOOK THE DUNGEON", [], "CREW-ABCD1234-Y");
+    expect(posted.length).toBe(1);
+    clock.now += WIRE_MIN_GAP_MS + 1;
+    wire.raceRecap("ABCD1234", "X TOOK THE DUNGEON", [], "CREW-ABCD1234-Y");
+    expect(posted[1]).toEqual({ crewId: "ABCD1234", event: "race_recap" });
+  });
+
+  it("the flip ping carries each crew's OWN board line (4.6 event 4) — per-crew content, no member list", () => {
+    const { wire, posts, clock, posted } = wireRig([
+      crewRow(),
+      crewRow({ id: "ZZZZ9999", name: "The Others", revokeToken: "b".repeat(32) }),
+    ]);
+    wire.sweep(clock.now, 0, () => null); // boot: primes
+    clock.now = Date.parse("2026-08-05T00:00:30Z");
+    wire.sweep(clock.now, 0, () => "THE SYSTEM CONGRATULATES: CARL — YESTERDAY'S DUNGEON, FLOOR 9 OF 18.",
+      (crewId) => crewId === "ABCD1234"
+        ? "YOUR CREW ON YESTERDAY'S BOARD: DONUT — #3, FLOOR 8 OF 18."
+        : null);
+    expect(posts.length).toBe(2);
+    const regulars = posts.find((p) => p.includes("DONUT — #3"))!;
+    expect(regulars).toMatch(/THE DUNGEON ROTATED/);
+    expect(regulars).toMatch(/CONGRATULATES: CARL/); // the global line still rides
+    // The crew with no line gets the flip ping WITHOUT a substitute — an
+    // absent line says nothing rather than something small (§2).
+    const others = posts.find((p) => !p.includes("DONUT"))!;
+    expect(others).toMatch(/THE DUNGEON ROTATED/);
+    expect(others).not.toMatch(/YOUR CREW ON YESTERDAY'S BOARD/);
+    expect(posted.filter((p) => p.event === "daily_flip").length).toBe(2);
   });
 });

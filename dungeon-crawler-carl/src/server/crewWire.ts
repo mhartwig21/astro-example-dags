@@ -138,6 +138,15 @@ export interface WireOptions {
   /** Injected transport (tests). Default: fetch to the webhook, 5s timeout. */
   post?: (webhookUrl: string, content: string) => Promise<void>;
   now?: () => number;
+  /**
+   * Fires once per DISPATCHED post (past the kill switch and the rate
+   * limits). §7's falsification number — "app opens within 15 minutes of a
+   * wire ping vs baseline" — needs every ping on durable record; the
+   * in-memory `posts` counter resets on deploy and a Prometheus scrape is
+   * too coarse to anchor a 15-minute window. GameServer writes a
+   * usage_events row (kind "wire_post") here.
+   */
+  onPosted?: (crewId: string, event: string) => void;
 }
 
 export class CrewWire {
@@ -158,8 +167,10 @@ export class CrewWire {
   }
 
   /** Rate-limited, fire-and-forget. The wire never blocks the tick and a
-   *  down webhook is a skipped ping, not an error anyone waits on. */
-  postTo(crew: CrewRow, content: string): boolean {
+   *  down webhook is a skipped ping, not an error anyone waits on. `event`
+   *  names which of the five 4.6 events this post carries — it goes to
+   *  onPosted (the durable wire_post row), never to Discord. */
+  postTo(crew: CrewRow, content: string, event = "post"): boolean {
     if (!this.opts.enabled) return false;
     const now = this.now();
     const day = flipDayFromMs(now, 0);
@@ -171,12 +182,13 @@ export class CrewWire {
     this.lastPostAt.set(crew.id, now);
     this.postedOnDay.set(crew.id, { day, n: n + 1 });
     this.posts++;
+    this.opts.onPosted?.(crew.id, event);
     void this.send(crew.webhookUrl, content).catch(() => { /* skipped ping */ });
     return true;
   }
 
-  private postAll(content: string): void {
-    for (const crew of this.store.list()) this.postTo(crew, content);
+  private postAll(content: string, event: string): void {
+    for (const crew of this.store.list()) this.postTo(crew, content, event);
   }
 
   private joinUrl(code: string): string {
@@ -191,6 +203,7 @@ export class CrewWire {
     this.postAll(
       `**RACE FORMING** — ${seats}/${cap} seated, gun in ${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, "0")}. `
       + `The System is holding a seat with your name misspelled on it.\njoin → ${this.joinUrl(code)}`,
+      "race_forming",
     );
   }
 
@@ -200,7 +213,8 @@ export class CrewWire {
     this.windowSoonFired.set(crew.id, at);
     this.postTo(crew,
       `**${crew.name.toUpperCase()} — YOUR WINDOW OPENS IN 15 MINUTES.** `
-      + `The System has swept the arena and hidden the good loot. Stretch.`);
+      + `The System has swept the arena and hidden the good loot. Stretch.`,
+      "window_soon");
   }
 
   windowOpen(crew: CrewRow, at: number, day: string): void {
@@ -209,20 +223,33 @@ export class CrewWire {
     const code = `CREW-${crew.id}-${day}`;
     this.postTo(crew,
       `**${crew.name.toUpperCase()} — THE WINDOW IS OPEN.** Four seats, one dungeon, `
-      + `starting gun at second zero.\nrace → ${this.joinUrl(code)}`);
+      + `starting gun at second zero.\nrace → ${this.joinUrl(code)}`,
+      "window_open");
   }
 
   /** 3. DAILY FLIPPED (+ today's rule; + yesterday's named winner when the
-   *  board has one — the §4.8 line rides the flip ping it belongs to). */
-  dailyFlipped(day: string, yesterdayWinner: string | null): void {
+   *  board has one — the §4.8 line rides the flip ping it belongs to), and
+   *  4. YOUR CREW'S DAILY BOARD LINE, riding the same ping: `crewLine` is the
+   *  crew's own best row on the board that just closed, derived from board
+   *  rows of accounts that raced under the crew's CREW- codes — never from a
+   *  member list (the crew row stays a channel; the derivation is
+   *  GameServer.crewBoardLine's). Per-crew content, one POST per crew. */
+  dailyFlipped(day: string, yesterdayWinner: string | null,
+    crewLine?: (crewId: string) => string | null): void {
     const rule = dailyRuleFor(day);
-    const lines = [
+    const base = [
       `**THE DUNGEON ROTATED.** The daily ${day} is open.`,
       rule ? DAILY_RULES[rule].line : null,
       yesterdayWinner,
-      `run it → ${this.opts.baseUrl}/iso.html`,
     ].filter((l): l is string => !!l);
-    this.postAll(lines.join("\n"));
+    for (const crew of this.store.list()) {
+      const lines = [
+        ...base,
+        crewLine?.(crew.id) ?? null,
+        `run it → ${this.opts.baseUrl}/iso.html`,
+      ].filter((l): l is string => !!l);
+      this.postTo(crew, lines.join("\n"), "daily_flip");
+    }
   }
 
   /** 5. RACE RECAP: the finished race's card + superlatives, posted to the
@@ -236,7 +263,7 @@ export class CrewWire {
       ...superlatives.map((s) => `· ${s}`),
       `rematch → ${this.joinUrl(rematchCode)}`,
     ];
-    this.postTo(crew, lines.join("\n"));
+    this.postTo(crew, lines.join("\n"), "race_recap");
   }
 
   /**
@@ -245,14 +272,15 @@ export class CrewWire {
    * worst repeat one ping, which Discord survives and the doc's failure
    * budget (silently skipped ping) more than covers.
    */
-  sweep(now: number, flipHourUtc: number, yesterdayWinner: () => string | null): void {
+  sweep(now: number, flipHourUtc: number, yesterdayWinner: () => string | null,
+    crewLine?: (crewId: string) => string | null): void {
     if (!this.opts.enabled) return;
     // Daily flip: fire on the edge only — boot primes the day without posting.
     const day = flipDayFromMs(now, flipHourUtc);
     if (this.lastFlipDay === null) this.lastFlipDay = day;
     else if (day !== this.lastFlipDay) {
       this.lastFlipDay = day;
-      this.dailyFlipped(day, yesterdayWinner());
+      this.dailyFlipped(day, yesterdayWinner(), crewLine);
     }
     // Crew windows.
     for (const crew of this.store.list()) {

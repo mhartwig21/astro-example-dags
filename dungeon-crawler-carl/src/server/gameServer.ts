@@ -28,6 +28,7 @@ import { TokenService } from "./tokens";
 import { makeExecutor, InlineExecutor } from "./verifyExecutor";
 import { RULES_HASH } from "../sim/rulesHash";
 import { openDb, type PersistDb } from "./db";
+import { MAX_BOARD_ROWS } from "./competitive";
 import { Metrics } from "./metrics";
 import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntents, type Player, type Vec2 } from "../sim/types";
 
@@ -378,9 +379,16 @@ export class GameServer {
         enabled: opts.wireEnabled ?? process.env.CREW_WIRE_OFF !== "1",
         baseUrl: opts.baseUrl ?? process.env.PUBLIC_BASE_URL ?? "https://dungeon-crawler-claude.fly.dev",
         post: opts.wirePost,
+        // §7's wire number ("app opens within 15 minutes of a wire ping vs
+        // baseline") is measured against DURABLE pings: one usage_events row
+        // per dispatched post. The dcc_wire_posts gauge resets on deploy and
+        // a scrape is too coarse to anchor a 15-minute window.
+        onPosted: (crewId, event) =>
+          this.db?.logEvent("wire_post", "WIRE", null, { event, crewId }, Date.now()),
       });
       this.wireTimer = setInterval(
-        () => this.crewWire?.sweep(Date.now(), this.flipHourUtc, () => this.yesterdayWinnerLine()),
+        () => this.crewWire?.sweep(Date.now(), this.flipHourUtc,
+          () => this.yesterdayWinnerLine(), (crewId) => this.crewBoardLine(crewId)),
         opts.wireSweepMs ?? 30_000,
       );
       // Prime the flip-day edge at boot so a restart never re-announces today.
@@ -948,6 +956,38 @@ export class GameServer {
         ? `CLEARED IT IN ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
         : `FLOOR ${top.floor} OF ${CONFIG.finalFloor}`;
       return `THE SYSTEM CONGRATULATES: ${top.displayName.toUpperCase()} — YESTERDAY'S DUNGEON, ${feat}.`;
+    } catch {
+      return null;
+    }
+  }
+
+  /** THE CREW'S OWN DAILY BOARD LINE (NICHE.md 4.6 event 4), riding the
+   *  daily-flip ping: the crew's best verified row on the board that just
+   *  closed. "The crew" is DERIVED, never stored — accounts that raced under
+   *  the crew's CREW- codes in the last 30 days (usage_events crew_seat),
+   *  matched against the closed day's rows — so the crew row stays a channel
+   *  and the no-member-list stance holds. No matching row = no line: an
+   *  absent line says nothing rather than something small (§2). */
+  private crewBoardLine(crewId: string): string | null {
+    if (!this.db?.competitive) return null;
+    const now = Date.now();
+    const yday = flipDayFromMs(now - 86_400_000, this.flipHourUtc);
+    try {
+      const accts = new Set(this.db.crewRacerAccounts(crewId, now - 30 * 86_400_000));
+      if (accts.size === 0) return null;
+      const rows = this.db.competitive.board({
+        kind: "deepest", eventId: "daily-" + yday, verifiedOnly: true, limit: MAX_BOARD_ROWS,
+      });
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!accts.has(r.accountId)) continue;
+        const t = Math.round(r.timeTicks / 60);
+        const feat = r.won
+          ? `CLEARED IT IN ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
+          : `FLOOR ${r.floor} OF ${CONFIG.finalFloor}`;
+        return `YOUR CREW ON YESTERDAY'S BOARD: ${r.displayName.toUpperCase()} — #${i + 1}, ${feat}.`;
+      }
+      return null;
     } catch {
       return null;
     }
@@ -1565,6 +1605,7 @@ export class GameServer {
               text: `${seat.name}: ${line}`, kind: "show", priority: "normal",
             });
           }
+          const crewId = crewIdFromCode(inst.code);
           if (this.db) {
             const now = Date.now();
             const live = new Set(
@@ -1578,6 +1619,14 @@ export class GameServer {
               if (acct && line && !live.has(seat.id)) {
                 this.db.addHeadline(acct, headlineLine(seat.name, line), now);
               }
+              // A CREW-coded race is the one place "who races with this crew"
+              // is observable: one row per seated account (kind crew_seat) is
+              // what lets the flip ping carry the crew's OWN board line (4.6
+              // event 4) without the crew row ever holding a member list.
+              // FORGET ME's usage_events anonymization erases the link.
+              if (crewId && acct) {
+                this.db.logEvent("crew_seat", inst.code, acct, { crewId }, now);
+              }
             }
           }
           // THE CREW WIRE, event 5 (NICHE.md 4.6): a race run under a crew's
@@ -1585,7 +1634,6 @@ export class GameServer {
           // every seat's superlative, CONCEDED SEATS INCLUDED, which is how a
           // racer who walked at floor 3 still gets their line an hour later
           // (4.7: the race refuses to forget you).
-          const crewId = crewIdFromCode(inst.code);
           if (crewId && this.crewWire) {
             const winner = seats.find((s) => s.won);
             const t = Math.round(inst.state.elapsed);

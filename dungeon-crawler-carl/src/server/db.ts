@@ -294,6 +294,20 @@ export class PersistDb {
     ).run(now, kind, partyCode, accountId, JSON.stringify(data));
   }
 
+  /** Accounts seen racing under a crew's CREW-<id>- codes (usage_events kind
+   *  "crew_seat", written at race end) — how the wire finds "your crew's
+   *  daily board line" (NICHE.md 4.6 event 4) WITHOUT the crew row ever
+   *  holding a member list: the crew stays a channel, and "the crew's
+   *  crawlers" is derived from who actually raced its codes. FORGET ME's
+   *  anonymization (account_id = NULL) removes an account from this view. */
+  crewRacerAccounts(crewId: string, sinceMs: number): string[] {
+    const rows = this.db.prepare(
+      `SELECT DISTINCT account_id FROM usage_events
+       WHERE kind = 'crew_seat' AND ts >= ? AND party_code LIKE ? AND account_id IS NOT NULL`,
+    ).all(sinceMs, `CREW-${crewId}-%`) as { account_id: string }[];
+    return rows.map((r) => r.account_id);
+  }
+
   /** Read usage events (newest first) — analysis scripts and tests. */
   listEvents(kind?: string, limit = 100): { ts: number; kind: string; partyCode: string; accountId: string | null; data: unknown }[] {
     const rows = (kind

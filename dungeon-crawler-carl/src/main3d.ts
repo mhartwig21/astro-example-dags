@@ -710,16 +710,41 @@ function loadStreak(): { last: string; n: number } | null {
 function dayBefore(day: string): string {
   return dayFromMs(Date.parse(`${day}T12:00:00Z`) - 86_400_000);
 }
+
+// ---- THE SERVER'S DAY (NICHE.md 4.5) --------------------------------------
+// The flip hour is a server config, so "today" is the SERVER's day — during
+// the 00:00Z→flip window the browser's UTC-midnight guess names TOMORROW.
+// Every surface that gates or labels on the day reads serverToday(); the two
+// carriers of the day feed it (/rush, which also brings the flip instant, and
+// the daily event row), and social.serverDayAt advances it locally across the
+// learned flip so a menu left open over the rotation doesn't hold yesterday.
+// dayFromMs(Date.now()) survives ONLY as the offline fallback inside
+// serverToday — no other call site may ask the local clock what day it is.
+let knownServerDay: social.KnownServerDay | null = null;
+/** The server's event roster (daily/weekly rows). Declared HERE, beside the
+ *  day tracker, because the ?c= card block confirms its 'daily' flag against
+ *  a fresh events fetch at boot — long before THE STANDINGS section that
+ *  mostly reads it. */
+let events: social.EventsView | null = null;
+function learnServerDay(day: string, msToFlip?: number): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day)) return;
+  knownServerDay = { day, flipsAt: msToFlip != null ? Date.now() + msToFlip : null };
+}
+function serverToday(): string {
+  return social.serverDayAt(knownServerDay, Date.now(), dayFromMs(Date.now()));
+}
 function bumpStreak(day: string): number {
   const cur = loadStreak();
   const n = cur?.last === day ? cur.n : cur?.last === dayBefore(day) ? cur.n + 1 : 1;
   try { localStorage.setItem(STREAK_KEY, JSON.stringify({ last: day, n })); } catch { /* best-effort */ }
   return n;
 }
-/** The streak shown on the menu card: alive if it includes today or yesterday. */
+/** The streak shown on the menu card: alive if it includes today or yesterday.
+ *  "Today" is the server's day — a streak must not read dead for the whole
+ *  00:00Z→flip stretch of an evening-configured flip hour. */
 function currentStreak(): number {
   const cur = loadStreak();
-  const today = dayFromMs(Date.now());
+  const today = serverToday();
   return cur && (cur.last === today || cur.last === dayBefore(today)) ? cur.n : 0;
 }
 
@@ -800,7 +825,7 @@ async function refreshBoardInner(): Promise<void> {
     const page = (await competitive.board(kind, {
       event: boardTab === "today" ? "daily" : undefined, limit: 8,
     })) as social.BoardPage;
-    dayEl.textContent = boardTab === "today" ? (challengeDay ?? dayFromMs(Date.now())) : "ALL-TIME";
+    dayEl.textContent = boardTab === "today" ? (challengeDay ?? serverToday()) : "ALL-TIME";
     if (page.entries.length === 0) {
       list.innerHTML = boardEmptyHtml("AN OPEN CONTRACT",
         "no crawler is on this board yet — the first name up stays up");
@@ -845,7 +870,7 @@ async function refreshBoardInner(): Promise<void> {
   }
   try {
     // A challenge link shows the CHALLENGER'S board day, not today's.
-    const day = challengeDay ?? dayFromMs(Date.now());
+    const day = challengeDay ?? serverToday();
     dayEl.textContent = day;
     const r = await fetch(`${API_BASE}/leaderboard?day=${day}`);
     if (!r.ok) throw new Error(String(r.status));
@@ -1174,7 +1199,7 @@ function openMenu(): void {
   // with two filled-gold actions has none.
   document.getElementById("m-solo")!.classList
     .toggle("demoted", getComputedStyle(cont).display !== "none");
-  document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
+  document.getElementById("m-board-day")!.textContent = challengeDay ?? serverToday();
   void refreshBoard();
   renderCareer();
 }
@@ -1497,6 +1522,9 @@ async function refreshRush(): Promise<void> {
     if (!r.ok) throw new Error(String(r.status));
     rushView = (await r.json()) as RushView;
     rushFetchedAt = Date.now();
+    // /rush names the server's day AND its flip instant — the freshest
+    // carrier of "today" this client gets (re-fetched every 10s on the menu).
+    learnServerDay(rushView.day, rushView.msToFlip);
   } catch {
     rushView = null; // unreachable server: the tile keeps its static promise
   }
@@ -7456,13 +7484,21 @@ function onrampObserve(intent: Intent): void {
   const ch = code ? social.decodeChallenge(code) : null;
   if (ch) {
     cardChallenge = ch;
-    cardChallengeIsToday = ch.seed === dailySeed(dayFromMs(Date.now()));
+    // Provisional off the best day known at boot; CONFIRMED against the
+    // server's day below before the card_open flag is written — the flip
+    // hour is server config (§4.5), and during the 00:00Z→flip window the
+    // local guess would mislabel a card for the LIVE daily as a closed day
+    // (wrong routing at the tile AND a poisoned 'daily' telemetry flag).
+    cardChallengeIsToday = ch.seed === dailySeed(serverToday());
     const feat = ch.won ? `cleared it in ${social.mmss(ch.timeSec)}`
       : ch.floor > 0 ? `reached floor ${ch.floor} of ${CONFIG.finalFloor}` : "laid down a run";
     document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
-    document.getElementById("m-daily-sub")!.textContent =
-      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`
-      + (cardChallengeIsToday ? " (It's today's daily — the board is watching.)" : "");
+    const writeCardSub = (): void => {
+      document.getElementById("m-daily-sub")!.textContent =
+        `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`
+        + (cardChallengeIsToday ? " (It's today's daily — the board is watching.)" : "");
+    };
+    writeCardSub();
     // The seed pin itself lives on the m-daily click handler: today's-daily
     // cards sign the contract (same seed), any other card reruns ITS seed.
 
@@ -7472,9 +7508,25 @@ function onrampObserve(intent: Intent): void {
     const cold = !loadToken();
     const mobile = matchMedia("(pointer: coarse)").matches;
     const openedAt = Date.now();
-    logUsage("card_open", {
-      seed: ch.seed, ev: ch.ev ?? null, daily: cardChallengeIsToday, cold, mobile,
-    });
+    // The 'daily' flag waits (≤3s) for the server to name its day, then the
+    // open is logged either way — a dark server logs the local guess rather
+    // than dropping the funnel's first rung.
+    void (async () => {
+      try {
+        const ev = await Promise.race([
+          competitive.events() as Promise<social.EventsView>,
+          new Promise<never>((_, rej) => { setTimeout(rej, 3000); }),
+        ]);
+        events = ev;
+        learnServerDay(ev.daily.day);
+      } catch { /* unreachable or slow: the local guess stands */ }
+      const was = cardChallengeIsToday;
+      cardChallengeIsToday = ch.seed === dailySeed(serverToday());
+      if (was !== cardChallengeIsToday) writeCardSub();
+      logUsage("card_open", {
+        seed: ch.seed, ev: ch.ev ?? null, daily: cardChallengeIsToday, cold, mobile,
+      });
+    })();
     // FUNNEL RUNG 2: the first real input after a card open — the difference
     // between "the page loaded" and "a person is at the controls".
     const once = { fired: false };
@@ -8379,7 +8431,7 @@ function saveRunCard(): void {
   const cv = composeRunCard(state);
   cv.toBlob(async (blob) => {
     if (!blob) return;
-    const name = `dcc-${state.status === "won" ? "finale" : "memoriam"}-${dayFromMs(Date.now())}.png`;
+    const name = `dcc-${state.status === "won" ? "finale" : "memoriam"}-${serverToday()}.png`;
     const file = new File([blob], name, { type: "image/png" });
     // The mobile path is the OS share sheet; desktop falls back to a download.
     if (navigator.canShare?.({ files: [file] })) {
@@ -8719,12 +8771,16 @@ async function runItBack(): Promise<void> {
   // server did not observe is exactly the hole tickets exist to close. So R on
   // a daily signs again (attempt 2, 3, ...) instead of quietly dropping off the
   // contract onto the same seed.
-  if (runMode.kind === "daily" && runMode.day === dayFromMs(Date.now()) && !net && !testMode) {
+  // "Today" is the SERVER's day (§4.5): during the 00:00Z→flip window the
+  // local clock names tomorrow, and R on the live daily would silently drop
+  // the day's rule and the attempt re-sign. serverToday() holds the day the
+  // server last named (the signing fetch set it, /rush keeps it fresh).
+  if (runMode.kind === "daily" && runMode.day === serverToday() && !net && !testMode) {
     await enterDailyContract(runMode.day);
   } else {
     // A rerun of a CLOSED day's daily is the base game, same as the entry
     // path pinned it — the day's rule went with the day (§4.8).
-    if (runMode.kind === "daily" && runMode.day !== dayFromMs(Date.now())) forcedRule = null;
+    if (runMode.kind === "daily" && runMode.day !== serverToday()) forcedRule = null;
     startRun(runMode, currentRunKind);
   }
 }
@@ -8746,7 +8802,8 @@ let myPublicId = "";
  *  ID. They light up on every board, because a ladder is only contested if you
  *  can find the person you are contesting it WITH. */
 const rivalAccounts = new Set<string>();
-let events: social.EventsView | null = null;
+// (`events` — the daily/weekly roster — is declared beside the server-day
+// tracker near the top of the file; the ?c= boot block needs it first.)
 const ERA = RULES_HASH.slice(0, 7);
 
 function closeSets(): void {
@@ -9339,6 +9396,7 @@ async function renderLadderBody(): Promise<void> {
   fitPanel(ladderEl); // clears a lingering `hugs` from the previous tab NOW
   try {
     if (!events) events = (await competitive.events()) as social.EventsView;
+    learnServerDay(events.daily.day);
   } catch {
     body.innerHTML = setEmptyHtml("THE BOARD IS DARK",
       "the server keeps the score, and it will still be there when the signal is back");
@@ -9614,7 +9672,7 @@ async function enterContract(eventId: string): Promise<void> {
     // Deal the SERVER's pinned rule, not a local recompute — the weekly pins
     // the base game, and the submit path refuses a header off the pin (§4.8).
     forcedRule = pinnedRuleOf(t.dailyRule);
-    startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
+    startRun({ kind: "daily", day: events?.daily.day ?? serverToday() }, "race");
     contractSigned(t);
   } catch (err) {
     pushLogLine(`CONTRACT REFUSED — ${(err as Error).message}`);
@@ -9642,7 +9700,20 @@ async function enterContract(eventId: string): Promise<void> {
  *    was arbitrary.
  */
 async function enterDailyContract(day: string | null): Promise<void> {
-  const today = dayFromMs(Date.now());
+  let today = serverToday();
+  // A mismatch DEMOTES the run — rule stripped, no contract signed — so it
+  // is never decided on a local guess alone: with an evening flip hour the
+  // browser's UTC day names TOMORROW from 00:00Z to the flip, and a ?c=/
+  // ?daily= link for the LIVE day would be quietly reranked as a closed-day
+  // rerun. Confirm against the server's own day first (§4.5); only a dark
+  // server leaves the local guess in charge.
+  if (day && day !== today) {
+    try {
+      events = (await competitive.events()) as social.EventsView;
+      learnServerDay(events.daily.day);
+      today = serverToday();
+    } catch { /* offline: the local guess is the only day there is */ }
+  }
   if (day && day !== today) {
     pendingTicket = null;
     pendingContractNote = `a challenge on the ${day} dungeon — that contract has closed, so this is `
@@ -9657,6 +9728,7 @@ async function enterDailyContract(day: string | null): Promise<void> {
   }
   try {
     if (!events) events = (await competitive.events()) as social.EventsView;
+    learnServerDay(events.daily.day);
     const token = await accountToken();
     const t = await competitive.startEvent(events.daily.id, token);
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };

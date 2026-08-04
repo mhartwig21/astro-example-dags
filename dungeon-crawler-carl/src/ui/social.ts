@@ -15,9 +15,38 @@
  * than a flattering placeholder.
  */
 import { CONFIG, FLOOR_BANDS, floorBand } from "../sim/config";
+import { dayFromMs } from "../sim/daily";
 import type { RunBuild } from "../sim/replay";
 import type { LastHitSrc } from "../sim/types";
 import type { RunRecord } from "../persist/history";
+
+// ---------------------------------------------------------------------------
+// THE SERVER'S DAY (NICHE.md 4.5). The flip hour is a SERVER config, so
+// "today" is the server's day, not the browser's UTC-midnight guess — during
+// the 00:00Z→flip window those disagree, and every screen that gates on the
+// day (contract re-signs, closed-day demotions, board headers, the card's
+// daily flag) must gate on the server's. The client learns the day from
+// /rush (which also carries the flip instant) or the daily event row; this
+// is the arithmetic that keeps it current between fetches.
+// ---------------------------------------------------------------------------
+
+/** The freshest day the server has named, plus (when /rush answered) the
+ *  epoch-ms instant that day rotates. flipsAt null = instant unknown. */
+export interface KnownServerDay {
+  day: string;
+  flipsAt: number | null;
+}
+
+/** The server's CURRENT day: the learned day, advanced locally across the
+ *  learned flip instant so a menu left open over the flip doesn't hold
+ *  yesterday. `localDay` is the offline fallback (no server ever answered =
+ *  the flip hour is unknowable and UTC midnight is the honest default). */
+export function serverDayAt(known: KnownServerDay | null, now: number, localDay: string): string {
+  if (!known) return localDay;
+  if (known.flipsAt == null || now < known.flipsAt) return known.day;
+  const days = 1 + Math.floor((now - known.flipsAt) / 86_400_000);
+  return dayFromMs(Date.parse(known.day + "T12:00:00Z") + days * 86_400_000);
+}
 
 // ---------------------------------------------------------------------------
 // Typed views of the server projections (competitiveApi.ts publicRun et al.)
