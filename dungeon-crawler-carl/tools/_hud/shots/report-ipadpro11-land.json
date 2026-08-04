@@ -1,0 +1,780 @@
+[
+  {
+    "device": "ipadpro11-land",
+    "scene": "menu",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-menu.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "menu"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch checkin modal",
+      "panels": {
+        "menu": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 7,
+            "under44": 1,
+            "smallest": {
+              "t": "m-name",
+              "w": 202,
+              "h": 25
+            },
+            "examples": [
+              {
+                "t": "m-name",
+                "w": 202,
+                "h": 25
+              }
+            ]
+          },
+          "closers": [
+            "DAILY CRAWLone dunge",
+            "NEW RUNa fresh seed,",
+            "PARTY CRAWLshare a c",
+            "RIVALSup to four HOS",
+            "ROAMno clock — settl",
+            "TEST CHAMBER — pract"
+          ],
+          "cols": {}
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-combat.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch ingame",
+      "panels": {}
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "shop",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-shop.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "saferoom"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "saferoom": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 9,
+            "under44": 0,
+            "smallest": {
+              "t": "sr-tab-shop",
+              "w": 114,
+              "h": 44
+            },
+            "examples": []
+          },
+          "closers": [
+            "SYSTEM SHOP",
+            "ABILITIES",
+            "ACHIEVEMENTS",
+            "IN STOCK",
+            "ALL ITEMS",
+            "THE CHASE",
+            "BUY",
+            "SELL ALL",
+            "DESCEND ▼"
+          ],
+          "cols": {
+            ".shop-body": {
+              "display": "grid",
+              "cols": "770px 348px",
+              "columnCount": "auto",
+              "w": 1132,
+              "children": [
+                770,
+                348
+              ]
+            }
+          },
+          "shop": {
+            "shelf": {
+              "x": 31,
+              "y": 188,
+              "w": 770,
+              "h": 533
+            },
+            "detail": {
+              "x": 815,
+              "y": 136,
+              "w": 348,
+              "h": 343
+            },
+            "bag": {
+              "x": 828,
+              "y": 661,
+              "w": 322,
+              "h": 48
+            },
+            "shelfRows": [
+              {
+                "x": 31,
+                "y": 190,
+                "w": 764,
+                "h": 14
+              },
+              {
+                "x": 31,
+                "y": 211,
+                "w": 764,
+                "h": 79
+              },
+              {
+                "x": 31,
+                "y": 302,
+                "w": 764,
+                "h": 14
+              },
+              {
+                "x": 31,
+                "y": 323,
+                "w": 764,
+                "h": 79
+              }
+            ],
+            "buyButtons": [
+              {
+                "t": "BUY",
+                "w": 318,
+                "h": 44
+              }
+            ],
+            "detailScroll": {
+              "right": 0,
+              "bottom": 0,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 24,
+              "overflowX": "auto",
+              "overflowY": "auto"
+            },
+            "tabs": [
+              {
+                "t": "SYSTEM SHOP",
+                "w": 114,
+                "h": 44
+              },
+              {
+                "t": "ABILITIES",
+                "w": 85,
+                "h": 44
+              },
+              {
+                "t": "ACHIEVEMENTS",
+                "w": 131,
+                "h": 44
+              },
+              {
+                "t": "IN STOCK",
+                "w": 84,
+                "h": 44
+              },
+              {
+                "t": "ALL ITEMS",
+                "w": 88,
+                "h": 44
+              },
+              {
+                "t": "THE CHASE",
+                "w": 95,
+                "h": 44
+              }
+            ]
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "sheet",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-sheet.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "sheet"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch ingame modal",
+      "panels": {
+        "sheet": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 2,
+            "under44": 0,
+            "smallest": {
+              "t": "tp-x",
+              "w": 46,
+              "h": 46
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "DONE"
+          ],
+          "cols": {
+            ".sheet-cols": {
+              "display": "grid",
+              "cols": "305px 811px",
+              "columnCount": "auto",
+              "w": 1128,
+              "children": [
+                305,
+                811
+              ]
+            },
+            ".sheet-duo": {
+              "display": "grid",
+              "cols": "549px 250px",
+              "columnCount": "auto",
+              "w": 811,
+              "children": [
+                549,
+                250
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "constellation",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-constellation.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "abil"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "abil": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 1321,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 28,
+            "under44": 0,
+            "smallest": {
+              "t": "tp-x",
+              "w": 46,
+              "h": 46
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "DONE"
+          ],
+          "cols": {
+            ".grid": {
+              "display": "block",
+              "cols": "none",
+              "columnCount": "2",
+              "w": 1128,
+              "children": [
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557,
+                557
+              ]
+            }
+          },
+          "constellation": {
+            "grid": {
+              "x": 33,
+              "y": 179,
+              "w": 1128,
+              "h": 1355
+            },
+            "overflow": {
+              "right": 0,
+              "bottom": 700,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "visible",
+              "overflowY": "visible"
+            },
+            "cards": [
+              {
+                "x": 33,
+                "y": 179,
+                "w": 557,
+                "h": 217
+              },
+              {
+                "x": 33,
+                "y": 410,
+                "w": 557,
+                "h": 230
+              },
+              {
+                "x": 33,
+                "y": 653,
+                "w": 557,
+                "h": 238
+              },
+              {
+                "x": 33,
+                "y": 905,
+                "w": 557,
+                "h": 240
+              },
+              {
+                "x": 33,
+                "y": 1159,
+                "w": 557,
+                "h": 169
+              },
+              {
+                "x": 33,
+                "y": 1341,
+                "w": 557,
+                "h": 193
+              }
+            ],
+            "nodes": [
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 13,
+                "h": 13
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              }
+            ],
+            "colStyle": "2"
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "socketing",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-socketing.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "saferoom"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "saferoom": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 64,
+            "under44": 0,
+            "smallest": {
+              "t": "sr-tab-shop",
+              "w": 114,
+              "h": 44
+            },
+            "examples": []
+          },
+          "closers": [
+            "SYSTEM SHOP",
+            "ABILITIES",
+            "ACHIEVEMENTS",
+            "SLOT 1",
+            "SLOT 2",
+            "SLOT 3",
+            "SLOT 4",
+            "BENCH",
+            "SLOT 1",
+            "SLOT 2",
+            "SLOT 3",
+            "SLOT 4"
+          ],
+          "cols": {
+            ".shop-body": {
+              "display": "none",
+              "cols": "1fr 348px",
+              "columnCount": "auto",
+              "w": 0,
+              "children": []
+            }
+          },
+          "shop": {
+            "shelf": {
+              "x": 0,
+              "y": 0,
+              "w": 0,
+              "h": 0
+            },
+            "detail": {
+              "x": 0,
+              "y": 0,
+              "w": 0,
+              "h": 0
+            },
+            "bag": {
+              "x": 0,
+              "y": 0,
+              "w": 0,
+              "h": 0
+            },
+            "shelfRows": [],
+            "buyButtons": [],
+            "detailScroll": {
+              "right": 0,
+              "bottom": 0,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "auto",
+              "overflowY": "auto"
+            },
+            "tabs": [
+              {
+                "t": "SYSTEM SHOP",
+                "w": 114,
+                "h": 44
+              },
+              {
+                "t": "ABILITIES",
+                "w": 85,
+                "h": 44
+              },
+              {
+                "t": "ACHIEVEMENTS",
+                "w": 131,
+                "h": 44
+              }
+            ]
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "inventory",
+    "file": "tools\\_hud\\shots\\ipadpro11-land-inventory.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "panelsOpen": [
+      "inv"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "dpr": 2,
+      "body": "touch modal",
+      "panels": {
+        "inv": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 1194,
+            "h": 834
+          },
+          "panel": {
+            "x": 12,
+            "y": 36,
+            "w": 1170,
+            "h": 766
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 0,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 12,
+            "under44": 0,
+            "smallest": {
+              "t": "tp-x",
+              "w": 46,
+              "h": 46
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "DONE"
+          ],
+          "cols": {
+            ".cols": {
+              "display": "grid",
+              "cols": "558px 558px",
+              "columnCount": "auto",
+              "w": 1128,
+              "children": [
+                558,
+                558
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  }
+]

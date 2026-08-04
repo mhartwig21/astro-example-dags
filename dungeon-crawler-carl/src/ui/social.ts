@@ -28,11 +28,27 @@ export type RunState = "claimed" | "verifying" | "verified" | "rejected" | "unve
 export interface BoardRun {
   id: string;
   name: string;
-  accountId: string;
+  /** The crawler's DERIVED public name (sha256 of the account id). Never the
+   *  account id: that string IS the bearer token the server authenticates on,
+   *  and a board that carried it handed every reader a working credential for
+   *  every ranked player. The client only ever needed it for the YOU / RIVAL
+   *  tag on a row. */
+  publicId: string;
   eventId: string | null;
   state: RunState;
   reason: string | null;
   rulesEra: string | null;
+  /** WHICH GAME this row was played under - not just which numbers. The era
+   *  chip answers the second question; nothing answered the first, and the roam
+   *  exploit lived in exactly that blind spot. */
+  mode?: string;
+  runKind?: string;
+  /** Whether a film ever existed for this row, and whether it still does.
+   *  "never" is a RIVALS row the authoritative sim decided itself: there was
+   *  nothing to record, and telling the player it "aged out of retention" is a
+   *  false statement in the one product whose pitch is that it does not make
+   *  them. */
+  film?: "retained" | "expired" | "never";
   playable: boolean;
   won: boolean;
   floor: number;
@@ -64,7 +80,13 @@ export interface BoardPage {
   eventId: string | null;
   rulesEra: string;
   splitGate: number;
+  /** THE BOARD: rows the server re-executed and certified. The verified /
+   *  unproven split lives in the RESPONSE SHAPE, not in one renderer, so a
+   *  consumer that reads nothing else cannot print a claim as a rank. */
   entries: BoardRun[];
+  verified?: BoardRun[];
+  /** Stored exactly as a client reported them. No rank, never a result. */
+  unproven?: BoardRun[];
 }
 
 export interface EventView {
@@ -98,13 +120,22 @@ export interface Standing {
 }
 
 export interface ProfileView {
-  accountId: string;
+  publicId: string;
   name: string | null;
   seals: number;
+  /** Rows on the server, sealed or not. Deliberately a different word from
+   *  `seals`: the career panel labelled a histogram built from ALL runs "N
+   *  sealed runs" and printed SEALS 0 three hundred pixels below it. */
+  runsSubmitted?: number;
+  refused?: number;
   career: { runs: number; wins: number; deepest: number; kills: number; time_sec: number } | null;
   standing: Standing;
   season: string;
+  /** Every row this account submitted, by ending floor. */
   deathsByFloor: number[];
+  /** The same chart over CERTIFIED rows only - the population the seal count,
+   *  the CP and the board rows are drawn from. */
+  sealedDeathsByFloor?: number[];
   /** Band personal bests as the SERVER computes them, from verified rows that
    *  passed the traversal predicate. This is the authority; the localStorage
    *  ledger is only an offline cache of it. */
@@ -131,7 +162,7 @@ export interface RivalContract {
   eventId: string;
   seed: number;
   resolvesAt: number;
-  rival: { accountId: string; cp: number; name: string | null } | null;
+  rival: { publicId: string; cp: number; name: string | null } | null;
   rivalRun: BoardRun | null;
   myCp: number;
   /** Every contested event the two of you both finished. */
@@ -181,6 +212,15 @@ export interface RunFacts {
    *  you at depth without having cleared anything, and dividing the clock by
    *  twelve floors nobody walked hands out a perfect tempo. */
   floorsCleared: number;
+  /**
+   * The run began at depth (test chamber, or a start that only ever entered
+   * one floor). DEPTH IS THEN NOT A MEASURE OF ANYTHING THIS RUN DID, and the
+   * tile must not score it as one: printing DEPTH 100 in gold forty pixels
+   * above a red TEST CHAMBER — NOT RANKED banner is two elements asserting
+   * opposite things about the same number. Scored on the floors actually
+   * walked out of instead.
+   */
+  startedAtDepth?: boolean;
 }
 
 /** Fewer than this many finished local runs and a percentile is a lie: fall
@@ -253,9 +293,12 @@ export function gradeRun(
   const todays = (board ?? []).filter((b) => b.floor > 0);
   const haveBoard = todays.length >= COLD_START_RUNS;
 
-  // DEPTH - floor reached, against your own median and the day's field.
+  // DEPTH - floor reached, against your own median and the day's field. A run
+  // HANDED its depth is scored on the floors it actually walked out of, which
+  // is usually zero: the meter and the NOT RANKED banner have to agree.
   const depthPool = [...mine.map((r) => r.floor), ...todays.map((b) => b.floor)];
-  const depth = percentile(run.floor, depthPool) ?? scoreAgainst(run.floor, CURVE.floor);
+  const depthMeasure = run.startedAtDepth ? run.floorsCleared : run.floor;
+  const depth = percentile(depthMeasure, depthPool) ?? scoreAgainst(depthMeasure, CURVE.floor);
 
   // TEMPO - sim seconds per floor COMPLETED. The distinction matters: a run
   // that dies eight seconds into floor 1 has not set a blistering pace, it has
@@ -297,7 +340,13 @@ export function gradeRun(
   const execution = clamp(Math.round(kpmScore * 0.7 + claimRate * 100 * 0.3), 0, 100);
 
   const parts: GradePart[] = [
-    { key: "DEPTH", score: depth, detail: run.won ? `all ${CONFIG.finalFloor} floors` : `floor ${run.floor}` },
+    {
+      key: "DEPTH",
+      score: depth,
+      detail: run.startedAtDepth
+        ? `floor ${run.floor} — started here, not walked`
+        : run.won ? `all ${CONFIG.finalFloor} floors` : `floor ${run.floor}`,
+    },
 
     {
       key: "TEMPO",
@@ -324,8 +373,16 @@ export function gradeRun(
   const ceiling = depth + 25;
   const capped = score > ceiling;
   score = Math.min(score, ceiling);
-  // A CLEAR is never worse than an A. Eighteen floors is eighteen floors.
-  if (run.won) score = Math.max(score, 76);
+  // A CLEAR IS NEVER WORSE THAN AN A, AND THE LETTER STILL HAS TO SAY SOMETHING.
+  // A flat `max(score, 76)` floored EVERY clear at exactly A, so a scrappy
+  // eighteen floors and a dominant one printed the same glyph - the biggest
+  // element on the screen carrying no information on the one result that
+  // matters most. The clear instead spends the whole top of the scale: the
+  // composite is remapped into 76..100 around parity, so 76 is the survivor
+  // who limped out and S is earned by clearing WELL.
+  if (run.won && !run.startedAtDepth) {
+    score = clamp(Math.round(76 + (score - 50) * 0.48), 76, 100);
+  }
 
   const basis = haveHistory && haveBoard
     ? `vs YOUR ${mine.length} RUNS · TODAY'S ${todays.length}`
@@ -333,7 +390,7 @@ export function gradeRun(
       ? `vs YOUR ${mine.length} RUNS`
       : haveBoard
         ? `vs TODAY'S ${todays.length} · THE HOUSE CURVE`
-        : "vs THE HOUSE CURVE — graded against the format, not a crowd";
+        : "vs THE HOUSE CURVE — no crowd yet";
 
   const letter = letterFor(score);
   return {
@@ -350,12 +407,29 @@ export function gradeRun(
 function commentary(letter: Letter, run: RunFacts, parts: GradePart[]): string {
   const worst = [...parts].sort((a, b) => a.score - b.score)[0];
   if (run.won) {
-    return letter === "S"
-      ? "PERFECT BROADCAST. The network has already greenlit the sequel."
-      : "YOU WALKED OUT. Somewhere an accountant is crying about your merchandise rights.";
+    if (letter === "S") return "PERFECT BROADCAST. The network has already greenlit the sequel.";
+    // A clear that is not an S got there the hard way, and the screen should
+    // say which way. "You walked out" for every clear alike is the same flat
+    // reading the letter used to give.
+    const short: Record<GradePart["key"], string> = {
+      DEPTH: "on paper, at least.",
+      TEMPO: "Slowly. The audience had time to order food.",
+      SURVIVAL: "Bleeding the whole way. The medical bill is the sequel budget.",
+      EXECUTION: "Underpowered — you left drafts banked and walked out anyway.",
+    };
+    return `YOU WALKED OUT. ${short[worst.key]}`;
   }
   const nag: Record<GradePart["key"], string> = {
-    DEPTH: "You did not go deep enough to matter. The cameras were still warming up.",
+    // ...AND THE DEPTH LINE READS THE FLOOR (blocker 15). This fired on a
+    // floor-13 death - two thirds of the dungeon, deeper than most runs ever
+    // get - and told the crawler the cameras were still warming up. DEPTH being
+    // the WEAKEST of four parts is not the same claim as "you went nowhere".
+    DEPTH: run.floor >= 10
+      ? `Floor ${run.floor}, and the exit is still ${CONFIG.finalFloor - run.floor} floors past where you `
+        + "stopped. Depth is the number that pays and you were in sight of it."
+      : run.floor >= 4
+        ? `Floor ${run.floor}. Respectable, and a long way short of the story.`
+        : "You did not go deep enough to matter. The cameras were still warming up.",
     TEMPO: "You dawdled. The collapse timer is not a suggestion and the audience is not patient.",
     SURVIVAL: "You took every hit on offer. Try the version where you do not.",
     EXECUTION: "You left power on the table — banked drafts do not accrue interest.",
@@ -463,12 +537,35 @@ export function worstBand(splits: readonly BandSplit[]): number {
   let worst = -1;
   let delta = 0;
   for (const s of splits) {
-    const ref = s.pbTicks ?? s.leaderTicks;
-    if (!ref || s.ticks <= 0) continue;
-    const d = s.ticks - ref;
-    if (d > delta) { delta = d; worst = s.band; }
+    if (s.ticks <= 0) continue;
+    // Against BOTH references, worst wins. Beat 4 is "your time per band vs
+    // your PB vs the board leader"; measuring LOST HERE against yourself alone
+    // can only ever tell you that you had a bad day, never that the field is
+    // walking a band you are crawling.
+    for (const ref of [s.pbTicks, s.leaderTicks]) {
+      if (!ref) continue;
+      const d = s.ticks - ref;
+      if (d > delta) { delta = d; worst = s.band; }
+    }
   }
   return worst;
+}
+
+/**
+ * The board leader's band splits, for Beat 4's third bar. The leader is the
+ * best row the CURRENT ERA can still stand behind: an unproven claim is not a
+ * benchmark, and a row sealed under other numbers is not a comparison.
+ * Returns an all-null array when the field has nothing to offer, so the
+ * caller never has to invent one.
+ */
+export function leaderSplits(board: readonly BoardRun[] | null, currentEra: string): (number | null)[] {
+  const empty = new Array<number | null>(FLOOR_BANDS.length).fill(null);
+  const row = (board ?? []).find(
+    (r) => r.state === "verified" && r.rulesEra === currentEra
+      && !!r.bandSplits && r.bandSplits.some((t) => t > 0),
+  );
+  if (!row?.bandSplits) return empty;
+  return empty.map((_, i) => (row.bandSplits![i] ?? 0) > 0 ? row.bandSplits![i] : null);
 }
 
 export function bandName(i: number): string {
@@ -574,6 +671,27 @@ export interface GhostState {
   ticks: number;
   /** Source run, when the ghost came off a board row. */
   runId?: string;
+  /**
+   * WHAT THE GHOST ACTUALLY DID, so the post-run scoreboard can print a COLUMN
+   * instead of two numbers and five em-dashes (6.2 Beat 2, blocker 14).
+   *
+   * The track carries a trajectory and nothing else, so the ghost column could
+   * only ever answer "how deep" and "how long" - and a column that is 71%
+   * em-dashes is what made a three-column scoreboard read as two. Every ghost
+   * has a source that knows the rest: a board row (RACE THE LEADER, a
+   * challenge link) carries the verifier-derived numbers, and RUN IT BACK is
+   * this browser's own last run. Filled at ARM time, because the source is in
+   * scope exactly then.
+   */
+  facts?: {
+    won: boolean;
+    floor: number;
+    kills: number | null;
+    level: number | null;
+    damageDealt: number | null;
+    damageTaken: number | null;
+    goldSpent: number | null;
+  };
 }
 
 /** Where the ghost is at a given tick, lerped between keyframes. Null once the
@@ -659,16 +777,52 @@ export interface SealChip {
  */
 export type SealWeight = "ranked" | "plain";
 
+/**
+ * HOW THIS ROW GOT ITS SEAL, WHICH IS NOT ALWAYS THE SAME STORY (blocker 11).
+ *
+ * `verified` covers two genuinely different events, and the chip printed the
+ * SAME sentence for both: "the server re-executed this run and certified it".
+ * That is true of a proof-verified row and FALSE of a server-vouched one -
+ * `insertServerVouched` writes `verified` with `proof_id NULL` for a RIVALS
+ * contract that was never re-executed because it never left the server. On a
+ * board whose entire pitch is "every entry that ranks is a proof, not a claim"
+ * (0. The thesis), the tooltip was asserting a re-execution that provably did
+ * not happen - and the only existing tell, "party of N", is absent on a solo
+ * rivals row, because N is 1.
+ *
+ * Both are honest seals. They are not the same seal, and the honest sentence
+ * for the second one already existed in this file - buried in `playability`, a
+ * disabled button's title attribute.
+ */
+export type SealProvenance = "replayed" | "vouched";
+
+/** The provenance of a row, from the row. A verified row that NEVER had a film
+ *  is the vouched path; there is no other way to be certified without one. */
+export function provenanceOf(r: Pick<BoardRun, "state" | "film">): SealProvenance {
+  return r.state === "verified" && r.film === "never" ? "vouched" : "replayed";
+}
+
 /** Every row on every board carries its state AND its era, because a board
  *  that silently blends rules eras is lying - and showing it is the one thing
  *  LoL literally cannot do, since their all-time stats blend twelve years of
  *  patches without a word. */
 export function sealChip(
   state: RunState, era: string | null, isPrivate = false, weight: SealWeight = "ranked",
+  provenance: SealProvenance = "replayed",
 ): SealChip {
   const eraNote = era ? ` · rules era ${era}` : "";
   switch (state) {
     case "verified":
+      if (provenance === "vouched") {
+        return {
+          cls: (weight === "plain" ? "seal verified plain" : "seal verified") + " vouched",
+          label: isPrivate ? "SERVER-RUN · PRIVATE" : "SERVER-RUN",
+          title: "the System's own authoritative sim decided this race as it happened, tick by tick — "
+            + "it was never re-executed, because it never left the server, and there is no film to hand "
+            + `out${eraNote}`
+            + (weight === "plain" ? ". Sealed, but it holds no board position." : ""),
+        };
+      }
       return {
         cls: weight === "plain" ? "seal verified plain" : "seal verified",
         label: isPrivate ? "SEALED · PRIVATE" : "SEALED",
@@ -691,18 +845,510 @@ export function sealChip(
   }
 }
 
+/**
+ * WHICH GAME THIS ROW WAS PLAYED, IN WORDS ON THE ROW (blocker 11).
+ *
+ * `mode` and `runKind` have been on the wire since the roam exploit was closed
+ * and no surface rendered either of them, so the only visible difference
+ * between a permadeath race and a ruleset with no permadeath at all was a party
+ * count that reads "1" on a solo rivals instance. Returns null for the plain
+ * descent every board is made of - a label on every row labels nothing.
+ */
+export function rulesetLabel(
+  r: { mode?: string; runKind?: string },
+): string | null {
+  const kind = (r.runKind ?? "race").toLowerCase();
+  const mode = (r.mode ?? "coop").toLowerCase();
+  if (kind === "race" && mode === "coop") return null;
+  if (kind === "roam") return "ROAM — no collapse clock, no boss gate";
+  if (mode === "rivals") return "RIVALS RACE — death is a 15s time-out, not an ending";
+  return `${mode.toUpperCase()} · ${kind.toUpperCase()}`;
+}
+
+/**
+ * THE SEAL, AT THE SIZE OF WHAT IT CERTIFIES (6.2 Beat 5).
+ *
+ * A 10.5px chip in a hairline-ruled row is the right treatment for the seal
+ * on a board row, where it is one column of forty. It is the WRONG treatment
+ * on the verdict, where it is the entire structural advantage of the product:
+ * the server re-executed a fifteen-minute run, input by input, and agreed with
+ * you. That is the one thing League of Legends cannot copy, and a text swap
+ * from VERIFYING to SEALED is not a way to say it.
+ *
+ * So the verdict gets a block, not a chip: a kicker, a word at headline size,
+ * and one sentence in the System's voice explaining what just happened. The
+ * `stamped` flag is what the host hangs the strike animation on - it is true
+ * only on the transition INTO a terminal state, so the stamp lands once.
+ */
+export interface VerdictSeal {
+  /** State class for the block (`vseal ...`). */
+  cls: string;
+  kicker: string;
+  word: string;
+  line: string;
+  /** Terminal states stamp; pending ones breathe. */
+  terminal: boolean;
+  /**
+   * A CONTROL, WHEN THE LINE ASKS FOR AN ACTION (6.2 Beat 5 specified this as a
+   * BUTTON).
+   *
+   * The shipped default player - a fresh anonymous token signing the daily from
+   * the front door - reached the verdict and read "unsealed. The System does
+   * not put its name on an anonymous claim. LINK AN IDENTITY." That string
+   * existed in exactly one place in the tree: as a server refusal. There was no
+   * button, no link, no OAuth affordance anywhere on the screen; the only
+   * sign-in control lived on the MENU and was `display:none` unless providers
+   * were configured. The ten seconds ended with the game demanding an action
+   * and providing no way to take it.
+   */
+  action: { kind: "link"; label: string; note: string } | null;
+}
+
+/**
+ * WHAT A ROW ACTUALLY HOLDS, in words. `GET /runs/:id` answers with the board
+ * keys the run occupies; the seal is weighted on THAT rather than on "is my id
+ * in the daily-contract deepest board I happened to load", which is how a
+ * free-seed run taking rank 1 all-time was told "It ranks nowhere".
+ */
+/**
+ * NEVER PRINT A BARE BOARD NAME THAT IS NOT THE BOARD THE PLAYER WILL FIND.
+ *
+ * `holdsBoards` answers with SCOPED keys - `deepest@daily-2026-08-02`,
+ * `kills@daily-2026-08-02`, `band0` - and this function used to strip the scope
+ * with `b.split("@")[0]`, so the seal read "it holds a position on DEEPEST,
+ * KILLS, THE UNDERCROFT" and the player clicked through to STANDINGS >
+ * ALL-TIME > DEEPEST and read "this museum is empty". The scope is not
+ * decoration; it IS which board, and this is the one product whose entire pitch
+ * is that the server does not lie about what a run is worth.
+ */
+export function boardLabel(key: string): string {
+  const [bare, scope] = key.split("@");
+  if (bare.startsWith("band")) return `${bandName(Number(bare.slice(4)) || 0)} — BAND BOARD`;
+  const where = !scope ? "ALL-TIME"
+    : scope.startsWith("weekly") ? "THE WEEKLY CONTRACT"
+      : scope.startsWith("daily") ? "TODAY'S CONTRACT"
+        : scope.toUpperCase();
+  return `${bare.toUpperCase()} — ${where}`;
+}
+
+/** Scope suffix for one board key, or "" for a band board (which has no scope
+ *  axis - it is its own board). */
+function boardScope(key: string): string {
+  const [bare, scope] = key.split("@");
+  if (bare.startsWith("band")) return "";
+  return !scope ? "ALL-TIME"
+    : scope.startsWith("weekly") ? "THE WEEKLY CONTRACT"
+      : scope.startsWith("daily") ? "TODAY'S CONTRACT"
+        : scope.toUpperCase();
+}
+
+export function boardsPhrase(boards: readonly string[] | null | undefined): string {
+  if (!boards || boards.length === 0) return "";
+  // GROUPED BY BOARD, SCOPES JOINED. A run that takes DEEPEST on both the
+  // contract and the museum holds two boards and the phrase has to say so - but
+  // "DEEPEST — TODAY'S CONTRACT, DEEPEST — ALL-TIME, KILLS — TODAY'S CONTRACT
+  // and 1 more" is a mouthful that buries the thing worth reading, which is the
+  // NAME of what you took.
+  const byBoard = new Map<string, string[]>();
+  for (const key of boards) {
+    const [bare] = key.split("@");
+    const name = bare.startsWith("band")
+      ? `${bandName(Number(bare.slice(4)) || 0)} — BAND BOARD` : bare.toUpperCase();
+    const scope = boardScope(key);
+    const list = byBoard.get(name) ?? [];
+    if (scope && !list.includes(scope)) list.push(scope);
+    byBoard.set(name, list);
+  }
+  const names = [...byBoard].map(([name, scopes]) =>
+    scopes.length === 0 ? name
+      : scopes.length === 1 ? `${name} — ${scopes[0]}`
+        : `${name} — ${scopes.slice(0, -1).join(", ")} AND ${scopes[scopes.length - 1]}`);
+  const shown = names.slice(0, 3).join(", ");
+  return names.length > 3 ? `${shown} and ${names.length - 3} more` : shown;
+}
+
+export const LINK_ACTION = {
+  kind: "link" as const,
+  label: "LINK AN IDENTITY",
+  note: "one click, one provider. Verification costs the System real CPU, so it is spent on crawlers "
+    + "it can name — and the run you just played is the one it starts with.",
+};
+
+export function verdictSeal(
+  state: RunState | "unsubmitted" | "blocked" | "vouched",
+  era: string | null,
+  isPrivate = false,
+  ranked = false,
+  reason?: string | null,
+  boards: readonly string[] | null = null,
+  /** The server says this account has no provider identity, so the seal is
+   *  unreachable until it has one. The refusal now arrives with the control. */
+  needsIdentity = false,
+): VerdictSeal {
+  const eraNote = era ? ` Rules era ${era}.` : "";
+  const link = needsIdentity ? LINK_ACTION : null;
+  switch (state) {
+    case "verified": {
+      const holds = boardsPhrase(boards);
+      return {
+        cls: `vseal verified${ranked ? " ranked" : ""}${isPrivate ? " private" : ""}`,
+        kicker: "THE SYSTEM RE-RAN YOUR CRAWL",
+        word: isPrivate ? "SEALED · PRIVATE" : "SEALED",
+        line: (ranked
+          ? "Every input, replayed on the System's own machine. Same dungeon, same damage, same death — and it holds "
+            + (holds ? `a position on ${holds}.` : "a board position.")
+          : "Every input, replayed on the System's own machine. Same dungeon, same damage, same death. It ranks nowhere, and it is still true.")
+          + (isPrivate ? " Nobody else will ever be handed the film." : "") + eraNote,
+        terminal: true,
+        action: null,
+      };
+    }
+    // THE ONE SCORE THE SERVER VOUCHES FOR ITSELF (1.1). A rivals win writes a
+    // SEALED, era-stamped contracts row server-side — and the player's own
+    // post-run screen suppressed the seal block entirely (`if (net) { display =
+    // "none" }`), after `recBlocked` told them "party runs are hosted by the
+    // server". The one genuinely server-authoritative score in the product was
+    // the one the player was never shown earning.
+    case "vouched":
+      return {
+        cls: "vseal verified ranked vouched",
+        kicker: "THE SYSTEM RAN THIS ONE ITSELF",
+        word: "SEALED",
+        line: "No proof was needed and none exists: this race was decided on the System's own "
+          + "authoritative sim, tick by tick, with the System watching every one of them. It is the "
+          + "only score in the product that never had to be re-executed, because it was never "
+          + `anywhere else.${eraNote}`,
+        terminal: true,
+        action: null,
+      };
+    case "verifying":
+      return {
+        cls: "vseal verifying",
+        kicker: "THE SYSTEM IS RE-RUNNING YOUR CRAWL",
+        word: "VERIFYING",
+        line: "Sixty inputs a second, played back against the same rules you played under. It either agrees with you or it does not.",
+        terminal: false,
+        action: null,
+      };
+    case "rejected":
+      // THE REJECTION CARRIES THE NUMBERS. The verifier holds both sides at the
+      // moment it decides - it knows you claimed 42 kills and the replay
+      // produced 39 - and this block used to print a bare field identifier
+      // ("...claim disagrees with the replay: status") because the reason was
+      // `diffClaim`'s debug output concatenated. A debug token is not an
+      // explanation, and 6.2 Beat 5 is explicit that a rejection with no
+      // explanation is how honest players conclude the ladder is rigged.
+      return {
+        cls: "vseal rejected",
+        kicker: "THE SYSTEM DISAGREES WITH YOU",
+        word: "REFUSED",
+        line: reason
+          ? `The replay did not produce the run you claimed — ${reason}. The row does not stand.`
+          : "The replay did not produce the run you claimed, so the row does not stand. The System does not explain twice; it explains once, here.",
+        terminal: true,
+        action: null,
+      };
+    case "unverifiable":
+      // NOT AN ACCUSATION. This state covers an era this build cannot execute
+      // AND a capability failure - the box running out of verification clock,
+      // a worker that could not spawn - and 2.6d is explicit that neither is
+      // `rejected`: the row keeps whatever stamp it earned and the player is
+      // told plainly rather than accused. The reason, when there is one, says
+      // which happened.
+      return {
+        cls: "vseal aged",
+        kicker: "NOT DECIDED",
+        word: "UNPROVEN",
+        line: reason
+          ? `${reason} Nothing here says the run is false — the System could not run it, which is a `
+            + `different sentence and the row keeps whatever it earned.${eraNote}`
+          : `This run was recorded under rules this build can no longer execute, so it keeps whatever it earned and nothing more.${eraNote}`,
+        terminal: true,
+        action: link,
+      };
+    case "blocked":
+      return {
+        cls: "vseal blocked",
+        kicker: "NO PROOF OFFERED",
+        word: "UNSEALED",
+        line: reason ?? "This run was never offered to the board, so there is nothing for the System to certify.",
+        terminal: true,
+        action: link,
+      };
+    case "unsubmitted":
+      // SEALED IS SPENT ONCE, ON THE THING THAT EARNS IT. The pre-submit
+      // kicker used to read "THE RECORDING IS SEALED AGAINST THE RUN" ninety
+      // pixels above the word this whole trust model rests on - spending the
+      // one term that means "the server re-executed this" on "hashed locally,
+      // nothing sent". Nothing here has been certified by anybody.
+      return {
+        cls: "vseal pending",
+        kicker: "NOTHING HAS LEFT THIS MACHINE",
+        word: "READY TO SUBMIT",
+        line: "Twenty-odd kilobytes that reproduce this run exactly, written down and waiting. "
+          + "The System has not seen a byte of it.",
+        terminal: false,
+        action: link,
+      };
+    default:
+      return {
+        cls: "vseal claimed",
+        kicker: "STORED AS REPORTED",
+        word: "CLAIMED",
+        line: reason
+          ? `Not replayed. ${reason}`
+          : "Stored exactly as your client reported it and never re-executed, so the System does not put its name on it. Unproven rows never reach the top of a board.",
+        terminal: true,
+        action: link,
+      };
+  }
+}
+
 /** WATCH / RACE availability, with the refusal STATED rather than a greyed-out
  *  button (2.6f). A silent disable is how a player concludes the ladder is
  *  broken; a named era is how they conclude the game is honest. */
+/**
+ * THE SEAL STATE, as arithmetic rather than as a hope.
+ *
+ * Instrumented on the shipping build: `vseal pending` at t+0, `vseal verified
+ * ranked` by t+900ms. No `verifying` frame was ever painted, so the player had
+ * no way to see that the server had done anything.
+ *
+ * Returns how many milliseconds a terminal verdict must be HELD (never
+ * dropped) before it is painted, so the state it replaces has been legible for
+ * at least SEAL_MIN_PENDING_MS. 0 means paint it now.
+ *
+ * SEAL_CASCADE_MS is how long after the card appears the seal block is
+ * READABLE. It was 1400 while the verdict opened as a staged cascade and the
+ * block spent 980ms at opacity 0 before rising; that cascade is reverted - the
+ * panel now arrives complete and at rest - so the block is readable the moment
+ * the card is, and the offset is zero.
+ */
+export const SEAL_MIN_PENDING_MS = 1200;
+export const SEAL_CASCADE_MS = 0;
+
+export function sealHoldMs(
+  now: number,
+  /** performance.now() when the verdict card was displayed; 0 if not yet. */
+  verdictVisibleAt: number,
+  /** performance.now() when the current pending block was painted. */
+  pendingSince: number,
+  terminal: boolean,
+  /** False for the very first paint: a screen that OPENS on a terminal verdict
+   *  (a rehearsal, a refused recording) has no pending state to honour. */
+  hadPriorPaint: boolean,
+): number {
+  if (!terminal || !hadPriorPaint || verdictVisibleAt <= 0) return 0;
+  const visibleFrom = Math.max(pendingSince, verdictVisibleAt + SEAL_CASCADE_MS);
+  return Math.max(0, SEAL_MIN_PENDING_MS - (now - visibleFrom));
+}
+
 export function playability(r: BoardRun, currentEra: string): { ok: boolean; why: string } {
   if (r.private) return { ok: false, why: "PRIVATE — this crawler kept the film" };
   if (r.state !== "verified") return { ok: false, why: "UNPROVEN — only sealed runs are raceable" };
+  // A ROW WITH NO FILM IS NOT A ROW WHOSE FILM EXPIRED. A RIVALS contract is
+  // inserted verified with `proofId = null` because the AUTHORITATIVE sim
+  // decided it and nobody records a party run - and the last branch of this
+  // function told the player "the proof has aged out of retention" about a
+  // proof that never existed. The store's own comment admitted the reuse
+  // ("exactly as they do for a proof that aged out"); it was still a deliberate
+  // false statement, in the product whose whole pitch is that it does not make
+  // them.
+  if (r.film === "never") {
+    return {
+      ok: false,
+      why: "THE SERVER RAN THIS ONE ITSELF — a rivals contract is decided on the authoritative sim, "
+        + "so the row is sealed and there is no film to hand out",
+    };
+  }
   if (!r.rulesEra) return { ok: false, why: "no proof retained for this row" };
   if (r.rulesEra !== currentEra) {
     return { ok: false, why: `RECORDED UNDER RULES ERA ${r.rulesEra} — NOT PLAYABLE ON ERA ${currentEra}` };
   }
   if (!r.playable) return { ok: false, why: "the proof has aged out of retention" };
   return { ok: true, why: "" };
+}
+
+// ---------------------------------------------------------------------------
+// THE DEFAULT STATE COMPARES YOU TO SOMEBODY (COMPETITIVE.md 6 Beat 2)
+// ---------------------------------------------------------------------------
+
+/**
+ * THE MARK. League's default post-game IS the scoreboard; ours costs a keypress
+ * and advertises itself in 11.5px type, so the screen a player sees after every
+ * single run compared them to nobody at all.
+ *
+ * One row, permanently, in the default state: the crawler at the top of today's
+ * contract, what they did, and the gap. When the board is dark or empty it
+ * falls back to YOUR OWN deepest — which is still a comparison, and is the one
+ * an offline player can act on.
+ */
+export interface Benchmark {
+  /** Who is being compared against: a board leader, or your own ledger. */
+  who: string;
+  /** What they did, in one phrase. */
+  what: string;
+  /** The gap, signed and in the player's favour when they are ahead. */
+  gap: string;
+  /** True when the player is level with or past the mark. */
+  ahead: boolean;
+  /** Which population this mark came from, printed so it is never implied. */
+  source: string;
+}
+
+/**
+ * THE LEADER OF A BOARD YOU ARE ON IS NOT YOUR RIVAL (blocker 5).
+ *
+ * `benchmark` took the top verified row and called it "the leader" with no idea
+ * whether it was the player's own row - so THE MARK, the one comparison the
+ * default post-run state makes, printed "CARL / FLOOR 1 / level with the
+ * leader" about the player, against themselves. The test-chamber verdict
+ * printed "12 floors deeper than the leader" about the same person for the same
+ * reason. This function knows how to say it correctly - the unlinked branch
+ * prints "YOUR OWN DEEPEST" - it simply was never told which rows were mine.
+ *
+ * Shared with the scoreboard's TODAY'S #1 column, so the two surfaces cannot
+ * disagree about who is at the top the way they did (the column head read
+ * "#1 — KATIA" while the board beneath it showed Katia at rank 2).
+ */
+export function boardLeader(
+  board: readonly BoardRun[] | null, myPublicId?: string | null,
+): { row: BoardRun; rank: number; mine: boolean } | null {
+  const sealed = (board ?? []).filter((r) => r.state === "verified");
+  if (sealed.length === 0) return null;
+  const mineAtTop = !!myPublicId && sealed[0].publicId === myPublicId;
+  // Rank is the position on the SEALED ordering, which is the board the reader
+  // is looking at - not the index in a page that may still hold claims.
+  const rivalIdx = sealed.findIndex((r) => !myPublicId || r.publicId !== myPublicId);
+  if (mineAtTop && rivalIdx > 0) {
+    return { row: sealed[rivalIdx], rank: rivalIdx + 1, mine: false };
+  }
+  return { row: sealed[0], rank: 1, mine: mineAtTop };
+}
+
+export function benchmark(
+  me: { floor: number; won: boolean; elapsedSec: number },
+  board: readonly BoardRun[] | null,
+  myBestFloor: number,
+  myPublicId?: string | null,
+): Benchmark | null {
+  const top = boardLeader(board, myPublicId);
+  // I HOLD THE MARK. The one case the old code turned into a comparison with
+  // myself is the case that deserves the best sentence on the screen.
+  if (top && top.mine) {
+    return {
+      who: "YOU HOLD THE MARK",
+      what: (top.row.won ? "CLEARED IT" : `FLOOR ${top.row.floor}`)
+        + ` · ${ticksClock(top.row.ticks)} · ${count(top.row.kills, "kill")}`,
+      gap: "nobody has beaten it yet — that row is the one everyone else is reading",
+      ahead: true,
+      source: "today's contract, sealed rows only",
+    };
+  }
+  const leader = top?.row ?? null;
+  if (leader && top) {
+    // WHAT TO CALL THEM. When the player holds rank 1, the crawler the screen
+    // compares against is the one BELOW them, and calling that person "the
+    // leader" is the same category of untruth as comparing you to yourself.
+    const foil = top.rank === 1 ? "the leader" : `rank ${top.rank}`;
+    const src = top.rank === 1
+      ? "today's contract, sealed rows only"
+      : `today's contract, sealed rows only — you hold rank 1, this is rank ${top.rank}`;
+    const what = (leader.won ? "CLEARED IT" : `FLOOR ${leader.floor}`)
+      + ` · ${ticksClock(leader.ticks)} · ${count(leader.kills, "kill")}`;
+    if (me.won && !leader.won) {
+      return { who: leader.name.toUpperCase(), what, gap: "you cleared it and they did not", ahead: true, source: src };
+    }
+    const d = me.floor - leader.floor;
+    const gap = leader.won && !me.won
+      ? `${Math.max(0, 18 - me.floor)} floors short of the exit they walked out of`
+      : d > 0 ? `${d} floor${d === 1 ? "" : "s"} deeper than ${foil}`
+        : d === 0 ? `level with ${foil} — they were ${signedTime(me.elapsedSec - leader.timeSec)} on the clock`
+          : `${-d} floor${d === -1 ? "" : "s"} short of ${foil}`;
+    return { who: leader.name.toUpperCase(), what, gap, ahead: d >= 0, source: src };
+  }
+  if (myBestFloor > 0) {
+    const d = me.floor - myBestFloor;
+    return {
+      who: "YOUR OWN DEEPEST",
+      what: `FLOOR ${myBestFloor}`,
+      gap: d > 0 ? `${d} floor${d === 1 ? "" : "s"} past it` : d === 0 ? "matched it" : `${-d} short of it`,
+      ahead: d >= 0,
+      source: "this browser's ledger — no sealed row on today's contract yet",
+    };
+  }
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// WHAT EVERY RUN BANKS, INCLUDING THE BAD ONES (COMPETITIVE.md 6 Beat 5)
+// ---------------------------------------------------------------------------
+
+/**
+ * A floor-3 death used to produce "+0 CP", a hairline seal reading "It ranks
+ * nowhere", and "no personal bests this run — the ledger is unmoved": three of
+ * the four informational blocks on the screen saying that nothing happened.
+ * Admirably honest, and exactly why a player closes the tab.
+ *
+ * League always lands something. So does this, and it costs nothing against the
+ * verification spine because none of it is a claim about the ladder: it is the
+ * browser's own ledger, counted, and said out loud. A run that banks nothing
+ * else still banks itself.
+ */
+export interface BankedTick {
+  label: string;
+  value: string;
+  /** What this run added, when it added something. */
+  delta?: string;
+}
+
+export function bankedTicks(
+  history: readonly RunRecord[],
+  episode: number,
+  run: { kills: number; timeSec: number; floor: number },
+): BankedTick[] {
+  const kills = history.reduce((a, r) => a + r.kills, 0);
+  const minutes = Math.round(history.reduce((a, r) => a + r.timeSec, 0) / 60);
+  const out: BankedTick[] = [
+    { label: "EPISODE", value: `#${Math.max(1, episode)}`, delta: "filed" },
+  ];
+  if (run.kills > 0) {
+    out.push({ label: "CAREER KILLS", value: kills.toLocaleString(), delta: `+${run.kills.toLocaleString()}` });
+  }
+  // A 7.76-SECOND RUN DID NOT BANK A MINUTE (blocker 15). `Math.max(1, ...)`
+  // rounded every run up to one minute and printed a bare "+1" beside a value
+  // in minutes, so an eight-second death read as "377 min +1". Under a minute
+  // the delta is stated in the unit it actually happened in, and the unit is
+  // on the number rather than implied by the row above it.
+  const secs = Math.max(0, Math.round(run.timeSec));
+  out.push({
+    label: "TIME IN THE DUNGEON",
+    value: `${minutes} min`,
+    delta: secs < 60 ? `+${secs}s` : `+${Math.round(secs / 60)} min`,
+  });
+  return out;
+}
+
+/**
+ * THE NEXT THING TO AIM AT. A run that banked nothing still has a next target,
+ * and naming it is what turns "the ledger is unmoved" into a reason to press R.
+ * Drawn from the same milestone vocabulary as the career timeline, so the two
+ * screens never disagree about what counts.
+ */
+export function nextMilestone(bestFloor: number, won: boolean): { title: string; detail: string } {
+  if (!won) {
+    for (const f of [3, 6, 9, 12, 15, 18]) {
+      if (bestFloor < f) {
+        return {
+          title: `REACH FLOOR ${f}`,
+          detail: bestFloor > 0
+            ? `${bandName(Math.floor((f - 1) / 3))} — your deepest is ${bestFloor}`
+            : `${bandName(Math.floor((f - 1) / 3))} — nothing on the ledger yet`,
+        };
+      }
+    }
+  }
+  return { title: "WALK OUT AGAIN, FASTER", detail: "the exit is the only record left to beat" };
 }
 
 // ---------------------------------------------------------------------------
@@ -792,6 +1438,15 @@ const ESCAPES: Record<string, string> = {
 
 /** Player-supplied text is NEVER interpolated raw. Names come off the wire
  *  sanitized by the server; this is the second belt. */
+/**
+ * "1 kills". Unconditional plurals on a surface that prints exact tick counts
+ * (blocker 15): five sites concatenated `s` whatever the number was, and the
+ * one that shows up most is the row a floor-1 death produces.
+ */
+export function count(n: number, noun: string, plural = noun + "s"): string {
+  return `${n.toLocaleString()} ${n === 1 ? noun : plural}`;
+}
+
 export function esc(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ESCAPES[c] ?? c);
 }

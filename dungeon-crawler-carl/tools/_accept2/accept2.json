@@ -1,0 +1,167 @@
+{
+  "meta": {
+    "gpu": {
+      "unmaskedRenderer": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "unmaskedVendor": "Google Inc. (Intel)",
+      "devicePixelRatio": 2,
+      "screen": "1440x852",
+      "cores": 16
+    }
+  },
+  "blankPage": {
+    "n": 475,
+    "median": 8.3,
+    "min": 8.1
+  },
+  "CONTROL_f2_idle": {
+    "n": 940,
+    "median": 25,
+    "p90": 25.2,
+    "p95": 33.3,
+    "p99": 33.5,
+    "max": 33.8,
+    "mean": 23.13,
+    "over16_7": 75.7,
+    "over33": 6.6,
+    "firstThird": {
+      "n": 313,
+      "median": 25,
+      "p90": 25.2,
+      "p95": 33.3,
+      "p99": 33.5,
+      "max": 33.5,
+      "mean": 23.05,
+      "over16_7": 74.1,
+      "over33": 7
+    },
+    "lastThird": {
+      "n": 313,
+      "median": 25,
+      "p90": 25.2,
+      "p95": 33.3,
+      "p99": 33.5,
+      "max": 33.8,
+      "mean": 23.13,
+      "over16_7": 75.1,
+      "over33": 6.4
+    },
+    "spikeTimes": [],
+    "presets": [
+      "balanced"
+    ],
+    "pixelRatios": [
+      1.2
+    ],
+    "nearMedian": 1,
+    "foreignLoadPct": 1,
+    "idleGateOpened": true,
+    "censusAtEnd": {
+      "floor": 2,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": false,
+      "bossDist": -1,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  "WORST_f17_dense_combat": {
+    "n": 450,
+    "median": 41.7,
+    "p90": 58.4,
+    "p95": 75.1,
+    "p99": 158.4,
+    "max": 691.4,
+    "mean": 47.88,
+    "over16_7": 99.8,
+    "over33": 95.8,
+    "firstThird": {
+      "n": 150,
+      "median": 41.6,
+      "p90": 58.5,
+      "p95": 91.8,
+      "p99": 125,
+      "max": 183.2,
+      "mean": 45.27,
+      "over16_7": 99.3,
+      "over33": 94
+    },
+    "lastThird": {
+      "n": 150,
+      "median": 41.7,
+      "p90": 50,
+      "p95": 58.3,
+      "p99": 66.6,
+      "max": 75.1,
+      "mean": 42.66,
+      "over16_7": 100,
+      "over33": 99.3
+    },
+    "spikeTimes": [
+      508.6,
+      658.5,
+      808.4,
+      950,
+      1108.3,
+      1266.7,
+      1416.6,
+      1583.2,
+      1766.6,
+      1983.3,
+      2124.9,
+      2291.4,
+      2349.7,
+      2532.9,
+      2591.2,
+      2749.7,
+      2807.9,
+      3124.5,
+      3182.9,
+      3241.2,
+      3416.2,
+      3591.2,
+      3741.2,
+      3832.6,
+      4357.5,
+      4415.9,
+      6182.1,
+      6423.7,
+      6473.8,
+      7048.6
+    ],
+    "presets": [
+      "balanced"
+    ],
+    "pixelRatios": [
+      1.2
+    ],
+    "nearMedian": 56,
+    "foreignLoadPct": 0.7,
+    "idleGateOpened": true,
+    "censusAtEnd": {
+      "floor": 17,
+      "band": null,
+      "monstersWithin11": 59,
+      "monstersOnScreen": 54,
+      "bossAlive": false,
+      "bossDist": -1,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  }
+}

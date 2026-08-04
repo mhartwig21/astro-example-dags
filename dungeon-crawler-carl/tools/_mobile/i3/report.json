@@ -1,0 +1,14 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "error": "page.evaluate: TypeError: t.controlAt is not a function\n    at clear (eval at evaluate (:311:30), <anonymous>:3:36)\n    at eval (eval at evaluate (:311:30), <anonymous>:7:17)\n    at UtilityScript.evaluate (<anonymous>:313:16)\n    at UtilityScript.<anonymous> (<anonymous>:1:44)",
+    "errs": []
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "error": "Cannot read properties of null (reading 'x')",
+    "errs": []
+  }
+]

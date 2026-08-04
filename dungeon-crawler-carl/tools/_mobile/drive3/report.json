@@ -1,0 +1,284 @@
+[
+  {
+    "device": "ipadpro11-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\drive3\\ipadpro11-land-combat.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 1.63 tiles; stick visual on press = false"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "FAIL",
+        "detail": "minimap 160x160 at (92,176) is inside the stick zone; moved 0.00 tiles, stick shown = false, pings 0->0"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "FAIL",
+        "detail": "pack hp 8825 -> 8825"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "FAIL",
+        "detail": "cooldowns started: none"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "FAIL",
+        "detail": "fired none; facing changed=false; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "FAIL",
+        "detail": "kept moving 0.00 tiles with a second finger on the chips (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "FAIL",
+        "detail": "charges 3->3, hp 165->165"
+      },
+      {
+        "name": "dodge: dash lives on a chip only",
+        "verdict": "FAIL",
+        "detail": "dash is ability slot 1 — no swipe/double-tap gesture exists; moved 0.00 tiles"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h0) abilities(h0) character(h0) draft(h0) | inventory opened=false, bottom overflows viewport by -834px, close controls: [NONE] | tap-outside closes = true"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics",
+        "verdict": "INFO",
+        "detail": "navigator.vibrate available=true; grep says the host never calls it"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: cockpit bottom 10<20; banner top 12<24; hud-tl top 12<24; hud-tr top 12<24; xpbar bottom -4<20"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":2,\"backbuffer\":\"1194x834\"}"
+      }
+    ]
+  },
+  {
+    "device": "pixel5-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\drive3\\pixel5-land-combat.png",
+    "viewport": {
+      "width": 802,
+      "height": 293
+    },
+    "dpr": 2.75,
+    "errs": [],
+    "probe": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 1.63 tiles; stick visual on press = false"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "FAIL",
+        "detail": "minimap 115x115 at (70,154) is inside the stick zone; moved 0.00 tiles, stick shown = false, pings 0->0"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "FAIL",
+        "detail": "pack hp 8825 -> 8825"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "FAIL",
+        "detail": "cooldowns started: none"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "FAIL",
+        "detail": "fired none; facing changed=false; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "FAIL",
+        "detail": "kept moving 0.00 tiles with a second finger on the chips (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "FAIL",
+        "detail": "charges 3->3, hp 165->165"
+      },
+      {
+        "name": "dodge: dash lives on a chip only",
+        "verdict": "FAIL",
+        "detail": "dash is ability slot 1 — no swipe/double-tap gesture exists; moved 0.00 tiles"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h0) abilities(h0) character(h0) draft(h0) | inventory opened=false, bottom overflows viewport by -293px, close controls: [NONE] | tap-outside closes = true"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics",
+        "verdict": "INFO",
+        "detail": "navigator.vibrate available=true; grep says the host never calls it"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: cockpit right 10<24; hud-tr right 12<24; xpbar right 10<24"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":2.75,\"backbuffer\":\"802x293\"}"
+      }
+    ]
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\drive3\\iphone13-land-combat.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 1.63 tiles; stick visual on press = false"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "FAIL",
+        "detail": "minimap 115x115 at (70,154) is inside the stick zone; moved 0.00 tiles, stick shown = false, pings 0->0"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "FAIL",
+        "detail": "pack hp 8825 -> 8825"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "FAIL",
+        "detail": "cooldowns started: none"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "FAIL",
+        "detail": "fired none; facing changed=false; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "FAIL",
+        "detail": "kept moving 0.00 tiles with a second finger on the chips (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "FAIL",
+        "detail": "charges 3->3, hp 165->165"
+      },
+      {
+        "name": "dodge: dash lives on a chip only",
+        "verdict": "FAIL",
+        "detail": "dash is ability slot 1 — no swipe/double-tap gesture exists; moved 0.00 tiles"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h0) abilities(h0) character(h0) draft(h0) | inventory opened=false, bottom overflows viewport by -342px, close controls: [NONE] | tap-outside closes = true"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics",
+        "verdict": "INFO",
+        "detail": "navigator.vibrate available=true; grep says the host never calls it"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: minimap-frame left 12<47; cockpit right 10<47; cockpit bottom 10<21; hud-tl left 12<47; hud-tr right 12<47; xpbar right 10<47; xpbar bottom -4<21"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":3,\"backbuffer\":\"750x342\"}"
+      }
+    ]
+  }
+]

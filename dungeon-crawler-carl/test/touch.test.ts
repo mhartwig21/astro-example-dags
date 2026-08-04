@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
-import { VirtualStick, SlotButton } from "../src/input/touch";
+import { VirtualStick, SlotButton, AbilityButton } from "../src/input/touch";
+import { Haptics } from "../src/input/haptics";
 
 // The pure touch state machines: coordinates in, movement vectors and cast
 // decisions out. The DOM shell (TouchController) is exercised by the headless
@@ -77,5 +78,211 @@ describe("touch: slot button (tap / drag-aim / cancel)", () => {
     expect(b.aimDir).toBeNull();
     b.move(1080, 700);
     expect(b.aimDir).toEqual({ x: 80, y: 0 });
+  });
+});
+
+describe("touch: stick recentring and the flick", () => {
+  it("past 1.35 R the origin slides so the finger sits at exactly 1.0 R", () => {
+    const s = new VirtualStick(60);
+    s.down(200, 500, 0);
+    s.move(400, 500, 100); // 200px = 3.3 R
+    expect(Math.hypot(s.value!.x, s.value!.y)).toBeCloseTo(1);
+    expect(s.origin!.x).toBeCloseTo(340); // 400 - 1.0 R
+    // Direction never inverts, and the stick cannot run out: drag back 30px
+    // and the vector shortens instead of flipping.
+    s.move(370, 500, 200);
+    expect(s.value!.x).toBeGreaterThan(0);
+    expect(Math.hypot(s.value!.x, s.value!.y)).toBeCloseTo(0.5);
+  });
+
+  it("recentring is switchable off for players who want a fixed origin", () => {
+    const s = new VirtualStick(60);
+    s.recenter = false;
+    s.down(200, 500, 0);
+    s.move(400, 500, 100);
+    expect(s.origin!.x).toBe(200);
+    expect(Math.hypot(s.value!.x, s.value!.y)).toBeCloseTo(1);
+  });
+
+  it("the resting ghost remembers where the thumb lifted", () => {
+    const s = new VirtualStick(60);
+    expect(s.rest).toBeNull();
+    s.down(310, 480, 0);
+    s.move(340, 480, 60);
+    s.up();
+    expect(s.rest).toEqual({ x: 310, y: 480 });
+  });
+
+  it("a flick is read from RAW VELOCITY, which recentring cannot hide", () => {
+    const s = new VirtualStick(60);
+    s.down(200, 500, 0);
+    // 2 consecutive samples at ~4 R/s (60px in 8ms = 7500 px/s = 125 R/s).
+    s.move(260, 500, 8);
+    expect(s.takeFlick()).toBeNull(); // one fast sample is a twitch
+    s.move(320, 500, 16);
+    const f = s.takeFlick();
+    expect(f).not.toBeNull();
+    expect(f!.x).toBeCloseTo(1);
+    expect(s.takeFlick()).toBeNull(); // one-shot
+  });
+
+  /**
+   * THE FOUR PROFILES A DEVICE BATTERY DROVE, AND THE THREE IT LOST.
+   *
+   * Driven on an iPhone 13 and an iPad Pro 11 from a clean cooldown, all four
+   * clear `FLICK_R_PER_S * R` and `FLICK_MIN_STEP_R * R` by a wide margin, and
+   * only the first fired a dash. The cause was never a threshold: "two
+   * consecutive samples" is a claim about the browser's delivery rate, and a
+   * coalescing pointer stream does not honour it. Each row below is one of the
+   * measured gestures, at the phone's real R = 67.
+   */
+  const PROFILES: Array<{ name: string; steps: number; px: number; ms: number }> = [
+    { name: "4 x 34 px @ 16 ms (2125 px/s)", steps: 4, px: 34, ms: 16 },
+    { name: "3 x 60 px @ 12 ms (5000 px/s)", steps: 3, px: 60, ms: 12 },
+    { name: "6 x 25 px @ 8 ms (3125 px/s)", steps: 6, px: 25, ms: 8 },
+    { name: "5 x 40 px @ 16 ms (2500 px/s)", steps: 5, px: 40, ms: 16 },
+  ];
+
+  it("fires on EVERY genuine flick profile, not 1 of 4", () => {
+    for (const p of PROFILES) {
+      const s = new VirtualStick(67);
+      s.down(200, 500, 0);
+      let fired = false;
+      for (let k = 1; k <= p.steps; k++) {
+        s.move(200 + k * p.px, 500, k * p.ms);
+        if (s.takeFlick()) fired = true;
+      }
+      expect.soft(fired, `${p.name} produced no dash`).toBe(true);
+    }
+  });
+
+  it("...and fires when the browser COALESCES those samples into one event", () => {
+    // The same four gestures delivered as a single merged pointermove, which
+    // is what a main thread behind by a frame actually hands the router.
+    for (const p of PROFILES) {
+      const s = new VirtualStick(67);
+      s.down(200, 500, 0);
+      s.move(200 + p.steps * p.px, 500, p.steps * p.ms);
+      expect.soft(s.takeFlick(), `${p.name} coalesced`).not.toBeNull();
+    }
+  });
+
+  it("a FAST STIR is not a flick, on the device where it used to be one", () => {
+    // Driven on an iPad Pro 11 (R = 57.3): a 55 px-radius thumb circle at
+    // 900 px/s steps 14.4 px per sample against a 14.3 px floor and DASHED —
+    // a false positive by a tenth of a pixel, while the identical gesture on
+    // an iPhone 13 (floor 16.8) was clean. A threshold that a device's radius
+    // decides is not a threshold. Net travel plus straightness is.
+    const s = new VirtualStick(57.3);
+    s.down(400, 400, 0);
+    let fired = false;
+    for (let i = 1; i <= 24; i++) {
+      const a = (i / 24) * Math.PI * 2;
+      s.move(400 + Math.cos(a) * 55, 400 + Math.sin(a) * 55, i * 16);
+      if (s.takeFlick()) fired = true;
+    }
+    expect(fired).toBe(false);
+  });
+
+  it("a thumb steering a chase is not a flick", () => {
+    const s = new VirtualStick(60);
+    s.down(200, 500, 0);
+    // 20 px per 100 ms = 200 px/s = 3.3 R/s. Brisk steering, not a flick —
+    // and the reason the threshold is not MOBILE.md's 2.6 R/s (see the
+    // constant): at 2.6 this ordinary drag would have dashed.
+    s.move(220, 500, 100);
+    s.move(240, 500, 200);
+    expect(s.takeFlick()).toBeNull();
+    // A real flick: 90 px in 60 ms, twice.
+    s.move(330, 500, 260);
+    s.move(420, 500, 320);
+    expect(s.takeFlick()).not.toBeNull();
+  });
+});
+
+describe("touch: ability button modes and the cancel band", () => {
+  it("a short drag aims; the cancel-home rule only ARMS once you leave", () => {
+    const b = new AbilityButton();
+    b.aimThrow = 109;
+    b.down(1000, 700);
+    b.move(1000, 681); // 19px: past the slop, inside the 37px cancel radius
+    expect(b.state).toBe("aiming");
+    const rel = b.up();
+    expect(rel.kind).toBe("aimed");
+  });
+
+  it("the CANCEL BAND cancels wherever the finger is", () => {
+    const b = new AbilityButton();
+    b.cancelBand = { x: 400, y: 300, w: 200, h: 60 };
+    b.down(1000, 700);
+    b.move(900, 600);
+    expect(b.state).toBe("aiming");
+    b.move(500, 330);
+    expect(b.inCancel).toBe(true);
+    expect(b.up()).toEqual({ kind: "cancel" });
+    // ...and leaving the band re-arms the cast.
+    const b2 = new AbilityButton();
+    b2.cancelBand = { x: 400, y: 300, w: 200, h: 60 };
+    b2.down(1000, 700);
+    b2.move(500, 330);
+    b2.move(900, 600);
+    expect(b2.up().kind).toBe("aimed");
+  });
+
+  it("aim-only refuses a tap; tap fires on touchdown", () => {
+    const only = new AbilityButton();
+    only.mode = "aim-only";
+    expect(only.down(10, 10)).toBe(false);
+    expect(only.up()).toEqual({ kind: "cancel" });
+
+    const now = new AbilityButton();
+    now.mode = "tap";
+    expect(now.down(10, 10)).toBe(true);
+  });
+
+  it("the drag fraction is 1.0 at one AIM THROW and over-throw is free", () => {
+    const b = new AbilityButton();
+    b.aimThrow = 80;
+    b.down(0, 0);
+    b.move(40, 0);
+    expect(b.aimFrac).toBeCloseTo(0.5);
+    b.move(200, 0);
+    expect(b.aimFrac).toBe(1);
+  });
+
+  it("an interruption is refund-identical to a cancel-band exit", () => {
+    const b = new AbilityButton();
+    b.down(1000, 700);
+    b.move(900, 600);
+    expect(b.interrupt()).toEqual({ kind: "cancel" });
+    expect(b.state).toBe("idle");
+  });
+});
+
+describe("touch: haptics", () => {
+  it("maps events to patterns, rate-limits, and respects the level", () => {
+    const fired: (number | number[])[] = [];
+    let t = 0;
+    const h = new Haptics((p) => fired.push(p), () => t);
+    expect(h.fire("press")).toBe(true);
+    expect(h.fire("cast")).toBe(false); // inside the 60ms window
+    t = 100;
+    expect(h.fire("cast")).toBe(true);
+    expect(fired).toEqual([8, 14]);
+
+    t = 1000;
+    h.level = "light";
+    expect(h.fire("kill")).toBe(false); // not a control acknowledgement
+    expect(h.fire("cancel")).toBe(true);
+
+    t = 2000;
+    h.level = "off";
+    expect(h.fire("press")).toBe(false);
+  });
+
+  it("degrades to nothing where vibrate does not exist (iOS Safari)", () => {
+    const h = new Haptics(null);
+    expect(h.supported).toBe(false);
+    expect(h.fire("press")).toBe(false);
   });
 });

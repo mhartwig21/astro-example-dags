@@ -1,0 +1,62 @@
+{
+  "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "windows": {
+    "natural": {
+      "frames": 123,
+      "fps": 17.1,
+      "median": 58.4,
+      "p90": 166.6,
+      "p95": 591.5,
+      "p99": 1424.8,
+      "max": 1724.7,
+      "mean": 133.3,
+      "over16_7": 100,
+      "over20": 100,
+      "over33": 93.5,
+      "presetHist": {
+        "performance": 133
+      },
+      "pxHist": {
+        "1.00": 133
+      },
+      "nearMin": 5,
+      "nearMed": 7,
+      "nearMax": 34,
+      "callsMed": 598,
+      "trisMed": 1091085,
+      "foreignLoadPct": 28
+    },
+    "dense": {
+      "frames": 543,
+      "fps": 29.9,
+      "median": 33.4,
+      "p90": 50,
+      "p95": 50.3,
+      "p99": 66.7,
+      "max": 75.1,
+      "mean": 35.89,
+      "over16_7": 99.1,
+      "over20": 98.9,
+      "over33": 78.1,
+      "presetHist": {
+        "performance": 553
+      },
+      "pxHist": {
+        "1.00": 553
+      },
+      "nearMin": 20,
+      "nearMed": 21,
+      "nearMax": 21,
+      "callsMed": 568,
+      "trisMed": 684376,
+      "foreignLoadPct": 0.8
+    }
+  },
+  "denseClaim": {
+    "hp": 900000,
+    "near": 21,
+    "recapUp": false,
+    "introUp": false,
+    "cine": false
+  }
+}

@@ -1,0 +1,153 @@
+{
+ "tag": "guard1",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 159,
+  "propBatches": 78,
+  "batchedLeaves": 926,
+  "liveBatchInstances": 171,
+  "unbatchedPropMeshes": 126,
+  "programs": 190,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 29
+ },
+ "post": {
+  "frames": 480,
+  "median": 35.5,
+  "p90": 54.7,
+  "p95": 66,
+  "p99": 163.1,
+  "max": 1344.7,
+  "mean": 45.52,
+  "over16": 99.8,
+  "over33": 63.5,
+  "calls": 808,
+  "ktris": 1505,
+  "cpuUpdate": 7.6,
+  "cpuRender": 12.1,
+  "cpuUpdateP95": 11.4,
+  "cpuRenderP95": 18.2,
+  "nearMin": 27,
+  "nearMed": 38,
+  "nearMax": 46,
+  "programsStart": 190,
+  "programsEnd": 198,
+  "census": [
+   [
+    "Mesh",
+    90
+   ],
+   [
+    "Sprite",
+    14.3
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    12
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    12
+   ],
+   [
+    "SKIN:ToySoldier_ArmLeft",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_ArmRight",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_Body",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_Hat",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_Head",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_LegLeft",
+    6.1
+   ],
+   [
+    "SKIN:ToySoldier_LegRight",
+    6.1
+   ],
+   [
+    "ToySoldier_WindupKey",
+    6.1
+   ],
+   [
+    "INST:Mesh(x10)",
+    4.9
+   ],
+   [
+    "INST:Mesh(x3)",
+    4.7
+   ],
+   [
+    "INST:propbatch:pillar_decorated(x1)",
+    4.4
+   ]
+  ],
+  "censusFrames": 480,
+  "playerHp": 1000000000,
+  "recapUp": false
+ },
+ "foreign": 0.6,
+ "seconds": 12,
+ "ring": 18,
+ "guardLines": [
+  "[shader-guard] armed: 190 programs prewarmed; any further build will be logged.",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): robot_glow cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): glass cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): glass cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false"
+ ],
+ "cpuTop": null
+}

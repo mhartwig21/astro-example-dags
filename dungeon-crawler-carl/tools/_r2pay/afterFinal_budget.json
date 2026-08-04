@@ -1,0 +1,149 @@
+{
+ "tag": "afterFinal",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 146,
+  "propBatches": 78,
+  "batchedLeaves": 926,
+  "liveBatchInstances": 156,
+  "unbatchedPropMeshes": 126,
+  "programs": 174,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 31
+ },
+ "post": {
+  "frames": 412,
+  "median": 41.1,
+  "p90": 71.6,
+  "p95": 104.5,
+  "p99": 147.4,
+  "max": 1227.1,
+  "mean": 52.74,
+  "over16": 100,
+  "over33": 82.8,
+  "calls": 668,
+  "ktris": 951,
+  "cpuUpdate": 9.8,
+  "cpuRender": 14.1,
+  "cpuUpdateP95": 14.2,
+  "cpuRenderP95": 22,
+  "nearMin": 20,
+  "nearMed": 27,
+  "nearMax": 31,
+  "programsStart": 174,
+  "programsEnd": 178,
+  "census": [
+   [
+    "Mesh",
+    91.4
+   ],
+   [
+    "Sprite",
+    32.7
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    9
+   ],
+   [
+    "coin_stack_small",
+    8
+   ],
+   [
+    "INST:Mesh(x144)",
+    5.7
+   ],
+   [
+    "INST:Mesh(x7)",
+    5
+   ],
+   [
+    "INST:propbatch:Weaponrack(x0)",
+    4.5
+   ],
+   [
+    "chair",
+    4.3
+   ],
+   [
+    "SKIN:Skeleton_Golem_Head",
+    3.7
+   ],
+   [
+    "SKIN:Skeleton_Golem_ArmLeft",
+    3.7
+   ],
+   [
+    "SKIN:Skeleton_Golem_Jaw",
+    3.7
+   ],
+   [
+    "SKIN:Skeleton_Golem_Body",
+    3.7
+   ],
+   [
+    "SKIN:Skeleton_Golem_LegLeft",
+    3.7
+   ],
+   [
+    "SKIN:Skeleton_Golem_ArmRight",
+    3.7
+   ]
+  ],
+  "censusFrames": 412,
+  "playerHp": 999999761,
+  "recapUp": false
+ },
+ "foreign": 0.7,
+ "seconds": 12,
+ "ring": 18,
+ "guardLines": [
+  "[shader-guard] armed: 174 programs prewarmed; any further build will be logged.",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false",
+  "[shader-guard] program built AFTER boot (this is a frame hitch): skeleton cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false"
+ ],
+ "cpuTop": null
+}

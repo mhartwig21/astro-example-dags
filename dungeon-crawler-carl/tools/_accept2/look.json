@@ -1,0 +1,202 @@
+[
+  {
+    "name": "ours_f2_environment",
+    "claim": "an Undercroft room with no combat in it",
+    "census": {
+      "floor": 2,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 1,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f8_environment",
+    "claim": "a Garden-band room with no combat in it",
+    "census": {
+      "floor": 8,
+      "band": null,
+      "monstersWithin11": 1,
+      "monstersOnScreen": 0,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f14_combat_0",
+    "claim": "a dense floor-14 fight with abilities mid-cast",
+    "census": {
+      "floor": 14,
+      "band": null,
+      "monstersWithin11": 28,
+      "monstersOnScreen": 28,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f14_combat_1",
+    "claim": "a dense floor-14 fight with abilities mid-cast",
+    "census": {
+      "floor": 14,
+      "band": null,
+      "monstersWithin11": 28,
+      "monstersOnScreen": 28,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f14_combat_2",
+    "claim": "a dense floor-14 fight with abilities mid-cast",
+    "census": {
+      "floor": 14,
+      "band": null,
+      "monstersWithin11": 28,
+      "monstersOnScreen": 28,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f14_combat_3",
+    "claim": "a dense floor-14 fight with abilities mid-cast",
+    "census": {
+      "floor": 14,
+      "band": null,
+      "monstersWithin11": 28,
+      "monstersOnScreen": 28,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f14_character_crop",
+    "claim": "a close crop on the crawler and the mobs around them",
+    "census": {
+      "floor": 14,
+      "band": null,
+      "monstersWithin11": 28,
+      "monstersOnScreen": 28,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f15_boss_0",
+    "claim": "a floor-15 boss on screen mid-fight",
+    "census": {
+      "floor": 15,
+      "band": null,
+      "monstersWithin11": 6,
+      "monstersOnScreen": 6,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f15_boss_1",
+    "claim": "a floor-15 boss on screen mid-fight",
+    "census": {
+      "floor": 15,
+      "band": null,
+      "monstersWithin11": 5,
+      "monstersOnScreen": 5,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  },
+  {
+    "name": "ours_f15_boss_2",
+    "claim": "a floor-15 boss on screen mid-fight",
+    "census": {
+      "floor": 15,
+      "band": null,
+      "monstersWithin11": 6,
+      "monstersOnScreen": 6,
+      "bossAlive": false,
+      "livingParticles": null,
+      "preset": "balanced",
+      "pixelRatio": 1.2,
+      "triangles": 1,
+      "drawCalls": 1,
+      "loadingBox": {
+        "w": 0,
+        "h": 0
+      }
+    }
+  }
+]

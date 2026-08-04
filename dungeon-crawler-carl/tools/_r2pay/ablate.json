@@ -1,0 +1,117 @@
+{
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "staged": {
+  "placed": 18,
+  "liveTotal": 205
+ },
+ "loads": [
+  0.6,
+  0.7,
+  0.9
+ ],
+ "summary": [
+  {
+   "cond": "base",
+   "meanMed": 30.22,
+   "reps": [
+    34.09,
+    30,
+    30.22
+   ],
+   "calls": 779
+  },
+  {
+   "cond": "props_hidden",
+   "meanMed": 32.02,
+   "reps": [
+    33.76,
+    32.02,
+    31.99
+   ],
+   "calls": 779
+  },
+  {
+   "cond": "monsters_hidden",
+   "meanMed": 32.49,
+   "reps": [
+    30.73,
+    32.49,
+    32.99
+   ],
+   "calls": 782
+  },
+  {
+   "cond": "shadow_off",
+   "meanMed": 1398.7,
+   "reps": [
+    1398.7,
+    1890.1,
+    29.29
+   ],
+   "calls": 575
+  },
+  {
+   "cond": "gtao_off",
+   "meanMed": 45.73,
+   "reps": [
+    51.44,
+    45.73,
+    31.47
+   ],
+   "calls": 783
+  },
+  {
+   "cond": "bloom_off",
+   "meanMed": 27.74,
+   "reps": [
+    27.74,
+    27.48,
+    31.49
+   ],
+   "calls": 771
+  },
+  {
+   "cond": "smaa_off",
+   "meanMed": 32.67,
+   "reps": [
+    32.67,
+    35.82,
+    30.55
+   ],
+   "calls": 775
+  },
+  {
+   "cond": "post_all_off",
+   "meanMed": 40.72,
+   "reps": [
+    222.25,
+    40.72,
+    27.67
+   ],
+   "calls": 767
+  },
+  {
+   "cond": "fx_off",
+   "meanMed": 30.94,
+   "reps": [
+    55.12,
+    28.58,
+    30.94
+   ],
+   "calls": 776
+  },
+  {
+   "cond": "half_res",
+   "meanMed": 25.26,
+   "reps": [
+    23.22,
+    28.08,
+    25.26
+   ],
+   "calls": 779
+  }
+ ],
+ "reps": 3,
+ "seconds": 3
+}

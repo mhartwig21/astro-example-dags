@@ -11,6 +11,14 @@ import { AUDIO_MANIFEST, type SoundDef, type SoundId } from "./manifest";
 export interface PlayOpts {
   gain?: number; // 0..1 multiplier on the sound's manifest volume
   pan?: number; // -1 (left) .. 1 (right)
+  // BOSSES V2 §5.4: playback rate. Audio is the fastest telegraph channel we
+  // have, and every boss needs its OWN signature sound — but the game ships
+  // no new clips. Pitching the shared `tell` per boss (see BOSS_SIGNATURES in
+  // render3d/bossSignatures.ts) gives 18 distinguishable tells out of one file.
+  rate?: number;
+  // Bypass the manifest's spam guard. Used only where the caller already
+  // rate-limits (one boss beat per event) and the beat MUST be heard.
+  force?: boolean;
 }
 
 /** What the AudioDirector needs — implemented by AudioEngine, faked in tests. */
@@ -20,6 +28,11 @@ export interface AudioSink {
   // BULLET TIME: sweep a master low-pass so the whole mix goes underwater
   // while the world is slowed. Optional — test fakes and simple sinks skip it.
   muffle?(on: boolean): void;
+  // BOSSES V2 §5.1 — THE APPROACH. The corridor into an arena ducks the bed
+  // to a single drone: the fog reveal at the arena door is the last quiet
+  // moment in the run, and it only lands if the music gets out of the way.
+  // 1 = normal, 0 = silent. Optional, like muffle.
+  duck?(level: number): void;
 }
 
 const STORE_KEY = "dcc:audio:v1";
@@ -111,13 +124,15 @@ export class AudioEngine implements AudioSink {
     const def: SoundDef = AUDIO_MANIFEST[id];
     const now = performance.now();
     const last = this.lastPlayed.get(id) ?? -Infinity;
-    if (now - last < (def.throttleMs ?? 70)) return; // combat spam guard
+    if (!opts.force && now - last < (def.throttleMs ?? 70)) return; // combat spam guard
     this.lastPlayed.set(id, now);
 
     const src = ctx.createBufferSource();
     src.buffer = buf;
     // Slight random detune so rapid repeats (swarm hits) don't machine-gun.
-    src.playbackRate.value = 1 + (Math.random() * 2 - 1) * 0.05;
+    // An explicit `rate` (a boss's signature pitch) takes over, keeping only a
+    // sliver of jitter so a repeated tell still breathes.
+    src.playbackRate.value = (opts.rate ?? 1) * (1 + (Math.random() * 2 - 1) * 0.05);
     const gain = ctx.createGain();
     gain.gain.value = (def.volume ?? 1) * Math.min(1, Math.max(0, opts.gain ?? 1));
     let head: AudioNode = gain;
@@ -174,6 +189,14 @@ export class AudioEngine implements AudioSink {
   muffle(on: boolean): void {
     if (!this.ctx || !this.muffleNode) return;
     this.muffleNode.frequency.setTargetAtTime(on ? 700 : 20000, this.ctx.currentTime, 0.08);
+  }
+
+  /** BOSSES V2 §5.1: ride the music bus down for the approach, back up at the
+   *  seal. Slow constants on purpose — a duck you can hear working is a bug. */
+  duck(level: number): void {
+    const bus = this.buses.music;
+    if (!this.ctx || !bus) return;
+    bus.gain.setTargetAtTime(Math.max(0, Math.min(1, level)), this.ctx.currentTime, 0.5);
   }
 
   // ---- internals ----

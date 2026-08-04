@@ -30,6 +30,11 @@ import {
   stanceParams, stanceStrikePower, startingLoadout,
   unknownAbilities, upgradeDef, type AbilityId, type School, type UpgradeDef,
 } from "./abilities";
+import {
+  bandForBossFloor, bandSignatureLabel, bossDef, bossMutatorInfo, drawBossEncounter,
+  type BossDef,
+} from "./bosses";
+// (bossDef is the roster lookup for name cards; drawBossEncounter is the draw)
 import { ACHIEVEMENTS } from "./achievements";
 import { REVISIONS, revisionPool } from "./revisions";
 import { PURPOSE_RESIDENTS, RESIDENT_LINES, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
@@ -38,7 +43,8 @@ import { TIPS } from "./tips";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
-  Announcement, AnnouncementKind, Breakable, Decoy, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, ItemSlot, Loot,
+  Announcement, AnnouncementKind, Breakable, Decoy, BossEvent, BossId,
+  BossPhaseReason, BossPlate, BossSignature, EliteAffix, Equipment, FloorWorld, GameState, HitEvent, Intent, Item, ItemSlot, Loot,
   Hazard, MaterialId, Monster, MonsterKind, Npc, PartyIntents, Player, Rarity, Reward, SafeRoom, StatusKind, Vec2,
 } from "./types";
 import { EQUIP_SLOTS, NO_INTENT, Tile } from "./types";
@@ -313,15 +319,111 @@ const ELITE_NAMES = [
   "Skitters Prime", "Old Chompy", "The Block Captain", "Sewer Baron Vex",
   "Knuckles the Landlord", "The HOA President",
 ];
-// Band-end boss identities: one signature menace per arena (floors 3/6/9/12/15),
-// each themed to its band and carrying that band's signature mechanic.
-const BAND_BOSSES: { name: string; signature: BossSignature }[] = [
-  { name: "The Crypt Concierge", signature: "graverising" }, // THE UNDERCROFT (3)
-  { name: "The Sump King", signature: "flood" }, // THE SEWERS (6)
-  { name: "The Topiary Warden", signature: "roots" }, // THE GARDEN (9)
-  { name: "The Condemned Architect", signature: "debris" }, // THE RUINS (12)
-  { name: "The Furnace Marshal", signature: "flamewall" }, // THE IRONWORKS (15)
+// BOSSES V2: the fixed BAND_BOSSES array is gone. A band's identity is now
+// DRAWN from a three-strong pool (src/sim/bosses.ts) using a dedicated hash of
+// (runSeed, band) — see applyBossDraw below.
+
+/** Signatures RETROFIT can swap in (the mutator's whole point is that the
+ *  telegraph is unfamiliar on a familiar body). */
+const RETROFIT_SIGNATURES: BossSignature[] = ["graverising", "flood", "roots", "debris", "flamewall"];
+
+/** The aide roster for the council-format bosses (The Zoning Board / The
+ *  Standards and Practices Board). Each carries ONE shipped support verb, so
+ *  the kill order is legible from the intro: whichever one you leave standing
+ *  is the verb you fight for the rest of the encounter. */
+const BOARD_AIDES: { kind: MonsterKind; name: string }[] = [
+  { kind: "cleric", name: "MEMBER: CONSECRATION" },
+  { kind: "hexer", name: "MEMBER: VARIANCE" },
+  { kind: "shieldbearer", name: "MEMBER: SETBACK" },
+  { kind: "sentinel", name: "MEMBER: SURVEY" },
+  { kind: "duelist", name: "MEMBER: APPEALS" },
 ];
+
+/**
+ * Push a typed boss beat for the presentation layer (BOSSES-V2 §5). The sim
+ * never reads this channel back — it is the boss-fight sibling of state.hits.
+ */
+export function bossEvent(state: GameState, e: BossEvent): void {
+  (state.bossEvents ??= []).push(e);
+}
+
+/**
+ * V9 + V10 + §4.3 — stamp a drawn identity onto a freshly-made boss body.
+ * Everything here is derived from the PURE draw (bosses.ts), so a coop client
+ * restoring a snapshot and a fresh local run agree to the field.
+ *
+ * Deliberately RNG-free: the whole point of the dedicated hash is that adding
+ * eighteen bosses does not re-roll a single existing spawn fixture.
+ */
+function applyBossDraw(state: GameState, boss: Monster, floor: number): BossDef {
+  const draw = drawBossEncounter(state.seed, floor, state.bossPrevLineup, state.bossDefeats);
+  const def = draw.def;
+  (state.bossLineup ??= {})[String(def.band)] = def.id;
+  state.arenaVariant = draw.arena;
+  boss.bossId = def.id;
+  boss.eliteName = def.name;
+  boss.signature = def.signature;
+  boss.maxPhase = def.maxPhase ?? 2;
+  if (draw.mutators.length > 0) boss.bossMutators = [...draw.mutators];
+  if (def.hpMult) boss.hp = boss.maxHp = Math.max(1, Math.round(boss.maxHp * def.hpMult));
+  if (def.dmgMult) boss.damage *= def.dmgMult;
+  // A FIXTURE, not a creature: the Grease Trap never takes a step, so its
+  // whole threat has to be pull + adds + the ground. The anti-kite ramp is
+  // meaningless for it and simply never engages (speed 0).
+  if (def.stationary) boss.speed = 0;
+  // RETROFIT: a familiar boss with an unfamiliar telegraph. Deterministic —
+  // the swap is part of the encounter identity, not a per-step coin flip.
+  if (boss.bossMutators?.includes("retrofit") && def.signature) {
+    const others = RETROFIT_SIGNATURES.filter((s) => s !== def.signature);
+    boss.signature = others[def.band % others.length];
+  }
+  // V1 — plates. Pools scale off the boss's own HP so they track the band
+  // budget without a per-band table. A plate with a school IGNORES it.
+  if (def.plates && def.plates.length > 0) {
+    boss.plates = def.plates.map((p, i) => ({
+      key: p.key,
+      label: p.label,
+      hp: Math.max(1, Math.round(boss.maxHp * CONFIG.plateHpFraction)),
+      maxHp: Math.max(1, Math.round(boss.maxHp * CONFIG.plateHpFraction)),
+      angle: (i / def.plates!.length) * Math.PI * 2,
+      school: p.school,
+    }));
+  }
+  // V2 — the shield pool. The Sponsor's is bigger and school-locked.
+  if (def.shield) {
+    const frac = def.shieldSchool ? CONFIG.sponsorShieldFraction : CONFIG.shieldFraction;
+    boss.shieldMax = Math.max(1, Math.round(boss.maxHp * frac));
+    boss.shieldHp = boss.shieldMax;
+    boss.shieldSchool = def.shieldSchool;
+  }
+  // §4.4 — ESCALATION ON REPEAT. A boss you have already put down does not
+  // wait to respect you: it opens at the phase-2 kit. Mechanics, never stats.
+  if (draw.defeats >= CONFIG.bossRepeatEscalateAt) {
+    boss.phase = 1;
+    boss.speed *= CONFIG.bossPhaseSpeedMult;
+  }
+  return def;
+}
+
+/**
+ * Council format without a new spawn shape (§3.3 / §3.6): the Board body is
+ * shielded while any AIDE stands, and each aide's death hands its verb to the
+ * body. Placement is deterministic (a ring by index) so no RNG is consumed.
+ */
+function spawnBossAides(state: GameState, boss: Monster, count: number): void {
+  for (let i = 0; i < count; i++) {
+    const entry = BOARD_AIDES[i % BOARD_AIDES.length];
+    const a = (i / count) * Math.PI * 2;
+    let pos = { x: boss.pos.x + dcos(a) * 2.6, y: boss.pos.y + dsin(a) * 2.6 };
+    if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: boss.pos.x, y: boss.pos.y };
+    const aide = makeMonster(state, entry.kind, pos);
+    aide.hp = aide.maxHp = Math.round(aide.maxHp * CONFIG.boardAideHpMult);
+    aide.eliteName = entry.name; // named, but NOT elite — no second ringside intro
+    aide.tetherId = boss.id;
+    aide.xp = Math.max(1, Math.round(aide.xp * 0.5));
+    state.monsters.push(aide);
+  }
+}
 
 // Affix pool for named elites (floor eliteAffixFromFloor+). One roll per elite.
 const ELITE_AFFIXES: EliteAffix[] = [
@@ -364,11 +466,15 @@ function spawnMonsters(state: GameState): void {
     boss.speed = CONFIG.bossSpeed;
     boss.xp = CONFIG.bossXp;
     boss.bossTier = 3; // Ground Slam + Call for Backup + Dark Ritual — the full kit
+    // BOSSES V2: the finale finally has a NAME (three of them, drawn).
+    const finaleDef = applyBossDraw(state, boss, floor);
     state.monsters.push(boss);
+    if (finaleDef.aides) spawnBossAides(state, boss, finaleDef.aides);
     for (let i = 0; i < 3 && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, "ranged", pos));
     }
+    announce(state, "boss", `THE APPROACH ENDS HERE: ${boss.eliteName} holds floor ${floor}. ${finaleDef.line}`, "high");
     return;
   }
 
@@ -387,11 +493,25 @@ function spawnMonsters(state: GameState): void {
       (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
     boss.speed = CONFIG.bossSpeed;
     boss.xp = Math.round(CONFIG.bossXp * CONFIG.bandBossXpMult[arena - 1]);
-    boss.eliteName = BAND_BOSSES[arena - 1].name;
-    boss.signature = BAND_BOSSES[arena - 1].signature;
     // Tier ladder: floor 3 has no slam (early-game), 6/9 slam, 12/15 slam faster.
     boss.bossTier = floor >= 12 ? 2 : floor >= 6 ? 1 : undefined;
+    // BOSSES V2: name, signature, plates, shield, mutators and arena all come
+    // from the seeded draw — this is the line that ends "the same six bosses,
+    // in the same order, every run".
+    const bandDef = applyBossDraw(state, boss, floor);
     state.monsters.push(boss);
+    if (bandDef.aides) spawnBossAides(state, boss, bandDef.aides);
+    // ENTOURAGED: a champion-grade escort arrives with it. Split attention.
+    if (boss.bossMutators?.includes("entouraged")) {
+      const escort = makeMonster(state, "foreman", { x: boss.pos.x + 2, y: boss.pos.y });
+      escort.hp = escort.maxHp = Math.round(escort.maxHp * 1.6);
+      escort.elite = true;
+      escort.eliteName = "THE ENTOURAGE";
+      // No SECOND ringside banner: the boss's intro is the beat, and the
+      // mutator line already named the escort (announcement etiquette).
+      escort.introduced = true;
+      state.monsters.push(escort);
+    }
     for (let i = 0; i < CONFIG.cityBossAdds && tiles.length > 0; i++) {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, "ranged", pos));
@@ -403,7 +523,12 @@ function spawnMonsters(state: GameState): void {
       const pos = tiles.splice(nextInt(rng, 0, tiles.length - 1), 1)[0];
       state.monsters.push(makeMonster(state, rollArchetype(rng, floor), pos));
     }
-    announce(state, "boss", `CITY BOSS: ${boss.eliteName} holds floor ${floor}. The exit is SEALED. Ratings, Crawlers.`, "high");
+    const mutTag = (boss.bossMutators ?? []).map((x) => `[${bossMutatorInfo(x).label}]`).join(" ");
+    announce(state, "boss", `CITY BOSS: ${boss.eliteName}${mutTag ? " " + mutTag : ""} holds floor ${floor}. The exit is SEALED. Ratings, Crawlers.`, "high");
+    for (const mut of boss.bossMutators ?? []) {
+      const info = bossMutatorInfo(mut);
+      announce(state, "boss", `${info.label}: ${info.note}`);
+    }
     return;
   }
 
@@ -735,6 +860,161 @@ function spawnMonsters(state: GameState): void {
     }
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
     announce(state, "boss", `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
+  }
+}
+
+/**
+ * §4.3 — STOCK THE ARENA. The measured audit found `breakables` inside a boss
+ * arena across eighteen boots: 0, 0, 0 ... 3. The arena was a featureless
+ * 19x19 square on every band, every run, and "use the arena" was not a real
+ * ask because there was no arena to use.
+ *
+ * Everything here is built from primitives that already shipped —
+ * `breakables` with footprints (which the blocked mask and SMASH_KINDS already
+ * understand) plus the new `onBreak` hook — so a layout can never break a
+ * mapgen invariant. Deterministic: no RNG is consumed, which is what keeps
+ * every existing spawn fixture intact.
+ */
+function stockBossArena(state: GameState, floor: number): void {
+  const variant = state.arenaVariant;
+  if (!variant || !state.map.blocked) return;
+  const roomIdx = state.map.roles.indexOf("stairs");
+  if (roomIdx < 0) return;
+  const room = state.map.rooms[roomIdx];
+  const stairs = { x: Math.floor(state.map.stairs.x), y: Math.floor(state.map.stairs.y) };
+  const put = (tx: number, ty: number, key: string, hp: number, onBreak?: Breakable["onBreak"], label?: string) => {
+    if (tx <= room.x || ty <= room.y || tx >= room.x + room.w - 1 || ty >= room.y + room.h - 1) return;
+    if (Math.abs(tx - stairs.x) <= 1 && Math.abs(ty - stairs.y) <= 1) return; // the boss needs its mark
+    const ti = ty * state.map.w + tx;
+    if (state.map.tiles[ti] !== Tile.Floor || state.map.blocked![ti]) return;
+    state.map.blocked![ti] = 1;
+    state.breakables!.push({
+      id: state.nextEntityId++,
+      pos: { x: tx + 0.5, y: ty + 0.5 },
+      key, hp, footprint: [ti], onBreak, label,
+    });
+  };
+
+  // THE TEACHING BAND STAYS LEGIBLE (the floor-1-stays-pristine rule, one
+  // band down): floor 3 gets HALF the cover and a wide chokepoint. Measured —
+  // a full-density floor-3 arena cost the bot 2 clears in 32 on its own,
+  // which is a lot of tax for a crawler who has never met an arena before.
+  const teaching = floor <= CONFIG.bossFloorEvery;
+  if (variant === "pillared") {
+    // A lattice of destructible cover: line-of-sight play, and the Condemned
+    // Architect eats it column by column until the room is open ground.
+    const want = teaching ? Math.ceil(CONFIG.arenaPillarCount / 2) : CONFIG.arenaPillarCount;
+    let placed = 0;
+    for (let gy = room.y + 3; gy < room.y + room.h - 3 && placed < want; gy += 4) {
+      for (let gx = room.x + 3; gx < room.x + room.w - 3 && placed < want; gx += 4) {
+        put(gx, gy, "pillar", CONFIG.arenaPillarHp);
+        placed++;
+      }
+    }
+  } else if (variant === "split") {
+    // A blocking run divides the arena, connected at a central chokepoint:
+    // routing and displacement matter, and standing on the wrong side of the
+    // divide when a signature lands is a real mistake.
+    const ly = room.y + Math.floor(room.h / 2) - 4;
+    const gap = CONFIG.arenaSplitGap + (teaching ? 4 : 0);
+    const gapFrom = room.x + Math.floor(room.w / 2) - Math.floor(gap / 2);
+    for (let x = room.x + 1; x < room.x + room.w - 1; x++) {
+      if (x >= gapFrom && x < gapFrom + gap) continue;
+      put(x, ly, "barricade", CONFIG.arenaPillarHp);
+    }
+  } else {
+    // OPEN: the middle stays clear, the RIM does not. Eight pieces of
+    // smashable staging around the outside, with wide gaps between them, so
+    // the room reads as an arena instead of a beige square without costing
+    // the lane bosses (the Inspector, the Foundation) a single tile of the
+    // ground their whole ask is made of.
+    const rx = room.x + Math.floor(room.w / 2);
+    const ry = room.y + Math.floor(room.h / 2);
+    const rad = Math.floor(Math.min(room.w, room.h) / 2) - 2;
+    for (let i = 0; i < CONFIG.arenaRimCount; i++) {
+      const a = (i / CONFIG.arenaRimCount) * Math.PI * 2 + Math.PI / 8;
+      put(
+        rx + Math.round(dcos(a) * rad), ry + Math.round(dsin(a) * rad),
+        "rubble", CONFIG.arenaRimHp,
+      );
+    }
+  }
+
+  // INTERACTIVE PROPS (V3). Only the bosses whose ask depends on them get
+  // them, and the boss's own smash-through never touches them (see
+  // smashBlockersAt) — the mechanic is the player's, not the boss's.
+  const draw = drawBossEncounter(state.seed, floor, state.bossPrevLineup, state.bossDefeats);
+  const prop = draw.def.prop;
+  if (!prop) return;
+  const label = prop === "drain" ? "FLOODGATE" : prop === "vent" ? "WALL VENT" : prop === "shutdown" ? "CONVEYOR" : "SUPPORT";
+  const cx = room.x + Math.floor(room.w / 2), cy = room.y + Math.floor(room.h / 2);
+  const reach = Math.floor(Math.min(room.w, room.h) / 2) - 2;
+  for (let i = 0; i < CONFIG.arenaPropCount; i++) {
+    const a = (i / CONFIG.arenaPropCount) * Math.PI * 2 + Math.PI / 4;
+    put(
+      cx + Math.round(dcos(a) * reach), cy + Math.round(dsin(a) * reach),
+      prop, CONFIG.arenaPropHp, prop, label,
+    );
+  }
+}
+
+/**
+ * V3 — an interactive prop fires. This is the seam that turns "there is
+ * scenery in here" into "the scenery is the counterplay": floodgates DRAIN the
+ * flooded half, wall vents force the furnace to cough early, conveyors stop
+ * feeding the line. Every one of them is a `breakable` that answers back.
+ */
+function fireArenaProp(state: GameState, b: Breakable): void {
+  const boss = state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+  bossEvent(state, {
+    kind: "prop", monsterId: boss?.id ?? -1, bossId: boss?.bossId,
+    label: b.label ?? String(b.onBreak).toUpperCase(), pos: { x: b.pos.x, y: b.pos.y },
+  });
+  const left = (state.breakables ?? []).filter((o) => o !== b && o.onBreak === b.onBreak && o.hp > 0).length;
+  switch (b.onBreak) {
+    case "drain": {
+      // The flooded half DRAINS: every live ground zone in the arena goes.
+      const before = state.hazards.length;
+      state.hazards = state.hazards.filter((h) => h.kind !== "sludge" && h.kind !== "puddle" && h.kind !== "spore");
+      announce(state, "boss", left > 0
+        ? `A FLOODGATE GIVES. The level drops — ${left} more and the court adjourns.`
+        : "THE LAST FLOODGATE GIVES. The King is BEACHED. Get in there.");
+      if (boss) {
+        boss.stagger = Math.max(boss.stagger, left > 0 ? 0.6 : CONFIG.bossPunishWindow);
+        if (left === 0) {
+          boss.staggerGraceT = 0;
+          advanceBossPhase(state, boss, "mechanic");
+        }
+      }
+      state.events.push(`A floodgate drains ${before - state.hazards.length} pools.`);
+      break;
+    }
+    case "vent": {
+      // Cooling it EARLY: the next thing the furnace does is over-commit.
+      if (boss) {
+        boss.punishArmed = true;
+        boss.heat = CONFIG.bossPunishAfter;
+      }
+      announce(state, "boss", "A WALL VENT IS OPEN. The furnace has to breathe NOW, on your schedule.");
+      break;
+    }
+    case "shutdown": {
+      announce(state, "boss", left > 0
+        ? `A CONVEYOR STOPS. ${left} still running.`
+        : "THE LINE IS DOWN. The Supervisor has to do this personally now. It is bad at it.");
+      if (boss && left === 0) advanceBossPhase(state, boss, "mechanic");
+      break;
+    }
+    case "collapse": {
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: b.pos.x, y: b.pos.y },
+        t: CONFIG.debrisDelay, total: CONFIG.debrisDelay,
+        radius: CONFIG.debrisRadius, damage: (boss?.damage ?? 10) * CONFIG.debrisDmgMult,
+        kind: "blast", flavor: "debris",
+      });
+      break;
+    }
   }
 }
 
@@ -1205,7 +1485,14 @@ export function buildFloor(state: GameState, floor: number): void {
   const rng: Rng = createRng(floorSeed(state.seed, floor));
   state.rng = rng;
   state.floor = floor;
-  state.map = generateFloor(rng, floor, state.runKind);
+  // BOSSES V2 §4.3 — the arena LAYOUT is drawn before mapgen, from the same
+  // pure hash the boss identity comes from, so the room and its occupant
+  // always agree. Ordinary floors draw nothing and behave exactly as before.
+  state.arenaVariant =
+    state.runKind !== "roam" && (floor >= CONFIG.finalFloor || isCityBossFloor(floor))
+      ? drawBossEncounter(state.seed, floor, state.bossPrevLineup, state.bossDefeats).arena
+      : undefined;
+  state.map = generateFloor(rng, floor, state.runKind, state.arenaVariant);
   state.explored = new Uint8Array(state.map.w * state.map.h);
   state.exploredVersion++;
   state.monsters = [];
@@ -1213,6 +1500,7 @@ export function buildFloor(state: GameState, floor: number): void {
   state.projectiles = [];
   state.hazards = [];
   state.arenaT = 0; // the next arena's director starts its clock fresh
+  state.bossEvents = []; // typed boss beats are per-step transients
   state.corpses = [];
   state.decoys = []; // stunt contracts don't follow you downstairs
   state.breakables = []; // the plan below restocks the smashables
@@ -1260,6 +1548,7 @@ export function buildFloor(state: GameState, floor: number): void {
       });
     }
   }
+  stockBossArena(state, floor); // §4.3: cover, chokepoints, interactive props
   spawnMonsters(state);
   // The floor's STORY + SERVICES (roomPurposes): if a seeded event swept the
   // dressing, the System mentions it exactly once; if a room is open for
@@ -1355,6 +1644,15 @@ export interface SavedProgress {
     baseDamage?: number;
   };
   show?: { hype?: number; viewers?: number; favorites?: number; sponsors?: number };
+  // ---- BOSSES V2 cross-run memory (PERSISTENCE.md gets a row) -------------
+  // The ANTI-REPEAT rule (§4.1) needs to know which boss each band slot served
+  // LAST run, and the escalation rule (§4.4) needs a per-profile defeat count.
+  // Both are tiny, both are optional, and both are read-only inputs to a PURE
+  // draw — a save without them simply gets the plain seeded lineup.
+  bosses?: {
+    lastLineup?: Record<string, BossId>; // band index (as a string) -> boss id
+    defeats?: Record<string, number>; // BossId -> times this profile beat it
+  };
 }
 
 /**
@@ -1488,6 +1786,11 @@ export function restoreGame(save: SavedProgress): GameState {
   // BACKLOG #11 fixed: the run kind round-trips — CONTINUE on a Roam
   // campaign resumes a Roam campaign instead of silently rebuilding as Race.
   const state = createGame(save.seed, "coop", save.runKind ?? "race");
+  // BOSSES V2 §4.1/§4.4 — hand the cross-run memory in BEFORE the floor
+  // builds, because the arena layout and the boss identity are both drawn
+  // during buildFloor and both read it.
+  if (save.bosses?.lastLineup) state.bossPrevLineup = { ...save.bosses.lastLineup };
+  if (save.bosses?.defeats) state.bossDefeats = { ...save.bosses.defeats };
   applySavedPlayer(state.players[0], save);
   buildFloor(state, save.floor);
   // Roam: overlay the campaign's quest/stock/hoard state onto the rebuilt
@@ -1831,15 +2134,39 @@ function maybeStartEncounter(state: GameState): void {
     // never stands inert — its whole dormant cluster springs with it.
     if (m.dormant) springAmbush(state, m);
     const name = m.eliteName ?? (state.floor >= CONFIG.finalFloor ? "THE FLOOR BOSS" : "THE BOSS");
+    // BOSSES V2 §5.3 — the name card as DATA. Title, epithet, ask, mutator
+    // tags and the boss's own System line all ship to the host, so the intro
+    // can be a designed card instead of a toast. §4.4: a boss you have already
+    // beaten gets a SHORTER freeze — a 2.2s beat you have seen ten times is a
+    // tax, not a beat, and this is a short-session game.
+    const def = m.bossId ? bossDef(m.bossId) : undefined;
+    const beaten = m.bossId ? (state.bossDefeats?.[m.bossId] ?? 0) : 0;
+    const intro = CONFIG.encounterIntroSeconds *
+      (beaten >= CONFIG.bossRepeatEscalateAt ? CONFIG.bossRepeatIntroMult : 1);
     state.encounter = {
       monsterId: m.id,
       name,
       kind: m.kind,
       elite: !!m.elite,
       affix: m.affix,
-      timeLeft: CONFIG.encounterIntroSeconds,
-      total: CONFIG.encounterIntroSeconds,
+      timeLeft: intro,
+      total: intro,
+      bossId: m.bossId,
+      epithet: def?.epithet,
+      ask: def?.ask,
+      mutators: m.bossMutators ? [...m.bossMutators] : undefined,
+      line: def?.line,
+      repeat: beaten,
     };
+    if (def) {
+      bossEvent(state, {
+        kind: "intro", monsterId: m.id, bossId: m.bossId, label: def.name,
+        value: beaten, duration: intro, pos: { x: m.pos.x, y: m.pos.y },
+      });
+      announce(state, "boss", beaten >= CONFIG.bossRepeatEscalateAt
+        ? `${def.name} again. It remembers. It is not waiting to respect you this time.`
+        : def.line, "high");
+    }
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
     announce(
       state, "boss",
@@ -1889,6 +2216,25 @@ export function summonMinion(state: GameState, m: Monster): void {
  * plus a ranged flanker so the enrage changes what the party is DOING.
  * Waves are worth almost no XP — the boss is the payday, not its entourage.
  */
+/**
+ * V8 — ADD TETHER. An add spawned by a boss and LINKED to it: while the cord
+ * holds it feeds the boss a slow heal and shields it (see damageMonster), so
+ * ignoring the wave stalls the fight instead of merely being untidy. This is
+ * the "adds need a JOB" rule (§2.5) in one function.
+ */
+export function makeBossAdd(
+  state: GameState, boss: Monster, kind: MonsterKind, at: Vec2, tether: boolean,
+): Monster {
+  let pos = { x: at.x, y: at.y };
+  if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: boss.pos.x, y: boss.pos.y };
+  const add = makeMonster(state, kind, pos);
+  add.xp = 1; // waves stay near-worthless: the boss is the payday
+  if (tether) add.tetherId = boss.id;
+  state.monsters.push(add);
+  hit(state, add.pos, 0, "weapon"); // arrival poof for the juice layer
+  return add;
+}
+
 export function spawnBossWave(state: GameState, boss: Monster): void {
   const count = CONFIG.bossWaveAdds + (boss.phase ?? 0) * CONFIG.bossWaveAddsPerPhase;
   for (let i = 0; i < count; i++) {
@@ -1903,6 +2249,120 @@ export function spawnBossWave(state: GameState, boss: Monster): void {
     hit(state, add.pos, 0, "weapon"); // arrival poof for the juice layer
   }
   announce(state, "boss", "The boss calls for BACKUP. The union rules here are grim.");
+}
+
+// ---- BOSSES V2 chassis: phases, intermissions, punish windows -------------
+
+/**
+ * PHASE MACHINE (§2.2). Four trigger types share ONE counter, so a fight never
+ * double-counts a beat: HP gates (the shipped 2/3 and 1/3), MECHANIC (the
+ * shield broke, the last conveyor fell), TIMER, and POSITIONAL. The rule the
+ * roster is built against is that at least one phase per fight is
+ * mechanic-triggered — the player's PLAY advances the story, not their DPS.
+ *
+ * Every edge is an INTERMISSION (V6): the boss goes briefly untargetable, the
+ * live hazards are swept, and the adds wave arrives as part of the beat. That
+ * is spectacle AND pacing — the board gets re-dealt instead of compounding.
+ */
+export function advanceBossPhase(state: GameState, boss: Monster, reason: BossPhaseReason): boolean {
+  const max = boss.maxPhase ?? 2;
+  if ((boss.phase ?? 0) >= max || boss.hp <= 0) return false;
+  boss.phase = (boss.phase ?? 0) + 1;
+  boss.phaseReason = reason;
+  boss.speed *= CONFIG.bossPhaseSpeedMult;
+  bossIntermission(state, boss);
+  spawnBossWave(state, boss); // the enrage brings friends (backlog #11)
+  bossEvent(state, {
+    kind: "phase", monsterId: boss.id, bossId: boss.bossId,
+    phase: boss.phase, reason, pos: { x: boss.pos.x, y: boss.pos.y },
+  });
+  const name = boss.eliteName ?? "The boss";
+  announce(state, "boss", reason === "mechanic"
+    ? `${name} did not choose that. YOU did. Phase ${boss.phase + 1}.`
+    : reason === "timer"
+      ? `${name} escalates on the clock. Phase ${boss.phase + 1} — the slot is booked.`
+      : reason === "positional"
+        ? `${name} takes the ground it wanted. Phase ${boss.phase + 1}.`
+        : boss.phase === 1
+          ? "The boss is ANGRY now. Phase two — the sponsors love a comeback arc."
+          : "The boss is DESPERATE. Everything is a projectile. RATINGS.");
+  state.events.push(`Boss phase ${boss.phase + 1} (${reason}).`);
+  return true;
+}
+
+/**
+ * V1 — a plate falls. Every plate break is a MECHANIC-triggered phase edge:
+ * the player caused it, so the fight visibly answers. The Rent Collector's
+ * lockbox additionally refunds everything it seized, with interest — which is
+ * the entire reason its ask is "burst the window".
+ */
+export function breakBossPlate(state: GameState, m: Monster, plate: BossPlate): void {
+  plate.hp = 0;
+  plate.broken = true;
+  m.stagger = Math.max(m.stagger, CONFIG.plateBreakStagger);
+  m.staggerGraceT = 0;
+  const left = (m.plates ?? []).filter((p) => !p.broken).length;
+  bossEvent(state, {
+    kind: "plate", monsterId: m.id, bossId: m.bossId, label: plate.label,
+    value: left, pos: { x: m.pos.x, y: m.pos.y }, duration: CONFIG.plateBreakStagger,
+  });
+  if (plate.key === "lockbox" && (m.lockbox ?? 0) > 0) {
+    const refund = Math.round((m.lockbox ?? 0) * CONFIG.lateFeeInterest);
+    m.lockbox = 0;
+    state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "gold", amount: refund });
+    announce(state, "loot", `THE LOCKBOX SPLITS. ${refund} gold, refunded WITH INTEREST. The System notes the irony and moves on.`, "high");
+  } else {
+    announce(state, "boss", `${plate.label} BREAKS. ${left > 0 ? `${left} to go.` : "It has nothing left to hide behind."}`);
+  }
+  advanceBossPhase(state, m, "mechanic");
+}
+
+/**
+ * V6 — THE COMMERCIAL BREAK. Briefly untargetable while the arena re-deals:
+ * a shockwave clears LIVE ground danger so the next phase starts on a clean
+ * board rather than on top of the last one's leftovers.
+ */
+export function bossIntermission(state: GameState, boss: Monster): void {
+  boss.invulnT = CONFIG.bossIntermissionSeconds;
+  boss.windup = 0;
+  boss.windupKind = undefined;
+  const before = state.hazards.length;
+  state.hazards = state.hazards.filter((h) => h.kind === "beam" && (h.fired ?? false));
+  bossEvent(state, {
+    kind: "intermission", monsterId: boss.id, bossId: boss.bossId,
+    duration: CONFIG.bossIntermissionSeconds, value: before - state.hazards.length,
+    pos: { x: boss.pos.x, y: boss.pos.y },
+  });
+}
+
+/**
+ * V4 — THE PUNISH WINDOW, the counterplay every shipped boss was missing. The
+ * boss over-commits on a readable count, coughs out one scalding beat, and is
+ * then genuinely HELPLESS (plain `m.stagger`, so every existing stagger rule
+ * composes for free). This is what turns a fight into a rhythm you learn
+ * instead of a wall you erode.
+ */
+export function bossPunishVent(state: GameState, m: Monster): void {
+  const dmg = m.damage * CONFIG.slagVentDmgMult;
+  for (const player of state.players) {
+    if (!player.alive || player.dashTime > 0) continue;
+    if (dist(m.pos, player.pos) > CONFIG.bossSlamRadius) continue;
+    const dir = normalize({ x: player.pos.x - m.pos.x, y: player.pos.y - m.pos.y });
+    if (damagePlayerHit(state, player, dmg, { dir })) {
+      handlePlayerDeath(state, player, `${player.name} stood inside the over-commit. Timing is a skill.`);
+    } else {
+      applyPlayerKnockback(player, dir, CONFIG.slamKnockback);
+    }
+  }
+  m.heat = 0;
+  m.punishArmed = false;
+  m.stagger = CONFIG.bossPunishWindow; // over-extended and helpless — UNLOAD
+  m.staggerGraceT = 0; // this window is EARNED by reading it, not by DPS
+  bossEvent(state, {
+    kind: "punish", monsterId: m.id, bossId: m.bossId,
+    duration: CONFIG.bossPunishWindow, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announce(state, "boss", `${m.eliteName ?? "The boss"} OVER-COMMITS. It is wide open. Spend everything.`);
 }
 
 // ---- Band-boss signature mechanics (dispatched from the boss branch in ai.ts).
@@ -1927,16 +2387,37 @@ export function bossGraveRaise(state: GameState, m: Monster): void {
     .filter((c) => dist(m.pos, c.pos) <= CONFIG.graveRaiseRange)
     .sort((a, b) => b.t - a.t) // freshest first — same taste as the necromancer
     .slice(0, CONFIG.graveRaiseCount);
-  if (reachable.length === 0) return; // every corpse faded mid-channel — whiffed
+  if (reachable.length === 0) {
+    // No bodies? Then the Concierge checks in STAFF (see the concierge kit in
+    // ai.ts). A boss whose only verb is conditional on the room having already
+    // died is a boss with no verb — that was the audit's headline finding.
+    if (m.bossId === "concierge") {
+      for (let i = 0; i < CONFIG.graveRaiseCount; i++) {
+        const a = (i / CONFIG.graveRaiseCount) * Math.PI * 2 + (m.bossCount ?? 0);
+        makeBossAdd(state, m, "grunt", {
+          x: m.pos.x + dcos(a) * 1.8, y: m.pos.y + dsin(a) * 1.8,
+        }, true);
+        m.bossCount = (m.bossCount ?? 0) + 1;
+      }
+      announce(state, "boss", "THE BELL RINGS. Staff arrive, and they are ON THE PAYROLL — every one of them is feeding it.");
+    }
+    return; // every corpse faded mid-channel — whiffed
+  }
   for (const corpse of reachable) {
     state.corpses.splice(state.corpses.indexOf(corpse), 1);
     const raised = makeMonster(state, corpse.kind, corpse.pos);
     raised.hp = raised.maxHp = Math.max(1, Math.round(raised.maxHp * CONFIG.necroRaisedHpMult));
     raised.xp = CONFIG.necroRaisedXp;
+    // BOSSES V2 §3.1 — the risen are TETHERED: each one feeds the Concierge,
+    // so "ignore the adds and hit the boss" stalls the fight outright. That is
+    // what turns the audit's worst offender (62 melee windups and nothing
+    // else, measured over 90 seconds) into a kill-the-adds fight.
+    raised.tetherId = m.id;
+    m.bossCount = (m.bossCount ?? 0) + 1;
     state.monsters.push(raised);
     hit(state, raised.pos, 0, "weapon"); // a poof per riser for the juice layer
   }
-  announce(state, "boss", `${m.eliteName ?? "The boss"} raises the fallen. Check-out time was never on the books.`);
+  announce(state, "boss", `${m.eliteName ?? "The boss"} raises the fallen — and they are FEEDING it. Check-out time was never on the books.`);
 }
 
 /**
@@ -1973,6 +2454,17 @@ export function bossFloodSurge(state: GameState, m: Monster): void {
     });
   }
   announceSignature(state, m, "THE SLUICES OPEN! Half this arena is about to be soup. Find the dry side, Crawlers.");
+  // §7.4 — the four SHIPPED band signatures name themselves on the boss
+  // channel too, so every one of the eighteen has a per-boss telegraph FX and
+  // telegraph SOUND, not just the ones whose verbs were new in V2.
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    // The HAZARD is shared; the NAME is identity (bandSignatureLabel). Three
+    // floor-9 bosses with three different asks were all reading ENTANGLING
+    // ROOTS, which is the readout saying they are the same fight.
+    label: bandSignatureLabel("flood", m.bossId),
+    value: CONFIG.floodPools, pos: { x: m.pos.x, y: m.pos.y },
+  });
 }
 
 /**
@@ -2009,6 +2501,11 @@ export function bossRootGrasp(state: GameState, m: Monster): void {
     });
   }
   announceSignature(state, m, "The garden is GRABBY. Roots incoming — keep those feet moving or lose them.");
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: bandSignatureLabel("roots", m.bossId),
+    value: spots.length, pos: { x: m.pos.x, y: m.pos.y },
+  });
 }
 
 /**
@@ -2040,9 +2537,28 @@ export function bossDebrisRain(state: GameState, m: Monster): void {
       damage: m.damage * CONFIG.debrisDmgMult,
       kind: "blast",
       flavor: "debris", // falling masonry, not falling ordnance (backlog #4)
+      srcId: m.id, // the Architect's masonry EATS cover where it lands
     });
   }
+  // ...and it aims at the columns on purpose. Ration your cover.
+  if (m.bossId === "architect") {
+    for (const b of (state.breakables ?? []).filter((bb) => bb.footprint && !bb.onBreak).slice(0, 2)) {
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos: { x: b.pos.x, y: b.pos.y },
+        t: CONFIG.debrisDelay, total: CONFIG.debrisDelay,
+        radius: CONFIG.debrisRadius,
+        damage: m.damage * CONFIG.debrisDmgMult,
+        kind: "blast", flavor: "debris", srcId: m.id,
+      });
+    }
+  }
   announceSignature(state, m, "The ceiling is NEGOTIABLE. Masonry incoming — watch the circles, not the boss.");
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: bandSignatureLabel("debris", m.bossId),
+    value: CONFIG.debrisCount, pos: { x: m.pos.x, y: m.pos.y },
+  });
 }
 
 /**
@@ -2080,6 +2596,542 @@ export function bossFlameSweep(state: GameState, m: Monster): void {
     }
   }
   announceSignature(state, m, "THE FURNACE EXHALES. A wall of fire is coming through — pick a gap and COMMIT.");
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: bandSignatureLabel("flamewall", m.bossId),
+    value: CONFIG.flameRows, pos: { x: m.pos.x, y: m.pos.y },
+  });
+}
+
+// ---- BOSSES V2 signatures. Same shape, same file, same announce discipline
+// as the five above: everything ARMS, rings, or channels first. Nothing here
+// invents a fifth telegraph shape (§2.3) — armed ground decals, locked lanes,
+// interruptible channels, and arena-wide schedules are the whole vocabulary.
+
+/**
+ * LATE FEE (The Rent Collector, floor 3): it seizes gold from every crawler in
+ * reach into the lockbox on its back — and the lockbox is a PLATE with its own
+ * health pip. Break it inside the window and the party is refunded WITH
+ * INTEREST and the Collector reels. Miss it and you paid for the privilege.
+ */
+export function bossLateFee(state: GameState, m: Monster): void {
+  const take = Math.round(CONFIG.lateFeeBase + CONFIG.lateFeePerFloor * state.floor);
+  let seized = 0;
+  for (const p of state.players) {
+    if (!p.alive || dist(m.pos, p.pos) > CONFIG.monsterAggroRange * 2) continue;
+    const amount = Math.min(p.gold, take);
+    if (amount <= 0) continue;
+    p.gold -= amount;
+    seized += amount;
+    hit(state, p.pos, amount, "gold");
+  }
+  // Even a broke party gets billed: the lockbox always opens, because the
+  // BURST WINDOW is the mechanic and a poor run must still get to learn it.
+  m.lockbox = (m.lockbox ?? 0) + Math.max(seized, take);
+  const plate = m.plates?.find((p) => p.key === "lockbox");
+  if (plate && plate.broken) {
+    // Re-latched for the next collection round: the window comes back.
+    plate.broken = false;
+    plate.hp = plate.maxHp;
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "LATE FEE",
+    value: m.lockbox, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "LATE FEE ASSESSED. The lockbox is OPEN — break it before it latches, and take it back with interest.");
+}
+
+/**
+ * CITATION (The Sanitation Inspector, floor 6): a lock-on lane across the
+ * arena (the shipped sentinel beam), and then it CONDEMNS the tiles it hit —
+ * lingering strips, so the safe floor shrinks as the fight runs. The ask is
+ * "sidestep the lock, and SPEND clean ground deliberately".
+ */
+export function bossCitation(state: GameState, m: Monster): void {
+  const prey = nearestPlayer(state, m.pos);
+  if (!prey) return;
+  const base = normalize({ x: prey.pos.x - m.pos.x, y: prey.pos.y - m.pos.y });
+  // Phase 1+ paints TWO lanes at 90 degrees — the safe wedge gets narrow.
+  const lanes = (m.phase ?? 0) >= 1 ? 2 : 1;
+  for (let i = 0; i < lanes; i++) {
+    const dir = i === 0 ? base : { x: -base.y, y: base.x };
+    const end = {
+      x: m.pos.x + dir.x * CONFIG.citationLength,
+      y: m.pos.y + dir.y * CONFIG.citationLength,
+    };
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: m.pos.x, y: m.pos.y },
+      end,
+      t: CONFIG.citationArm + CONFIG.beamFadeSeconds,
+      total: CONFIG.citationArm + CONFIG.beamFadeSeconds,
+      arm: CONFIG.citationArm,
+      radius: CONFIG.citationWidth,
+      damage: m.damage * CONFIG.citationDmgMult,
+      kind: "beam",
+      trackId: i === 0 ? prey.id : undefined, // the first lane LOCKS ON
+    });
+    // ...and the tiles it crosses are condemned behind it. Armed for exactly
+    // as long as the beam, so one telegraph covers both.
+    const steps = Math.floor(CONFIG.citationLength / 2.4);
+    for (let s = 1; s <= steps; s++) {
+      const pos = { x: m.pos.x + dir.x * s * 2.4, y: m.pos.y + dir.y * s * 2.4 };
+      if (!isWalkable(state.map, pos.x, pos.y)) continue;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos,
+        t: CONFIG.citationArm + CONFIG.condemnDuration,
+        total: CONFIG.citationArm + CONFIG.condemnDuration,
+        arm: CONFIG.citationArm,
+        radius: 1.2,
+        damage: Math.max(1, m.damage * CONFIG.condemnDmgMult),
+        kind: "sludge",
+        tick: 0,
+      });
+    }
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "CITATION",
+    value: lanes, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "CITATION ISSUED. Everything that lane touches is CONDEMNED. You have a floor's worth of mistakes, and no more.");
+}
+
+/**
+ * THE PIT PULLS (The Grease Trap, floor 6): a rhythmic, uncapped drag toward
+ * a boss that never moves — the lasher's pull verb at arena scale. Fighting
+ * facing OUTWARD, braced behind cover, is the whole posture.
+ */
+export function bossGreasePull(state: GameState, m: Monster): void {
+  for (const p of state.players) {
+    if (!p.alive || p.dashTime > 0) continue; // dash i-frames beat the drag
+    const d = dist(m.pos, p.pos);
+    if (d > CONFIG.greasePullRange || d < 1.2) continue;
+    const toPit = normalize({ x: m.pos.x - p.pos.x, y: m.pos.y - p.pos.y });
+    const drag = Math.min(CONFIG.greasePullStrength, d - 1.0);
+    applyPlayerKnockback(p, toPit, drag, drag); // a PULL: full-length, uncapped
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "THE PIT PULLS",
+    pos: { x: m.pos.x, y: m.pos.y }, value: CONFIG.greasePullRange,
+  });
+  announceSignature(state, m, "THE PIT PULLS. It will not come to you. It does not have to.");
+}
+
+/** Seed one armed spore pod (The Pollinator). Shared by the Bloom cast and by
+ *  a pod's own detonation — an unchecked bloom compounds. */
+export function seedSporePod(state: GameState, m: Monster, at: Vec2): void {
+  if (!isWalkable(state.map, at.x, at.y)) return;
+  if (state.hazards.reduce((n, h) => n + (h.kind === "spore" ? 1 : 0), 0) >= CONFIG.bloomPodCap) return;
+  state.hazards.push({
+    id: state.nextEntityId++,
+    pos: { x: at.x, y: at.y },
+    t: CONFIG.bloomArm,
+    total: CONFIG.bloomArm,
+    arm: CONFIG.bloomArm,
+    radius: CONFIG.bloomRadius,
+    damage: m.damage * CONFIG.bloomDmgMult,
+    kind: "spore",
+    srcId: m.id, // so a bloomed pod knows whose garden it is
+  });
+}
+
+/**
+ * BLOOM (The Pollinator, floor 9): armed pods across the arena; a pod left to
+ * bloom seeds MORE pods, so the arena saturates if you fight the boss instead
+ * of the storm. Clear the pods and it wilts (the mechanic phase + the punish
+ * window). Population-capped, so "survive the storm" never becomes "survive
+ * the frame budget".
+ */
+export function bossBloom(state: GameState, m: Monster): void {
+  const { rng } = state;
+  const targets: Vec2[] = [];
+  for (const p of state.players) {
+    if (p.alive && dist(m.pos, p.pos) <= CONFIG.monsterAggroRange * 2.5) {
+      targets.push({ x: p.pos.x, y: p.pos.y });
+    }
+  }
+  const pods = CONFIG.bloomPods + (m.phase ?? 0);
+  for (let i = 0; i < pods; i++) {
+    const anchor = targets.length > 0 ? targets[i % targets.length] : m.pos;
+    const a = nextFloat(rng) * Math.PI * 2;
+    const d = 1.4 + nextFloat(rng) * 3.2;
+    seedSporePod(state, m, { x: anchor.x + dcos(a) * d, y: anchor.y + dsin(a) * d });
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "BLOOM",
+    value: pods, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "IT IS BLOOMING. Pods that go off make more pods. Clear the garden or drown in it.");
+}
+
+/**
+ * FISSURES (The Foundation, floor 12): the shipped colossus crack at boss
+ * scale and in MULTIPLES — a fan of staggered eruptions that leaves
+ * wedge-shaped safe ground, then a radial set that asks for one committed
+ * decision. Move perpendicular; never along the lane.
+ */
+export function bossFissureFan(state: GameState, m: Monster, lanes: number, radial: boolean): void {
+  const prey = nearestPlayer(state, m.pos);
+  const base = prey
+    ? datan2(prey.pos.y - m.pos.y, prey.pos.x - m.pos.x)
+    : 0;
+  for (let l = 0; l < lanes; l++) {
+    const a = radial
+      ? base + (l / lanes) * Math.PI * 2
+      : base + (l - (lanes - 1) / 2) * 0.55;
+    const dir = { x: dcos(a), y: dsin(a) };
+    for (let i = 1; i <= CONFIG.fissureSteps; i++) {
+      const pos = {
+        x: m.pos.x + dir.x * CONFIG.fissureStepGap * i,
+        y: m.pos.y + dir.y * CONFIG.fissureStepGap * i,
+      };
+      if (!isWalkable(state.map, pos.x, pos.y)) break; // the crack stops at the wall
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos,
+        t: CONFIG.fissureStepDelay * i + 0.25,
+        total: CONFIG.fissureStepDelay * i + 0.25,
+        radius: CONFIG.fissureRadius,
+        damage: m.damage * CONFIG.fissureDmgMult,
+        kind: "blast",
+        flavor: "debris",
+      });
+    }
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: radial ? "FISSURE: RADIAL" : "FISSURE: FAN",
+    value: lanes, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "THE FLOOR SPLITS. Move ACROSS the crack, never along it.");
+}
+
+/**
+ * COMPLIANCE LATTICE (The Safety Officer, floor 15): a grid of lanes that arm
+ * IN SEQUENCE, turning the arena into moving safe cells. Read the order, move
+ * early, never panic-dash. Phase 1 rotates the whole lattice.
+ */
+export function bossLattice(state: GameState, m: Monster): void {
+  const lines = CONFIG.latticeLines + (m.phase ?? 0);
+  const twist = (m.phase ?? 0) * 0.4 + (state.arenaT ?? 0) * 0.05;
+  for (let i = 0; i < lines; i++) {
+    const a = twist + (i / lines) * Math.PI; // lanes, not spokes: they cross the room
+    const dir = { x: dcos(a), y: dsin(a) };
+    const half = CONFIG.bossArenaSize / 2;
+    const off = ((i % 2 === 0 ? 1 : -1) * (1 + Math.floor(i / 2) * 2.6));
+    const perp = { x: -dir.y * off, y: dir.x * off };
+    const arm = CONFIG.latticeArm + i * CONFIG.latticeStagger;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: m.pos.x + perp.x - dir.x * half, y: m.pos.y + perp.y - dir.y * half },
+      end: { x: m.pos.x + perp.x + dir.x * half, y: m.pos.y + perp.y + dir.y * half },
+      t: arm + CONFIG.beamFadeSeconds,
+      total: arm + CONFIG.beamFadeSeconds,
+      arm,
+      radius: CONFIG.latticeWidth,
+      damage: m.damage * CONFIG.latticeDmgMult,
+      kind: "beam",
+    });
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "COMPLIANCE LATTICE",
+    value: lines, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "COMPLIANCE LATTICE ONLINE. They arm in ORDER. Stand where it hasn't got to yet.");
+}
+
+/**
+ * PRODUCTION QUOTA (The Line Supervisor, floor 15): the conveyors deliver a
+ * synced wind-up battalion (the shipped squadId brain). The squads are the
+ * threat; the Supervisor is the reason they exist — and it is nearly immune
+ * while a conveyor still runs, so the answer is the SYSTEM, not the boss.
+ */
+export function bossConveyorRun(state: GameState, m: Monster): void {
+  const props = (state.breakables ?? []).filter((b) => b.onBreak === "shutdown");
+  const anchors = props.length > 0
+    ? props.map((b) => b.pos)
+    : [{ x: m.pos.x + 3, y: m.pos.y }];
+  const squadId = state.nextEntityId++;
+  const lines = Math.min(anchors.length, 1 + (m.phase ?? 0));
+  for (let l = 0; l < lines; l++) {
+    const at = anchors[l % anchors.length];
+    for (let i = 0; i < CONFIG.conveyorSquad; i++) {
+      let pos = { x: at.x + (i - 1) * 0.9, y: at.y + 0.8 };
+      if (!isWalkable(state.map, pos.x, pos.y)) pos = { x: at.x, y: at.y };
+      if (!isWalkable(state.map, pos.x, pos.y)) continue;
+      const add = makeMonster(state, "toysoldier", pos);
+      add.squadId = squadId;
+      add.xp = 1;
+      state.monsters.push(add);
+      hit(state, add.pos, 0, "weapon");
+    }
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "PRODUCTION QUOTA",
+    value: lines, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "THE LINE IS RUNNING. Break the CONVEYORS — the Supervisor is a paperwork problem, not a damage one.");
+}
+
+/**
+ * STOP-WORK ORDER (The Permit Office, floor 12) — the verb the audit said this
+ * boss did not have. Its four stamps were sub-HP bars: you could ignore them
+ * entirely and the fight did not change shape, which fails §2.1's rule that a
+ * plate must change the ASK and not the HP.
+ *
+ * Now every UNBROKEN stamp fires one locked lane along its own hanging angle,
+ * armed in sequence, so the pattern the player has to read is literally the
+ * plate row on the health plate. Break a stamp and that lane is gone for the
+ * rest of the fight — a mono-school build physically cannot delete the lanes it
+ * has no answer for, which is the entire point of the school-immune plates.
+ */
+export function bossStopWork(state: GameState, m: Monster): void {
+  const live = (m.plates ?? []).filter((p) => !p.broken);
+  const half = CONFIG.bossArenaSize / 2;
+  const lanes = live.length > 0
+    ? live.map((p) => p.angle)
+    // Stamps all gone: the Office signs the order itself, at the crawler.
+    : [(() => {
+      const prey = nearestPlayer(state, m.pos);
+      return prey ? datan2(prey.pos.y - m.pos.y, prey.pos.x - m.pos.x) : 0;
+    })()];
+  for (let i = 0; i < lanes.length; i++) {
+    const dir = { x: dcos(lanes[i]), y: dsin(lanes[i]) };
+    const arm = CONFIG.stopWorkArm + i * CONFIG.stopWorkStagger;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: m.pos.x, y: m.pos.y },
+      end: { x: m.pos.x + dir.x * half, y: m.pos.y + dir.y * half },
+      t: arm + CONFIG.beamFadeSeconds,
+      total: arm + CONFIG.beamFadeSeconds,
+      arm,
+      radius: CONFIG.stopWorkWidth,
+      damage: m.damage * CONFIG.stopWorkDmgMult,
+      kind: "beam",
+    });
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "STOP-WORK ORDER",
+    value: lanes.length, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "STOP-WORK ORDER. One lane per stamp, and they fire IN ORDER. Break a stamp, delete a lane.");
+}
+
+/**
+ * HEDGE REGROWTH (The Topiary Warden, floor 9) — the Warden's OWN verb.
+ *
+ * Acceptance review round 3: the Warden is one of only three break-the-shield
+ * bosses and it had no kit at all. Its shield only ever crept back on the
+ * chassis' passive trickle, so a fight whose whole ask is "burst the pool
+ * inside the gap" showed neither a gap nor a pool moving — its beat line read
+ * the band-generic ENTANGLING ROOTS and nothing about it was a shield fight.
+ *
+ * The regrow is now a CHANNEL with a stake, which is what makes the ask real:
+ * stagger it mid-channel (poise, exactly like every other channel in the game)
+ * and the hedge stays broken; let it land and the pool is back AND the wall it
+ * grew is standing on you as armed roots. Zero new telegraph shapes — an armed
+ * ground zone and an interruptible channel, both shipped (§2.3).
+ */
+export function bossHedgeRegrow(state: GameState, m: Monster): void {
+  const pool = m.shieldMax ?? 0;
+  const before = m.shieldHp ?? 0;
+  m.shieldHp = Math.min(pool, before + pool * CONFIG.hedgeRegrowAmount);
+  // The passive trickle waits its turn: the channel IS the regen now, so the
+  // player is reading one clock instead of two.
+  m.shieldRegenT = CONFIG.shieldRegenDelay;
+  // THE WALL IT JUST GREW, on the floor: a ring of armed roots at hedge
+  // radius. It holds you at exactly the distance the pool needs to survive.
+  for (let i = 0; i < CONFIG.hedgeRingSpokes; i++) {
+    const a = (i / CONFIG.hedgeRingSpokes) * Math.PI * 2;
+    const pos = {
+      x: m.pos.x + dcos(a) * CONFIG.hedgeRingRadius,
+      y: m.pos.y + dsin(a) * CONFIG.hedgeRingRadius,
+    };
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      total: CONFIG.rootsTelegraph + CONFIG.rootsDuration,
+      arm: CONFIG.rootsTelegraph,
+      radius: CONFIG.rootsRadius,
+      damage: 0, // the hedge holds; the Warden does the cutting
+      kind: "roots",
+    });
+  }
+  announce(state, "boss", `THE HEDGE IS BACK UP (${Math.round((m.shieldHp / Math.max(1, pool)) * 100)}%). Interrupt the next one or you will do this all night.`);
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "HEDGE REGROWTH",
+    value: CONFIG.hedgeRingSpokes, pos: { x: m.pos.x, y: m.pos.y },
+  });
+}
+
+/**
+ * SLUICE GATE (The Sump King, floor 6) — the King's `prop: "drain"` was
+ * authored in the roster and never fired, so the headline use-the-arena boss
+ * shipped with a generic ring and a floodgate nobody had a reason to look at.
+ *
+ * The surge is anchored on the STANDING GATES, not on the King: each gate vents
+ * a marching crescent of armed sludge toward the nearest crawler, so the thing
+ * you read (where the water is coming from) and the thing you break (the gate)
+ * are the same object. Break them all and `fireArenaProp` beaches him.
+ */
+export function bossSluice(state: GameState, m: Monster): void {
+  const gates = (state.breakables ?? []).filter((b) => b.onBreak === "drain" && b.hp > 0);
+  const anchors = gates.length > 0 ? gates.map((b) => b.pos) : [{ x: m.pos.x, y: m.pos.y }];
+  const prey = nearestPlayer(state, m.pos);
+  const aim = prey?.pos ?? m.pos;
+  let seeded = 0;
+  for (const at of anchors) {
+    const dir = normalize({ x: aim.x - at.x, y: aim.y - at.y });
+    if (dir.x === 0 && dir.y === 0) continue;
+    for (let s = 0; s < CONFIG.sluicePools; s++) {
+      // A CRESCENT, not a ring: it widens as it travels, so the safe ground is
+      // behind you and to the side — the read is "step off the line", which is
+      // the same verb the whole floor-6 band teaches.
+      const step = 1.8 + s * 1.9;
+      const spread = (s % 2 === 0 ? 1 : -1) * s * 0.55;
+      const pos = {
+        x: at.x + dir.x * step - dir.y * spread,
+        y: at.y + dir.y * step + dir.x * spread,
+      };
+      if (!isWalkable(state.map, pos.x, pos.y)) continue;
+      const arm = CONFIG.sluiceArm + s * 0.18;
+      state.hazards.push({
+        id: state.nextEntityId++,
+        pos,
+        t: arm + CONFIG.floodDuration,
+        total: arm + CONFIG.floodDuration,
+        arm,
+        radius: CONFIG.sluiceRadius,
+        damage: m.damage * CONFIG.sluiceDmgMult,
+        kind: "sludge",
+        tick: 0,
+      });
+      seeded++;
+    }
+  }
+  // The beat is posted at the GATE, not at the boss: the presentation layer
+  // anchors its geometry on the prop, which is what "use the arena" has to
+  // look like from the first frame.
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "SLUICE GATE",
+    value: gates.length, pos: { x: anchors[0].x, y: anchors[0].y },
+  });
+  if (seeded > 0) {
+    announceSignature(state, m, "THE SLUICES OPEN. It rises FROM THE GATES — break them and the court adjourns.");
+  }
+}
+
+/**
+ * MOTION CARRIED (The Standards and Practices Board, floor 18) — the finale's
+ * own verb, and the reason `standards` no longer aliases the Zoning Board's
+ * kit. Both fights are kill-order fights; this one makes the order VISIBLE on
+ * the floor: every living aide is the muzzle of one lane that runs straight
+ * through the body it is protecting and out the far side.
+ *
+ * Kill the aide standing where you want to fight and that lane is gone. There
+ * is no safe pocket behind the Board, because the lane overshoots it.
+ */
+export function bossMotion(state: GameState, m: Monster): void {
+  const aides = state.monsters.filter((o) => o.hp > 0 && o.tetherId === m.id);
+  const seats = aides.length > 0
+    ? aides.map((a) => ({ x: a.pos.x, y: a.pos.y }))
+    // Adjourned: the Board signs its own motions, from every side at once.
+    : [0, 1, 2].map((i) => ({
+      x: m.pos.x + dcos((i / 3) * Math.PI * 2) * 5,
+      y: m.pos.y + dsin((i / 3) * Math.PI * 2) * 5,
+    }));
+  for (let i = 0; i < seats.length; i++) {
+    const at = seats[i];
+    const dir = normalize({ x: m.pos.x - at.x, y: m.pos.y - at.y });
+    if (dir.x === 0 && dir.y === 0) continue;
+    const arm = CONFIG.motionArm + i * 0.28;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos: { x: at.x, y: at.y },
+      end: {
+        x: m.pos.x + dir.x * CONFIG.motionOvershoot,
+        y: m.pos.y + dir.y * CONFIG.motionOvershoot,
+      },
+      t: arm + CONFIG.beamFadeSeconds,
+      total: arm + CONFIG.beamFadeSeconds,
+      arm,
+      radius: CONFIG.motionWidth,
+      damage: m.damage * CONFIG.motionDmgMult,
+      kind: "beam",
+    });
+  }
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId, label: "MOTION CARRIED",
+    value: seats.length, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announceSignature(state, m, "MOTION CARRIED. Every seat is a muzzle, and it fires THROUGH the chair. Pick which one stops existing.");
+}
+
+/**
+ * THE SET CHANGES (The Showrunner, floor 18): the greatest-hits reel, EARNED —
+ * each phase it re-dresses the arena into a previous band's, hazards and all,
+ * and the counterplay is whatever that band taught you.
+ */
+export function bossShowSetChange(state: GameState, m: Monster): void {
+  const sets = CONFIG.showrunnerSets;
+  const set = sets[Math.min(sets.length - 1, m.phase ?? 0)];
+  m.signature = set as BossSignature;
+  m.sigUsed = false;
+  m.sigCd = 0;
+  bossEvent(state, {
+    kind: "telegraph", monsterId: m.id, bossId: m.bossId,
+    label: `SET: ${String(set).toUpperCase()}`, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announce(state, "boss", `THE SET CHANGES. We are shooting the ${String(set).toUpperCase()} episode now. You have done this one.`);
+}
+
+/**
+ * LIVE AUDIENCE (mutator): the crowd throws things on a rhythm. The arena
+ * does damage now, not just the boss — arena-first movement.
+ */
+export function bossAudienceThrow(state: GameState, boss: Monster): void {
+  const { rng } = state;
+  for (let i = 0; i < CONFIG.audienceCount; i++) {
+    const target = state.players[i % Math.max(1, state.players.length)];
+    const base = target?.alive ? target.pos : boss.pos;
+    const a = nextFloat(rng) * Math.PI * 2;
+    const d = nextFloat(rng) * 2.5;
+    const pos = { x: base.x + dcos(a) * d, y: base.y + dsin(a) * d };
+    if (!isWalkable(state.map, pos.x, pos.y)) continue;
+    state.hazards.push({
+      id: state.nextEntityId++,
+      pos,
+      t: CONFIG.bossHazardDelay,
+      total: CONFIG.bossHazardDelay,
+      radius: CONFIG.bossHazardRadius * 0.8,
+      damage: boss.damage * CONFIG.audienceDmgMult,
+      kind: "blast",
+    });
+  }
+}
+
+/**
+ * Expose a weak point mid-fight (V1, the runtime half): the Grease Trap's pit
+ * INVERTS, the Furnace Marshal CRACKS OPEN. A plate that appears is a punish
+ * window with a health bar — hit the thing that just became hittable.
+ */
+export function bossExposeCore(state: GameState, m: Monster, key: string, label: string, seconds: number): void {
+  m.plates = [{
+    key, label,
+    hp: Math.max(1, Math.round(m.maxHp * CONFIG.plateHpFraction)),
+    maxHp: Math.max(1, Math.round(m.maxHp * CONFIG.plateHpFraction)),
+    angle: 0,
+  }];
+  m.stagger = Math.max(m.stagger, seconds);
+  m.staggerGraceT = 0;
+  bossEvent(state, {
+    kind: "punish", monsterId: m.id, bossId: m.bossId, label,
+    duration: seconds, pos: { x: m.pos.x, y: m.pos.y },
+  });
+  announce(state, "boss", `${label} IS EXPOSED. That is the whole reason you did that. GO.`);
 }
 
 /**
@@ -2724,6 +3776,83 @@ export function damageMonster(
     const breaks = !graced && ((opts.shatterPoise && m.kind !== "boss") || m.poiseDmg + poiseAdd >= m.maxHp * aw.poise * em);
     if (breaks) dmg = Math.round(dmg * CONFIG.wreckerBonus);
   }
+  // ---- BOSSES V2 damage routing ------------------------------------------
+  // Order matters and it is the order a player reads it in: an intermission
+  // eats everything, then the shield pool, then the plates, then whatever is
+  // still shielding the body (aides, conveyors, a sponsor bubble).
+  if (m.kind === "boss" && (m.invulnT ?? 0) > 0) {
+    // V6 — THE COMMERCIAL BREAK. Untargetable while the arena re-deals.
+    hit(state, m.pos, 0, "enemy", { school: opts.school, resisted: true });
+    return;
+  }
+  // V2 — SHIELD POOL: absorb-HP in front of the health bar that regrows unless
+  // it is being broken. The Sponsor's only erodes to ONE school — Diablo's
+  // "immune to X" wearing a sponsorship joke, not a different genre.
+  if ((m.shieldHp ?? 0) > 0 && dmg > 0) {
+    const school = opts.school ?? "physical";
+    if (m.shieldSchool && m.shieldSchool !== school) {
+      dmg = 1; // the brand holds. Bring the other school.
+      guarded = true;
+    } else {
+      const absorbed = Math.min(m.shieldHp!, dmg);
+      m.shieldHp! -= absorbed;
+      dmg -= absorbed;
+      m.shieldRegenT = CONFIG.shieldRegenDelay;
+      guarded = true;
+      if (m.shieldHp! <= 0) {
+        m.shieldHp = 0;
+        m.stagger = Math.max(m.stagger, CONFIG.shieldBreakStagger);
+        m.staggerGraceT = 0;
+        bossEvent(state, {
+          kind: "shieldbreak", monsterId: m.id, bossId: m.bossId,
+          duration: CONFIG.shieldBreakStagger, pos: { x: m.pos.x, y: m.pos.y },
+        });
+        advanceBossPhase(state, m, "mechanic"); // the PLAYER moved the story
+      }
+    }
+  }
+  // V1 — PLATES / WEAK POINTS. The front plate that does not ignore this
+  // school eats the hit; the body only takes a fraction while any stands.
+  if (m.plates && m.plates.length > 0 && dmg > 0) {
+    const live = m.plates.filter((pl) => !pl.broken);
+    if (live.length > 0) {
+      const school = opts.school ?? "physical";
+      const target = live.find((pl) => pl.school !== school);
+      if (target) {
+        const capped = Math.min(dmg, Math.max(1, Math.round(target.maxHp * CONFIG.plateHitCapFraction)));
+        target.hp -= capped;
+        hit(state, { x: m.pos.x, y: m.pos.y + 0.6 }, capped, "enemy", { school: opts.school });
+        if (target.hp <= 0) breakBossPlate(state, m, target);
+      } else {
+        guarded = true; // every remaining plate shrugs this school off
+      }
+      // ARMOUR plates (the school-tagged ones) are what actually shield the
+      // body. A bare plate — the Rent Collector's lockbox — is a bonus
+      // OBJECTIVE, not extra health: measured, taxing the body behind a
+      // single lockbox tripled the floor-3 time-to-kill and dropped bot clear
+      // rate from 26/32 to 15/32. A plate must change the ASK, not the HP.
+      if (live.some((pl) => pl.school)) {
+        dmg = Math.max(1, Math.round(dmg * CONFIG.plateBossDamageMult));
+      }
+    }
+  }
+  // Shield ANCHORS: things that must die before the body opens up. Aides
+  // (the council format), running conveyors (The Line Supervisor), and the
+  // SPONSORED mutator's hazard-immune bubble it has to be pulled out of.
+  if (m.kind === "boss") {
+    if (state.monsters.some((o) => o.hp > 0 && o.tetherId === m.id)) {
+      dmg = Math.max(1, Math.round(dmg * CONFIG.boardShieldMult));
+      guarded = true;
+    }
+    if (m.bossId === "linesupervisor" && (state.breakables ?? []).some((b) => b.onBreak === "shutdown")) {
+      dmg = Math.max(1, Math.round(dmg * CONFIG.supervisorGuardMult));
+      guarded = true;
+    }
+    if (m.bossMutators?.includes("sponsored") && m.home && dist(m.pos, m.home) <= CONFIG.sponsoredBubbleRadius) {
+      dmg = Math.max(1, Math.round(dmg * CONFIG.sponsoredDamageMult));
+      guarded = true;
+    }
+  }
   // One-shot insurance: named menaces never lose more than a capped fraction
   // of their pool to a single hit — a boss fight is a FIGHT, not a screenshot.
   if (m.kind === "boss") dmg = Math.min(dmg, Math.max(1, Math.round(m.maxHp * CONFIG.bossHitCapFraction)));
@@ -3202,6 +4331,44 @@ function reapDead(state: GameState): void {
       }
       continue;
     }
+    // ---- BOSSES V2: what a boss's ADDS do when they die -------------------
+    const tetherBoss = m.tetherId !== undefined
+      ? state.monsters.find((o) => o.id === m.tetherId && o.hp > 0)
+      : undefined;
+    if (tetherBoss) {
+      // UNION RULES (mutator): its adds get back up ONCE, on a delay. Kill
+      // them away from the boss (past tetherRange they stop feeding it) or
+      // simply burst them twice — but the wave costs you two clears, not one.
+      if (tetherBoss.bossMutators?.includes("unionrules") && !m.tetherRevived) {
+        m.tetherRevived = true;
+        m.hp = Math.max(1, Math.round(m.maxHp * 0.4));
+        m.stagger = CONFIG.mutatorUnionReviveDelay; // down, not out
+        m.windup = 0;
+        m.windupKind = undefined;
+        survivors.push(m);
+        state.events.push("UNION RULES: it is getting back up. Finish it properly.");
+        continue;
+      }
+      // THE COUNCIL FORMAT: an aide's death hands its VERB to the body, so
+      // the kill ORDER is the fight — leave the wrong one for last and you
+      // spend the rest of the encounter fighting the verb you gave away.
+      if (m.eliteName?.startsWith("MEMBER:")) {
+        const inherited: Partial<Record<MonsterKind, EliteAffix>> = {
+          cleric: "vampiric", hexer: "executioner", shieldbearer: "armored",
+          sentinel: "mortar", duelist: "thorns",
+        };
+        const gained = inherited[m.kind];
+        if (gained) {
+          tetherBoss.affix = gained;
+          tetherBoss.affixCd = 0;
+          announce(state, "boss", `${m.eliteName} IS EXCUSED — and the Board takes the seat. It is [${gained.toUpperCase()}] now.`);
+        }
+        advanceBossPhase(state, tetherBoss, "mechanic");
+      } else {
+        // A plain tethered add: one link fewer feeding the thing you came for.
+        tetherBoss.bossCount = (tetherBoss.bossCount ?? 0) + 1;
+      }
+    }
     // Kill credit to the last hitter (computed early — several V2 passive
     // hooks below read it; loot boxes + per-player achievements still apply).
     const killer = state.players.find((pl) => pl.id === m.lastHitBy) ?? state.players[0];
@@ -3404,6 +4571,17 @@ function reapDead(state: GameState): void {
       announce(state, "boss", `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
     }
     if (m.kind === "boss") {
+      // §4.4 — the profile REMEMBERS. Next time this one comes up in the draw
+      // it opens at its phase-2 kit, with a shortened intro; five defeats in
+      // and it brings a free mutator. Escalation in mechanics, never stats.
+      if (m.bossId) {
+        state.bossDefeats = { ...(state.bossDefeats ?? {}) };
+        state.bossDefeats[m.bossId] = (state.bossDefeats[m.bossId] ?? 0) + 1;
+      }
+      bossEvent(state, {
+        kind: "phase", monsterId: m.id, bossId: m.bossId, label: "DEFEATED",
+        phase: m.phase ?? 0, pos: { x: m.pos.x, y: m.pos.y },
+      });
       if (state.floor >= CONFIG.finalFloor) {
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "material", amount: 1, material: "boss_sigil" });
         state.status = "won";
@@ -5511,16 +6689,26 @@ function updateMonsterStatuses(state: GameState, dt: number): void {
  * telegraphed like everything else; all of it stops the moment the boss falls.
  */
 function arenaDirector(state: GameState, dt: number): void {
-  if (!isCityBossFloor(state.floor)) return;
+  const bossFloor = isCityBossFloor(state.floor) ||
+    (state.runKind !== "roam" && state.floor >= CONFIG.finalFloor);
+  if (!bossFloor) return;
   const boss = state.monsters.find((m) => m.kind === "boss");
   if (!boss || !boss.introduced) return; // the show starts at the intro
-  const arena = Math.floor(state.floor / CONFIG.bossFloorEvery); // 1..5
-  if (arena !== 2 && arena !== 3 && arena !== 5) return; // 6 / 9 / 15 have directors
+  const arena = bandForBossFloor(state.floor); // 1..6
   const prev = state.arenaT ?? 0;
   state.arenaT = prev + dt;
   const crossed = (interval: number) =>
     Math.floor((state.arenaT ?? 0) / interval) > Math.floor(prev / interval);
   if (alivePlayers(state).length === 0) return;
+  // BOSSES V2 — LIVE AUDIENCE (mutator): the crowd throws things on a rhythm.
+  // The ROOM does damage now, so arena-first movement beats boss-first.
+  if (boss.bossMutators?.includes("liveaudience") && crossed(CONFIG.audienceInterval)) {
+    bossAudienceThrow(state, boss);
+    if ((state.arenaT ?? 0) < CONFIG.audienceInterval * 1.5) {
+      announce(state, "boss", "The LIVE AUDIENCE is throwing things. Legal says that's on you now.");
+    }
+  }
+  if (arena !== 2 && arena !== 3 && arena !== 5) return; // 6 / 9 / 15 have directors
   // The room reuses the SAME telegraphed helpers the signatures taught — the
   // grammar players already learned, now on the arena's own metronome.
   if (arena === 2 && crossed(CONFIG.directorFloodInterval)) {
@@ -5645,6 +6833,31 @@ function updateHazards(state: GameState, dt: number): void {
       remaining.push(hz);
       continue;
     }
+    if (hz.kind === "spore") {
+      // BOSSES V2 — a Pollinator pod. It ARMS like everything else, then
+      // BLOOMS: one bite in radius, and it seeds children. Left alone the
+      // arena saturates, which is what makes "survive the storm" a real ask
+      // instead of unavoidable chip. Bounded by bloomPodCap.
+      if (hz.t > 0) { remaining.push(hz); continue; }
+      for (const p of state.players) {
+        if (!p.alive || p.dashTime > 0) continue;
+        if (dist(hz.pos, p.pos) > hz.radius) continue;
+        if (damagePlayerHit(state, p, hz.damage, { hazard: true })) {
+          handlePlayerDeath(state, p, `${p.name} let the garden finish a cycle. It is thriving.`);
+        }
+      }
+      const parent = state.monsters.find((mm) => mm.id === hz.srcId && mm.hp > 0);
+      if (parent) {
+        for (let i = 0; i < CONFIG.bloomChildren; i++) {
+          const a = (i / CONFIG.bloomChildren) * Math.PI * 2 + hz.id;
+          seedSporePod(state, parent, {
+            x: hz.pos.x + dcos(a) * (hz.radius + 0.8),
+            y: hz.pos.y + dsin(a) * (hz.radius + 0.8),
+          });
+        }
+      }
+      continue;
+    }
     if (hz.kind === "sludge" || hz.kind === "roots") {
       if (hz.t <= 0) continue; // drained / withered
       const live = hz.total - hz.t >= (hz.arm ?? 0); // past the telegraph
@@ -5766,6 +6979,14 @@ function updateHazards(state: GameState, dt: number): void {
     }
     if (hz.t > 0) { remaining.push(hz); continue; }
     hit(state, hz.pos, 0, "crit"); // impact flash for the juice layer
+    // THE CONDEMNED ARCHITECT (BOSSES-V2 §3.4): its masonry destroys the
+    // arena's cover FOR REAL — the fight starts cover-based and ends in open
+    // ground. Scoped to its own casts (srcId) so an ordinary boss's hazard
+    // rain never quietly flattens a PILLARED arena it was not designed to eat.
+    if (hz.srcId !== undefined) {
+      const caster = state.monsters.find((mm) => mm.id === hz.srcId);
+      if (caster?.bossId === "architect") smashBlockersAt(state, hz.pos, hz.radius);
+    }
     for (const p of state.players) {
       if (!p.alive || p.dashTime > 0) continue; // dash i-frames dodge the blast
       if (dist(hz.pos, p.pos) > hz.radius) continue;
@@ -5788,7 +7009,10 @@ function updateHazards(state: GameState, dt: number): void {
  *  fight arrives. Clutter hoards are NOT touched (their gold stays a player
  *  verb); only footprint pieces fall, and they fall in one blow. */
 export function smashBlockersAt(state: GameState, center: Vec2, radius: number): void {
-  smashBreakables(state, (b) => !!b.footprint && dist(center, b.pos) <= radius, 999);
+  // Arena INTERACTIVE props are exempt: the Architect is welcome to eat your
+  // cover, but a boss must never be able to solve its own mechanic by
+  // flattening the floodgates/vents/conveyors that counter it.
+  smashBreakables(state, (b) => !!b.footprint && !b.onBreak && dist(center, b.pos) <= radius, 999);
 }
 
 function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg = 1): void {
@@ -5811,6 +7035,8 @@ function smashBreakables(state: GameState, hits: (b: Breakable) => boolean, dmg 
     if (b.footprint && state.map.blocked) {
       for (const ti of b.footprint) state.map.blocked[ti] = 0;
     }
+    // V3 — an interactive prop does something on the way out.
+    if (b.onBreak) fireArenaProp(state, b);
     // Roam (#25): remember what was consumed so a save/load rebuild of this
     // floor doesn't restock the hoard for free.
     if (state.runKind === "roam") (state.roamSmashed ??= []).push(breakablePosKey(b.pos));
@@ -6377,6 +7603,7 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   state.events = [];
   state.announcements = [];
   state.hits = [];
+  state.bossEvents = []; // typed boss beats: same transient contract as hits
   state.killsThisStep = 0;
   state.escapedCollapse = false;
   for (const p of state.players) {

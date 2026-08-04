@@ -7,9 +7,12 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  bandSplitsFrom, decodeChallenge, deathContext, deathHeadline, deathName,
-  encodeChallenge, ghostAt, gradeRun, letterFor, masteryLevel, milestonesFrom,
-  playability, sealChip, signedTime, splitDelta, worstBand,
+  bandSplitsFrom, bankedTicks, benchmark, boardsPhrase, decodeChallenge, deathContext,
+  deathHeadline, deathName, encodeChallenge, ghostAt, gradeRun, leaderSplits, letterFor,
+  masteryLevel, milestonesFrom, nextMilestone, playability, sealChip, signedTime,
+  splitDelta, verdictSeal, worstBand,
+  boardLeader, count, provenanceOf, rulesetLabel,
+  sealHoldMs, SEAL_CASCADE_MS, SEAL_MIN_PENDING_MS,
   type BoardRun, type GhostState, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
@@ -28,7 +31,7 @@ const history = (n: number): RunRecord[] =>
   }));
 
 const boardRow = (o: Partial<BoardRun> = {}): BoardRun => ({
-  id: "r", name: "R", accountId: "a", eventId: null, state: "verified", reason: null,
+  id: "r", name: "R", publicId: "a", eventId: null, state: "verified", reason: null,
   rulesEra: "abc1234", playable: true, won: false, floor: 9, timeSec: 700, ticks: 42000,
   kills: 200, level: 20, ultimate: null, partySize: 1, attemptNo: 1, private: false,
   damageDealt: 0, damageTaken: 0, goldSpent: 0,
@@ -85,6 +88,44 @@ describe("the grade (COMPETITIVE.md 6.2 Beat 1)", () => {
       history(20), null, 100,
     );
     expect(["S", "A"]).toContain(g.letter);
+  });
+
+  it("...but the letter still SAYS something: a scrappy clear is not an S", () => {
+    // The old floor was `score = max(score, 76)`, which pinned EVERY clear to
+    // exactly A - so the biggest glyph on the screen carried no information on
+    // the one result that matters most. A clear now spends the top of the
+    // scale, and has to earn the top of it.
+    const scrappy = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 5400, kills: 30, damageTaken: 12000, floorsCleared: 18,
+        draftsClaimed: 0, draftsOffered: 8 }),
+      history(20), null, 100,
+    );
+    const dominant = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 900, kills: 900, damageTaken: 200, floorsCleared: 18,
+        draftsClaimed: 9, draftsOffered: 9 }),
+      history(20), null, 100,
+    );
+    expect(scrappy.score).toBeGreaterThanOrEqual(76); // still never worse than A
+    expect(dominant.score).toBeGreaterThan(scrappy.score);
+    expect(dominant.letter).toBe("S");
+    expect(scrappy.letter).toBe("A");
+  });
+
+  it("a HANDED depth scores the meter, not just the caption (test chamber)", () => {
+    // The tile's DETAIL string used to be rewritten to "started here, not
+    // walked" while its SCORE stayed at 100, so a gold 100/100 DEPTH meter sat
+    // forty pixels above a red TEST CHAMBER - NOT RANKED banner. Two elements
+    // asserting opposite things about the same number, on a grade the design
+    // calls auditable.
+    const handed = gradeRun(
+      facts({ floor: 18, won: true, elapsedSec: 8, floorsCleared: 0, startedAtDepth: true }),
+      history(30), null, 100,
+    );
+    const depth = handed.parts.find((p) => p.key === "DEPTH")!;
+    expect(depth.detail).toContain("started here, not walked");
+    expect(depth.score).toBeLessThan(20);
+    // ...and a handed clear does not collect the clear's letter either.
+    expect(handed.letter).not.toBe("S");
   });
 
   it("TEMPO refuses to divide by floors nobody walked (test-chamber start)", () => {
@@ -150,6 +191,30 @@ describe("splits and ghosts (3.3, 4.1)", () => {
     expect(worstBand([mk(0, 900, null), mk(1, 2000, null)])).toBe(-1);
   });
 
+  it("LOST HERE is measured against the FIELD as well as against yourself", () => {
+    // Beat 4 is "your time per band vs your PB vs the board leader". With
+    // leaderTicks hardcoded null, the worst band could only ever be the one
+    // you had a bad day on - never the one the field walks and you crawl.
+    const rows = [
+      { band: 0, name: "A", ticks: 1000, pbTicks: 950, leaderTicks: 900 },
+      { band: 1, name: "B", ticks: 1400, pbTicks: 1390, leaderTicks: 600 },
+    ];
+    expect(worstBand(rows)).toBe(1); // 800 behind the leader beats 50 behind your PB
+  });
+
+  it("the leader's splits come off a SEALED row in the CURRENT era, or not at all", () => {
+    const splits = [600, 700, 0, 0, 0, 0];
+    // A claim is not a benchmark...
+    expect(leaderSplits([boardRow({ state: "claimed", bandSplits: splits })], "abc1234")
+      .every((t) => t === null)).toBe(true);
+    // ...and neither is a row sealed under numbers this build no longer runs.
+    expect(leaderSplits([boardRow({ rulesEra: "0000000", bandSplits: splits })], "abc1234")
+      .every((t) => t === null)).toBe(true);
+    const ok = leaderSplits([boardRow({ bandSplits: splits })], "abc1234");
+    expect(ok[0]).toBe(600);
+    expect(ok[2]).toBeNull(); // a band the leader never walked is not a zero
+  });
+
   it("a ghost that has finished its run is off the floor, not frozen on it", () => {
     const g: GhostState = {
       label: "RIVAL", ticks: 60,
@@ -184,6 +249,28 @@ describe("seals, eras and what may be raced (2.4, 2.6f)", () => {
     expect(playability(boardRow({ state: "claimed" }), "abc1234").ok).toBe(false);
     expect(sealChip("unverifiable", "0000000").title).toContain("keeps whatever it earned");
   });
+
+  it("the verdict's seal is a BLOCK with a sentence, not a chip with a tooltip", () => {
+    // 6 Beat 5: watching the seal land is "two genuinely satisfying seconds
+    // ... the moment the trust model becomes something the player can feel".
+    // A 10.5px label swap is not a way to say that, and a rejection whose only
+    // explanation lives in a title= attribute is how honest players conclude
+    // the ladder is rigged.
+    const sealed = verdictSeal("verified", "abc1234", false, true);
+    expect(sealed.word).toBe("SEALED");
+    expect(sealed.line).toContain("board position");
+    expect(sealed.line).toContain("abc1234");
+    expect(sealed.terminal).toBe(true);
+    // A certified run that ranks nowhere is true and is not a trophy.
+    expect(verdictSeal("verified", "abc1234", false, false).line).toContain("ranks nowhere");
+    expect(verdictSeal("verified", "abc1234", true, true).word).toContain("PRIVATE");
+    // VERIFYING is the only non-terminal state: it breathes, it never stamps.
+    expect(verdictSeal("verifying", null).terminal).toBe(false);
+    // The refusal, and its reason, on the DEFAULT face.
+    const no = verdictSeal("rejected", null, false, false, "cooling down after a rejected submission");
+    expect(no.word).toBe("REFUSED");
+    expect(no.line).toContain("cooling down");
+  });
 });
 
 describe("sharing (8.2)", () => {
@@ -215,5 +302,277 @@ describe("career surfaces (5.2)", () => {
     const m = milestonesFrom(h);
     expect(m.filter((x) => x.title === "FIRST FLOOR 3")).toHaveLength(1);
     expect(m[0].at).toBeGreaterThanOrEqual(m[m.length - 1].at);
+  });
+});
+
+describe("the seal is weighted by what it CERTIFIES (6.2)", () => {
+  it("names the boards a sealed run actually holds", () => {
+    // `ranked` used to mean "is my run id in todaysBoard", and todaysBoard is
+    // the DAILY CONTRACT deepest board - so a free-seed run taking rank 1
+    // all-time got the plain hairline and the line "It ranks nowhere, and it
+    // is still true", which is false about the run that most deserved the
+    // gold. The server now answers with the board keys the row occupies.
+    const held = verdictSeal("verified", "abc1234", false, true, null,
+      ["deepest", "kills@daily-2026-08-02", "band0"]);
+    expect(held.cls).toContain("ranked");
+    expect(held.line).toContain("DEEPEST");
+    expect(held.line).toContain("THE UNDERCROFT");
+
+    const nowhere = verdictSeal("verified", "abc1234", false, false, null, []);
+    expect(nowhere.cls).not.toContain("ranked");
+    expect(nowhere.line).toContain("It ranks nowhere");
+  });
+
+  it("does not spend the word SEALED on a recording nobody has seen", () => {
+    // The pre-submit kicker read "THE RECORDING IS SEALED AGAINST THE RUN"
+    // ninety pixels above the word the whole trust model rests on - spending
+    // the one term that means "the server re-executed this" on "hashed
+    // locally, nothing sent".
+    const pending = verdictSeal("unsubmitted", null);
+    expect(pending.word).toBe("READY TO SUBMIT");
+    expect(pending.kicker).not.toMatch(/SEAL/i);
+    expect(pending.line).not.toMatch(/sealed/i);
+  });
+
+  it("never prints a bare board name that is not the board the player will find", () => {
+    // `b.split("@")[0]` threw the SCOPE away, so the seal read "it holds a
+    // position on DEEPEST, KILLS" about rows on the DAILY CONTRACT boards -
+    // and the player clicked through to STANDINGS > ALL-TIME > DEEPEST and read
+    // "this museum is empty". The trust element made a claim the very next
+    // screen refuted, on the one product whose whole pitch is that the server
+    // does not lie about what a run is worth.
+    expect(boardsPhrase([])).toBe("");
+    expect(boardsPhrase(null)).toBe("");
+    expect(boardsPhrase(["fastest@daily-2026-08-02"])).toBe("FASTEST — TODAY'S CONTRACT");
+    expect(boardsPhrase(["fastest"])).toBe("FASTEST — ALL-TIME");
+    expect(boardsPhrase(["deepest@weekly-2026-07-27"])).toBe("DEEPEST — THE WEEKLY CONTRACT");
+    expect(boardsPhrase(["band0"])).toContain("BAND BOARD");
+    // Two scopes of the same board are two DIFFERENT boards, and the phrase
+    // must not fold them into one word - it names both, grouped, so the thing
+    // worth reading (WHAT you took) is not buried in repetition.
+    expect(boardsPhrase(["fastest@daily-2026-08-02", "fastest"]))
+      .toBe("FASTEST — TODAY'S CONTRACT AND ALL-TIME");
+    expect(boardsPhrase(["deepest", "kills", "band0", "band3"])).toContain("and 1 more");
+  });
+
+  it("a rivals row is sealed WITHOUT a film, and never claims one aged out", () => {
+    // The row is inserted verified with proofId = null because nobody records a
+    // party run; `playability` fell through to "the proof has aged out of
+    // retention" - a proof that never existed. competitive.ts even admitted the
+    // reuse in a comment. It was still a deliberate false statement to the
+    // player.
+    const vouched = playability(boardRow({ film: "never", playable: false }), "abc1234");
+    expect(vouched.ok).toBe(false);
+    expect(vouched.why).not.toMatch(/aged out/i);
+    expect(vouched.why).toContain("THE SERVER RAN THIS ONE ITSELF");
+    // ...and the verdict has a state for it, so the one genuinely
+    // server-authoritative score in the product is shown being earned.
+    const seal = verdictSeal("vouched", "abc1234");
+    expect(seal.word).toBe("SEALED");
+    expect(seal.line).toMatch(/authoritative sim/);
+  });
+
+  it("a refusal that demands an action arrives with the control", () => {
+    // "LINK AN IDENTITY" existed in exactly one place in the tree: as a server
+    // refusal string. No button, no link, no OAuth affordance on the verdict.
+    expect(verdictSeal("claimed", null, false, false, "unsealed.", null, true).action?.kind)
+      .toBe("link");
+    expect(verdictSeal("claimed", null, false, false, "unsealed.").action).toBeNull();
+    // A state the player cannot act on never grows a button.
+    expect(verdictSeal("rejected", null, false, false, "you claimed floor 18", null, true).action)
+      .toBeNull();
+  });
+});
+
+describe("the default state compares you to somebody (6 Beat 2)", () => {
+  it("uses the sealed leader of today's contract when there is one", () => {
+    const b = benchmark({ floor: 3, won: false, elapsedSec: 120 },
+      [boardRow({ name: "Donut Holes", floor: 9, kills: 200 })], 7)!;
+    expect(b.who).toBe("DONUT HOLES");
+    expect(b.gap).toContain("6 floors short");
+    expect(b.ahead).toBe(false);
+    expect(b.source).toContain("sealed rows only");
+  });
+
+  it("never treats an unproven row as the mark", () => {
+    const b = benchmark({ floor: 3, won: false, elapsedSec: 120 },
+      [boardRow({ state: "claimed", floor: 18 })], 7)!;
+    expect(b.who).toBe("YOUR OWN DEEPEST");
+  });
+
+  it("falls back to your own ledger offline, and names that population", () => {
+    const b = benchmark({ floor: 9, won: false, elapsedSec: 400 }, null, 7)!;
+    expect(b.who).toBe("YOUR OWN DEEPEST");
+    expect(b.gap).toBe("2 floors past it");
+    expect(b.ahead).toBe(true);
+    expect(b.source).toContain("this browser");
+    // Nothing to compare against at all is a state, not a fabricated one.
+    expect(benchmark({ floor: 1, won: false, elapsedSec: 4 }, null, 0)).toBeNull();
+  });
+});
+
+describe("every run banks something (6 Beat 5)", () => {
+  it("always ticks the episode, even when the run banked nothing else", () => {
+    // A floor-3 death produced "+0 CP", "It ranks nowhere" and "no personal
+    // bests this run": three of the four blocks saying nothing happened.
+    const t = bankedTicks(history(4), 31, { kills: 0, timeSec: 40, floor: 3 });
+    expect(t[0]).toEqual({ label: "EPISODE", value: "#31", delta: "filed" });
+    expect(t.length).toBeGreaterThanOrEqual(2);
+    // No kills means no kill line - a "+0" tick is the thing this exists to
+    // stop, not a thing to add more of.
+    expect(t.some((x) => x.label === "CAREER KILLS")).toBe(false);
+    expect(bankedTicks(history(4), 31, { kills: 12, timeSec: 40, floor: 3 })
+      .find((x) => x.label === "CAREER KILLS")?.delta).toBe("+12");
+  });
+
+  it("names the next thing to aim at instead of an empty ledger", () => {
+    expect(nextMilestone(0, false).title).toBe("REACH FLOOR 3");
+    expect(nextMilestone(7, false).title).toBe("REACH FLOOR 9");
+    expect(nextMilestone(18, false).title).toBe("WALK OUT AGAIN, FASTER");
+    expect(nextMilestone(4, true).title).toBe("WALK OUT AGAIN, FASTER");
+  });
+});
+
+
+// ===========================================================================
+// ROUND 4 — the screen stops asserting what the row does not carry
+// ===========================================================================
+
+describe("a seal says how it was earned (round-4 blocker 3)", () => {
+  it("does not promise a re-execution for a row that was never re-executed", () => {
+    // `verified` covers two different events and the chip printed the SAME
+    // sentence for both. A server-vouched RIVALS contract is inserted verified
+    // with proof_id NULL - it was never re-executed, because it never left the
+    // server - and the tooltip asserted "the server re-executed this run and
+    // certified it" on a board whose entire pitch is that every ranked row is a
+    // proof. The only existing tell was "party of N", which reads 1 on a solo
+    // rivals row.
+    const replayed = boardRow({ state: "verified", film: "retained" });
+    const vouched = boardRow({ state: "verified", film: "never", mode: "rivals" });
+    expect(provenanceOf(replayed)).toBe("replayed");
+    expect(provenanceOf(vouched)).toBe("vouched");
+
+    const a = sealChip(replayed.state, replayed.rulesEra, false, "ranked", provenanceOf(replayed));
+    const b = sealChip(vouched.state, vouched.rulesEra, false, "ranked", provenanceOf(vouched));
+    expect(a.title).toContain("re-executed");
+    expect(b.title).not.toContain("re-executed this run and certified");
+    expect(b.title).toContain("never left the server");
+    expect(b.label).not.toBe(a.label);
+  });
+
+  it("names the ruleset on the row, and stays quiet about the plain descent", () => {
+    // mode/runKind have been on the wire since the roam gate shipped and no
+    // surface rendered either, so a ruleset with no permadeath was
+    // indistinguishable on the board from the descent every other row is.
+    expect(rulesetLabel({ mode: "coop", runKind: "race" })).toBeNull();
+    expect(rulesetLabel({ mode: "rivals", runKind: "race" })).toMatch(/time-out/);
+    expect(rulesetLabel({ mode: "coop", runKind: "roam" })).toMatch(/no collapse clock/);
+  });
+});
+
+describe("the verdict does not name the player as their own rival (round-4 blocker 5)", () => {
+  const me = { floor: 6, won: false, elapsedSec: 400 };
+
+  it("compares against somebody else, and says so when nobody else is there", () => {
+    // THE MARK printed "CARL / FLOOR 1 / level with the leader" on the player's
+    // OWN row. The component already knew how to say it correctly - the
+    // unlinked branch prints "YOUR OWN DEEPEST" - it was simply never told
+    // which rows were mine.
+    const mine = boardRow({ id: "mine", publicId: "ME", name: "Carl", floor: 6, state: "verified" });
+    const solo = benchmark(me, [mine], 4, "ME");
+    expect(solo!.who).not.toBe("CARL");
+    expect(solo!.gap).not.toMatch(/level with the leader/);
+    expect(solo!.who).toMatch(/YOU HOLD THE MARK/);
+  });
+
+  it("compares against rank 2 when the player holds rank 1, and calls it rank 2", () => {
+    const mine = boardRow({ id: "mine", publicId: "ME", name: "Carl", floor: 18, won: true, state: "verified" });
+    const other = boardRow({ id: "k", publicId: "KAT", name: "Katia", floor: 5, state: "verified" });
+    const b = benchmark(me, [mine, other], 4, "ME");
+    expect(b!.who).toBe("KATIA");
+    // ...and it does not call the crawler BELOW the player "the leader".
+    expect(b!.gap).not.toMatch(/the leader/);
+    expect(b!.gap).toMatch(/rank 2/);
+    expect(b!.source).toMatch(/you hold rank 1/);
+  });
+
+  it("one definition of #1, shared by the mark and the scoreboard column", () => {
+    // Held-TAB headed the scoreboard column "#1 — KATIA" while THE STANDINGS,
+    // which ranks sealed rows only, showed Katia at rank 2. Both surfaces read
+    // this function now.
+    const claim = boardRow({ id: "c", publicId: "C", name: "Claim", state: "claimed" });
+    const sealed = boardRow({ id: "s", publicId: "S", name: "Katia", state: "verified" });
+    const top = boardLeader([claim, sealed], "ME");
+    expect(top!.row.name).toBe("Katia");
+    expect(top!.rank).toBe(1);
+    expect(top!.mine).toBe(false);
+    expect(boardLeader([], "ME")).toBeNull();
+  });
+});
+
+describe("precision and copy (round-4 blocker 15)", () => {
+  it("never prints '1 kills'", () => {
+    expect(count(1, "kill")).toBe("1 kill");
+    expect(count(0, "kill")).toBe("0 kills");
+    expect(count(1200, "kill")).toBe("1,200 kills");
+  });
+
+  it("does not credit a seven-second run with a minute in the dungeon", () => {
+    // `Math.max(1, Math.round(timeSec / 60))` rounded every run up to a minute
+    // and printed a bare "+1" beside a value in minutes: "377 min +1" on a
+    // 7.76-second death.
+    const rows = bankedTicks(history(30), 30, { kills: 3, timeSec: 7.76, floor: 1 });
+    const time = rows.find((r) => r.label === "TIME IN THE DUNGEON")!;
+    expect(time.delta).toBe("+8s");
+    const long = bankedTicks(history(30), 30, { kills: 3, timeSec: 640, floor: 9 });
+    expect(long.find((r) => r.label === "TIME IN THE DUNGEON")!.delta).toBe("+11 min");
+  });
+
+  it("does not tell a floor-13 death that the cameras were still warming up", () => {
+    // DEPTH being the WEAKEST of four parts is not the same claim as "you went
+    // nowhere", and this line fired on a floor-13 death - deeper than most runs
+    // ever get.
+    const deep = gradeRun(
+      facts({ floor: 13, elapsedSec: 1400, kills: 400, floorsCleared: 12 }), [], null, 0);
+    expect(deep.line).not.toMatch(/still warming up/);
+    const shallow = gradeRun(
+      facts({ floor: 2, elapsedSec: 90, kills: 4, floorsCleared: 1 }), [], null, 0);
+    expect(shallow.letter).toBeTruthy();
+  });
+});
+
+describe("the seal moment happens on screen (round-4 blocker 6)", () => {
+  // Instrumented on the shipping build: `vseal pending` at t+0 while the card
+  // was still at opacity 0 mid-entrance, `vseal verified ranked` by t+900ms. No
+  // `verifying` frame was ever painted, so 6.2 Beat 5 - "watching the seal land
+  // is two genuinely satisfying seconds" - was skipped entirely. The strike
+  // animation was staged correctly and had nothing to land ON.
+  const CARD = 10_000; // performance.now() when the verdict card was displayed
+  const RISEN = CARD + SEAL_CASCADE_MS;
+
+  it("holds a verdict that arrives before the block is even visible", () => {
+    // The measured case: the card lands at CARD, the block finishes rising
+    // 1.4s later, and the submit answers 300ms after the card - i.e. while the
+    // thing the player is supposed to watch is still at opacity 0.
+    const hold = sealHoldMs(CARD + 300, CARD, CARD + SEAL_CASCADE_MS, true, true);
+    expect(hold).toBe(SEAL_MIN_PENDING_MS + SEAL_CASCADE_MS - 300);
+    // ...and the verdict is painted only once the block has been READABLE for
+    // the full floor, never at the moment it merely became opaque.
+    expect(sealHoldMs(RISEN + SEAL_MIN_PENDING_MS, CARD, RISEN, true, true)).toBe(0);
+    expect(sealHoldMs(RISEN + SEAL_MIN_PENDING_MS - 1, CARD, RISEN, true, true)).toBe(1);
+  });
+
+  it("never holds a screen that OPENS on a terminal verdict", () => {
+    // A rehearsal or a refused recording has no pending state to honour, and
+    // making the player wait 2.6 seconds for a sentence that was always going
+    // to say UNSEALED is the opposite of a beat.
+    expect(sealHoldMs(CARD + 10, CARD, CARD, true, false)).toBe(0);
+  });
+
+  it("never holds a pending verdict, and never holds before the card is up", () => {
+    expect(sealHoldMs(CARD + 10, CARD, CARD, false, true)).toBe(0);
+    // verdictVisibleAt 0 means the card has not been displayed yet; the first
+    // paint happens during the Beat 0 freeze and must not be deferred.
+    expect(sealHoldMs(CARD + 10, 0, 0, true, true)).toBe(0);
   });
 });

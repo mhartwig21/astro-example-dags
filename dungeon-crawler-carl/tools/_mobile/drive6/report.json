@@ -1,0 +1,115 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "combat",
+    "file": "tools\\_mobile\\drive6\\iphone13-land-combat.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [],
+    "probe": null,
+    "measure": null,
+    "drive": [
+      {
+        "name": "move: floating stick",
+        "verdict": "PASS",
+        "detail": "moved 2.05 tiles; stick visual on press = false; the finger at (135,246) actually lands on BUTTON#.tut-dismiss"
+      },
+      {
+        "name": "move: stick on clear ground",
+        "verdict": "PASS",
+        "detail": "moved 4.68 tiles from (225,301) over DIV#t-stickzone.; stick visual = true"
+      },
+      {
+        "name": "move: thumb lands on minimap",
+        "verdict": "FAIL",
+        "detail": "minimap 115x115 at (70,154) is inside the stick zone (hit: CANVAS#minimap.); moved 0.00 tiles, stick shown = false, pings 0->1"
+      },
+      {
+        "name": "attack: hold slot 0",
+        "verdict": "PASS",
+        "detail": "pack hp 8873 -> 8324"
+      },
+      {
+        "name": "cast: tap slot 1 (smart cast)",
+        "verdict": "PASS",
+        "detail": "cooldowns started: dash"
+      },
+      {
+        "name": "cast: drag-aim slot 2",
+        "verdict": "PASS",
+        "detail": "fired bolt; facing changed=true; aim telegraph found: renderer[telegraphs|aimIndicator|groundPlane] dom[none]"
+      },
+      {
+        "name": "cast: cancel by dragging home",
+        "verdict": "PASS",
+        "detail": "no cooldown started (cancelled)"
+      },
+      {
+        "name": "multi-touch: move while casting",
+        "verdict": "PASS",
+        "detail": "kept moving 2.35 tiles with a second finger on the chips; the stick finger at (225,301) landed on DIV#t-stickzone. (navigator.maxTouchPoints reports 1)"
+      },
+      {
+        "name": "potion: tap the flask chip",
+        "verdict": "PASS",
+        "detail": "charges 3->3, hp 165->412"
+      },
+      {
+        "name": "dodge: dash lives on a chip only",
+        "verdict": "PASS",
+        "detail": "dash is ability slot 1 — no swipe/double-tap gesture exists; moved 2.26 tiles"
+      },
+      {
+        "name": "loot: pickup",
+        "verdict": "INFO",
+        "detail": "state keys: loot,lootBoxes,glyphsDroppedThisFloor; bag=0"
+      },
+      {
+        "name": "descend: contextual chip",
+        "verdict": "INFO",
+        "detail": "hidden (only shows while standing on stairs)"
+      },
+      {
+        "name": "panels: reach + escape by touch",
+        "verdict": "INFO",
+        "detail": "menu rows: inventory(h44) abilities(h44) character(h44) draft(h44) | inventory opened=true, bottom overflows viewport by 0px, close controls: [NONE] | tap-outside closes = false"
+      },
+      {
+        "name": "gestures: double-tap zoom / selection",
+        "verdict": "PASS",
+        "detail": "visualViewport.scale 1->1, selected chars 0"
+      },
+      {
+        "name": "haptics",
+        "verdict": "INFO",
+        "detail": "navigator.vibrate available=true; grep says the host never calls it"
+      },
+      {
+        "name": "safe areas",
+        "verdict": "FAIL",
+        "detail": "intrudes: minimap-frame left 12<47; cockpit right 10<47; cockpit bottom 10<21; hud-tl left 12<47; hud-tr right 12<47; xpbar right 10<47; xpbar bottom -4<21"
+      },
+      {
+        "name": "modal: opens mid-aim, then the finger lifts",
+        "verdict": "FAIL",
+        "detail": "modal opened mid-drag=true; the release point sits over DIV#.item; casts while the modal was up: none; casts once it closed: bolt; modal still open after release=true"
+      },
+      {
+        "name": "perf: heap growth over 240 idle frames",
+        "verdict": "INFO",
+        "detail": "{\"supported\":true,\"deltaBytes\":0,\"frames\":240}"
+      },
+      {
+        "name": "perf: auto-selected preset",
+        "verdict": "INFO",
+        "detail": "{\"preset\":\"performance\",\"glRenderer\":\"ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero) (0x0000C0DE)), SwiftShader driver)\",\"cores\":16,\"dpr\":3,\"backbuffer\":\"750x342\"}"
+      }
+    ],
+    "aim": null,
+    "aimDiff": null
+  }
+]

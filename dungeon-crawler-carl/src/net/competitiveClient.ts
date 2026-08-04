@@ -27,6 +27,9 @@ export interface SubmitResult {
   reason?: string;
   attemptNo?: number;
   scoresCp?: boolean;
+  /** The seal is unreachable until this account has a provider identity. Typed,
+   *  so the verdict renders a BUTTON rather than string-matching prose. */
+  needsIdentity?: boolean;
 }
 
 async function gzip(bytes: Uint8Array): Promise<Uint8Array> {
@@ -68,7 +71,12 @@ export class CompetitiveClient {
   /** Start a contract. The ticket is what makes the attempt count honest, and
    *  the START being observed is what closes practise-offline-then-submit. */
   startEvent(eventId: string, token: string): Promise<{
-    eventId: string; seed: number; attemptNo: number; ticket: string; scoresCp: boolean; rulesHash: string;
+    eventId: string; seed: number; attemptNo: number; ticket: string; scoresCp: boolean;
+    rulesHash: string;
+    /** Does this account have a provider identity? CP and the seal both need
+     *  one, and the honest place to say so is the DOOR (6.2 Beat 5). */
+    linked: boolean;
+    unlinkedReason: string | null;
   }> {
     return json(this.base + "/events/" + encodeURIComponent(eventId) + "/start?token=" + encodeURIComponent(token), {
       method: "POST",
@@ -91,8 +99,22 @@ export class CompetitiveClient {
     return json(this.base + "/bands/" + band + "?limit=" + limit);
   }
 
-  profile(accountId: string): Promise<unknown> {
-    return json(this.base + "/crawler/" + encodeURIComponent(accountId));
+  /**
+   * SOMEBODY ELSE'S CAREER, BY THE ONE-WAY PUBLIC ID a board row carries.
+   *
+   * This used to be the only profile call, and every caller in the host passed
+   * its own BEARER TOKEN as the path segment, because the server fell back to
+   * treating an unresolved segment as an account id. That fallback was a
+   * confirmation oracle for a leaked token (blocker 10); it is gone, and so is
+   * the ambiguity here - a credential travels as `?token=`, never as a path.
+   */
+  profile(publicId: string): Promise<unknown> {
+    return json(this.base + "/crawler/" + encodeURIComponent(publicId));
+  }
+
+  /** MY career. The token is presented AS a token, where `isUsable` decides. */
+  myProfile(token: string): Promise<unknown> {
+    return json(this.base + "/crawler/me?token=" + encodeURIComponent(token));
   }
 
   rivalContract(token: string): Promise<unknown> {
@@ -112,12 +134,14 @@ export class CompetitiveClient {
   async submitRun(
     proof: RunProof, token: string, name: string,
     visibility: "public" | "private",
-    opts: { partySize?: number } = {},
   ): Promise<SubmitResult> {
     const body = await gzip(encodeProof(proof));
     const q = new URLSearchParams({ token, name });
     if (visibility === "private") q.set("private", "1");
-    if (opts.partySize && opts.partySize > 1) q.set("size", String(opts.partySize));
+    // NO `size`. Party size used to ride the query string onto a proof-verified
+    // row and print as "party of N" beside the gold seal, unverified by
+    // anything (COMPETITIVE.md 7.4 makes it a BOARD AXIS). The server no longer
+    // reads it; sending it would only be a lie the server ignores.
     return json<SubmitResult>(this.base + "/runs?" + q, {
       method: "POST",
       headers: { "content-type": "application/octet-stream" },

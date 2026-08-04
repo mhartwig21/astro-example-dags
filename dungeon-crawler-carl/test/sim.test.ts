@@ -2601,8 +2601,14 @@ describe("ringside introductions", () => {
     const boss = g.monsters.find((m) => m.kind === "boss")!;
     g.players[0].pos = { x: boss.pos.x + 4, y: boss.pos.y };
     step(g, idle(), 1 / 60);
-    expect(g.encounter?.name).toBe("THE FLOOR BOSS");
+    // BOSSES V2: the finale has a NAME now (three of them, drawn per run), and
+    // the intro ships the whole name card as data — title, epithet, ask.
     expect(g.encounter?.kind).toBe("boss");
+    expect(g.encounter?.bossId).toBeDefined();
+    expect(g.encounter?.name).toBe(boss.eliteName);
+    expect(g.encounter?.name).not.toBe("THE BOSS");
+    expect(g.encounter?.epithet).toBeTruthy();
+    expect(g.encounter?.ask).toBeTruthy();
   });
 
   it("dead menaces are never introduced", () => {
@@ -2633,7 +2639,10 @@ describe("boss phases", () => {
     expect(boss.phase).toBe(1);
     expect(boss.speed).toBeGreaterThan(speed0);
     expect(g.announcements.some((a) => a.text.includes("ANGRY"))).toBe(true);
-    // Phase 2 stacks on top.
+    // Phase 2 stacks on top. BOSSES V2: every phase edge is an INTERMISSION
+    // (the boss is briefly untargetable while the arena re-deals), so skip
+    // past it here — the beat itself has its own coverage in bosses.test.ts.
+    boss.invulnT = 0;
     boss.hp = Math.floor(boss.maxHp * 0.2);
     step(g, idle(), 1 / 60);
     expect(boss.phase).toBe(2);

@@ -1,0 +1,368 @@
+{
+ "tag": "after3",
+ "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+ "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "scene": {
+  "preset": "balanced",
+  "pixelRatioCap": 1.2,
+  "backbuffer": {
+   "w": 1728,
+   "h": 1022
+  },
+  "propEntries": 887,
+  "visibleProps": 159,
+  "propBatches": 78,
+  "batchedLeaves": 926,
+  "liveBatchInstances": 171,
+  "unbatchedPropMeshes": 126,
+  "programs": 190,
+  "monsterMeshes": 204,
+  "visibleMonsterMeshes": 29,
+  "near10": 29
+ },
+ "post": {
+  "frames": 489,
+  "median": 37.1,
+  "p90": 56.1,
+  "p95": 67.3,
+  "p99": 166.5,
+  "max": 1304.6,
+  "mean": 46.52,
+  "over16": 100,
+  "over33": 70.6,
+  "calls": 758,
+  "ktris": 1364,
+  "cpuUpdate": 8.3,
+  "cpuRender": 13.3,
+  "cpuUpdateP95": 12.3,
+  "cpuRenderP95": 20.6,
+  "nearMin": 28,
+  "nearMed": 32,
+  "nearMax": 35,
+  "programsStart": 190,
+  "programsEnd": 196,
+  "census": [
+   [
+    "Mesh",
+    95.6
+   ],
+   [
+    "Sprite",
+    26.1
+   ],
+   [
+    "SKIN:Skeleton_Minion_Head",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Jaw",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Cloak",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Body",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_ArmRight",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegLeft",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_LegRight",
+    9
+   ],
+   [
+    "SKIN:Skeleton_Minion_Eyes",
+    9
+   ],
+   [
+    "INST:Mesh(x10)",
+    4.5
+   ],
+   [
+    "INST:Mesh(x6)",
+    4.5
+   ],
+   [
+    "chair",
+    4.5
+   ],
+   [
+    "INST:Mesh(x3)",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_Hat",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_ArmRight",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_Head",
+    4.2
+   ],
+   [
+    "ToySoldier_WindupKey",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_LegRight",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_Body",
+    4.2
+   ],
+   [
+    "SKIN:ToySoldier_ArmLeft",
+    4.2
+   ]
+  ],
+  "censusFrames": 489,
+  "playerHp": 999999894,
+  "recapUp": false
+ },
+ "foreign": 0.6,
+ "seconds": 12,
+ "ring": 18,
+ "cpuTop": {
+  "totalMs": 17371,
+  "self": [
+   [
+    "(idle) @:0",
+    3880
+   ],
+   [
+    "getProgramParameter @:0",
+    2083
+   ],
+   [
+    "(program) @:0",
+    1461
+   ],
+   [
+    "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:4735",
+    769
+   ],
+   [
+    "update @renderer3d.ts?t=1785728976596:5538",
+    678
+   ],
+   [
+    "r3d.update @:8",
+    668
+   ],
+   [
+    "multiplyMatrices @chunk-3AO7Z7HT.js?v=593067fe:3737",
+    394
+   ],
+   [
+    "_setValue_fromArray_setMatrixWorldNeedsUpdate @chunk-3AO7Z7HT.js?v=593067fe:28411",
+    387
+   ],
+   [
+    "evaluate @chunk-3AO7Z7HT.js?v=593067fe:24718",
+    361
+   ],
+   [
+    "update @chunk-3AO7Z7HT.js?v=593067fe:29394",
+    328
+   ],
+   [
+    "stepMonster @ai.ts?t=1785725972391:1132",
+    301
+   ],
+   [
+    "setProgram @chunk-3AO7Z7HT.js?v=593067fe:17902",
+    260
+   ],
+   [
+    "projectObject @chunk-3AO7Z7HT.js?v=593067fe:17645",
+    245
+   ],
+   [
+    "slerpFlat @chunk-3AO7Z7HT.js?v=593067fe:1988",
+    220
+   ],
+   [
+    "refreshPlateHudRects @main3d.ts?t=1785728976596:4401",
+    181
+   ],
+   [
+    "texSubImage2D @:0",
+    174
+   ],
+   [
+    "setFromRotationMatrix @chunk-3AO7Z7HT.js?v=593067fe:4277",
+    154
+   ],
+   [
+    "separateMonsters @ai.ts?t=1785725972391:46",
+    151
+   ],
+   [
+    "gl.renderBufferDirect @:22",
+    148
+   ],
+   [
+    "stepFloor @game.ts?t=1785725972391:6072",
+    144
+   ],
+   [
+    "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js?v=593067fe:17366",
+    137
+   ],
+   [
+    "update @chunk-3AO7Z7HT.js?v=593067fe:19291",
+    128
+   ],
+   [
+    "shown @touchShell.ts:148",
+    127
+   ],
+   [
+    "upload @chunk-3AO7Z7HT.js?v=593067fe:11573",
+    117
+   ],
+   [
+    "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:19189",
+    106
+   ]
+  ],
+  "incl": [
+   [
+    "(root) @:0",
+    17371
+   ],
+   [
+    "frame @main3d.ts?t=1785728976596:6689",
+    11775
+   ],
+   [
+    "r3d.render @:10",
+    7035
+   ],
+   [
+    "render @renderer3d.ts?t=1785728976596:7620",
+    7026
+   ],
+   [
+    "render @three_examples_jsm_postprocessing_EffectComposer__js.js?v=b61c1568:128",
+    7022
+   ],
+   [
+    "WebGLRenderer.render @chunk-3AO7Z7HT.js?v=593067fe:17558",
+    6975
+   ],
+   [
+    "render @three_examples_jsm_postprocessing_RenderPass__js.js?v=edfea5ec:22",
+    6888
+   ],
+   [
+    "gl.renderBufferDirect @:22",
+    4771
+   ],
+   [
+    "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js?v=593067fe:17366",
+    4622
+   ],
+   [
+    "renderScene @chunk-3AO7Z7HT.js?v=593067fe:17703",
+    4372
+   ],
+   [
+    "renderObjects @chunk-3AO7Z7HT.js?v=593067fe:17782",
+    4368
+   ],
+   [
+    "renderObject @chunk-3AO7Z7HT.js?v=593067fe:17795",
+    4310
+   ],
+   [
+    "(idle) @:0",
+    3880
+   ],
+   [
+    "setProgram @chunk-3AO7Z7HT.js?v=593067fe:17902",
+    3870
+   ],
+   [
+    "r3d.update @:8",
+    3105
+   ],
+   [
+    "update @renderer3d.ts?t=1785728976596:5538",
+    2431
+   ],
+   [
+    "WebGLProgram.getUniforms @chunk-3AO7Z7HT.js?v=593067fe:12190",
+    2092
+   ],
+   [
+    "onFirstUse @chunk-3AO7Z7HT.js?v=593067fe:12146",
+    2090
+   ],
+   [
+    "WebGLUniforms @chunk-3AO7Z7HT.js?v=593067fe:11556",
+    2089
+   ],
+   [
+    "getProgramParameter @:0",
+    2083
+   ],
+   [
+    "g.userData.animTick @renderer3d.ts?t=1785728976596:2380",
+    1484
+   ],
+   [
+    "update @chunk-3AO7Z7HT.js?v=593067fe:29394",
+    1464
+   ],
+   [
+    "(program) @:0",
+    1461
+   ],
+   [
+    "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:4735",
+    1074
+   ],
+   [
+    "WebGLShadowMap.render @chunk-3AO7Z7HT.js?v=593067fe:13428",
+    844
+   ],
+   [
+    "renderObject @chunk-3AO7Z7HT.js?v=593067fe:13571",
+    835
+   ],
+   [
+    "step @game.ts?t=1785725972391:6052",
+    824
+   ],
+   [
+    "stepFloor @game.ts?t=1785725972391:6072",
+    810
+   ],
+   [
+    "setValue @chunk-3AO7Z7HT.js?v=593067fe:11565",
+    659
+   ],
+   [
+    "projectObject @chunk-3AO7Z7HT.js?v=593067fe:17645",
+    609
+   ]
+  ]
+ }
+}

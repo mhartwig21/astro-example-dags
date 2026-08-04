@@ -17,9 +17,11 @@ import {
 } from "./sim/glyphs";
 import {
   EQUIP_SLOTS, Tile,
-  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Player,
-  type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
+  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Monster, type Player,
+  type BossEvent, type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
 } from "./sim/types";
+import { bossMutatorInfo } from "./sim/bosses";
+import { ASK_LABEL, ASK_PAL, ASK_TO_FAMILY, bossFamily } from "./render3d/bossSignatures";
 import { chooseDialogue, closeDialogue, npcsOf, settlementAt, settlementShopFor } from "./sim/npc";
 
 import { CONFIG, FLOOR_BANDS, naturalFloorForLevel } from "./sim/config";
@@ -31,18 +33,29 @@ import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
+import { TouchShell } from "./input/touchShell";
+import { HudLayout, parseSafeOverride } from "./ui/hudLayout";
+import {
+  Segmented, attachPanel, hideSheet, showSheet, sheetOpen as mathSheetOpen,
+} from "./ui/panelTouch";
+import { Haptics } from "./input/haptics";
+import { pickTarget, tapTarget } from "./input/targeting";
+import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
+import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
   ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
-  loadTouch, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
-  type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref,
+  loadTouch, loadTouchPrefs, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
+  saveTouchPrefs,
+  type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref, type TouchPrefs,
 } from "./input/bindings";
 import { Renderer3D } from "./render3d/renderer3d";
+import { QUALITY_PRESETS, type QualityChoice } from "./render3d/quality";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
 import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
 
-import { careerBests, loadHistory, recordRun } from "./persist/history";
+import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 // THE COMPETITIVE LAYER (COMPETITIVE.md). The sim owns the codec and the era
 // gate; net/ owns the wire and the ghost worker; ui/social.ts owns the
@@ -79,6 +92,12 @@ const isPhone = lookParams.has("phone")
   : (window.matchMedia?.("(pointer: coarse)").matches ?? false) &&
     Math.min(screen.width, screen.height) < 500;
 if (isPhone) document.body.classList.add("phone");
+// HEADLESS VERIFICATION HOOKS (MOBILE.md 4.1 / 4.3). Chromium reports env()
+// as 0 under device emulation, so ?safe=t,r,b,l seeds the four --sa-* values
+// the whole HUD derives from — which is how the battery can assert "given the
+// browser reports inset N, does every HUD rect clear N". ?uiclass= forces a
+// device class. Neither does anything unless the URL asks.
+HudLayout.applySafeOverride(parseSafeOverride(lookParams.get("safe")));
 // A small screen defaults to the CLOSE framing (readability) — an explicit
 // saved choice or ?view= override still wins.
 let camView: CamView = lookParams.get("view") === "close"
@@ -240,6 +259,22 @@ let draftsClaimed = 0;
 /** Set by the CONTRACTS screen immediately before a ticketed event run. The
  *  START is what makes an attempt count honest (3.2A). */
 let pendingTicket: { eventId: string; ticket: string; attemptNo: number; scoresCp: boolean } | null = null;
+/**
+ * Why an about-to-start run on the DAY'S SEED is carrying no ticket.
+ *
+ * There used to be two doors to the daily and the front one was silently
+ * unranked: the menu's gold headline tile called `startRun({kind:'daily'})`,
+ * which resolves the SAME seed as the server's daily contract, while
+ * `pendingTicket` was set in exactly one place - the STANDINGS' ENTER THE
+ * CONTRACT button. So the most prominent button in the product played today's
+ * contract dungeon with `runEvent === null`, submitted with no event, earned no
+ * attempt number, and had the ladder line - the LP line of the whole design -
+ * tell the player "free seed: contract points come from contracts", which was
+ * false about the run they had just played. Both doors are ticketed now, and
+ * when the signing genuinely cannot happen this says which one and why.
+ */
+let pendingContractNote: string | null = null;
+let runContractNote: string | null = null;
 
 let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
 /** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
@@ -269,7 +304,10 @@ function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameS
   draftsOffered = 0;
   draftsClaimed = 0;
   const ticket = pendingTicket;
+  const contractNote = pendingContractNote;
   pendingTicket = null;
+  pendingContractNote = null;
+  runContractNote = contractNote;
   if (net) {
     recBlocked = "party runs are hosted by the server — the solo descent is what carries a proof";
     return;
@@ -405,23 +443,75 @@ function touchWanted(): boolean {
   return touchPref === "on" || (touchPref === "auto" && coarsePointer);
 }
 let touchMode = touchWanted();
+const touchPrefs: TouchPrefs = loadTouchPrefs();
 const touch = new TouchController();
-const tStickEl = document.getElementById("t-stick")!;
+const haptics = new Haptics();
+haptics.level = touchPrefs.haptics;
 const tStairsEl = document.getElementById("t-stairs")!;
-touch.bind(document.getElementById("t-stickzone")!, document.getElementById("skills")!, tStairsEl);
-touch.onStick = (origin, nub) => {
-  if (!origin) { tStickEl.style.display = "none"; return; }
-  tStickEl.style.display = "block";
-  tStickEl.style.left = `${origin.x}px`;
-  tStickEl.style.top = `${origin.y}px`;
-  (tStickEl.firstElementChild as HTMLElement).style.transform = `translate(${nub.x}px, ${nub.y}px)`;
+// ONE router, bound at the document in the capture phase: the world zone owns
+// no element, so a per-element binding could never see a tap on the dungeon
+// floor. Mouse events are never claimed, so desktop play is untouched.
+touch.bind(document, document.body);
+touch.castModes = [...touchPrefs.castMode];
+touch.flickDash = touchPrefs.flickDash;
+touch.twoFingerDash = touchPrefs.twoFingerDash;
+touch.stick.recenter = touchPrefs.stickRecenter;
+// A chip on cooldown REFUSES at pointerdown (buzz + shake) instead of running
+// the whole gesture and silently doing nothing.
+touch.canCast = (slot) => {
+  const p = me(state);
+  if (slot === 0) return true; // the basic attack chip is hold-to-repeat
+  const ab = slot < ABILITY_SLOTS ? p.abilities.slots[slot] : p.abilities.ultimate;
+  if (!ab) return false;
+  if (ab === "dash") return p.dashCharges > 0;
+  return (p.cd[ab] ?? 0) <= 0;
 };
+// Transient System cards park inside the movement thumb arc on a phone. A
+// gameplay press dismisses them rather than being eaten by one.
+touch.onGameplayInput = () => {
+  const card = document.getElementById("tutorial");
+  if (card && card.style.display !== "none" && card.childElementCount > 0) {
+    (card.querySelector(".tut-dismiss") as HTMLElement | null)?.click();
+  }
+};
+// THE HUD'S HALF OF THE ZONE TABLE. The cluster, the map chip and the XP rail
+// are placed from the SAME table the touch zones come from, so the paint and
+// the hit-testing cannot disagree (src/ui/hudLayout.ts).
+const hud = new HudLayout({
+  opacity: touchPrefs.opacity,
+  onMap: () => toggleMinimapExpand(),
+});
+const touchShell = new TouchShell({
+  controller: touch, haptics, prefs: touchPrefs, opacity: touchPrefs.opacity,
+  onLayout: (z) => {
+    hud.apply(z, touchPrefs.opacity);
+    const forced = lookParams.get("uiclass");
+    if (forced) document.body.dataset.uiclass = forced;
+  },
+});
 function applyTouchMode(): void {
   touchMode = touchWanted();
   document.body.classList.toggle("touch", touchMode);
+  document.documentElement.style.setProperty("--hud-pad", `${touchPrefs.hudInset}px`);
+  document.body.classList.toggle("handed-left", touchPrefs.handed === "left");
   touch.setEnabled(touchMode); // OFF must not queue casts (touch-screen laptops)
+  if (touchMode) touchShell.relayout();
 }
 applyTouchMode();
+/** Re-read every touch pref into the live layer (called by the K panel). */
+function applyTouchPrefs(): void {
+  saveTouchPrefs(touchPrefs);
+  haptics.level = touchPrefs.haptics;
+  touch.castModes = [...touchPrefs.castMode];
+  touch.flickDash = touchPrefs.flickDash;
+  touch.twoFingerDash = touchPrefs.twoFingerDash;
+  touch.stick.recenter = touchPrefs.stickRecenter;
+  stickyLock = touchPrefs.stickyLock;
+  touchShell.setPrefs(touchPrefs, touchPrefs.opacity);
+  hud.setOpacity(touchPrefs.opacity);
+  document.documentElement.style.setProperty("--hud-pad", `${touchPrefs.hudInset}px`);
+  document.body.classList.toggle("handed-left", touchPrefs.handed === "left");
+}
 // Bare-canvas touches must NOT become compatibility mouse events: the browser
 // would synthesize mousedown (the LMB = slot-1 alias — a phantom attack) and
 // mousemove (pinning stale mouse aim + flipping device arbitration to "mouse").
@@ -437,6 +527,26 @@ for (const g of ["gesturestart", "gesturechange", "gestureend"]) {
 }
 input.onReset = () => {
   if (net) return; // the server owns the run in network mode
+  /**
+   * THE KEY THE SCREEN ADVERTISES RUNS THE ACTION THE SCREEN ADVERTISES.
+   *
+   * The verdict's primary CTA renders `RUN IT BACK <kbd>R</kbd>` and calls
+   * runItBack(): same seed, this run's own proof armed as a ghost. R routed
+   * here instead - a fresh seed, no forcedSeed, no ghost, i.e. NEW CONTRACT -
+   * and then hid the verdict with the comment "last season's report card".
+   * COMPETITIVE.md 6.2 Beat 6 names RUN IT BACK the biggest retry driver in
+   * the design and says to bind it to the key the player already
+   * reflex-presses. Shipped, the reflex press silently threw away the seed and
+   * the ghost, so the flagship retry loop was unreachable by the one input the
+   * highest-leverage screen in the product tells you to use.
+   *
+   * The test chamber keeps its own R (reroll the stage), because there is no
+   * verdict to run back there and no proof to arm.
+   */
+  if (!testMode && recapFor !== null && state.status !== "playing") {
+    void runItBack();
+    return;
+  }
   if (testMode) {
     const s = testSetup();
     if (!params.has("seed")) s.seed = freshSeed(); // R rerolls unless pinned
@@ -576,7 +686,7 @@ document.querySelectorAll<HTMLElement>(".m-board-h .bt").forEach((el) => {
 /** Result column per all-time category — each board brags differently. */
 function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: number; kills: number }): string {
   if (cat === "fastest" || cat === "contracts") return `CLEAR · ${fmt(e.timeSec)}`;
-  if (cat === "kills") return `${e.kills.toLocaleString()} kills`;
+  if (cat === "kills") return social.count(e.kills, "kill");
   return e.won ? `CLEAR · ${fmt(e.timeSec)}` : `floor ${e.floor}`;
 }
 
@@ -770,6 +880,12 @@ function loadSignin(): { who: string; provider: string } | null {
 
 /** Wire the menu account row: sign-in buttons per enabled provider, the
  *  signed-in chip with cross-device career stats, sign-out, delete. */
+/** Send the crawler to a provider, keeping the account token so the identity
+ *  links to the career they already have rather than starting a new one. */
+export function beginSignIn(provider: string): void {
+  location.href = `${API_BASE}/auth/login/${provider}?token=${encodeURIComponent(ensureToken())}`;
+}
+
 async function initAccountUi(): Promise<void> {
   const row = document.getElementById("m-account")!;
   const status = document.getElementById("m-acct-status")!;
@@ -795,7 +911,7 @@ async function initAccountUi(): Promise<void> {
       if (r.ok) {
         const { stats } = (await r.json()) as { stats: { runs: number; wins: number; deepest: number; kills: number } | null };
         if (stats && stats.runs > 0) {
-          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${stats.kills.toLocaleString()} kills`);
+          status.append(` — ${stats.runs} runs · ${stats.wins} wins · deepest F${stats.deepest} · ${social.count(stats.kills, "kill")}`);
         }
       }
     } catch { /* stats are garnish */ }
@@ -808,9 +924,7 @@ async function initAccountUi(): Promise<void> {
   }
 }
 for (const [btn, prov] of [["m-signin-discord", "discord"], ["m-signin-google", "google"]] as const) {
-  document.getElementById(btn)!.addEventListener("click", () => {
-    location.href = `${API_BASE}/auth/login/${prov}?token=${encodeURIComponent(ensureToken())}`;
-  });
+  document.getElementById(btn)!.addEventListener("click", () => beginSignIn(prov));
 }
 document.getElementById("m-signout")!.addEventListener("click", () => {
   // Full sign-out (shared computers): the identity chip AND the token go.
@@ -857,9 +971,9 @@ function renderCareer(): void {
     `<div class="best"><b>${bests.mostKills.toLocaleString()}</b><small>MOST KILLS</small></div>` +
     `<div class="best"><b>${bests.peakViewers.toLocaleString()}</b><small>PEAK VIEWERS</small></div>`;
   document.getElementById("m-career-list")!.innerHTML = history.slice(0, 5).map((r) =>
-    `<li><span class="rank">${r.mode === "daily" ? "◆" : "·"}</span>` +
+    `<li><span class="rank">${r.mode === "daily" ? '<i class="dia"></i>' : "·"}</span>` +
     `<span class="nm">${r.won ? "ESCAPED" : `floor ${r.floor}`}</span>` +
-    `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${r.kills} kills`}</span></li>`,
+    `<span class="res${r.won ? " win" : ""}">${r.won ? fmt(r.timeSec) : `lvl ${r.level} · ${social.count(r.kills, "kill")}`}</span></li>`,
   ).join("");
 }
 
@@ -904,9 +1018,16 @@ function openMenu(): void {
     } else {
       document.getElementById("m-roam-title")!.textContent = "ROAM";
       document.getElementById("m-roam-sub")!.textContent =
-        "no clock — settlements, residents, contracts · solo campaign";
+        "no clock — settlements, residents, contracts";
     }
   }
+  // THERE IS EXACTLY ONE PRIMARY (r2 blocker). CONTINUE and DESCEND are the
+  // same bespoke shape and are mutually exclusive: when there is a run to
+  // resume, resuming is the headline and a fresh seed steps down to the quiet
+  // outlined variant. When there is not, DESCEND is the headline. A screen
+  // with two filled-gold actions has none.
+  document.getElementById("m-solo")!.classList
+    .toggle("demoted", getComputedStyle(cont).display !== "none");
   document.getElementById("m-board-day")!.textContent = challengeDay ?? dayFromMs(Date.now());
   void refreshBoard();
   renderCareer();
@@ -927,7 +1048,9 @@ function closeMenu(): void {
 // somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
 document.getElementById("m-daily")!.addEventListener("click", () =>
-  enterCasting("DAILY CRAWL", () => startRun({ kind: "daily", day: challengeDay ?? dayFromMs(Date.now()) })));
+  // ONE DOOR, AND IT SIGNS FOR THE CONTRACT. This is the same run the
+  // STANDINGS' ENTER THE CONTRACT starts, so it takes the same ticket.
+  enterCasting("DAILY CRAWL", () => { void enterDailyContract(challengeDay); }));
 // Challenge links re-dress the card; a live streak decorates the subtitle.
 {
   const sub = document.getElementById("m-daily-sub")!;
@@ -1041,10 +1164,13 @@ function offerRejoin(): void {
   } catch { /* best-effort */ }
 }
 offerRejoin();
-document.getElementById("m-party")!.addEventListener("click", () => {
+document.getElementById("m-party")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-party-form")!;
   const opening = form.style.display === "none";
   form.style.display = opening ? "flex" : "none";
+  // The form opens in the row directly under this tile; the tile stays lit
+  // while it is open so cause and effect are one object, not two.
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
   if (opening && !codeInput.value) codeInput.value = rollCode();
   if (opening) showPartyTab("code"); // always reopen on the default tab
 });
@@ -1106,10 +1232,11 @@ document.getElementById("m-quickjoin-host")!.addEventListener("click", () => {
 // RIVALS: a first-class home-screen card with its own race code — same code
 // plumbing as co-op, hostile rules. The first joiner arms the race.
 const rivalCodeInput = document.getElementById("m-rcode") as HTMLInputElement;
-document.getElementById("m-rivals-card")!.addEventListener("click", () => {
+document.getElementById("m-rivals-card")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-rivals-form")!;
   const opening = form.style.display === "none";
   form.style.display = opening ? "flex" : "none";
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
   if (opening && !rivalCodeInput.value) rivalCodeInput.value = rollCode();
 });
 document.getElementById("m-rroll")!.addEventListener("click", () => { rivalCodeInput.value = rollCode(); });
@@ -1123,9 +1250,11 @@ document.getElementById("m-rivals")!.addEventListener("click", () => {
 });
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
-document.getElementById("m-test")!.addEventListener("click", () => {
+document.getElementById("m-test")!.addEventListener("click", (e) => {
   const form = document.getElementById("m-test-form")!;
-  form.style.display = form.style.display === "none" ? "flex" : "none";
+  const opening = form.style.display === "none";
+  form.style.display = opening ? "flex" : "none";
+  (e.currentTarget as HTMLElement).classList.toggle("open", opening);
 });
 document.getElementById("m-t-go")!.addEventListener("click", () => {
   const val = (id: string) => (document.getElementById(id) as HTMLInputElement).value.trim();
@@ -1258,32 +1387,37 @@ btVignette.style.cssText =
 document.body.appendChild(btVignette);
 canvas.style.transition = "filter 220ms ease-out";
 let btGradeOn = false;
+/**
+ * The screen grade belongs to BULLET TIME and nothing else. A run-end variant
+ * (grayscale 0.66, brightness 0.6, held for as long as the verdict was up) was
+ * added and reverted: with the scrim already at 82% it drained the dungeon to
+ * near-black, so the world the player had just been fighting in stopped
+ * existing behind the card.
+ */
+let gradeApplied = "";
+function applyScreenGrade(): void {
+  const want = btGradeOn ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
+  if (want === gradeApplied) return;
+  gradeApplied = want;
+  canvas.style.filter = want;
+  btVignette.style.opacity = btGradeOn ? "1" : "0";
+}
 function updateBulletTimeGrade(s: GameState): void {
   const on = s.bulletTimeLeft > 0;
   if (on === btGradeOn) return;
   btGradeOn = on;
-  canvas.style.filter = on ? "saturate(0.4) brightness(1.06) contrast(1.06)" : "";
-  btVignette.style.opacity = on ? "1" : "0";
+  applyScreenGrade();
 }
 
 const fxLayer = document.getElementById("fx")!;
 const toastLayer = document.getElementById("toasts")!;
 const minimap = document.getElementById("minimap") as HTMLCanvasElement;
 const mmCtx = minimap.getContext("2d")!;
-// Touch: tapping the minimap drops a party ping there (inverse of the
-// drawMinimap transform: pad 6, uniform tile scale).
-minimap.addEventListener("pointerdown", (e) => {
-  if (!touchMode) return;
-  const r = minimap.getBoundingClientRect();
-  if (r.width === 0 || r.height === 0 || mmView.s <= 0) return;
-  const cx = (e.clientX - r.left) * (minimap.width / r.width);
-  const cy = (e.clientY - r.top) * (minimap.height / r.height);
-  touchEdges.ping = {
-    x: Math.max(0, Math.min(state.map.w - 1, (cx - mmView.ox) / mmView.s)),
-    y: Math.max(0, Math.min(state.map.h - 1, (cy - mmView.oy) / mmView.s)),
-  };
-  e.preventDefault();
-});
+// The minimap USED to eat the movement thumb: it sits inside the left stick
+// zone on a phone, and a stick gesture there dropped a party ping instead of
+// walking (measured: 0.05 tiles of movement, pings 0 -> 1, every device). The
+// ping moved to a world-zone long press, and the touch router now claims the
+// minimap rectangle for the stick. Mouse play never had this binding.
 
 // ---- The Show: audience bar + sponsor draft ----
 const statViewers = document.getElementById("stat-viewers")!;
@@ -1316,11 +1450,47 @@ let shownViewers = 0;
 // animation (iso.html). Closing adds .closing for ~130ms before hiding; the
 // timer is tracked so a rapid re-open never gets eaten by a stale close.
 const overlayTimers = new Map<HTMLElement, number>();
+/**
+ * A PANEL OPENED ON TOP OF ANOTHER PANEL MUST BE ON TOP OF IT.
+ *
+ * Measured on an iPhone 13 and an iPad Pro 11: with `#saferoom` up and
+ * `#sheet` opened over it, the sheet's own 46x46 ✕ at (653,54) was tapped with
+ * real touch and the sheet stayed open — while the same control closes the
+ * same panel from a clean playing state. The cause is one authored number:
+ * `#sheet` is z 20 and `#saferoom` is z 24, so the "stacked" panel opened
+ * UNDERNEATH the shop and every tap on it landed on the shop's scrim. Checking
+ * your sheet before you buy is the normal case in a safe room, not an edge.
+ *
+ * The repair is not a bigger constant — that is how the stack got authored by
+ * hand in the first place, and the next panel would collide again. Opening
+ * raises the panel above whatever is already visible, once, on the open path
+ * every panel already goes through. `#rotate` (z 40) is deliberately excluded:
+ * the orientation gate outranks everything, by design.
+ */
+const STACK_CEILING = 39; // one below #rotate, which must stay on top
+function raiseAboveOpenOverlays(el: HTMLElement): void {
+  let top = 0;
+  for (const other of document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')) {
+    if (other === el) continue;
+    if (other.style.display === "none" || other.classList.contains("closing")) continue;
+    if (other.offsetWidth === 0 && other.offsetHeight === 0) continue;
+    const z = Number.parseInt(getComputedStyle(other).zIndex, 10);
+    if (Number.isFinite(z)) top = Math.max(top, z);
+  }
+  const own = Number.parseInt(getComputedStyle(el).zIndex, 10);
+  // Only ever a PROMOTION, and only when something is genuinely above us: a
+  // panel that opens alone keeps its authored place in the screen-zone map.
+  if (top > 0 && (!Number.isFinite(own) || own <= top)) {
+    el.style.zIndex = String(Math.min(STACK_CEILING, top + 1));
+  }
+}
+
 function showOverlay(el: HTMLElement): void {
   const t = overlayTimers.get(el);
   if (t !== undefined) { clearTimeout(t); overlayTimers.delete(el); }
   el.classList.remove("closing");
   el.style.display = "flex";
+  raiseAboveOpenOverlays(el);
 }
 function hideOverlay(el: HTMLElement): void {
   if (el.style.display === "none" || overlayTimers.has(el)) return;
@@ -1329,6 +1499,9 @@ function hideOverlay(el: HTMLElement): void {
     overlayTimers.delete(el);
     el.classList.remove("closing");
     el.style.display = "none";
+    // Back to the authored z the moment it is gone, so the promotion cannot
+    // accumulate across a session and quietly re-order the whole map.
+    el.style.zIndex = "";
   }, 130));
 }
 
@@ -1337,20 +1510,79 @@ function hideOverlay(el: HTMLElement): void {
 // is fully suppressed — nothing readable may bleed behind a modal scrim.
 // A style-attribute observer catches every open/close path (showOverlay,
 // direct display writes, net snapshot toggles) without touching call sites.
+//
+// THE ID LIST IS DELETED (MOBILE.md 2.9a). It was a hand-maintained list of
+// nine element ids and it missed six live surfaces — #ladder, #career,
+// #consent, #loading, #recap-tab and #rotate, the one overlay that
+// deliberately outranks everything. Overlays now DECLARE themselves in the
+// markup with `data-overlay`, and test/panels.test.ts reads the screen-zone
+// map and fails on any z >= 20 overlay that has not: a new panel is either
+// registered or red.
+//
+// This block only writes `body.modal`. The touch layer's suspend authority
+// observes that class and nothing else (touchShell.bindAuthority).
 {
-  const modalEls = ["inv", "abil", "sheet", "keys", "recap", "saferoom", "draft", "menu", "dialogue"]
-    .map((id) => document.getElementById(id))
-    .filter((el): el is HTMLElement => el !== null);
-  const syncModal = (): void => {
-    const open = modalEls.some((el) =>
-      el.style.display !== "" && el.style.display !== "none" && !el.classList.contains("closing"));
+  const modalEls = [...document.querySelectorAll<HTMLElement>('[data-overlay="modal"]')];
+  const visible = (el: HTMLElement): boolean => {
+    // `.closing` is the 130ms fade-out; `.done` is SIGNAL ACQUISITION retiring.
+    if (el.classList.contains("closing") || el.classList.contains("done")) return false;
+    const st = el.style.display;
+    if (st === "none") return false;
+    if (st !== "") return true;
+    // Overlays whose visibility is driven by a body class (#mapbig-scrim) have
+    // no inline style to read. Reading a box is a layout, so it happens here,
+    // on a mutation, and never per frame.
+    const cs = getComputedStyle(el);
+    if (cs.display === "none" || cs.visibility === "hidden") return false;
+    // THE RETIRED-OVERLAY IDIOM, and the reason this predicate is not just a
+    // display check. `#loading.done` sets `opacity: 0; pointer-events: none`
+    // and NEVER leaves the layout — measured on iPad Pro 11, that pinned
+    // body.modal on forever and killed the whole touch layer after boot
+    // (tools/_mobile/i3.log: the stick finger "landed on DIV#loading").
+    // Opacity alone is not the test — lesson 4 in §0 is that a modal mid-fade
+    // reads as absent — so both halves have to hold.
+    if (cs.pointerEvents === "none" && parseFloat(cs.opacity) === 0) return false;
+    return el.offsetWidth > 0 || el.offsetHeight > 0;
+  };
+  let wasModal: boolean | null = null;
+  const syncModalNow = (): void => {
+    syncQueued = 0;
+    const open = modalEls.some(visible);
+    // Only WRITE on a change: the observer below watches body's own class
+    // list, and re-setting the attribute would feed itself forever.
+    if (open === wasModal) return;
+    wasModal = open;
     document.body.classList.toggle("modal", open);
+  };
+  // COALESCED TO ONE RUN PER FRAME (opt r3).
+  //
+  // The comment above `visible` says the box read "happens here, on a mutation,
+  // and never per frame". In a fight it happens MANY TIMES per frame: this
+  // observer watches `body`'s own class list, and the HUD writes body classes
+  // and overlay styles continuously — so every batch re-entered the predicate,
+  // and the predicate does `getComputedStyle` plus `offsetWidth` across every
+  // registered overlay, each of which forces a synchronous style + layout flush
+  // of the whole document.
+  //
+  // MEASURED (V8 sampling profiler, 12 s of floor-15 combat at LOW,
+  // tools/o3_cpu.mjs): `visible` was 0.72 ms of a ~13 ms frame, the largest
+  // non-native entry in the profile — above the renderer's own per-frame
+  // update. Deferring to the next animation frame is behaviour-identical (a
+  // MutationObserver callback is already async, and the predicate is a pure
+  // read of current DOM state) and collapses N forced reflows into one.
+  let syncQueued = 0;
+  const syncModal = (): void => {
+    if (syncQueued) return;
+    syncQueued = requestAnimationFrame(syncModalNow);
   };
   const modalObserver = new MutationObserver(syncModal);
   for (const el of modalEls) {
     modalObserver.observe(el, { attributes: true, attributeFilter: ["style", "class"] });
   }
-  syncModal();
+  // body.mapbig drives #mapbig-scrim from CSS, so the body's own class list is
+  // part of the signal.
+  modalObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+  syncModalNow(); // the first pass is synchronous — boot must not flash a scrim
 }
 
 function openDraftModal(): void {
@@ -1380,26 +1612,67 @@ const bbAffix = document.getElementById("bb-affix")!;
 const bbFill = document.getElementById("bb-fill") as HTMLElement;
 const bbGhost = document.getElementById("bb-ghost") as HTMLElement;
 const bbPips = document.getElementById("bb-pips")!;
+// ---- BOSSES V2 §5.3 plate rows: mutators, shield pool, plates, live beat.
+const bbMuts = document.getElementById("bb-muts")!;
+const bbShield = document.getElementById("bb-shield") as HTMLElement;
+const bbShieldFill = document.getElementById("bb-shield-fill") as HTMLElement;
+const bbShieldTag = document.getElementById("bb-shield-tag")!;
+const bbPlates = document.getElementById("bb-plates")!;
+const bbBeat = document.getElementById("bb-beat")!;
+const bossCallEl = document.getElementById("bosscall")!;
+const bcWord = document.getElementById("bc-word")!;
+const bcSub = document.getElementById("bc-sub")!;
 const bossintroEl = document.getElementById("bossintro")!;
 const hypeRowEl = document.querySelector<HTMLElement>("#show .hyperow");
 const letterboxEl = document.getElementById("letterbox")!;
 const bossSpotEl = document.getElementById("bossspot")!;
 const biName = document.getElementById("bi-name")!;
 const biAffix = document.getElementById("bi-affix")!;
+const biKicker = document.getElementById("bi-kicker")!;
+const biEpithet = document.getElementById("bi-epithet")!;
+const biMuts = document.getElementById("bi-muts")!;
+const biLine = document.getElementById("bi-line")!;
 let introShownFor = -1;
-// Broadcast cut: while the letterbox rides the title card (~3.5s), ALL HUD
-// chrome + minimap leave the frame entirely (r2: no half-dimmed panels
-// under a cinematic). body.cine gates it in CSS; the timer mirrors bi-out.
-let cineTimer = 0;
+// Broadcast cut: while the letterbox rides the title card, ALL HUD chrome +
+// minimap leave the frame entirely (r2: no half-dimmed panels under a
+// cinematic). body.cine gates it in CSS.
+//
+// r3 BLOCKER — the cut used to end on a 3.5s wall-clock timeout while the card
+// it belongs to faded on a 3s CSS animation, and the ringside freeze under
+// BOTH of them runs on the sim's encounter timer. On any client slower than
+// the animation the marquee beat of the encounter was simply gone: eight of
+// eighteen capture intros had no card at all, several with the full HUD back
+// up and the boss clipped behind the Hype bar. The cut now begins and ends
+// with `state.encounter`, and the card's opacity is driven from the same
+// timer (see setIntroFade), so the beat holds exactly as long as the sim says.
 function enterCine(): void {
   document.body.classList.add("cine");
-  window.clearTimeout(cineTimer);
-  cineTimer = window.setTimeout(() => document.body.classList.remove("cine"), 3500);
 }
 function exitCine(): void {
-  window.clearTimeout(cineTimer);
   document.body.classList.remove("cine");
+  document.documentElement.style.removeProperty("--bi-fade");
 }
+/**
+ * The card / letterbox / key-light opacity, from the sim's own ringside clock.
+ * Full for the body of the freeze, then a half-second fall-off on the way out —
+ * the same shape the CSS used to draw, on a clock that cannot outrun the beat.
+ */
+function setIntroFade(timeLeft: number): void {
+  // A capture HOLD pins the beat wide open (see __dcc.hold): the review's fix
+  // for a harness that was racing a 3s animation with a 20s shutter.
+  const fade = hudNow < captureHold ? 1 : Math.max(0, Math.min(1, timeLeft / 0.5));
+  document.documentElement.style.setProperty("--bi-fade", fade.toFixed(3));
+}
+/**
+ * CAPTURE HOLD (r3 blocker, the harness half). Every boss beat now expires on
+ * the frame clock, which a capture harness can freeze — but a SwiftShader
+ * shutter still takes 12-21 seconds of wall time, during which the page keeps
+ * presenting frames. `__dcc.hold(seconds)` pushes every live beat deadline out
+ * past the shutter so the frame that gets composited is the frame that was
+ * staged. It changes no sim state and invents no beat: it only refuses to let
+ * one END while the camera is open.
+ */
+let captureHold = 0;
 // Damage-lag ghost on the boss bar (audit #6): white trail that holds a beat,
 // then chases the live fill. Reset per engaged target.
 let bossGhostFor = -1;
@@ -1408,18 +1681,249 @@ let bossGhostHold = 0;
 let bossPrevFrac = 1;
 let bossPipKey = "";
 let bossLastNow = 0;
+// BOSSES V2: the live-beat line under the plate — what the boss is DOING right
+// now, in its own words. A named signature owns it for its windup; the punish
+// window owns it outright and outranks anything already showing. (The REDACTED
+// mutator's "next move" ticker is a System ANNOUNCEMENT, not a boss event, so
+// it rides the announcement channel and never fights this line for the space.)
+let bossBeatUntil = 0;
+let bossBeatKey = "";
+/**
+ * The RENDER clock, stamped at the top of every frame. The boss beat line and
+ * the call-out both expire against this rather than performance.now(), for the
+ * same reason every CSS animation in the game runs off the frame clock: a beat
+ * should last N frames' worth of presented time, not N seconds of wall time
+ * that may include a stall. (It also means a capture harness that freezes the
+ * frame clock gets a beat that actually holds still while it composites —
+ * round 2 lost several call-outs to a multi-second screenshot.)
+ */
+let hudNow = 0;
+// Cache keys so the plate's HTML rows only rebuild when their content moves —
+// this runs every frame, next to a fight.
+let bossMutKey = "";
+let bossPlateKey = "";
+
+/**
+ * BOSSES V2 §5.3 — post a beat to the boss plate's live line. `strong` is the
+ * punish window: bigger, hotter, and it outranks anything already showing,
+ * because §7.4 calls it the one beat that most needs to read.
+ */
+// ---- THE CALL-OUT ---------------------------------------------------------
+// §7.4 calls the punish window "the one beat that most needs to read", and the
+// capture round found it rendered as a dim grey line INSIDE the boss panel,
+// clipped by the panel's own bottom edge. The three beats the fight most needs
+// the player to see — the punish window, the intermission, and a phase edge
+// the PLAYER caused — get their own centre-screen layer at announcement
+// contrast. The plate's beat line keeps the running commentary; this layer
+// keeps the moments, and it is never underneath any panel.
+let bossCallUntil = 0;
+/**
+ * CALL-OUT RANK (r3 blocker). Three beats share this layer and they are not
+ * equal: a capture caught two shots of the PUNISH window showing the phase
+ * call-out instead, because a phase edge crossed while the window was live and
+ * `postBossCall` overwrote it unconditionally. The punish window is the beat
+ * §7.4 says most needs to read and it lasts two seconds; a phase edge will
+ * still be true a moment later. So the layer is ranked, and a live higher rank
+ * refuses to be clobbered by a lower one.
+ */
+const CALL_RANK = { phase: 1, intermission: 2, punish: 3, defeat: 4 } as const;
+type CallRank = keyof typeof CALL_RANK;
+let bossCallRank = 0;
+/** Minimum hold for a call-out. A headline beat that is gone inside two
+ *  seconds is a beat the player blinked past — these three are the moments the
+ *  fight is FOR, so they get a full read even when the sim's own window
+ *  (a 2.2s punish) is shorter than one. */
+const CALL_MIN_SECONDS = 3;
+function postBossCall(
+  word: string, sub: string, seconds: number, cool = false, rank: CallRank = "phase",
+): void {
+  const want = CALL_RANK[rank];
+  // A live call-out of equal-or-higher rank keeps the layer. Same rank always
+  // re-posts (a second punish window is a new moment, not a duplicate).
+  if (bossCallUntil > hudNow && bossCallRank > want) return;
+  bossCallRank = want;
+  bossCallUntil = hudNow + Math.max(seconds, CALL_MIN_SECONDS) * 1000;
+  bcWord.textContent = word;
+  bcSub.textContent = sub;
+  bossCallEl.classList.toggle("cool", cool);
+  bossCallEl.classList.remove("on");
+  void (bossCallEl as HTMLElement).offsetWidth; // restart the punch
+  bossCallEl.classList.add("on");
+}
+
+function postBossBeat(text: string, seconds: number, strong = false): void {
+  const now = hudNow;
+  if (!strong && now < bossBeatUntil && bossBeatKey === "punish") return;
+  bossBeatKey = strong ? "punish" : text;
+  bossBeatUntil = now + seconds * 1000;
+  bbBeat.textContent = text;
+  bbBeat.classList.toggle("punish", strong);
+  bbBeat.classList.remove("pop");
+  void bbBeat.offsetWidth; // restart the pop
+  bbBeat.classList.add("pop");
+}
+
+// ---- §5.7 THE LOOT PAYOFF -------------------------------------------------
+// "The sigil, glyph and any TITLE BELT unique must land ringside in a readable
+// arc rather than under the body where they are missed." The sim owns where
+// loot lands (coop authority, save/resume, determinism) — so the host owns the
+// READ instead: for a couple of seconds after a boss falls, every fresh drop
+// near the corpse gets a rarity-colored arc thrown to it from the body and a
+// lit landing spot. The eye follows the arc out, which is the whole point.
+let payoffAt: { x: number; y: number; until: number } | null = null;
+const payoffSeen = new Set<number>();
+/**
+ * While this is in the future the kill beat owns the frame: combat numerals are
+ * suppressed so the corpse, the twin sweeps and the ringside arcs are the whole
+ * image (r3 blocker — the kill captures were a pile of numerals over an empty
+ * floor, with no visible loot at all).
+ */
+let killBeatUntil = 0;
+const PAYOFF_HUE: Record<string, number> = {
+  common: 0xc9c9d4, magic: 0x5a9bff, rare: 0xf2c14e, epic: 0xb98bff,
+};
+
+function stageBossPayoff(s: GameState, events: BossEvent[]): void {
+  for (const e of events) {
+    if (e.kind === "phase" && e.label === "DEFEATED" && e.pos) {
+      // On the FRAME CLOCK, like every other boss beat. On the wall clock the
+      // window could expire before a slow client had even presented the frame
+      // the boss died on, which is why the capture round found real drops in
+      // the log (54, 27, 25 items) and not one arc on screen.
+      payoffAt = { x: e.pos.x, y: e.pos.y, until: hudNow + 3200 };
+      payoffSeen.clear();
+    }
+  }
+  if (!payoffAt) return;
+  if (hudNow > payoffAt.until) { payoffAt = null; return; }
+  for (const l of s.loot) {
+    if (payoffSeen.has(l.id)) continue;
+    const dx = l.pos.x - payoffAt.x, dy = l.pos.y - payoffAt.y;
+    if (dx * dx + dy * dy > 36) continue; // not this boss's payout
+    payoffSeen.add(l.id);
+    const hue = l.kind === "material" ? 0xffd98a
+      : l.kind === "tome" ? 0xb98bff
+      : l.kind === "gold" ? 0xf2c14e
+      : PAYOFF_HUE[l.rarity ?? "common"] ?? 0xc9c9d4;
+    renderer.bossLootArc(payoffAt.x, payoffAt.y, l.pos.x, l.pos.y, hue);
+  }
+}
+
+/**
+ * §7.4 — route one frame of typed boss beats into the HUD. The renderer gets
+ * the same buffer for world FX and the audio director gets it for stingers;
+ * this half is only the chrome that has to say a WORD.
+ */
+function applyBossEvents(events: BossEvent[]): void {
+  for (const e of events) {
+    switch (e.kind) {
+      case "telegraph":
+        // A named signature holds the line for its own windup plus a beat, so
+        // the label is still up while the thing it named is happening. The
+        // label is half of why a fight has an identity; a line that has
+        // already gone by the time the hazard lands names nothing.
+        if (e.label) postBossBeat(e.label, Math.max(2.6, (e.duration ?? 0) + 1.6));
+        break;
+      case "punish":
+        // The unload window. It owns the CALL-OUT layer outright, at
+        // announcement contrast, outside every panel — the beat that most
+        // needs to read is never printed under the furniture again.
+        postBossCall("UNLOAD", e.label ?? "EXPOSED CORE", e.duration ?? 2.2, false, "punish");
+        postBossBeat(e.label ? `${e.label} — UNLOAD` : "EXPOSED — UNLOAD",
+          e.duration ?? 2.2, true);
+        break;
+      case "plate":
+        postBossBeat(`${e.label ?? "PLATE"} BROKEN`, 1.8);
+        break;
+      case "shieldbreak":
+        postBossBeat("SHIELD DOWN", 1.6);
+        break;
+      case "intermission":
+        // COOL, so it can never be mistaken for the punish window's gold.
+        postBossCall("THE COMMERCIAL BREAK", "THE BOARD IS BEING RE-DEALT",
+          e.duration ?? 2, true, "intermission");
+        postBossBeat("THE COMMERCIAL BREAK", e.duration ?? 2);
+        break;
+      case "prop":
+        if (e.label) postBossBeat(`${e.label} FIRED`, 1.4);
+        break;
+      case "enrage":
+        postBossBeat(`OVERTIME ×${e.value ?? 1}`, 1.8);
+        break;
+      case "phase":
+        // A mechanic-triggered phase is the player's own doing (§2.2) and
+        // must read louder than an HP gate ever does.
+        if (e.label === "DEFEATED") {
+          postBossCall("DEFEATED", "THE SEAL OPENS", 2.5, false, "defeat");
+          postBossBeat("DEFEATED", 2.5, true);
+          // THE KILL BEAT owns the frame (r3 blocker): for its duration the
+          // floating damage numbers stand down, so the last image of the fight
+          // is the corpse, the sweeps and the loot — not eight numerals, several
+          // of them reading "0!", stacked over the body.
+          killBeatUntil = hudNow + 2600;
+        } else if (e.reason === "mechanic") {
+          postBossCall("YOU DID THAT", `PHASE ${(e.phase ?? 0) + 1}`, 1.8, false, "phase");
+          postBossBeat("YOU DID THAT", 1.8, true);
+        } else postBossBeat(`PHASE ${(e.phase ?? 0) + 1}`, 1.4);
+        break;
+      default:
+        break;
+    }
+  }
+}
 
 function updateBossBar(s: GameState): void {
   const p = me(s);
   const enc = s.encounter;
+  // The call-out layer runs on its own clock and outside the plate, so it is
+  // retired here rather than inside the plate's own bookkeeping (which
+  // early-returns the moment nothing is engaged).
+  if (bossCallUntil > 0 && hudNow > bossCallUntil) {
+    bossCallUntil = 0;
+    bossCallRank = 0;
+    bossCallEl.classList.remove("on");
+  }
+  // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
+  // ringside freeze the NAME CARD owns the introduction, so the health plate
+  // stays down until the fight actually starts. It was colliding with the
+  // System's line over the card — and the plate has nothing to say yet anyway.
   if (enc) {
     if (introShownFor !== enc.monsterId) {
       introShownFor = enc.monsterId;
       dismissTutorialForTransition(); // the title card owns the screen now
       biName.textContent = enc.name;
-      biAffix.textContent = enc.affix
-        ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
-        : enc.kind === "boss" ? "BOSS" : "ELITE";
+      // ---- BOSSES V2 §5.3 — THE NAME CARD. Title, epithet, the fight's ASK,
+      // this run's mutators, and the System's one line. The old card was a
+      // name in a banner; §5.3's complaint was that a solid skeleton was
+      // being under-dressed, and this is the dressing.
+      const repeat = enc.repeat ?? 0;
+      biKicker.textContent = repeat > 0
+        ? `◆ WE HAVE MET ${repeat === 1 ? "ONCE" : `${repeat} TIMES`} ◆`
+        : "◆ RINGSIDE INTRODUCTION ◆";
+      biEpithet.textContent = enc.epithet ?? "";
+      // The affix plate states the ASK when the sim gave us one: a boss whose
+      // ask you cannot name in four words is a big monster with more HP.
+      biAffix.textContent = enc.ask
+        ? ASK_LABEL[enc.ask]
+        : enc.affix
+          ? `${enc.elite ? "ELITE — " : ""}${enc.affix.toUpperCase()}`
+          : enc.kind === "boss" ? "BOSS" : "ELITE";
+      if (enc.ask) {
+        const pal = ASK_PAL[ASK_TO_FAMILY[enc.ask]];
+        (biAffix as HTMLElement).style.color = `#${pal.core.toString(16).padStart(6, "0")}`;
+        (biAffix as HTMLElement).style.borderColor = `#${pal.mid.toString(16).padStart(6, "0")}`;
+      } else {
+        (biAffix as HTMLElement).style.color = "";
+        (biAffix as HTMLElement).style.borderColor = "";
+      }
+      // MUTATORS: the answer to "why is this run's version different?", with
+      // the counterplay sentence on the tooltip. This is the whole variety
+      // promise made visible at the one moment the player is reading.
+      biMuts.innerHTML = (enc.mutators ?? []).map((m) => {
+        const info = bossMutatorInfo(m);
+        return `<i title="${esc(info.note)}">${esc(info.label)}</i>`;
+      }).join("");
+      biLine.textContent = enc.line ?? "";
       bossintroEl.classList.remove("show");
       letterboxEl.classList.remove("on");
       bossSpotEl.classList.remove("on");
@@ -1441,32 +1945,57 @@ function updateBossBar(s: GameState): void {
       }
       enterCine();
     }
+    // The card, the letterbox and the key light all breathe on the SIM's
+    // ringside clock now — not on a CSS animation racing the wall clock.
+    setIntroFade(enc.timeLeft);
+    // ...and the key light is measured, not declared: on a bright arena floor
+    // (floor 9's forest was the case that broke) a screen-blended disc over the
+    // boss is what saturates the silhouette it exists to reveal.
+    document.documentElement.style.setProperty(
+      "--bi-spot", renderer.bossExposureScale.toFixed(3));
   } else {
     bossintroEl.classList.remove("show");
     letterboxEl.classList.remove("on");
     bossSpotEl.classList.remove("on");
     exitCine();
   }
-  // Engaged target: the nearest introduced, living boss/elite within range.
+  // Engaged target: the nearest introduced, living boss/elite within range —
+  // except that A BOSS ALWAYS OUTRANKS AN ELITE. A capture caught the
+  // Pollinator's fight plate titled THE ENTOURAGE with no phase pips, no ask
+  // and no mutator row: the ENTOURAGED mutator's champion escort had walked a
+  // step closer than the boss, and "nearest" handed it the marquee. The boss
+  // is the encounter; the escort is furniture in it.
   let target: GameState["monsters"][number] | null = null;
   let best = 16;
+  let bestIsBoss = false;
   for (const m of s.monsters) {
     if ((m.kind !== "boss" && !m.elite) || !m.introduced || m.hp <= 0) continue;
     const d = Math.hypot(m.pos.x - p.pos.x, m.pos.y - p.pos.y);
-    if (d < best) { best = d; target = m; }
+    if (d >= 16) continue;
+    const isBoss = m.kind === "boss";
+    if (bestIsBoss && !isBoss) continue;
+    if (isBoss && !bestIsBoss) { best = d; target = m; bestIsBoss = true; continue; }
+    if (d < best) { best = d; target = m; bestIsBoss = isBoss; }
   }
   // The boss plate SUPPRESSES the Hype row while it owns top-center (r6
   // major: the "Hype" label clipped behind the boss health plate) — one
   // marquee element per zone, never a stack.
   const hypeRow = hypeRowEl;
-  if (!target) {
+  if (!target || enc) {
     bossbarEl.style.display = "none";
+    document.body.classList.remove("bossplate");
     if (hypeRow) { hypeRow.style.opacity = ""; hypeRow.style.visibility = ""; }
     bossGhostFor = -1;
+    bbBeat.textContent = "";
+    bossMutKey = bossPlateKey = "";
     return;
   }
   if (hypeRow) { hypeRow.style.opacity = "0"; hypeRow.style.visibility = "hidden"; }
   bossbarEl.style.display = "block";
+  // The V2 plate is taller than the old one (mutators, shield rail, plate
+  // chips, the live beat), so the System's headline band steps down out of
+  // its way — two marquee elements must never share pixels.
+  document.body.classList.add("bossplate");
   bbIcon.innerHTML = target.kind === "boss" ? uic("skull") : "◆";
   bbName.textContent = target.eliteName ?? "THE FLOOR BOSS";
   // Affix tag + status pips (5.11): the bar shows what the menace IS and what
@@ -1494,12 +2023,79 @@ function updateBossBar(s: GameState): void {
   // elites have no phases, so the ornament hides (.elite).
   const isBoss = target.kind === "boss";
   bossbarEl.classList.toggle("elite", !isBoss);
-  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}` : "";
+  // PHASE PIPS now mirror the REAL phase machine (§5.3): band bosses run 0..2,
+  // the finales 0..3, and a mechanic-triggered edge fills a pip exactly like
+  // an HP gate does — the player never has to know which kind moved it.
+  const maxPhase = target.maxPhase ?? 2;
+  const pipKey = isBoss ? `${target.id}:${target.phase ?? 0}:${maxPhase}` : "";
   if (pipKey !== bossPipKey) {
     bossPipKey = pipKey;
     bbPips.innerHTML = isBoss
-      ? Array.from({ length: 3 }, (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
+      ? Array.from({ length: maxPhase + 1 },
+        (_v, i) => `<i class="${i <= (target.phase ?? 0) ? "on" : ""}"></i>`).join("")
       : "";
+  }
+
+  // ---- BOSSES V2 plate rows ------------------------------------------------
+  // MUTATORS (§4.2): what is different about this run's version of this boss.
+  const mutKey = isBoss ? `${target.id}:${(target.bossMutators ?? []).join(",")}` : "";
+  if (mutKey !== bossMutKey) {
+    bossMutKey = mutKey;
+    bbMuts.innerHTML = isBoss
+      ? (target.bossMutators ?? []).map((m) => {
+        const info = bossMutatorInfo(m);
+        return `<i title="${esc(info.note)}">${esc(info.label)}</i>`;
+      }).join("")
+      : "";
+  }
+  // SHIELD POOL (V2): absorb-HP above the health bar, plus the SCHOOL LOCK
+  // tag when only one school erodes it — The Sponsor's entire fight is
+  // "find out which", so the answer belongs on the plate the moment it flips.
+  const shieldMax = target.shieldMax ?? 0;
+  const shieldOn = isBoss && shieldMax > 0 && (target.shieldHp ?? 0) > 0;
+  bbShield.classList.toggle("on", shieldOn);
+  if (shieldOn) {
+    const sf = Math.max(0, Math.min(1, (target.shieldHp ?? 0) / shieldMax));
+    bbShieldFill.style.width = `calc(${(sf * 100).toFixed(1)}% - 2px)`;
+    bbShield.classList.toggle("school-magic", target.shieldSchool === "magic");
+    bbShield.classList.toggle("school-physical", target.shieldSchool === "physical");
+    bbShieldTag.textContent = target.shieldSchool
+      ? `${target.shieldSchool.toUpperCase()} ONLY`
+      : "";
+  }
+  // PLATES (V1): one chip per weak point. Broken chips STAY, struck through —
+  // "three down, one to go" is the read, and a chip that vanishes loses it.
+  const plates = isBoss ? target.plates ?? [] : [];
+  const plateKey = plates.map((pl) =>
+    `${pl.key}:${pl.broken ? "x" : Math.round((pl.hp / Math.max(1, pl.maxHp)) * 8)}`).join("|");
+  if (plateKey !== bossPlateKey) {
+    bossPlateKey = plateKey;
+    bbPlates.innerHTML = plates.map((pl) => {
+      const cls = [pl.broken ? "broken" : "", pl.school ? `school-${pl.school}` : ""]
+        .filter(Boolean).join(" ");
+      const title = pl.school
+        ? `${pl.label} — immune to ${pl.school} damage`
+        : `${pl.label} — a bonus objective, not a gate`;
+      return `<i class="${cls}" title="${esc(title)}">${esc(pl.label)}</i>`;
+    }).join("");
+  }
+  // ENRAGE + INTERMISSION read on the FRAME, not as another chip in the stack.
+  bossbarEl.classList.toggle("enraged", (target.enrageStacks ?? 0) > 0);
+  bossbarEl.classList.toggle("intermission", (target.invulnT ?? 0) > 0);
+  // The live beat expires on its own clock (a punish window that has closed
+  // must stop saying UNLOAD).
+  if (bbBeat.textContent && hudNow > bossBeatUntil) {
+    bbBeat.textContent = "";
+    bbBeat.classList.remove("punish");
+    bossBeatKey = "";
+  }
+  // The name plate names the DRAWN boss, not "THE FLOOR BOSS" — the audit's
+  // most embarrassing finding was that the last boss in the game had no name.
+  if (isBoss) {
+    const pal = ASK_PAL[bossFamily(target.bossId)];
+    (bbIcon as HTMLElement).style.color = `#${pal.mid.toString(16).padStart(6, "0")}`;
+  } else {
+    (bbIcon as HTMLElement).style.color = "";
   }
 }
 
@@ -1547,6 +2143,8 @@ const esc = (s: string): string =>
 
 const draftTitle = document.getElementById("draft-title")!;
 const draftHint = document.getElementById("draft-hint")!;
+/** The ruled kicker every other masthead in the product carries (r3 major:
+ * the draft was the only titled set without one). */
 
 // Sponsor gifts have no ability icon; a DRAWN mark in the plate carries the
 // read (STYLEGUIDE.md rule three: icons are drawn, never typed — the old
@@ -1557,7 +2155,7 @@ const mic = (rel: string): string =>
 const REWARD_GLYPHS: Record<string, string> = {
   healFull: mic("stats/hp"), maxHp: mic("stats/hp"), damage: uic("party"),
   crit: mic("stats/crit"), armor: mic("stats/armor"), item: mic("items/mystery_box"),
-  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: "◆",
+  gold: coinIcon, bonusTime: mic("items/stabilizer_rod"), materials: mic("items/refit_shard"),
   favor: uic("star"), retrain: uic("retrain"),
   shrineBlood: mic("items/blood_subscription"), shrineGreed: coinIcon, shrineDecline: "—",
   revision: mic("items/landlords_ledger"), revisionDecline: "—",
@@ -1573,8 +2171,9 @@ function renderDraft(s: GameState): void {
     const revision = lp.pendingRewards.some((r) => r.kind.startsWith("revision"));
     const quest = lp.pendingRewards.some((r) => r.source === "quest");
     draftEl.classList.remove("levelup");
-    draftTitle.textContent = revision ? "◆ CLASS REVISION" : shrine ? "◆ SYSTEM SHRINE"
-      : quest ? "◆ TRIBE BOUNTY" : "◆ SPONSOR DRAFT";
+    // The leading gem is drawn by the shared panel-title rule, not typed.
+    draftTitle.textContent = revision ? "CLASS REVISION" : shrine ? "SYSTEM SHRINE"
+      : quest ? "TRIBE BOUNTY" : "SPONSOR DRAFT";
     draftHint.textContent = revision
       ? "The System offers a permanent recasting. Every role has a curse in the fine print. This offer is not repeated."
       : shrine
@@ -1597,7 +2196,7 @@ function renderDraft(s: GameState): void {
         const art = r.item && r.item.catalogId
           ? `<img class="ii" src="/icons/painted/items/${r.item.catalogId}.svg" alt="">`
           : r.glyph ? glyphIconHtml(r.glyph)
-          : `<span class="oglyph">${REWARD_GLYPHS[r.kind] ?? "◆"}</span>`;
+          : `<span class="oglyph">${REWARD_GLYPHS[r.kind] ?? '<i class="dia"></i>'}</span>`;
         return (
           `<div class="reward" data-idx="${i}"${tint}>` +
           `<div class="oicon">${art}</div>` +
@@ -1612,15 +2211,16 @@ function renderDraft(s: GameState): void {
       .join("");
   } else {
     draftEl.classList.add("levelup");
-    draftTitle.textContent = "◆ LEVEL UP";
+    draftTitle.textContent = "LEVEL UP";
     draftHint.textContent = "The System offers an evolution. Take one — press its number or click.";
     draftCards.innerHTML = lp.pendingUpgrades
       .map((u, i) => {
         const info = ABILITY_INFO[u.ability];
         const max = UPGRADES.find((n) => n.id === u.id)?.maxRank ?? u.nextRank;
-        // Overrank offers extend the pip row past the printed max with stars.
+        // Overrank offers extend the pip row past the printed max — DRAWN
+        // pips, not typed U+2726/25CF/25CB (project rule 3).
         const pips = Array.from({ length: Math.max(max, u.nextRank) }, (_, r) =>
-          r < u.nextRank ? (r >= max ? "✦" : "●") : "○").join("");
+          `<i class="${r < u.nextRank ? (r >= max ? "on over" : "on") : ""}"></i>`).join("");
         const icon = `<i style="mask-image:url(/icons/${u.ability}.svg);-webkit-mask-image:url(/icons/${u.ability}.svg)"></i>`;
         return (
           `<div class="reward${info.tier === "ultimate" ? " ult" : ""}${u.overrank ? " over" : ""}" data-idx="${i}">` +
@@ -1693,14 +2293,54 @@ const invEquipped = document.getElementById("inv-equipped")!;
 const invBag = document.getElementById("inv-bag")!;
 let invOpen = false;
 
+/**
+ * ONE item row for the whole product (r1 blocker). This used to be a bordered
+ * TEXT row — name, "WEAPON · MAGIC", affixes, no art at all — while the shop
+ * 40px away drew the same object as a rarity-lit well with painted art, and a
+ * single 1600px frame caught both representations of one item. The row now
+ * carries the same art well the safe room and the profile's armoury use.
+ */
 function itemCard(item: Item, opts: { bag?: boolean; idx?: number } = {}): string {
   const cls = `item rar-${item.rarity}${opts.bag ? " bag" : ""}`;
   const idx = opts.bag ? ` data-idx="${opts.idx}"` : "";
+  const noun = item.name.split(" ").pop()!.toLowerCase();
+  const icon = item.catalogId ? itemIconHtml(item.catalogId) : nounIconHtml(noun);
   return (
     `<div class="${cls}"${idx}>` +
-    `<div class="name">${item.name}</div>` +
-    `<div class="slot">${item.slot} · ${item.rarity}</div>` +
+    `<div class="ibox">${icon}</div>` +
+    `<div class="itext">` +
+    `<div class="name">${item.name}${qualityPipsHtml(item)}</div>` +
     `<div class="affixes">${affixLines(item).join(" · ") || "—"}</div>` +
+    `</div>` +
+    `<div class="slot">${item.slot}</div>` +
+    `</div>`
+  );
+}
+
+/**
+ * ONE EMPTY EQUIPMENT SLOT IN THE PRODUCT (r2 major).
+ *
+ * The same six slots were drawn two ways in two panels 40px of hotkey apart:
+ * the inventory printed "BOOTS / empty" beside a socket well AND a right-
+ * aligned "BOOTS" — the slot name twice on one row — while the profile printed
+ * a single centred "NO BOOTS EQUIPPED" with no well and no label. Two empty
+ * states, two layouts, one data model.
+ *
+ * One layout: the recessed socket, the slot named ONCE where a filled row
+ * names the item, and the System's line where a filled row lists affixes. The
+ * right-hand slot tag exists to disambiguate a FILLED row (whose headline is
+ * the item's name, not the slot's) — an empty row's headline is already the
+ * slot, so repeating it was pure noise.
+ */
+function emptySlotHtml(slot: string, cls = "item"): string {
+  const box = cls === "item" ? "ibox" : "gbox";
+  const name = cls === "item" ? "name" : "gname";
+  const sub = cls === "item" ? "affixes" : "gaff";
+  return (
+    `<div class="${cls} empty none slot-empty rar-common">` +
+    `<div class="${box}"></div>` +
+    `<div class="itext"><div class="${name}">${slot}</div>` +
+    `<div class="${sub}">empty</div></div>` +
     `</div>`
   );
 }
@@ -1710,9 +2350,7 @@ function renderInventory(s: GameState): void {
   invEquipped.innerHTML = EQUIP_SLOTS
     .map((slot) => {
       const it = p.equipment[slot];
-      return it
-        ? itemCard(it)
-        : `<div class="item empty rar-common">${slot}: empty</div>`;
+      return it ? itemCard(it) : emptySlotHtml(slot);
     })
     .join("");
   // Bag sorted best-first so upgrades are easy to spot.
@@ -1721,11 +2359,32 @@ function renderInventory(s: GameState): void {
     .sort((a, b) => itemScore(b.item) - itemScore(a.item));
   invBag.innerHTML = bag.length
     ? bag.map(({ item, idx }) => itemCard(item, { bag: true, idx })).join("")
-    : `<div class="item empty rar-common">Bag is empty</div>`;
+    : `<div class="item empty rar-common"><div class="ibox"></div>` +
+      `<div class="itext"><div class="name">the bag is empty</div>` +
+      `<div class="affixes">the dungeon has not paid out yet</div></div></div>`;
+}
+
+/**
+ * EQUIPPED and BAG stayed side by side at 301px each even on a 750px phone,
+ * with 32px item rows and 160px of hidden scroll (MOBILE.md 1.3). Same fix as
+ * the shop: full-size panes, one at a time, gated to the phone classes.
+ */
+let invSeg: Segmented | null = null;
+function ensureInvSegments(): void {
+  if (invSeg) return;
+  const cols = invEl.querySelector(".cols") as HTMLElement | null;
+  const panes = cols ? Array.from(cols.children) as HTMLElement[] : [];
+  if (!cols || panes.length < 2) return;
+  invSeg = new Segmented([
+    { id: "eq", label: "EQUIPPED", pane: panes[0] },
+    { id: "bag", label: "BAG", pane: panes[1] },
+  ]);
+  cols.parentElement?.insertBefore(invSeg.el, cols);
 }
 
 function toggleInventory(): void {
   invOpen = !invOpen;
+  ensureInvSegments();
   if (invOpen) { renderInventory(state); showOverlay(invEl); }
   else hideOverlay(invEl);
 }
@@ -1749,6 +2408,15 @@ invBag.addEventListener("click", (e) => {
 // ---- Ability tree panel (pauses the game while open) ----
 const abilEl = document.getElementById("abil")!;
 const abilGrid = document.getElementById("abil-grid")!;
+const abilIndex = document.getElementById("abil-index")!;
+// The index rail selects the ability on stage. One listener, delegated, so a
+// re-render never has to re-bind anything.
+abilIndex.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-ab-sel]") as HTMLElement | null;
+  if (!b) return;
+  abilSel = b.dataset.abSel as AbilityId;
+  renderAbilities(state);
+});
 let abilOpen = false;
 
 function whereIs(p: ReturnType<typeof me>, id: AbilityId): string {
@@ -1814,7 +2482,7 @@ function discoverTeaserHtml(s: GameState): string {
     ults > 0 ? `${ults} ultimate${ults === 1 ? "" : "s"}` : "",
   ].filter(Boolean).join(" · ");
   return (
-    `<div class="acard discover"><span class="dstar">✦</span>` +
+    `<div class="acard discover"><i class="dstar"></i>` +
     `<div><div class="ahname">${unknown.length} ${unknown.length === 1 ? "ability" : "abilities"} left to discover</div>` +
     `<div class="ahblurb">${breakdown} — tomes drop in the dungeon, or buy one in the shop</div></div>` +
     `</div>`
@@ -1926,7 +2594,7 @@ function abilityCard(s: GameState, id: AbilityId): string {
     mods = `<div class="amods"><span class="amodtext dim">benched — glyphs live on the SLOT, so this inherits whatever it lands in</span></div>`;
   }
   return (
-    `<div class="acard${info.tier === "ultimate" ? " ult" : ""}">` +
+    `<div class="acard${info.tier === "ultimate" ? " ult" : ""}" data-ab="${id}">` +
     `<div class="ahead">` +
     `<i class="ii" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
     `<div><div class="ahname">${info.name}</div><div class="ahblurb">${info.blurb} · ${info.tier}</div></div>` +
@@ -2057,18 +2725,106 @@ function setAbilView(v: AbilView): void {
   if (document.getElementById("saferoom")!.style.display !== "none") renderAbilPage(state);
 }
 
-/** The known roster in either view, plus the undiscovered teaser. */
-function abilBodyHtml(s: GameState): string {
+/* r3 blocker: `abilBodyHtml` (the whole roster, concatenated) is gone. It had
+ * exactly one caller left — the safe room's ABILITIES page — and that page is
+ * an index and a stage now, like the constellation. "It is the --set-xl panel
+ * and it has the room" was the claim; measured, it did not: 3,273px of cards in
+ * a 691px panel at 1366. */
+
+function knownAbilities(p: Player): AbilityId[] {
+  return [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
+}
+
+/**
+ * THE CONSTELLATION IS AN INDEX AND A STAGE (r2 blocker).
+ *
+ * r1 made this panel four pages and then handed the chart page to
+ * `overflow-y: auto`. Measured, the pane overflowed by +2708/+2221/+1752 on
+ * LIST and +2972/+2810/+1856 on STAR CHART: a player at 1366 saw roughly one
+ * fifth of the screen they opened, and the shipped frames cut the Bolt and
+ * Collapse cards mid-word. A scroller is not a fit.
+ *
+ * So: a rail of every ability you know on the left, ONE ability's card filling
+ * the panel on the right. A card measures ~478px at 1366 in a ~580px stage, so
+ * it fits at the SMALLEST viewport in both views — and 1440p now spends its
+ * extra pixels making that card bigger instead of squeezing three across and
+ * collapsing the description column to 90px.
+ */
+let abilSel: AbilityId | null = null;
+
+function abilIndexHtml(s: GameState, sel: string | null = abilSel): string {
   const p = me(s);
-  const known = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES].filter((id) => knows(p, id));
-  const body = abilView === "graph"
-    ? known.map((id) => constellationCardHtml(s, id)).join("")
-    : known.map((id) => abilityCard(s, id)).join("");
-  return body + discoverTeaserHtml(s);
+  const known = knownAbilities(p);
+  const row = (id: AbilityId): string => {
+    const info = ABILITY_INFO[id];
+    const nodes = UPGRADES.filter((u) => u.ability === id);
+    // Progress is "how many of this tree's nodes are lit", which is the one
+    // number a chooser needs and neither view showed outside the card.
+    const taken = nodes.filter((u) => rank(p, u.id) > 0).length;
+    const pips = nodes.map((_, i) => `<i class="${i < taken ? "on" : ""}"></i>`).join("");
+    return (
+      `<button type="button" class="aidx${id === sel ? " on" : ""}" data-ab-sel="${id}" ` +
+      `title="${esc(info.name)} — ${info.blurb}">` +
+      `<i class="aidx-ic" style="mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)"></i>` +
+      `<span class="aidx-t">${esc(info.name)}</span>` +
+      `<span class="aidx-p">${pips}</span></button>`
+    );
+  };
+  const actives = known.filter((id) => ABILITY_INFO[id].tier !== "ultimate");
+  const ults = known.filter((id) => ABILITY_INFO[id].tier === "ultimate");
+  const undiscovered = [...STARTING_ABILITIES, ...DISCOVERABLE_ABILITIES]
+    .filter((id) => !knows(p, id));
+  return (
+    (actives.length ? `<div class="aidx-h">THE FIVE</div>${actives.map(row).join("")}` : "") +
+    (ults.length ? `<div class="aidx-h">ULTIMATE</div>${ults.map(row).join("")}` : "") +
+    (undiscovered.length
+      ? `<div class="aidx-h">UNCHARTED</div>` +
+        `<div class="aidx locked" title="found as tomes in the dungeon">` +
+        `<i class="aidx-ic" style="mask-image:url(/icons/items/mystery_box.svg);-webkit-mask-image:url(/icons/items/mystery_box.svg)"></i>` +
+        `<span class="aidx-t">${undiscovered.length} unfound</span></div>`
+      : "")
+  );
+}
+
+/** The stage: exactly one card, in whichever view is selected. */
+function abilStageHtml(s: GameState): string {
+  const p = me(s);
+  const known = knownAbilities(p);
+  if (known.length === 0) return discoverTeaserHtml(s);
+  if (!abilSel || !known.includes(abilSel)) abilSel = known[0];
+  return abilView === "graph" ? constellationCardHtml(s, abilSel) : abilityCard(s, abilSel);
 }
 
 for (const el of document.querySelectorAll(".amode")) {
-  el.addEventListener("click", () => setAbilView((el as HTMLElement).dataset.view as AbilView));
+  el.addEventListener("click", () => {
+    setAbilView((el as HTMLElement).dataset.view as AbilView);
+    if (el.closest("#abil")) setAbilPage("chart");
+  });
+}
+
+/** THE CONSTELLATION'S PAGES (r1 blocker/major). The panel used to be one
+ * 3,724px document — cards, then achievements 2,344px below the fold, then a
+ * run-stats table — inside a window between 663 and 1,228px tall. It is three
+ * pages behind one tab row now, so nothing is reachable only by scrolling and
+ * achievements have exactly one layout in the product (this one; the safe
+ * room's ACHIEVEMENTS tab renders the same grid). */
+type AbilPage = "chart" | "ach" | "stats";
+let abilPage: AbilPage = "chart";
+function setAbilPage(p: AbilPage): void {
+  abilPage = p;
+  const root = document.getElementById("abil")!;
+  for (const b of root.querySelectorAll<HTMLElement>(".apage")) {
+    b.classList.toggle("on", b.dataset.page === p);
+  }
+  for (const b of root.querySelectorAll<HTMLElement>(".amode")) {
+    b.classList.toggle("on", p === "chart" && b.dataset.view === abilView);
+  }
+  for (const el of root.querySelectorAll<HTMLElement>(".apane")) {
+    el.style.display = el.dataset.pane === p ? "" : "none";
+  }
+}
+for (const el of document.querySelectorAll<HTMLElement>("#abil .apage")) {
+  el.addEventListener("click", () => setAbilPage(el.dataset.page as AbilPage));
 }
 
 // ---- Glyph socketing: click a bench glyph, then click a lit socket. Clicking
@@ -2082,6 +2838,12 @@ function handleGlyphClick(e: Event): boolean {
     const id = chip.dataset.glyph as GlyphId;
     heldGlyph = heldGlyph === id ? null : id;
     renderSafeRoom(state);
+    // Picking a glyph up lights every socket that can take it — and on a phone
+    // the bench you just tapped is BELOW those sockets, so the whole point of
+    // the pending state is off screen at the moment it turns on. Follow it.
+    if (heldGlyph && document.body.classList.contains("touch")) {
+      srLoadout.scrollIntoView({ block: "start", behavior: "smooth" });
+    }
     return true;
   }
   const sock = el.closest(".sock.live") as HTMLElement | null;
@@ -2142,21 +2904,35 @@ const achGrid = document.getElementById("ach-grid")!;
 const achCount = document.getElementById("ach-count")!;
 const statsRows = document.getElementById("stats-rows")!;
 
+/**
+ * THE CONSTELLATION'S REAL FAILURE WAS NAVIGATION — and r1 only half-fixed it.
+ *
+ * r1 built a touch-only `.tp-rail` (a sticky strip of icon buttons that
+ * SCROLLED to a card) and left the desktop with 3,000px of hidden document. An
+ * index that only exists on a phone is not an index. `.aindex` replaces it on
+ * every pointer type, it SELECTS instead of scrolling, and the pane it selects
+ * into does not scroll at all.
+ */
 function renderAbilities(s: GameState): void {
   abilGrid.classList.toggle("graphs", abilView === "graph");
-  abilGrid.innerHTML = abilBodyHtml(s);
-  document.getElementById("ach-section")!.style.display =
-    CONFIG.achievementsEnabled ? "" : "none";
+  // THE SKY BELONGS TO THE STAR CHART AND NOTHING ELSE (r2 major). r1 put the
+  // night field on `#abil .panel`, so the LIST view, the achievements grid and
+  // the RUN STATS table were all cool-violet surfaces in a product whose first
+  // surface rule is "warm stone, never blue" — and the token comment
+  // sanctioning the exception says it is for "the one surface whose SUBJECT is
+  // a sky". A settings-style table is not that surface, and neither is a list.
+  document.querySelector('#abil .apane[data-pane="chart"]')!
+    .classList.toggle("chartsky", abilView === "graph");
+  abilIndex.innerHTML = abilIndexHtml(s);
+  abilGrid.innerHTML = abilStageHtml(s);
+  // Achievements are a PAGE now, so what a disabled run hides is the tab —
+  // the pane's own display belongs to setAbilPage.
+  const achTab = document.querySelector<HTMLElement>('#abil .apage[data-page="ach"]');
+  if (achTab) achTab.style.display = CONFIG.achievementsEnabled ? "" : "none";
+  if (!CONFIG.achievementsEnabled && abilPage === "ach") setAbilPage("chart");
   achCount.textContent = `${me(s).achievements.length} / ${ACHIEVEMENTS.length}`;
-  achGrid.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = me(s).achievements.includes(a.id);
-    return (
-      `<div class="ach${got ? "" : " locked"}">` +
-      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
-      `<div class="adesc">${a.desc}</div>` +
-      `</div>`
-    );
-  }).join("");
+  // ONE renderer, one grid, one card — see achievementsGridHtml.
+  achGrid.innerHTML = achievementsGridHtml(s);
   // Run stats: one row per party member (solo runs show just the local player).
   const localId = me(s).id;
   statsRows.innerHTML = s.players.map((p) => {
@@ -2171,6 +2947,36 @@ function renderAbilities(s: GameState): void {
       `<td>${Math.round(p.viewers).toLocaleString()}</td>` +
       `<td>${p.sponsors}</td>` +
       `</tr>`
+    );
+  }).join("");
+}
+
+/**
+ * THE ACHIEVEMENT GRID, ONCE (r2 blocker).
+ *
+ * The same thirteen achievements shipped TWICE with two entirely different
+ * designs: 4-up warm-stone cards ~195x90 with a "PAYS +N gold · +N hype"
+ * footer and an OPEN LOOT BOX button in the safe room, and 2-up (3-up at 1600)
+ * midnight-sky cards ~315x54 with no payout line and no claim action in the
+ * constellation. Same data, two grids, two materials, two column counts, two
+ * card heights — and one of them silently dropped both the reward and the
+ * verb. The code comment on the T panel claimed this had been fixed.
+ *
+ * One function, one class, one grid. Both mount points call this.
+ */
+function achievementsGridHtml(s: GameState): string {
+  const p = me(s);
+  return ACHIEVEMENTS.map((a) => {
+    const got = p.achievements.includes(a.id);
+    const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
+    return (
+      `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
+      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
+      `<div class="adesc">${a.desc}</div>` +
+      (unopened
+        ? `<button class="claim-btn" data-claim="${a.id}"><i class="dia"></i> OPEN LOOT BOX</button>`
+        : `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>`) +
+      `</div>`
     );
   }).join("");
 }
@@ -2201,7 +3007,8 @@ const abilIcon = (id: string): string =>
   `mask-image:url(/icons/${id}.svg);-webkit-mask-image:url(/icons/${id}.svg)`;
 
 function gearRowHtml(slot: ItemSlot, it: Item | null): string {
-  if (!it) return `<div class="gear-row none rar-common">no ${slot} equipped</div>`;
+  // The profile's empty slot is the inventory's empty slot — see emptySlotHtml.
+  if (!it) return emptySlotHtml(slot, "gear-row");
   const noun = it.name.split(" ").pop()!.toLowerCase();
   const icon = it.catalogId ? itemIconHtml(it.catalogId) : nounIconHtml(noun);
   const tc = itemColor(it);
@@ -2393,19 +3200,47 @@ function applyBindings(): void {
   document.getElementById("sheet-close-key")!.textContent = first("character");
 }
 
+/** Presentation-only grouping for the bindings ledger (r1 major: movement,
+ * five ability slots, utility and panel keys all rendered as one flat 24-row
+ * column with no categories, next to eight preferences in the same row shape).
+ * The groups live HERE, not in src/input — ACTION_INFO is the input model, and
+ * how a settings screen files its rows is the host's business. */
+const KB_GROUPS: { title: string; actions: BindableAction[] }[] = [
+  { title: "MOVEMENT", actions: ["moveUp", "moveDown", "moveLeft", "moveRight"] },
+  { title: "THE FIVE", actions: ["slot1", "slot2", "slot3", "slot4", "ultimate"] },
+  { title: "IN THE DUNGEON", actions: ["flask", "stairs", "ping", "draft"] },
+  { title: "PANELS", actions: ["inventory", "abilities", "character", "keybinds"] },
+  { title: "THE SESSION", actions: ["newRun", "mute"] },
+];
+
 function renderKeybinds(): void {
-  kbRows.innerHTML = (Object.keys(ACTION_INFO) as BindableAction[])
-    .filter((a) => a !== "flask" || CONFIG.flaskEnabled) // no dead key rows
-    .map((a) => {
-      const info = ACTION_INFO[a];
-      const cls = listening === a ? "kb-key listening" : "kb-key";
-      const label = listening === a ? "press a key…" : bindingLabel(bindings, a);
-      return (
-        `<div class="kb-row"><span class="kb-name">${info.name}` +
-        (info.hint ? `<small>${info.hint}</small>` : "") +
-        `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
-      );
+  const live = new Set(
+    (Object.keys(ACTION_INFO) as BindableAction[])
+      .filter((a) => a !== "flask" || CONFIG.flaskEnabled), // no dead key rows
+  );
+  const rowHtml = (a: BindableAction): string => {
+    const info = ACTION_INFO[a];
+    const cls = listening === a ? "kb-key listening" : "kb-key";
+    const label = listening === a ? "press a key…" : bindingLabel(bindings, a);
+    return (
+      `<div class="kb-row"><span class="kb-name">${info.name}` +
+      (info.hint ? `<small>${info.hint}</small>` : "") +
+      `</span><span class="${cls}" data-action="${a}">${label}</span></div>`
+    );
+  };
+  // Anything a future BindableAction adds still renders — it just lands in the
+  // catch-all group rather than silently disappearing from the panel.
+  const filed = new Set(KB_GROUPS.flatMap((g) => g.actions));
+  const groups = KB_GROUPS.concat([
+    { title: "OTHER", actions: [...live].filter((a) => !filed.has(a)) },
+  ]);
+  kbRows.innerHTML = groups
+    .map((g) => {
+      const rows = g.actions.filter((a) => live.has(a));
+      if (!rows.length) return "";
+      return `<div class="kb-group">${g.title}</div>` + rows.map(rowHtml).join("");
     })
+    .filter(Boolean)
     .concat(gamepadEnabled && gamepad.connected ? [
       `<div class="kb-row kb-pad">Controller — sticks: move / aim · A X B Y: slots 1-4 · ` +
       `RT: ultimate · LB: flask · RB: stairs · LT: ping · Start: inventory · ` +
@@ -2414,9 +3249,217 @@ function renderKeybinds(): void {
     .join("");
 }
 
+// ---- CONTROLS tab: the touch customisation surface (MOBILE.md 6) ----------
+// Rendered into the K panel with the panel's own row classes, so it inherits
+// the styling and adds no CSS. Every control is a 44px-tall row on touch.
+let kbTouchCfg: HTMLElement | null = null;
+
+function touchSettingRows(): { id: string; name: string; hint: string; value: string }[] {
+  const pct = (v: number): string => `${Math.round(v * 100)}%`;
+  const onOff = (v: boolean): string => (v ? "ON" : "OFF");
+  const rows = [
+    { id: "handed", name: "Handedness", hint: "mirrors the stick, the cluster and every HUD anchor", value: touchPrefs.handed.toUpperCase() },
+    { id: "stickScale", name: "Stick size", hint: "floating stick radius", value: pct(touchPrefs.stickScale) },
+    { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
+    { id: "opacity", name: "Control opacity", hint: "idle only — controls go full while pressed", value: pct(touchPrefs.opacity) },
+    { id: "hudInset", name: "Safe-area padding", hint: "extra margin on top of the notch inset", value: `${touchPrefs.hudInset}px` },
+    { id: "thumbMm", name: "Thumb reach", hint: "how far your thumb sweeps — the cluster arc is drawn from it", value: `${touchPrefs.thumbMm}mm` },
+    { id: "haptics", name: "Haptics", hint: "LIGHT keeps only press / cast / cancel", value: touchPrefs.haptics.toUpperCase() },
+    { id: "tapToMove", name: "Tap to move", hint: "tap ground to walk, tap a monster to lock and swing", value: onOff(touchPrefs.tapToMove) },
+    { id: "stickRecenter", name: "Stick recentring", hint: "the origin follows a thumb that drifts", value: onOff(touchPrefs.stickRecenter) },
+    { id: "flickDash", name: "Flick to dash", hint: "flick the movement stick to dash", value: onOff(touchPrefs.flickDash) },
+    { id: "twoFingerDash", name: "Two-finger dash", hint: "tap the world with two fingers to dash", value: onOff(touchPrefs.twoFingerDash) },
+    { id: "stickyLock", name: "Sticky target lock", hint: "the LOCK chip keeps its target through taps", value: onOff(touchPrefs.stickyLock) },
+  ];
+  // Slot 0 is the basic attack: hold-to-repeat, no mode to choose.
+  const slotName = ["", "Slot 2", "Slot 3", "Slot 4", "Ultimate"];
+  for (let i = 1; i < 5; i++) {
+    rows.push({
+      id: `castMode${i}`, name: `Cast mode — ${slotName[i]}`,
+      hint: i === 4 ? "AIM-ONLY forces a drag: an ultimate you cannot fat-finger" : "tap-release shows the range, release fires",
+      value: touchPrefs.castMode[i].toUpperCase(),
+    });
+  }
+  return rows;
+}
+
+/**
+ * Split the K panel into KEYS and CONTROLS pages.
+ *
+ * Everything that was already in the panel keeps its markup and its handlers —
+ * the rows are MOVED, not rebuilt — so the desktop keybinding UI is unchanged
+ * and nothing that queries `.kb-row` or `#kb-rows` has to know this happened.
+ * On a coarse pointer CONTROLS opens first, because a player on glass did not
+ * come here to rebind W.
+ */
+let kbPages: {
+  tabs: HTMLElement; keys: HTMLElement; prefs: HTMLElement;
+  controls: HTMLElement; credits: HTMLElement;
+} | null = null;
+function ensureKbPages(): { keys: HTMLElement; controls: HTMLElement } | null {
+  if (kbPages) return kbPages;
+  const panel = keysEl.querySelector(".panel") as HTMLElement | null;
+  const hint = panel?.querySelector(".hint");
+  if (!panel || !hint) return null;
+  const page = (id: string): HTMLElement => {
+    const e = document.createElement("div");
+    e.className = "kb-page";
+    e.id = id;
+    return e;
+  };
+  const keys = page("kb-page-keys");
+  const prefs = page("kb-page-prefs");
+  const controls = page("kb-page-controls");
+  const credits = page("kb-page-credits");
+  // r1 blocker: this used to be ONE page — 24 flat rows plus two credit
+  // blocks, 1,237px against a 681px window at 1366, so "Mute sound" was
+  // sliced by the panel edge and the CC-BY attribution never rendered at all.
+  // Four pages: bindings, options, touch controls, credits.
+  const moving: HTMLElement[] = [];
+  for (let n = hint.nextElementSibling; n; n = n.nextElementSibling) moving.push(n as HTMLElement);
+  for (const n of moving) {
+    if (n.classList.contains("credits")) credits.appendChild(n);
+    else if (n.id === "kb-prefs") prefs.appendChild(n);
+    else keys.appendChild(n);
+  }
+  const tabs = document.createElement("div");
+  tabs.className = "kb-tabs";
+  for (const [id, label] of [
+    ["keys", "KEY BINDINGS"], ["prefs", "OPTIONS"],
+    ["controls", "CONTROLS"], ["credits", "CREDITS"],
+  ]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.dataset.kbtab = id;
+    b.textContent = label;
+    tabs.appendChild(b);
+  }
+  tabs.addEventListener("click", (e) => {
+    const b = (e.target as HTMLElement).closest("[data-kbtab]") as HTMLElement | null;
+    if (b) { e.preventDefault(); showKbPage(b.dataset.kbtab!); }
+  });
+  hint.after(tabs, keys, prefs, controls, credits);
+  kbPages = { tabs, keys, prefs, controls, credits };
+  // A player on glass came for the control layout, not for W.
+  showKbPage(document.body.classList.contains("touch") ? "controls" : "keys");
+  return kbPages;
+}
+
+function showKbPage(id: string): void {
+  if (!kbPages) return;
+  kbPages.keys.classList.toggle("on", id === "keys");
+  kbPages.prefs.classList.toggle("on", id === "prefs");
+  kbPages.controls.classList.toggle("on", id === "controls");
+  kbPages.credits.classList.toggle("on", id === "credits");
+  for (const b of Array.from(kbPages.tabs.children) as HTMLElement[]) {
+    b.classList.toggle("on", b.dataset.kbtab === id);
+  }
+}
+
+function renderTouchSettings(): void {
+  const pages = ensureKbPages();
+  if (!kbTouchCfg) {
+    kbTouchCfg = document.createElement("div");
+    kbTouchCfg.id = "kb-touchcfg";
+    (pages?.controls ?? keysEl.querySelector(".panel"))?.appendChild(kbTouchCfg);
+    kbTouchCfg.addEventListener("click", (e) => {
+      const key = (e.target as HTMLElement).closest<HTMLElement>("[data-tp]");
+      if (!key) return;
+      e.preventDefault();
+      // A stepper says which way; a pick says which value. Everything else
+      // still cycles, which is right for the per-slot cast modes (three
+      // states, and the label explains what each one costs you).
+      if (key.dataset.set !== undefined) setTouchPref(key.dataset.tp!, key.dataset.set);
+      else stepTouchPref(key.dataset.tp!, Number(key.dataset.dir ?? 1));
+      applyTouchPrefs();
+      renderTouchSettings();
+    });
+  }
+  // Thumb length varies more than screen size does, so the layout is a
+  // setting rather than a constant. Numeric prefs get a real -/+ stepper with
+  // 46px targets instead of a value you cycle by tapping it eleven times, and
+  // the two-state prefs get a pair of pick buttons where the CURRENT state is
+  // visible without reading — a cycling label tells you where you are but
+  // never where you can go.
+  const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset", "thumbMm"]);
+  const PICKS: Record<string, string[]> = {
+    handed: ["RIGHT", "LEFT"],
+    haptics: ["OFF", "LIGHT", "FULL"],
+    tapToMove: ["ON", "OFF"], stickRecenter: ["ON", "OFF"],
+    flickDash: ["ON", "OFF"], twoFingerDash: ["ON", "OFF"], stickyLock: ["ON", "OFF"],
+  };
+  kbTouchCfg.innerHTML =
+    `<div class="ctl-note">` +
+    (touchMode
+      ? "Changes apply live — the cluster behind this panel moves as you set it."
+      : "Touch controls are currently OFF; these still save.") +
+    `</div>` +
+    touchSettingRows().map((r) => {
+      const control = NUMERIC.has(r.id)
+        ? `<span class="ctl-val">${r.value}</span>` +
+          `<span class="ctl-step">` +
+          `<button type="button" data-tp="${r.id}" data-dir="-1" aria-label="less">−</button>` +
+          `<button type="button" data-tp="${r.id}" data-dir="1" aria-label="more">+</button></span>`
+        : PICKS[r.id]
+          ? `<span class="ctl-pick">` + PICKS[r.id].map((v) =>
+            `<button type="button" data-tp="${r.id}" data-set="${v}"` +
+            `${v === r.value ? ' class="on"' : ""}>${v}</button>`).join("") + `</span>`
+          : `<span class="ctl-pick"><button type="button" data-tp="${r.id}">${r.value}</button></span>`;
+      return `<div class="ctl-row"><span class="ctl-name">${r.name}<small>${r.hint}</small></span>` +
+        control + `</div>`;
+    }).join("");
+}
+
+/** A named pick, straight from a button. The pref is the source of truth. */
+function setTouchPref(id: string, raw: string | undefined): void {
+  if (raw === undefined) return;
+  const v = raw.toLowerCase();
+  if (id === "handed") touchPrefs.handed = v === "left" ? "left" : "right";
+  else if (id === "haptics" && (v === "off" || v === "light" || v === "full")) {
+    touchPrefs.haptics = v;
+  } else if (id === "tapToMove") touchPrefs.tapToMove = v === "on";
+  else if (id === "stickRecenter") touchPrefs.stickRecenter = v === "on";
+  else if (id === "flickDash") touchPrefs.flickDash = v === "on";
+  else if (id === "twoFingerDash") touchPrefs.twoFingerDash = v === "on";
+  else if (id === "stickyLock") touchPrefs.stickyLock = v === "on";
+}
+
+/**
+ * One press moves one pref one notch. `dir` is +1 or -1 so a stepper can walk
+ * BACK — the old cycle-only version made "I went one too far on button size"
+ * a ten-tap round trip, which is exactly the kind of thing that stops a player
+ * tuning their layout at all.
+ */
+function stepTouchPref(id: string, dir = 1): void {
+  const cycle = <T>(list: T[], cur: T): T =>
+    list[(list.indexOf(cur) + (dir >= 0 ? 1 : list.length - 1)) % list.length];
+  const step = (v: number, lo: number, hi: number, by: number): number => {
+    const n = v + by * (dir >= 0 ? 1 : -1);
+    // Clamp rather than wrap: a stepper that jumps from 140% to 70% because
+    // you pressed + once too often is a bug you feel, not a feature.
+    return Math.round(Math.min(hi, Math.max(lo, n)) * 100) / 100;
+  };
+  if (id === "handed") touchPrefs.handed = touchPrefs.handed === "right" ? "left" : "right";
+  else if (id === "stickScale") touchPrefs.stickScale = step(touchPrefs.stickScale, 0.7, 1.4, 0.1);
+  else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
+  else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
+  else if (id === "hudInset") touchPrefs.hudInset = step(touchPrefs.hudInset, 0, 32, 4);
+  else if (id === "thumbMm") touchPrefs.thumbMm = step(touchPrefs.thumbMm, 38, 62, 2);
+  else if (id === "haptics") touchPrefs.haptics = cycle(["off", "light", "full"] as const, touchPrefs.haptics);
+  else if (id === "tapToMove") touchPrefs.tapToMove = !touchPrefs.tapToMove;
+  else if (id === "stickRecenter") touchPrefs.stickRecenter = !touchPrefs.stickRecenter;
+  else if (id === "flickDash") touchPrefs.flickDash = !touchPrefs.flickDash;
+  else if (id === "twoFingerDash") touchPrefs.twoFingerDash = !touchPrefs.twoFingerDash;
+  else if (id === "stickyLock") touchPrefs.stickyLock = !touchPrefs.stickyLock;
+  else if (id.startsWith("castMode")) {
+    const i = Number(id.slice("castMode".length));
+    touchPrefs.castMode[i] = cycle(["tap-release", "tap", "aim-only"] as const, touchPrefs.castMode[i]);
+  }
+}
+
 function toggleKeybinds(): void {
   kbOpen = !kbOpen;
-  if (kbOpen) { renderKeybinds(); showOverlay(keysEl); }
+  if (kbOpen) { renderKeybinds(); renderTouchSettings(); showOverlay(keysEl); }
   else hideOverlay(keysEl);
   listening = null;
   input.captureMode = false;
@@ -2486,6 +3529,71 @@ kbCamZoom.addEventListener("click", () => {
 });
 renderCamZoom();
 
+// PERFORMANCE MODE (quality.ts). Three modes with measured contracts, plus
+// AUTO. Applies instantly — no reload — because every field a mode owns is a
+// buffer resize or a pass toggle; nothing here recompiles a shader (the light
+// pools are deliberately excluded from the ladder for exactly that reason).
+//
+// THE CYCLE PUTS AUTO FIRST because it is the honest default, then walks
+// cheapest-to-best so the row reads like a ladder.
+const PERF_CYCLE: QualityChoice[] = ["auto", "low", "medium", "high"];
+const kbPerfMode = document.getElementById("kb-perfmode")!;
+const kbPerfNote = document.getElementById("kb-perfmode-note")!;
+function renderPerfMode(): void {
+  const choice = renderer.qualitySetting;
+  const live = renderer.qualityProfile;
+  // AUTO names the mode it has actually landed on. "AUTO" alone would hide the
+  // one fact a player checking this row wants: what am I running right now?
+  kbPerfMode.textContent = choice === "auto" ? `AUTO · ${live.label}` : live.label;
+  // THE PROMISE IS MADE TO INTEGRATED GRAPHICS AND ONLY TO INTEGRATED GRAPHICS.
+  //
+  // Measured on an RTX 5090 in the worst fight the three modes land at 17.79 /
+  // 16.78 / 20.11 ms — LOW is SLOWER than MEDIUM there. A player on a discrete
+  // GPU reading "the smoothest this engine gets" was being told something the
+  // measurement contradicts on their machine, so on a discrete part the row
+  // prints `contract.discrete` instead (quality.ts explains at length).
+  const note = renderer.isDiscreteGpu() ? live.contract.discrete : live.contract.promise;
+  kbPerfNote.textContent = choice === "auto"
+    ? `measures your machine and chooses — now on ${live.label}: ${note}`
+    : note;
+}
+kbPerfMode.addEventListener("click", () => {
+  const cur = renderer.qualitySetting;
+  const next = PERF_CYCLE[(PERF_CYCLE.indexOf(cur) + 1) % PERF_CYCLE.length];
+  renderer.setQuality(next);
+  renderPerfMode();
+  pushLogLine(next === "auto"
+    ? "PERFORMANCE MODE: AUTO. The System will pick, and will tell you when it does."
+    : `PERFORMANCE MODE: ${QUALITY_PRESETS[next].label} — ${QUALITY_PRESETS[next].contract.promise}.`);
+});
+// The tuner can move the mode under AUTO, so the row repaints itself instead of
+// going stale until the next click.
+renderer.setQualityListener(() => renderPerfMode());
+//
+// AND IF THE TUNER MOVES YOU, YOU ARE TOLD. The requirement this satisfies:
+// "the auto-tuner must not silently drag a player out of the mode they chose;
+// if it steps down, that is a visible thing, not a secret."
+//
+// Two cases, and they are genuinely different:
+//   AUTO      — the player delegated the choice, so the mode DOES change, and
+//               the log says what changed and what the evidence was.
+//   PINNED    — the player made the choice, so NOTHING changes. The tuner is
+//               reduced to an advisor and says, once, what it would have done.
+renderer.setQualityNoticeListener((n) => {
+  const to = QUALITY_PRESETS[n.to].label;
+  const fps = Math.round(1000 / Math.max(1, n.meanMs));
+  if (n.kind === "auto") {
+    pushLogLine(`PERFORMANCE MODE: stepped down to ${to} — this machine was averaging `
+      + `${n.meanMs.toFixed(0)} ms/frame (${fps} fps). SYSTEM menu to pin a mode.`);
+  } else {
+    pushLogLine(`PERFORMANCE MODE: ${QUALITY_PRESETS[n.from].label} is averaging `
+      + `${n.meanMs.toFixed(0)} ms/frame (${fps} fps) here. ${to} would be faster — `
+      + `your setting is unchanged; the SYSTEM menu has it.`);
+  }
+  renderPerfMode();
+});
+renderPerfMode();
+
 // Render scale: 100% -> 90% -> 75% of display resolution for the 3D frame
 // (backing buffer + composer targets only; the DOM HUD stays native-crisp).
 // Applies instantly; persisted per browser.
@@ -2553,6 +3661,9 @@ window.addEventListener("keydown", (e) => {
   }
 
   if (k === "escape") {
+    // The derivation sheet is the innermost thing on screen, so it unwinds
+    // first — Escape must never skip a layer.
+    if (mathSheetOpen()) { hideSheet(); return; }
     if (ladderEl.classList.contains("on") || careerEl.classList.contains("on")) closeSets();
     else if (consentEl.classList.contains("on")) consentEl.classList.remove("on");
     else if (topBars.some((tb) => tb.classList.contains("open"))) closeTopMenus();
@@ -2645,7 +3756,10 @@ const srPageShop = document.getElementById("sr-page-shop")!;
 const srPageAbil = document.getElementById("sr-page-abil")!;
 const srPageAch = document.getElementById("sr-page-ach")!;
 const srLoadout = document.getElementById("sr-loadout")!;
-const srGlyphs = document.getElementById("sr-glyphs")!;
+// r3 blocker: the safe room's ABILITIES page is an index and a stage now, the
+// same component the constellation uses — the glyph bench is a rail ENTRY
+// rather than a header that pushed every ability card past the fold.
+const srAbilIndex = document.getElementById("sr-abil-index")!;
 const srAbil = document.getElementById("sr-abil")!;
 const srAch = document.getElementById("sr-ach")!;
 const srAchCount = document.getElementById("sr-ach-count")!;
@@ -3123,17 +4237,51 @@ function renderShopDetail(s: GameState): void {
   srDetail.innerHTML = html;
 }
 
+/**
+ * ONE PANE AT A TIME, where two do not fit.
+ *
+ * `.shop-body` is a two-track grid with the bag nested in the right track. On
+ * a 342-tall iPhone that put `#sr-bag` at y=363 — the player's own inventory
+ * 21px BELOW the viewport — while the detail pane hid 178px of its 176px-tall
+ * box (MOBILE.md 1.3). Shrinking the tracks until everything "fits" makes all
+ * three illegible; a segmented control keeps them full size and shows one.
+ * CSS gates it to the two phone classes, so a tablet is untouched.
+ */
+let shopSeg: Segmented | null = null;
+function ensureShopSegments(): void {
+  if (shopSeg) return;
+  const body = srEl.querySelector(".shop-body") as HTMLElement | null;
+  const shelf = srEl.querySelector(".shelf-col") as HTMLElement | null;
+  const detail = srEl.querySelector(".shop-detail") as HTMLElement | null;
+  const bag = srEl.querySelector(".shop-bag") as HTMLElement | null;
+  if (!body || !shelf || !detail || !bag) return;
+  shopSeg = new Segmented([
+    { id: "shelf", label: "SHELF", pane: shelf },
+    { id: "detail", label: "DETAIL", pane: detail },
+    { id: "bag", label: "BAG", pane: bag },
+  ]);
+  body.parentElement?.insertBefore(shopSeg.el, body);
+}
+
+/** Selecting anything on the shelf is a request to READ it: follow the tap. */
+function shopFocusDetail(): void {
+  shopSeg?.show("detail");
+}
+
 function renderSafeRoom(s: GameState): void {
   const room = shopRoomOf(s);
   if (!room) return;
+  ensureShopSegments();
   const p = me(s);
   // Settlement outfitter: same panel, the settlement's voice on the chrome —
   // and no DESCEND (you're mid-floor; the exit is the door you came in by).
   const roamShop = !s.safeRoom;
   const settlement = roamShop ? settlementAt(s, p.pos) : null;
+  // The leading diamond is DRAWN by the shared panel-title rule (project
+  // rule 3: icons are drawn, never typed) — it is not in the copy any more.
   srEl.querySelector("h2")!.textContent = roamShop
-    ? `◆ ${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
-    : "◆ SAFE ROOM";
+    ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
+    : "SAFE ROOM";
   srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
   srTip.textContent = room.tip ||
     (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
@@ -3150,10 +4298,29 @@ function renderSafeRoom(s: GameState): void {
   // Top-level tab dispatch.
   srTabAch.style.display = CONFIG.achievementsEnabled ? "" : "none";
   if (srTab === "ach" && !CONFIG.achievementsEnabled) srTab = "shop";
+  // The segmented pane control only makes sense on the SHOP page.
+  srEl.classList.toggle("sr-shop", srTab === "shop");
   srTabShop.classList.toggle("active", srTab === "shop");
   srTabAbil.classList.toggle("active", srTab === "abil");
   srTabAch.classList.toggle("active", srTab === "ach");
-  srPageShop.style.display = srTab === "shop" ? "grid" : "none";
+  // r3 major: an unclaimed payout must be impossible to miss from ANY tab, and
+  // on its own page it is the only loud control (the exit goes quiet — see the
+  // .claim-btn comment). Both halves of that live on one class.
+  const unclaimedN = p.unclaimedAchievements?.length ?? 0;
+  srTabAch.dataset.badge = unclaimedN > 0 ? String(unclaimedN) : "";
+  srEl.classList.toggle("sr-ach-page", srTab === "ach");
+  // NEVER `"grid"` HERE. An inline display beats every stylesheet rule, so
+  // hardcoding it silently defeated the whole one-pane-at-a-time treatment:
+  // measured on an iPhone 13, `.shop-body` stayed a `244px 348px` grid inside a
+  // 606px container, which meant the SHELF was squeezed into 40% of the panel,
+  // its first tile row centred below the pane's clip, and NOT ONE `.itile`
+  // was hit-testable — `elementFromPoint` at every tile centre returned
+  // something else. That is the real cause of "a phone player cannot buy
+  // anything": not the select→detail→BUY chain (which works), but a shelf with
+  // nothing a finger can reach. The empty column is `.shop-side`, held open by
+  // the grid track while its contents were `display: none`d by the segmenting
+  // rules — the "acres of blank stone" in the phone shop captures.
+  srPageShop.style.display = srTab === "shop" ? "" : "none";
   srPageAbil.style.display = srTab === "abil" ? "" : "none";
   srPageAch.style.display = srTab === "ach" ? "" : "none";
   if (srTab === "shop") renderShopPage(s);
@@ -3359,7 +4526,24 @@ function glyphBenchHtml(p: Player, interactive: boolean): string {
   }).join("") + `</div>`;
 }
 
-/** The ABILITIES tab: loadout bar (The Five) + glyph bench + upgrade cards. */
+/**
+ * THE SAFE ROOM'S ABILITIES PAGE, MADE TO FIT (r3 BLOCKER).
+ *
+ * It rendered the loadout, the whole glyph bench AND the whole upgrade roster
+ * as one document: measured 3,273 / 3,240 / 3,123 px inside a 691 / 810 / 1,020
+ * px panel at 1366 / 1600 / 2560. At 1366 the player saw the bench and then the
+ * TOPS of two ability cards sliced off, star-chart wells clipped to ~10px
+ * slivers. That is the r1 blocker the constellation's own comment says was
+ * fixed — and it WAS, in the T panel, while the safe room (where you actually
+ * re-slot between floors) kept the scroller. Two renderers of one content set.
+ *
+ * One renderer: `abilIndexHtml` + `abilStageHtml`, plus one extra rail entry
+ * for the GLYPH BENCH, which is a stage tenant rather than a header.
+ */
+const SR_BENCH = "__bench";
+/** Which rail entry the safe room's stage is showing (an ability, or the bench). */
+let srStage: string = SR_BENCH;
+
 function renderAbilPage(s: GameState): void {
   const p = me(s);
   const canSocket = !!s.safeRoom || !!settlementShopFor(s, p);
@@ -3376,14 +4560,37 @@ function renderAbilPage(s: GameState): void {
   srLoadout.innerHTML =
     p.abilities.slots.map((id, i) => slotTile(id, String(i + 1), i)).join("") +
     slotTile(p.abilities.ultimate, "U", ULT_SLOT, true);
+  // ONE VERB PER INPUT DEVICE. The iPad rendered "CLICK A LIT SOCKET" and the
+  // chip's own "IN HAND — TAP A LIT SOCKET" at the same time, on the same
+  // screen, about the same gesture. The word pair is the same one the panel
+  // hints use, so the two can never drift.
+  const verb = `<span class="clickword">click</span><span class="tapword">tap</span>`;
   const hint = heldGlyph
-    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — click a lit socket to seat it, or click the glyph again to put it down.`
+    ? `<b style="color:#b08fd9">${GLYPH_INFO[heldGlyph].name}</b> in hand — ${verb} a lit socket to seat it, ` +
+      `or ${verb} the glyph again to put it down.`
     : "Glyphs seat into SLOTS, not abilities: re-slot an ability and it inherits whatever that slot carries. Removal is free.";
-  srGlyphs.innerHTML =
-    `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
-    glyphBenchHtml(p, canSocket);
-  srAbil.classList.toggle("graphs", abilView === "graph");
-  srAbil.innerHTML = abilBodyHtml(s);
+  // Picking a glyph up must not strand you on an ability card: the bench is
+  // where the stone is, so the bench is what the stage shows.
+  if (heldGlyph) srStage = SR_BENCH;
+  const known = knownAbilities(p);
+  if (srStage !== SR_BENCH && !known.includes(srStage as AbilityId)) srStage = SR_BENCH;
+  const benchN = (p.glyphs?.bench ?? []).length;
+  srAbilIndex.innerHTML =
+    `<div class="aidx-h">BENCH</div>` +
+    `<button type="button" class="aidx${srStage === SR_BENCH ? " on" : ""}" data-ab-sel="${SR_BENCH}" ` +
+    `title="loose glyphs waiting for a socket">` +
+    `<i class="aidx-ic" style="mask-image:url(/icons/items/refit_shard.svg);-webkit-mask-image:url(/icons/items/refit_shard.svg)"></i>` +
+    `<span class="aidx-t">Glyph bench</span>` +
+    `<span class="aidx-n">${benchN}</span></button>` +
+    abilIndexHtml(s, srStage);
+  srAbil.classList.toggle("graphs", abilView === "graph" && srStage !== SR_BENCH);
+  srAbil.innerHTML = srStage === SR_BENCH
+    ? `<div class="gstage">` +
+      `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
+      glyphBenchHtml(p, canSocket) + `</div>`
+    : abilView === "graph"
+      ? constellationCardHtml(s, srStage as AbilityId)
+      : abilityCard(s, srStage as AbilityId);
 }
 
 /** The ACHIEVEMENTS tab: what the System has recognized (and what it hasn't). */
@@ -3393,23 +4600,13 @@ function renderAchPage(s: GameState): void {
   srAchCount.textContent =
     `THE SYSTEM RECOGNIZES — ${p.achievements.length} / ${ACHIEVEMENTS.length} UNLOCKED` +
     (unclaimed > 0 ? ` · ${unclaimed} LOOT BOX${unclaimed === 1 ? "" : "ES"} WAITING` : "");
-  srAch.innerHTML = ACHIEVEMENTS.map((a) => {
-    const got = p.achievements.includes(a.id);
-    const unopened = (p.unclaimedAchievements ?? []).includes(a.id);
-    return (
-      `<div class="sr-ach${got ? "" : " locked"}${unopened ? " unclaimed" : ""}">` +
-      `<div class="atitle">${got ? uic("star") : uic("star_open")} ${a.title}</div>` +
-      `<div class="adesc">${a.desc}</div>` +
-      (unopened
-        ? `<button class="claim-btn" data-claim="${a.id}">◆ OPEN LOOT BOX</button>`
-        : `<div class="areward">${got ? "PAID" : "PAYS"} +${a.gold} gold · +${a.hype} hype</div>`) +
-      `</div>`
-    );
-  }).join("");
+  srAch.innerHTML = achievementsGridHtml(s);
 }
 
-// ACHIEVEMENTS tab: open a claimed-but-unopened achievement's loot box.
-srAch.addEventListener("click", (e) => {
+// Open a claimed-but-unopened achievement's loot box. BOTH mount points get
+// the verb now — the constellation's copy used to render the same thirteen
+// cards with the payout line and the claim button silently dropped.
+function claimLootBox(e: Event): void {
   const btn = (e.target as HTMLElement).closest("button[data-claim]") as HTMLButtonElement | null;
   if (!btn) return;
   const id = btn.dataset.claim!;
@@ -3423,7 +4620,10 @@ srAch.addEventListener("click", (e) => {
     persistRun(state);
   }
   renderAchPage(state);
-});
+  if (abilOpen) renderAbilities(state);
+}
+srAch.addEventListener("click", claimLootBox);
+achGrid.addEventListener("click", claimLootBox);
 
 /** The SYSTEM SHOP tab: shelf + detail + bag. */
 // Bag density thresholds: item counts at which the bag grid steps down a tile
@@ -3556,6 +4756,7 @@ srShelf.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-id], .chase-row[data-id]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "catalog", id: tile.dataset.id! };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -3669,6 +4870,7 @@ srEquipped.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-slot]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "equipped", slot: tile.dataset.slot as ItemSlot };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -3676,6 +4878,7 @@ srBag.addEventListener("click", (e) => {
   const tile = (e.target as HTMLElement).closest(".itile[data-bag]") as HTMLElement | null;
   if (!tile) return;
   shopSel = { kind: "bag", idx: Number(tile.dataset.bag) };
+  shopFocusDetail();
   renderSafeRoom(state);
 });
 
@@ -3754,17 +4957,34 @@ document.addEventListener("pointerdown", (e) => {
   if (!tipItemFor(e.target as HTMLElement)) itemTipEl.style.display = "none";
 });
 
-srTabStock.addEventListener("click", () => { shopView = "stock"; renderSafeRoom(state); });
-srTabAll.addEventListener("click", () => { shopView = "all"; renderSafeRoom(state); });
-srTabChase.addEventListener("click", () => { shopView = "chase"; renderSafeRoom(state); });
+// r1 major: switching the shelf tab left the detail pane advertising the
+// PREVIOUS tab's item — shop-chase-1600.png shows THE CHASE (five drop-only
+// boss uniques whose whole point is that they cannot be bought) with the pane
+// still offering "Field Ration · CONSUMABLES · 70 · BUY". A shelf change is a
+// change of subject; the selection does not survive it.
+srTabStock.addEventListener("click", () => { shopView = "stock"; shopSel = null; renderSafeRoom(state); });
+srTabAll.addEventListener("click", () => { shopView = "all"; shopSel = null; renderSafeRoom(state); });
+srTabChase.addEventListener("click", () => { shopView = "chase"; shopSel = null; renderSafeRoom(state); });
 srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
 srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
 srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
-srAbil.addEventListener("click", (e) => handleSlotClick(e, renderSafeRoom));
+srAbil.addEventListener("click", (e) => {
+  // The stage carries either an ability card (slot buttons) or the bench.
+  if (handleGlyphClick(e)) return;
+  handleSlotClick(e, renderSafeRoom);
+});
 // The loadout bar's socket wells and the glyph bench share one dispatcher.
 srLoadout.addEventListener("click", handleGlyphClick);
-srGlyphs.addEventListener("click", handleGlyphClick);
-
+// The safe room's rail selects the stage: an ability, or the glyph bench.
+srAbilIndex.addEventListener("click", (e) => {
+  const b = (e.target as HTMLElement).closest("button[data-ab-sel]") as HTMLElement | null;
+  if (!b) return;
+  srStage = b.dataset.abSel!;
+  // One selection across the two screens that show the same cards, so opening
+  // the T panel after re-slotting lands on the ability you were just reading.
+  if (srStage !== SR_BENCH) abilSel = srStage as AbilityId;
+  renderSafeRoom(state);
+});
 // Glyph tooltips ride the same cursor layer as item cards (#itemtip, z 30):
 // hovering a socket or a bench chip prints the composed behavior — what the
 // glyph does, and what the ability does WITH it (numbers off the sheet).
@@ -3781,7 +5001,7 @@ function glyphIdUnder(el: HTMLElement): { id: GlyphId; slotIdx: number | null; d
   if (chip) return { id: chip.dataset.glyph as GlyphId, slotIdx: null, dormant: false };
   return null;
 }
-for (const container of [srLoadout, srGlyphs, srAbil]) {
+for (const container of [srLoadout, srAbil]) {
   container.addEventListener("mouseover", (e) => {
     const hit = glyphIdUnder(e.target as HTMLElement);
     // A LOCKED empty socket still owes an explanation.
@@ -3926,7 +5146,13 @@ function updateSkills(s: GameState): void {
           `<span class="sweep"></span><span class="flashfx"></span>` +
           `</div>`
         : "");
+    // The rebuild replaced every chip ELEMENT, so the zone table's placement
+    // went with them; an unplaced chip collapses into the top-left corner.
+    // Re-measure too, or the router keeps hit-testing against dead rects.
+    hud.placeCluster();
+    touchShell.measureChips();
   }
+  syncIngame();
   const chips = skillsEl.querySelectorAll(".skill[data-i]");
   entries.forEach((e, i) => {
     const chip = chips[i] as HTMLElement | undefined;
@@ -3955,8 +5181,102 @@ function updateSkills(s: GameState): void {
     }
     chip.dataset.rdy = ready ? "1" : "0";
   });
+  // THE FLASK MUST SHOUT WHEN IT MATTERS (MOBILE.md §2.7).
+  //
+  // Driven at 30-35% HP on three devices, `#flask-chip` still read
+  // `class="skill ready"` with `animation-name: none`. On a 342px-tall phone
+  // the flask is the one chip that has to reach you through a boss's
+  // particles, and "the same as every other chip" is not a state. Two signals,
+  // both cheap: the chip pulses while you are in the danger band with a charge
+  // in hand, and a refilled charge fires a haptic — the one event a player
+  // wants to feel without looking, because looking costs a dodge.
+  const flaskEl = document.getElementById("flask-chip");
+  if (flaskEl) {
+    const low = p.maxHp > 0 && p.hp / p.maxHp <= LOW_HP_FRAC;
+    flaskEl.classList.toggle("lowhp", low && p.flaskCharges > 0);
+    // Dry AND dying is its own state: pulsing a chip that cannot fire would be
+    // a lie, so it gets the danger tint without the invitation to press.
+    flaskEl.classList.toggle("lowhp-dry", low && p.flaskCharges === 0);
+    if (p.flaskCharges > lastFlaskCharges && lastFlaskCharges >= 0) haptics.fire("potion");
+    lastFlaskCharges = p.flaskCharges;
+  }
   // XP strip (health lives in the top-left HUD).
   xpFill.style.width = `${Math.max(0, Math.min(1, p.xp / p.xpToNext)) * 100}%`;
+}
+
+/** The band the flask chip starts asking to be pressed in. */
+const LOW_HP_FRAC = 0.38;
+let lastFlaskCharges = -1;
+
+// ---- LOOT, ACKNOWLEDGED (MOBILE.md §2.7) ---------------------------------
+//
+// Measured on all four devices with a live drop on the floor: NO renderer key
+// matching `pickup|lootring|magnet`, and NO DOM node matching
+// `pickup|lootstrip`. Collection was a silent state change — the strongest
+// dopamine beat in an ARPG, delivered as nothing at all on a phone.
+//
+// Two signals, and neither invents a rule. The ground ring paints the sim's
+// own `CONFIG.pickupRadius` while there is something in range to take; the
+// strip names what was taken, read off deltas in the crawler's own numbers so
+// the sim needs no new event type.
+const pickStrip = (() => {
+  const el = document.createElement("div");
+  el.id = "pickstrip";
+  document.body.appendChild(el);
+  return el;
+})();
+
+let lastGold = -1;
+let lastBagN = -1;
+let lastMatN = -1;
+
+function pushPickup(text: string, color: string, qty = ""): void {
+  const row = document.createElement("div");
+  row.className = "pickrow";
+  row.style.setProperty("--pc", color);
+  row.innerHTML = `<b>${esc(text)}</b>${qty ? `<span class="pq">${esc(qty)}</span>` : ""}`;
+  pickStrip.appendChild(row);
+  // A monotonic count, because the rows themselves live ~1.8 s and a harness
+  // running at SwiftShader's 1-3 fps will measure long after they are gone.
+  pickStrip.dataset.picks = String((Number(pickStrip.dataset.picks) || 0) + 1);
+  // Three rows is the whole budget: a pack death drops five things at once and
+  // a phone has no room to list them.
+  while (pickStrip.childElementCount > 3) pickStrip.firstElementChild!.remove();
+  requestAnimationFrame(() => row.classList.add("on"));
+  window.setTimeout(() => {
+    row.classList.remove("on");
+    window.setTimeout(() => row.remove(), 220);
+  }, 1600);
+  renderer.pulsePickup();
+  haptics.fire("pickup");
+}
+
+function syncPickupFeedback(): void {
+  const p = me(state);
+  if (!p) return;
+  // The ring: the sim's radius, painted, while anything is close enough to be
+  // worth walking to. `null` while the floor is clear, so it never becomes
+  // permanent chrome the eye stops seeing.
+  let near: number | null = null;
+  for (const l of state.loot) {
+    const d = Math.hypot(l.pos.x - p.pos.x, l.pos.y - p.pos.y);
+    if (near === null || d < near) near = d;
+  }
+  renderer.setPickupRing(near !== null && near <= 3.2 ? p.pos : null, CONFIG.pickupRadius);
+
+  const bagN = p.inventory.length;
+  const matN = Object.values(p.materials).reduce((a, b) => a + (b ?? 0), 0);
+  if (lastGold >= 0 && p.gold > lastGold) {
+    pushPickup(`+${p.gold - lastGold} gold`, "#f2c14e");
+  }
+  if (lastBagN >= 0 && bagN > lastBagN) {
+    const it = p.inventory[bagN - 1];
+    if (it) pushPickup(it.name, RARITY_TEXT[it.rarity] ?? "#c9a24b", it.slot.toUpperCase());
+  }
+  if (lastMatN >= 0 && matN > lastMatN) {
+    pushPickup(`+${matN - lastMatN} materials`, "#8fb0d9");
+  }
+  lastGold = p.gold; lastBagN = bagN; lastMatN = matN;
 }
 
 // Top-down minimap (audit r2): a surveyor's chart, not a raw pixel dump. The
@@ -4764,15 +6084,40 @@ const HIT_COLORS: Record<HitEvent["kind"], string> = {
 // over the blast core instead of sitting inside it.
 const dmgPool: HTMLDivElement[] = [];
 const DMG_POOL_MAX = 48;
-// Readability cap (audit r2): past ~16 simultaneous numbers the screen is
-// confetti — ordinary enemy ticks are dropped first; crits, kills, player
-// damage, heals, and gold always land.
-const DMG_MAX_ACTIVE = 16;
+// THE NUMBER LAYER STOPPED BEING INFORMATION AND BECAME AN OCCLUDER (r2 SPEND).
+//
+// Acceptance, on two separate floor-17 frames: "10+ simultaneous numbers,
+// several ~130px tall on a 2880-wide frame, hard black/cream stroke, overlapping
+// into a solid block directly over the monster pack ... League's comparable
+// teamfight frame shows ONE number at roughly a sixth that relative size.
+// Nothing else in the build costs as much readability for as little."
+//
+// That is three separate defects that had each been tuned in isolation and
+// which multiply:
+//   * TOO MANY. A cap of 16 is a cap on a screen that is already gone. League's
+//     rule is not "few numbers", it is ONE NUMBER PER TARGET — everything a
+//     target takes in a beat is one rolling total. The aggregation below now
+//     does that (see DMG_AGG_*), and the hard cap behind it is 5.
+//   * TOO BIG. 58px + 30px padding, popped to 1.6x, is ~150 CSS px of ink for
+//     one integer.
+//   * TOO INKY. A 9-11px double stroke plus a 20px colour glow means each
+//     numeral occludes a disc far wider than its glyphs.
+// Every one of the three is halved or better below, and none of them is the
+// "drop ordinary ticks first" policy that was tried instead of fixing them.
+const DMG_MAX_ACTIVE = 3;
+// HARD CEILING ACROSS ALL KINDS (r3 blocker #5). DMG_MAX_ACTIVE only gates
+// ENEMY damage; heals, gold, player-damage and kill numbers are "important"
+// and bypass it, which is how a floor-14 capture ended up carrying six numbers
+// with a cap of five. Six numbers on one pack is digit soup no matter which
+// bucket they came from, so there is now a ceiling on the LAYER as well.
+const DMG_HARD_MAX = 4;
 interface DmgLive {
   el: HTMLDivElement;
   key: string; // kind|school|effect — only like merges with like
   wx: number; wz: number; // world anchor: aggregation radius test
-  sx: number; sy: number; // screen anchor: collision-fan test
+  sx: number; sy: number; // screen anchor (element CENTER: translate(-50%,-50%))
+  bw: number; bh: number; // MEASURED box at peak pop — the de-overlap test
+  row: number; // stack row: 0 is at the impact, each row is DMG_ROW_PX above
   total: number;
   merges: number;
   born: number; // ms clock
@@ -4781,12 +6126,187 @@ interface DmgLive {
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
 }
 const dmgLive: DmgLive[] = [];
-const DMG_AGG_MS = 520; // rolling-counter window
-const DMG_AGG_R2 = 0.9 * 0.9; // world-units² — same-target ticks merge
-const DMG_FAN_PX = 56; // min screen spacing before fanning out
+// ONE NUMBER PER TARGET PER BEAT. The window was 520 ms and the merge radius
+// 0.9 world units — narrower than a monster is wide, and shorter than the gap
+// between two attack ticks — so a sustained fight on one mob produced a stream
+// of twins that the collision fan then sprayed across the floor beside it. A
+// 950 ms window at 2 units means a target accumulates ONE rolling counter for
+// as long as you are hitting it, which is both the League read and less DOM.
+const DMG_AGG_MS = 950;
+const DMG_AGG_R2 = 2.0 * 2.0;
 
+// ---- DE-OVERLAP: BOXES AND ROWS, NOT A RADIUS AND A SPRAY (r3 blocker #5) ---
+//
+// Acceptance found fused numbers in 5 of 5 combat frames it captured —
+// "20001090" (two totals on the same pixel), "966/2432", "854"/"3872" welded,
+// and a native-pixel crop stacking 365/58/2778/291 into one illegible mass.
+// The previous pass DID have a collision test. It failed for two reasons, and
+// both are geometry, not tuning:
+//
+//   1. IT TESTED A CIRCLE OF RADIUS 34 AROUND THE ANCHOR. A four-digit crit is
+//      ~34px TALL and ~110px WIDE. Two numbers 40px apart on the x axis passed
+//      that test with a metre of overlap; "20001090" is precisely that case.
+//      The test now uses the numeral's MEASURED box (paintNumeral returns it),
+//      so the thing being separated is the thing being drawn.
+//   2. IT FANNED HORIZONTALLY ON PURPOSE (`rad * 0.5` — "squash hard: favor
+//      horizontal fan"). That is exactly backwards for a glyph run that is 3-5x
+//      wider than it is tall: horizontal separation is the expensive axis and
+//      vertical is the cheap one. Numbers now STACK — row 0 at the impact, each
+//      subsequent row one line above — which is also the read every ARPG uses.
+//
+// Travel had to come down with it, because the animation is what re-collides
+// numbers the placement just separated. Rise is now strictly less than the row
+// pitch and lateral drift is a small deterministic lob keyed to the row's
+// parity, so adjacent rows lean APART instead of both being thrown randomly
+// left or right. Everything in a burst rises at the same rate, so the spacing
+// the placement bought is preserved for the whole life of every number.
+const DMG_RISE_PX = 16; // how far a number climbs over its life
+const DMG_GUT_PX = 5; // gutter that must stay clear between two boxes
+const DMG_ROWS = 8; // stack steps tried before the seat is refused
+
+/**
+ * THE POP, IN ONE PLACE (r3). The animation's peak scale and the de-overlap
+ * pass's reserved box have to agree exactly, and they were computed in two
+ * functions from two copies of the expression. They are one function now.
+ *
+ * The numbers also come down. r2 halved the TYPE (58/38 -> 32/21) but left the
+ * pop at 1.5 and the merge growth at 1.42, which compound to 2.13x — and
+ * tools/_r3dmg.mjs measured a live crit at 273 x 119 CSS px, i.e. 19% of the
+ * viewport's width for one integer, which is how a damage number ends up being
+ * "the largest, boldest, highest-contrast object in the entire frame". The
+ * hierarchy (a crit reads clearly bigger than a tick, and a rolling counter
+ * visibly grows) is preserved; the absolute peak is not.
+ */
+function dmgPop(crit: boolean, merges: number): number {
+  return (crit ? 1.30 : 1.12) * Math.min(1 + merges * 0.05, 1.24);
+}
+
+/** AABB overlap of a candidate box (center x/y, size w/h) against a live one.
+ *  Both boxes are the SWEPT box — see dmgReserve. */
+function dmgBoxHits(x: number, y: number, w: number, h: number, r: DmgLive): boolean {
+  return Math.abs(x - r.sx) * 2 < w + r.bw + DMG_GUT_PX * 2
+    && Math.abs(y - r.sy) * 2 < h + r.bh + DMG_GUT_PX * 2;
+}
+/**
+ * THE RESERVED BOX IS THE SWEPT BOX, NOT THE SPAWN BOX.
+ *
+ * The first cut of this reserved the numeral where it was BORN, but a number
+ * climbs DMG_RISE_PX over its life — very nearly a whole row. So a number born
+ * later could be handed the row above an older one, arrive there, and find the
+ * older number had climbed into it. This round's own capture caught it: two of
+ * six combat frames carried a pair overlapping 100% of the smaller box, while
+ * every number in the same frames was correctly separated at BIRTH.
+ *
+ * Reserving the swept extent — the union of every position the number will
+ * occupy — makes the test describe the animation instead of one instant of it.
+ * Everything in a burst rises at the same rate, so a swept box is exact rather
+ * than merely conservative.
+ */
+function dmgReserve(seatY: number, h: number): { cy: number; ch: number } {
+  return { cy: seatY - DMG_RISE_PX / 2, ch: h + DMG_RISE_PX };
+}
+/**
+ * THE BOX IS THE ELEMENT'S, AND IT HAS TO BE MEASURED (r3, third capture).
+ *
+ * Two cuts of this reservation derived the box from the glyph run — the text
+ * width plus a little — and both left full-containment overlaps in the frame.
+ * tools/_r3dmg.mjs dumped the offending pairs and the arithmetic was plain:
+ *   · a crit's canvas is 132 x 56 for a ~104px glyph run, because paintNumeral
+ *     pads it (12px a side) and bleeds the stroke — reserving 113 for a thing
+ *     that draws 132 is a 17% under-reservation before any scale;
+ *   · a RESISTED numeral carries an inline <i class="uic"> shield after a block
+ *     canvas, which opens a second line box: the element measured 62px tall
+ *     around a 35px canvas. Nothing about the glyph run predicts that.
+ * offsetWidth/offsetHeight are the untransformed LAYOUT box, so a running WAAPI
+ * scale does not perturb them, and they are true whatever the element carries.
+ * One forced layout per spawn — a few a second — and it is the only version of
+ * this that cannot drift out of agreement with what is drawn.
+ */
+/**
+ * ...AND IT IS MEASURED ONCE PER SHAPE, NOT ONCE PER NUMBER (r3 cost).
+ *
+ * The first cut read offsetWidth/offsetHeight on every spawn. That is a FORCED
+ * SYNCHRONOUS LAYOUT, and it lands in the worst possible place: the same frame
+ * has already written style.left/top/opacity on up to eighteen mob plates, so
+ * every read flushes a dirty layout tree, and a dense pull spawns several
+ * numbers a frame. Measured on the owner's GPU with the acceptance harness, the
+ * staged floor-17 window went 41.7 -> 66.6 ms median with this in, and back
+ * with it out — layout thrash, not fill.
+ *
+ * The delta between the element's box and its canvas is a property of the
+ * SHAPE (crit or not, resist icon or not), not of the number, so it is probed
+ * once per shape per session and cached. Four forced layouts for a whole run.
+ */
+const dmgPad = new Map<string, { dw: number; dh: number }>();
+function dmgMeasure(el: HTMLDivElement, pop: number, cw: number, ch: number, shape: string): { w: number; h: number } {
+  let p = dmgPad.get(shape);
+  if (!p) {
+    p = { dw: Math.max(0, el.offsetWidth - cw), dh: Math.max(0, el.offsetHeight - ch) };
+    dmgPad.set(shape, p);
+  }
+  return { w: (cw + p.dw) * pop, h: (ch + p.dh) * pop };
+}
+/**
+ * Seat a numeral above the impact, clear of every live number.
+ *
+ * It walks by JUMPING ABOVE THE BLOCKER rather than by fixed rows, because the
+ * boxes are wildly different sizes — a merged crit measures ~115px tall and a
+ * plain tick ~35px, so a fixed 30px row pitch would need four steps to clear
+ * one crit and would run out of rows before it did. Jumping to "just above what
+ * is in the way" converges in one step per blocker and produces the tightest
+ * legal stack, which is also the one that keeps the numbers over the fight.
+ *
+ * The climb is capped at DMG_CLIMB_MAX: a number that cannot fit belongs over
+ * the target it describes more than it belongs unoccluded, and a stack that
+ * walks off the top of the screen is worse than a stack that touches.
+ */
+const DMG_CLIMB_MAX = 250;
+function dmgPlace(sx: number, sy: number, w: number, h: number, skip?: DmgLive): { x: number; y: number; row: number } | null {
+  let y = sy;
+  for (let row = 0; row < DMG_ROWS; row++) {
+    const { cy, ch } = dmgReserve(y, h);
+    let hit: DmgLive | null = null;
+    for (const r of dmgLive) {
+      if (r === skip) continue;
+      if (dmgBoxHits(sx, cy, w, ch, r)) { hit = r; break; }
+    }
+    if (!hit) return { x: sx, y, row };
+    // Just above the blocker's swept box, plus the gutter (+1 so the strict
+    // inequality in dmgBoxHits cannot be defeated by float equality).
+    const nextCy = hit.sy - hit.bh / 2 - DMG_GUT_PX - ch / 2 - 1;
+    const nextY = nextCy + DMG_RISE_PX / 2;
+    if (nextY >= y - 1 || sy - nextY > DMG_CLIMB_MAX) break; // no progress, or too far
+    y = nextY;
+  }
+  // NO SEAT MEANS NO NUMBER, and that is the rule that actually closes this
+  // blocker. Every earlier cut ended with "give up and draw it anyway", which
+  // is a policy for producing digit soup with extra steps — tools/_r3dmg.mjs
+  // caught exactly that: numbers correctly separated at birth, then a fifth
+  // one dropped on top of a crit because the climb budget ran out. A screen
+  // that can hold four legible numbers should show four legible numbers, not
+  // six illegible ones. The counter it would have joined is still rolling; the
+  // damage is still on the enemy plate; nothing is lost but the confetti.
+  return null;
+}
+
+// A NUMERAL IS CAPPED IN DIGITS, NOT JUST IN POINT SIZE (r3 blocker #5).
+// Acceptance, on the verified floor-18 boss frame: "the number '30000000' is
+// the largest, boldest, highest-contrast object in the entire frame — larger
+// than the final boss of the game." The type size was already halved twice; a
+// nine-glyph run at 32px is wide no matter how tall it is, and width is what
+// made it the biggest object on screen. Every game that ships big numbers
+// abbreviates them, and a player reads "30.0M" faster than they read eight
+// zeroes anyway. Four significant glyphs plus a suffix is the ceiling.
+function dmgAbbrev(n: number): string {
+  const v = Math.round(n);
+  if (v < 10000) return String(v);
+  if (v < 1e6) return `${(v / 1e3).toFixed(v < 1e5 ? 1 : 0)}k`;
+  if (v < 1e9) return `${(v / 1e6).toFixed(v < 1e8 ? 1 : 0)}M`;
+  return `${(v / 1e9).toFixed(v < 1e11 ? 1 : 0)}B`;
+}
 function dmgText(rec: DmgLive, sign: string): string {
-  return rec.crit ? `${rec.total}!` : `${sign}${rec.total}`;
+  const t = dmgAbbrev(rec.total);
+  return rec.crit ? `${t}!` : `${sign}${t}`;
 }
 
 // BESPOKE DISPLAY NUMERALS (final pass, issue #5): canvas-rendered glyphs —
@@ -4803,17 +6323,25 @@ function dmgShade(hex: string, k: number): string {
     Math.round(k >= 0 ? v + (255 - v) * k : v * (1 + k));
   return `rgb(${ch((n >> 16) & 255)},${ch((n >> 8) & 255)},${ch(n & 255)})`;
 }
-function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean): void {
+/** Paints the numeral and RETURNS its box at peak pop — the de-overlap test
+ *  needs the drawn size, and only this function knows it. */
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0): { pop: number; cw: number; ch: number } {
   let canvas = el.firstElementChild as HTMLCanvasElement | null;
   if (!canvas || canvas.tagName !== "CANVAS") {
     canvas = document.createElement("canvas");
     canvas.style.display = "block";
     el.prepend(canvas);
   }
-  const px = crit ? 58 : 38; // non-crit floor raised (r5: 34px thinned to fog)
-  const pad = crit ? 30 : 18;
+  // SIZE (r2 SPEND). 58/38 with 30/18 padding, popped to 1.6x, put ~150 CSS px
+  // of ink on the screen per integer; the reference frame this build is scored
+  // against carries about a sixth of that. These are the numbers that make a
+  // crit read as a crit at arm's length and still leave the monster under it
+  // visible — the hierarchy (crit ~1.5x the body) is preserved exactly, the
+  // absolute scale is not.
+  const px = crit ? 26 : 21;
+  const pad = crit ? 8 : 7;
   const ctx = canvas.getContext("2d");
-  if (!ctx) { el.textContent = text; return; }
+  if (!ctx) { el.textContent = text; return { pop: dmgPop(crit, merges), cw: text.length * px * 0.62, ch: px }; }
   ctx.font = DMG_FONT.replace("%PX%", String(px));
   const tw = Math.ceil(ctx.measureText(text).width);
   const w = tw + pad * 2 + Math.ceil(px * 0.14);
@@ -4831,32 +6359,36 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   ctx.lineJoin = "round";
   if (crit) {
     // Chromatic flash under the ink: hot red left, cold cyan right.
-    ctx.globalAlpha = 0.55;
+    ctx.globalAlpha = 0.5;
     ctx.fillStyle = "#ff3b30";
-    ctx.fillText(text, -3.5, 0);
+    ctx.fillText(text, -2, 0);
     ctx.fillStyle = "#4fd8ff";
-    ctx.fillText(text, 3.5, 0);
+    ctx.fillText(text, 2, 0);
     ctx.globalAlpha = 1;
   }
-  // Heavy ink: a dropped dark stroke for weight, then the main outline.
-  ctx.strokeStyle = "rgba(6,3,1,0.85)";
-  ctx.lineWidth = crit ? 11 : 8;
-  ctx.strokeText(text, 0, 2.5);
+  // INK, PROPORTIONAL TO THE GLYPH. The old 8-11px stroke was authored against
+  // 38-58px type and never came down with it; at these sizes it would swallow
+  // the counters of the digits. Scaled off `px` so this can't drift again.
+  ctx.strokeStyle = "rgba(6,3,1,0.8)";
+  ctx.lineWidth = px * 0.2;
+  ctx.strokeText(text, 0, 1.5);
   ctx.strokeStyle = "rgba(12,6,2,0.97)";
-  ctx.lineWidth = crit ? 9 : 6.5;
+  ctx.lineWidth = px * 0.155;
   ctx.strokeText(text, 0, 0);
   // Chiseled bevel: dark underlay, then the vertical face gradient with a
   // soft color glow, then a top sheen. Face floor raised (r5 minor): the old
   // -0.28 bottom stop dragged small numerals to mid-gray over dark ground —
   // every number now keeps the crit treatment's warm luminous face.
   ctx.fillStyle = dmgShade(color, -0.4);
-  ctx.fillText(text, 0, 2.2);
+  ctx.fillText(text, 0, 1.5);
   const face = ctx.createLinearGradient(0, -px / 2, 0, px / 2);
   face.addColorStop(0, dmgShade(color, 0.78));
   face.addColorStop(0.42, color);
   face.addColorStop(1, dmgShade(color, -0.12));
   ctx.shadowColor = color;
-  ctx.shadowBlur = crit ? 20 : 15;
+  // The glow was a 15-20px halo around every numeral — on its own it occluded
+  // more of the fight than the glyphs did. Tied to the type size as well.
+  ctx.shadowBlur = px * (crit ? 0.26 : 0.2);
   ctx.fillStyle = face;
   ctx.fillText(text, 0, 0);
   ctx.shadowBlur = 0;
@@ -4865,6 +6397,11 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   sheen.addColorStop(1, "rgba(255,255,255,0)");
   ctx.fillStyle = sheen;
   ctx.fillText(text, 0, -0.8);
+  // The canvas box and the PEAK POP factor. dmgMeasure adds the element's own
+  // padding for this SHAPE (probed once) and scales by the pop — deriving the
+  // box from the glyph run instead is what left residual overlap in this
+  // round's first two captures.
+  return { pop: dmgPop(crit, merges), cw: w, ch: h };
 }
 
 /** (Re)run the pop-drift-fade animation for a live number. Merges re-pop with
@@ -4874,14 +6411,19 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
  * thrown-coin arc, not a linear float. Merges re-pop with a bigger punch. */
 function dmgAnimate(rec: DmgLive): void {
   const { el, crit } = rec;
-  const grow = Math.min(1 + rec.merges * 0.07, 1.42);
-  // LATERAL-DOMINANT ARC (r6 major): simultaneous hits fan OUT of the fight
-  // sideways — drift now outweighs rise, so a burst reads as a spray of
-  // coins, never a vertical pile climbing the back wall.
-  const dir = Math.random() < 0.5 ? -1 : 1;
-  const drift = dir * (0.45 + Math.random() * 0.55) * (crit ? 132 : 96);
-  const rise = (crit ? 64 : 50) * (rec.merges > 0 ? 0.85 : 1);
-  const pop = (crit ? 1.6 : 1.18) * grow; // crits POP visibly harder (r4)
+  const grow = Math.min(1 + rec.merges * 0.05, 1.24);
+  // TRAVEL IS NOW BOUNDED BY THE ROW PITCH (r3 blocker #5). The previous arc
+  // threw every number a RANDOM 20-62px sideways in a RANDOM direction and
+  // lifted it 32-40px — more than one row — so two numbers the placement had
+  // just separated could be flung onto each other a frame later. Randomness is
+  // gone from both axes: the lean is keyed to the row's parity so neighbours
+  // separate rather than converge, and the rise is strictly under DMG_ROW_PX so
+  // a number can never climb into the row above. Everything in a burst rises at
+  // the same rate, so the placement's spacing survives the whole animation.
+  const dir = rec.row % 2 === 0 ? -1 : 1;
+  const drift = dir * (crit ? 22 : 17);
+  const rise = DMG_RISE_PX * (rec.merges > 0 ? 0.85 : 1);
+  const pop = dmgPop(crit, rec.merges); // crits POP visibly harder (r4)
   const tilt = crit ? (Math.random() - 0.5) * 12 : 0;
   // r7 blocker root cause (ghost numbers in EVERY combat frame): the old
   // options-level `easing` is EFFECT-level in WAAPI — the entire keyframe
@@ -4913,6 +6455,14 @@ function dmgAnimate(rec: DmgLive): void {
 }
 
 function spawnDamageNumber(h: HitEvent): void {
+  // THE KILL BEAT OWNS THE FRAME (r3 blocker). Combat numerals stand down for
+  // the boss payoff so the last image is the corpse, the sweeps and the loot.
+  // Player-side feedback (damage taken, heals, gold) still reads — it is only
+  // the enemy-damage confetti that was burying the moment.
+  if (hudNow < killBeatUntil && (h.kind === "enemy" || h.kind === "crit")) return;
+  // A numeral that rounds to zero says nothing and costs a slot. Eight of them
+  // reading "0!" over a corpse is what the kill captures actually showed.
+  if (h.amount < 0.5 && h.kind !== "heal" && h.kind !== "gold") return;
   const crit = h.kind === "crit";
   // Anchor at HEAD height, not sky height (r6 major: numbers climbed the
   // arena wall and jumbled at the top of the frame): they pop at the
@@ -4921,7 +6471,13 @@ function spawnDamageNumber(h: HitEvent): void {
   const s = renderer.worldToScreen(h.pos.x, crit ? 1.55 : 1.3, h.pos.y);
   if (!s.visible) return;
   const sign = h.kind === "heal" || h.kind === "gold" || h.kind === "weapon" ? "+" : "";
-  const key = `${h.kind}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
+  // ONE FAMILY FOR OUTGOING DAMAGE. `crit` and `enemy` used to be different
+  // merge keys, so a flurry that crit once produced two numbers on one monster
+  // and then fanned them apart. They are the same fact about the same target;
+  // they roll into one counter, and a crit anywhere in the stack PROMOTES the
+  // counter to the crit treatment (below), so the crit still reads.
+  const fam = h.kind === "crit" ? "enemy" : h.kind;
+  const key = `${fam}|${h.school ?? ""}|${h.effect ?? ""}${h.resisted ? "|r" : ""}`;
   const now = performance.now();
 
   // ROLLING COUNTER: a same-kind hit on the same spot inside the window
@@ -4936,14 +6492,55 @@ function spawnDamageNumber(h: HitEvent): void {
       rec.total += h.amount;
       rec.merges++;
       rec.wx = h.pos.x; rec.wz = h.pos.y;
+      // Crit promotion: the rolling counter takes the crit treatment the first
+      // time a crit lands in it, and keeps it.
+      if (crit && !rec.crit) {
+        rec.crit = true;
+        rec.color = HIT_COLORS.crit;
+        rec.el.className = "dmg crit";
+        rec.el.style.color = rec.color;
+      }
       rec.el.getAnimations().forEach((a) => a.cancel());
-      paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit);
+      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges);
+      const box = dmgMeasure(rec.el, pn.pop, pn.cw, pn.ch, rec.crit ? "c" : "n");
+      // RE-ANCHOR AND RE-PLACE ON MERGE. A rolling counter grows a digit at a
+      // time (83 -> 854 -> 3872), so the box that was clear when it was two
+      // digits wide is not clear when it is four — which is how the floor-17
+      // cost frame ended up with "854" and "3872" welded together. The merge
+      // already cancels and re-pops the animation, so re-seating it costs
+      // nothing visually and also drags the total back over the target it
+      // describes instead of leaving it where the first tick landed.
+      // A grown counter that cannot find a clear seat KEEPS the one it has —
+      // it is already on screen and already legible there; moving it is an
+      // improvement, not a requirement.
+      const seat = dmgPlace(s.x, s.y, box.w, box.h, rec);
+      if (seat) {
+        const sw = dmgReserve(seat.y, box.h);
+        rec.bw = box.w; rec.bh = sw.ch;
+        rec.sx = seat.x; rec.sy = sw.cy; rec.row = seat.row;
+        rec.el.style.left = `${seat.x}px`;
+        rec.el.style.top = `${seat.y}px`;
+      } else {
+        rec.bw = Math.max(rec.bw, box.w);
+        rec.bh = Math.max(rec.bh, box.h + DMG_RISE_PX);
+      }
       dmgAnimate(rec);
       return;
     }
   }
-  const important = h.kind !== "enemy" || h.killed === true;
+  // THE CAP HAD A HOLE THE SIZE OF THE PROBLEM. "important" was
+  // `h.kind !== "enemy"`, and a crit's kind IS "crit" — so every crit bypassed
+  // the saturation gate entirely. A floor-17 pull is mostly crits, which is why
+  // a cap of 16 was photographed carrying 10+ numbers and why an ablation frame
+  // taken after this round's cap of 5 still carried 8. Crits now count. They
+  // are also no longer their own merge family (see `fam` above), so the common
+  // case is that a crit ROLLS INTO the number already over that target rather
+  // than needing a slot at all. Player damage, heals and gold still always land
+  // — those are about the crawler, not about the pack.
+  const important = (h.kind !== "enemy" && h.kind !== "crit") || h.killed === true;
   if (dmgLive.length >= DMG_MAX_ACTIVE && !important) return;
+  // ...and the ceiling on the LAYER, which "important" cannot buy its way past.
+  if (dmgLive.length >= DMG_HARD_MAX) return;
 
   let el = dmgPool.pop();
   if (!el) {
@@ -4963,35 +6560,19 @@ function spawnDamageNumber(h: HitEvent): void {
   else if (h.effect === "poison") color = "#7ed957";
   if (h.resisted) color = "#c0ad83"; // muted but never mid-gray (r5 minor)
   el.style.color = color; // the crit starburst ::before keys off currentColor
-  // COLLISION FAN: if this number would land on an active one, walk
-  // golden-angle radial slots until the spot is clear — no more clumps.
-  // A pinch of spawn scatter first (r6 major): even same-tick hits on one
-  // target never share an exact anchor pixel.
-  let px = s.x + (Math.random() - 0.5) * 34, py = s.y + (Math.random() - 0.5) * 10;
-  for (let slot = 0; slot < 8; slot++) {
-    let clear = true;
-    for (const rec of dmgLive) {
-      const ddx = rec.sx - px, ddy = rec.sy - py;
-      if (ddx * ddx + ddy * ddy < DMG_FAN_PX * DMG_FAN_PX) { clear = false; break; }
-    }
-    if (clear) break;
-    const ang = -Math.PI / 2 + (slot + 1) * 2.39996; // golden angle
-    const rad = 56 + slot * 12;
-    px = s.x + Math.cos(ang) * rad;
-    py = s.y + Math.sin(ang) * rad * 0.5; // squash hard: favor horizontal fan
-  }
-  el.style.left = `${px}px`;
-  el.style.top = `${py}px`;
+  // Drop any stale resist icon a pooled element carried, then PAINT FIRST: the
+  // de-overlap pass needs the numeral's real box, and only the paint knows it.
+  while (el.childElementCount > 1) el.lastElementChild!.remove();
   const rec: DmgLive = {
-    el, key, wx: h.pos.x, wz: h.pos.y, sx: px, sy: py,
+    el, key, wx: h.pos.x, wz: h.pos.y, sx: s.x, sy: s.y, bw: 0, bh: 0, row: 0,
     total: h.amount, merges: 0, born: now, crit, color,
     stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
   };
-  // Drop any stale resist icon a pooled element carried, then paint.
-  while (el.childElementCount > 1) el.lastElementChild!.remove();
-  paintNumeral(el, dmgText(rec, sign), color, crit);
+  const pn = paintNumeral(el, dmgText(rec, sign), color, crit);
   // School resist (armored/warded): the number reads muted so the player
-  // learns to swap schools without reading a tooltip.
+  // learns to swap schools without reading a tooltip. This runs BEFORE the
+  // measure — the shield opens a second line box and the reservation has to
+  // know about it (see dmgMeasure).
   if (h.resisted) {
     el.style.opacity = "0.85";
     // Drawn shield mark, never a typed dingbat (some platforms emoji-fy ⛨).
@@ -4999,48 +6580,205 @@ function spawnDamageNumber(h: HitEvent): void {
       ` <i class="uic" style="mask-image:url(/icons/stats/armor.svg);-webkit-mask-image:url(/icons/stats/armor.svg)"></i>`);
   }
   el.style.visibility = "visible";
+  const box = dmgMeasure(el, pn.pop, pn.cw, pn.ch, `${crit ? "c" : "n"}${h.resisted ? "r" : ""}`);
+  const seat = dmgPlace(s.x, s.y, box.w, box.h);
+  if (!seat) {
+    // Refused a seat: return the element to the pool unused rather than
+    // stacking it on someone else's glyphs.
+    el.style.visibility = "hidden";
+    if (dmgPool.length < DMG_POOL_MAX) dmgPool.push(el); else el.remove();
+    return;
+  }
+  const sw = dmgReserve(seat.y, box.h);
+  rec.bw = box.w; rec.bh = sw.ch;
+  rec.sx = seat.x; rec.sy = sw.cy; rec.row = seat.row;
+  el.style.left = `${seat.x}px`;
+  el.style.top = `${seat.y}px`;
   dmgLive.push(rec);
   dmgAnimate(rec);
 }
 
-// ---- Enemy micro HP bars (AAA r3 blocker): D2R monster-health read —
-// nothing at rest, loud on engagement. A thin dark-gold framed bar appears
-// over a monster on its FIRST damage, tracks for 3s past the last hit, then
-// fades out. Elites carry a nameplate tier (engraved gold name above the
-// bar). Bosses are excluded — the top-center boss bar is their treatment.
+// ---- Enemy micro HP bars ----
+//
+// "NOTHING AT REST, LOUD ON ENGAGEMENT" WAS THE WRONG RULE, AND THE CAPTURES
+// SAY SO (r2 SPEND). The plate only appeared on a monster's FIRST damage and
+// only for 3 s after the last hit, so acceptance found them "absent from most
+// combat frames — present in one over-staged shot, missing in ours_f8_room_zoom
+// and perf_dense_f17", against "every unit in every League reference carries
+// one". A health bar is not a damage notification, it is how a player picks a
+// TARGET: which of these eleven things is nearly dead, which one is full.
+// Withholding it until after you have already committed an attack is exactly
+// backwards.
+//
+// So there are now two states, not one:
+//   RESTING — every visible non-boss monster inside PLATE_RANGE carries a
+//     dim, desaturated plate. It is information, not decoration, and it is
+//     quiet enough that eleven of them do not read as UI clutter.
+//   ENGAGED — anything damaged in the last 3 s goes to full opacity.
+// Bosses stay excluded; the top-center boss bar is their treatment.
 // Pooled DOM, transform/width mutations only; no per-frame element churn.
 const mobPlatesLayer = document.createElement("div");
 mobPlatesLayer.id = "mobplates";
 fxLayer.before(mobPlatesLayer); // damage numbers stay above the plates
-type MobPlate = { root: HTMLDivElement; name: HTMLDivElement; fill: HTMLSpanElement; cls: string };
+type MobPlate = { root: HTMLDivElement; name: HTMLDivElement; role: HTMLElement; fill: HTMLSpanElement; cls: string };
+// ROLE BADGE (r3 majors #6 + #7 are the same missing fact). Acceptance on the
+// plates: "thin dark grey slivers with no readable fill, no outline, no
+// tier/level badge — most of which you have to hunt for". Acceptance on the
+// characters: "you cannot tell melee from caster". League answers both with the
+// same object — every unit carries a plate, and the plate says what the unit
+// IS. The bar keeps health (one meaning per channel); the chip beside it
+// carries the archetype's JOB, which is the thing that decides your kill order.
+type MobRole = "melee" | "ranged" | "caster" | "support" | "bomb";
+const MOB_ROLE: Partial<Record<Monster["kind"], MobRole>> = {
+  ranged: "ranged", spitter: "ranged", sentinel: "ranged", toysoldier: "ranged",
+  sniper: "ranged", phantom: "ranged",
+  necromancer: "caster", hexer: "caster", archivist: "caster", broodmother: "caster",
+  shaman: "support", cleric: "support", drummer: "support", darling: "support",
+  bomber: "bomb", greeter: "bomb",
+};
 const mobPlatePool: MobPlate[] = [];
 const mobPlateLive = new Map<number, MobPlate>();
 const mobPlateMem = new Map<number, { hp: number; until: number }>();
 const mobPlateSeen = new Set<number>();
+/** Scratch, reused every frame: plate candidates sorted nearest-first.
+ *  The ROWS are pooled too — a floor-17 pull has 200+ live monsters and
+ *  allocating a record per monster per frame is 12k short-lived objects a
+ *  second handed to the GC in the exact scene whose p99 is the budget problem.
+ *  `mobPlateN` is the live length; the array itself never shrinks. */
+type MobPlateRow = { m: Monster | null; mem: { hp: number; until: number } | null; d2: number };
+const mobPlateOrder: MobPlateRow[] = [];
+let mobPlateN = 0;
 const PLATE_HOLD_MS = 3000;
 const PLATE_FADE_MS = 400;
-const PLATE_MAX = 24; // past this the swarm is confetti, not information
+const PLATE_MAX = 18; // past this the swarm is confetti, not information
+// Resting plates are drawn for monsters within this radius of the crawler.
+// Beyond it the plate is smaller than the mob and adds nothing; the cap keeps
+// a long sightline down a corridor from paying for thirty of them.
+const PLATE_RANGE2 = 13 * 13;
+/** Resting opacity. 0.40 on a 2px bar whose 1px keylines ate most of it is what
+ * acceptance photographed as "thin dark grey slivers ... most of which you have
+ * to hunt for" across ~28 plates. The plate is INFORMATION — it is how a player
+ * picks which of eleven things to hit — so it is now legible at rest and the
+ * "quiet" job is done by size and saturation instead of by hiding it. */
+const PLATE_REST_OP = 0.74;
 
 function makeMobPlate(): MobPlate {
   const root = document.createElement("div");
   root.className = "mplate";
   const name = document.createElement("div");
   name.className = "mpname";
+  const row = document.createElement("div");
+  row.className = "mprow";
+  const role = document.createElement("i");
+  role.className = "mprole";
   const bar = document.createElement("div");
   bar.className = "mpbar";
   const fill = document.createElement("span");
   fill.className = "mpfill";
   bar.appendChild(fill);
+  row.appendChild(role);
+  row.appendChild(bar);
   root.appendChild(name);
-  root.appendChild(bar);
+  root.appendChild(row);
   mobPlatesLayer.appendChild(root);
-  return { root, name, fill, cls: "mplate" };
+  return { root, name, role, fill, cls: "mplate" };
+}
+
+/**
+ * Screen rects the resting plates must stay out of.
+ *
+ * THIS USED TO RUN EVERY FRAME AND IT COST 0.92 ms OF COMBAT (measured, Intel
+ * iGPU, floor-15 combat CPU profile — 6% of the whole frame, more than the sim
+ * step). The comment justifying it said "getBoundingClientRect on four elements,
+ * not on twenty-four plates", which is true and beside the point: six forced
+ * layouts per frame is six forced layouts per frame, and these six elements are
+ * FIXED HUD FURNITURE. They move when the window resizes or a panel opens, and
+ * at no other time.
+ *
+ * So the rects are cached and refreshed on a cadence (~6 Hz) plus immediately on
+ * resize. The worst case a stale rect can produce is one resting plate sitting
+ * over the edge of the log for a sixth of a second after a layout change — and
+ * `plateHudRects` only ever DROPS ambient plates, so a stale answer cannot hide
+ * a plate that matters (an engaged plate is force-placed regardless).
+ *
+ * NOT A MODE LEVER: this is free at every mode. See quality.ts.
+ */
+const plateHudRects: DOMRect[] = [];
+const PLATE_RECT_MS = 160;
+let plateRectsAt = -Infinity;
+// A resize moves every one of those fixed rects, and it is the one event that
+// must not wait out the cadence.
+//
+// REGISTERED HERE, NOT INSIDE resize(). `resize()` is both an event handler and
+// a function this module CALLS during boot, hundreds of lines above this point
+// — and `plateRectsAt` is a `let`, so touching it from that early call is a
+// temporal-dead-zone throw that kills the whole host before the first frame.
+// (It did: "Cannot access 'plateRectsAt' before initialization", caught by the
+// mode-ladder harness on its first launch.) A listener added next to the state
+// it invalidates cannot fire before that state exists.
+window.addEventListener("resize", () => { plateRectsAt = -Infinity; });
+function refreshPlateHudRects(): void {
+  plateHudRects.length = 0;
+  for (const id of ["hud-log", "cockpit", "minimap-frame", "hud-tl", "hud-tr", "show"]) {
+    const el = document.getElementById(id);
+    if (!el || el.offsetParent === null) continue;
+    const r = el.getBoundingClientRect();
+    if (r.width > 0 && r.height > 0) plateHudRects.push(r);
+  }
+}
+function plateOverHud(x: number, y: number): boolean {
+  for (const r of plateHudRects) {
+    if (x >= r.left - 8 && x <= r.right + 8 && y >= r.top - 8 && y <= r.bottom + 8) return true;
+  }
+  return false;
+}
+
+// PLATE DE-OVERLAP (r3, found by this round's own capture and not by the
+// critic). Making the resting plate legible turned twenty-four of them stacked
+// over one mob pile from "thin dark slivers you have to hunt for" into a solid
+// block of red dashes — the same failure the r2 note warned about, arrived at
+// from the other side. Legibility and density are separate problems and both
+// have to be solved or the fix is a swap.
+//
+// So plates are now PLACED, nearest-first, exactly like the damage numbers:
+// the closest monster keeps its natural spot and anything that would collide
+// walks upward in PLATE_STACK steps. A plate that cannot find a clear slot in
+// PLATE_STACK_MAX steps is DROPPED if it is resting (ambient information is
+// allowed to lose an argument with legibility) and force-placed if it is
+// engaged (you are being told about a specific fight; that one wins).
+const PLATE_STACK = 9; // px per de-overlap step
+const PLATE_STACK_MAX = 5;
+const plateBoxes: { x: number; y: number; w: number }[] = [];
+function plateSeat(x: number, y: number, w: number, engaged: boolean): number | null {
+  for (let step = 0; step <= PLATE_STACK_MAX; step++) {
+    const cy = y - step * PLATE_STACK;
+    let clear = true;
+    for (const b of plateBoxes) {
+      if (Math.abs(cy - b.y) < PLATE_STACK && Math.abs(x - b.x) * 2 < w + b.w + 4) { clear = false; break; }
+    }
+    if (clear) { plateBoxes.push({ x, y: cy, w }); return cy; }
+  }
+  if (!engaged) return null;
+  const cy = y - PLATE_STACK_MAX * PLATE_STACK;
+  plateBoxes.push({ x, y: cy, w });
+  return cy;
 }
 
 function updateMobPlates(s: GameState): void {
   const now = performance.now();
+  if (now - plateRectsAt >= PLATE_RECT_MS) { plateRectsAt = now; refreshPlateHudRects(); }
   mobPlateSeen.clear();
+  plateBoxes.length = 0;
   let shown = 0;
+  const you = s.players.find((pl) => pl.alive) ?? s.players[0];
+  const px = you?.pos.x ?? 0, pz = you?.pos.y ?? 0;
+  // Nearest first, so the monsters actually in the fight keep their natural
+  // anchors and the back of the room is what gets stacked or dropped. Rows are
+  // pooled and the out-of-range ones never enter the sort: on floor 17 that is
+  // ~200 live monsters, of which a dozen can possibly carry a plate.
+  const order = mobPlateOrder;
+  mobPlateN = 0;
+  const engagedFloor = now; // hoisted: `mem.until > now` inside the loop below
   for (const m of s.monsters) {
     if (m.hp <= 0) { mobPlateMem.delete(m.id); continue; }
     let mem = mobPlateMem.get(m.id);
@@ -5048,9 +6786,32 @@ function updateMobPlates(s: GameState): void {
     if (m.hp < mem.hp - 1e-6) mem.until = now + PLATE_HOLD_MS; // fresh damage
     mem.hp = m.hp;
     if (m.kind === "boss") continue; // the boss bar owns the menace read
-    if (mem.until <= now || m.hp >= m.maxHp || shown >= PLATE_MAX) continue;
+    const dx = m.pos.x - px, dz = m.pos.y - pz;
+    const d2 = dx * dx + dz * dz;
+    // Out of resting range AND not engaged: it can never get a plate, so it
+    // must not cost a row or a comparison.
+    if (d2 > PLATE_RANGE2 && mem.until <= engagedFloor) continue;
+    const row = order[mobPlateN] ?? (order[mobPlateN] = { m: null, mem: null, d2: 0 });
+    row.m = m; row.mem = mem; row.d2 = d2;
+    mobPlateN++;
+  }
+  const live = order.slice(0, mobPlateN).sort((a, b) => a.d2 - b.d2);
+  for (const row of live) {
+    const m = row.m!, mem = row.mem!, d2 = row.d2;
+    if (shown >= PLATE_MAX) continue;
+    const engaged = mem.until > now;
+    // RESTING: near enough to be a target the player might pick.
+    if (!engaged && d2 > PLATE_RANGE2) continue;
     const sp = renderer.worldToScreen(m.pos.x, m.elite ? 2.05 : 1.55, m.pos.y);
     if (!sp.visible) continue;
+    // A RESTING PLATE NEVER DRAWS OVER A HUD PANEL. The first capture of this
+    // feature had a cluster of them stacked on top of the LIVE FEED card,
+    // reading as damage to the panel. An ENGAGED plate is allowed there — you
+    // are being told about a specific fight and the fight wins — but ambient
+    // information must not litter someone else's zone.
+    if (!engaged && plateOverHud(sp.x, sp.y)) continue;
+    const seatY = plateSeat(sp.x, sp.y, m.elite ? 68 : engaged ? 40 : 34, engaged);
+    if (seatY === null) continue; // no clear slot and only ambient to say
     let plate = mobPlateLive.get(m.id);
     if (!plate) {
       plate = mobPlatePool.pop() ?? makeMobPlate();
@@ -5059,17 +6820,24 @@ function updateMobPlates(s: GameState): void {
     }
     shown++;
     mobPlateSeen.add(m.id);
-    const cls = m.elite ? "mplate elite" : "mplate";
+    const role = MOB_ROLE[m.kind] ?? "melee";
+    const cls = `${m.elite ? "mplate elite" : "mplate"} r-${role}${engaged ? "" : " rest"}`;
     if (plate.cls !== cls) {
       plate.cls = cls;
       plate.root.className = cls;
       if (m.elite) plate.name.textContent = m.eliteName ?? "ELITE";
     }
     plate.root.style.left = `${sp.x}px`;
-    plate.root.style.top = `${sp.y}px`;
+    plate.root.style.top = `${seatY}px`;
     plate.fill.style.width = `${Math.max(0, Math.min(1, m.hp / m.maxHp)) * 100}%`;
     const left = mem.until - now;
-    plate.root.style.opacity = left < PLATE_FADE_MS ? (left / PLATE_FADE_MS).toFixed(2) : "1";
+    plate.root.style.opacity = !engaged
+      ? String(PLATE_REST_OP)
+      // The fade out of ENGAGED lands on the resting level, not on nothing —
+      // the plate does not disappear, it goes quiet.
+      : left < PLATE_FADE_MS
+        ? (PLATE_REST_OP + (1 - PLATE_REST_OP) * (left / PLATE_FADE_MS)).toFixed(2)
+        : "1";
   }
   // Release plates whose monsters left the visible/damaged set this frame.
   for (const [id, plate] of mobPlateLive) {
@@ -5123,6 +6891,10 @@ function showAnnouncement(a: Announcement): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
   if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
+  // ONE PRESENTATION PER MOMENT. While the ringside card is up it OWNS this
+  // boss's System line; a capture caught the same sentence printed twice in
+  // one frame — once in the top SYSTEM toast, once as the card's kicker.
+  if (state.encounter?.line && a.text === state.encounter.line) return;
   if (a.priority === "high") {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
@@ -5210,7 +6982,7 @@ function showTutorialCard(a: Announcement): void {
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
-    `<div class="tut-head">◆ SYSTEM — COURTESY EXPLANATION</div>` +
+    `<div class="tut-head"><i class="dia"></i> SYSTEM — COURTESY EXPLANATION</div>` +
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -5274,13 +7046,36 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
       : ch.floor > 0 ? `reached floor ${ch.floor}` : "laid down a run";
     document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
     document.getElementById("m-daily-sub")!.textContent =
-      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${ch.kills} kills. Same seed. Beat it.`;
+      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`;
     tile.addEventListener("click", () => { forcedSeed = ch.seed; }, { capture: true });
     if (ch.run) {
-      // The code carried a sealed run id: the challenge comes with a ghost.
+      // The code carried a run id: the challenge MAY come with a ghost. It
+      // only does if the server stands behind that run. This used to check
+      // `got.playable` (the era) and nothing else - never `run.state` - so a
+      // stranger could race a proof the server had explicitly refused to
+      // certify. And when the proof was refused for any reason at all, the
+      // whole thing was swallowed by `.catch(() => null)` and nothing was
+      // said: 2.6f is emphatic that a refusal is STATED, never silent.
       void (async () => {
-        const got = await competitive.proof(ch.run!).catch(() => null);
-        if (got?.bytes && got.playable) await armGhost(got.bytes, ch.by.toUpperCase(), ch.run);
+        const era = RULES_HASH.slice(0, 7);
+        let refusal = "the proof could not be reached";
+        try {
+          const row = (await competitive.run(ch.run!)) as social.BoardRun;
+          const play = social.playability(row, era);
+          if (!play.ok) {
+            refusal = play.why;
+          } else {
+            const got = await competitive.proof(ch.run!);
+            if (got.bytes && got.playable) {
+              await armGhost(got.bytes, ch.by.toUpperCase(), ch.run);
+              return;
+            }
+            refusal = got.reason ?? "no proof is retained for that run";
+          }
+        } catch { /* refusal already set */ }
+        pushLogLine(`NO GHOST WITH THIS CHALLENGE — ${refusal}`);
+        document.getElementById("m-daily-sub")!.textContent +=
+          `  ·  NO GHOST: ${refusal}. The seed still is the seed.`;
       })();
     }
   }
@@ -5313,10 +7108,30 @@ let recapFor: GameState["status"] | null = null;
 let runGrade: social.RunGrade | null = null;
 let todaysBoard: social.BoardRun[] | null = null;
 let earnedOpen = false;
-/** What the server said about this run, resolving live under the player. */
+/** What the server said about this run, resolving live under the player.
+ *  `boards` is what the row actually HOLDS, straight from GET /runs/:id - the
+ *  seal is weighted on that rather than on whichever board happened to load. */
 let submitResult:
-  | { state: string; runId?: string; reason?: string; attemptNo?: number; scoresCp?: boolean }
+  | {
+      state: string; runId?: string; reason?: string; attemptNo?: number;
+      scoresCp?: boolean; boards?: string[]; needsIdentity?: boolean;
+    }
   | null = null;
+
+/**
+ * A STATE THE VERIFIER REFUSED NEVER WEARS LADDER FURNITURE (6.2, stated as a
+ * rule in capitals and implemented for test-chamber starts only).
+ *
+ * `renderLadderLine` and `renderEarned` never read `submitResult.state`, so a
+ * REFUSED run showed a red "The replay did not produce the run you claimed"
+ * block with "this run still holds its board row and its splits" 120px above
+ * it and "NEW PB — DEEPEST FLOOR 1" in gold 70px below it. On a product whose
+ * entire thesis is that its numbers are certified, the screen contradicting
+ * its own certifier in the default state is the worst failure available.
+ */
+function verdictRefused(): boolean {
+  return submitResult?.state === "rejected";
+}
 
 /** Where this crawler stands on the season ladder. Fetched at run end and
  *  again the moment a seal lands, so the CP line on the verdict screen can show
@@ -5327,8 +7142,11 @@ let cpBeforeRun: number | null = null;
 async function loadStanding(): Promise<void> {
   try {
     const token = await accountToken();
-    const prof = (await competitive.profile(token)) as social.ProfileView;
+    const prof = (await competitive.myProfile(token)) as social.ProfileView;
     myStanding = prof.standing ?? null;
+    // ...and the name this account wears on a board row, which is what the YOU
+    // tag matches on now that the wire no longer hands out the token.
+    if (prof.publicId) myPublicId = prof.publicId;
   } catch {
     myStanding = null; // offline: the line says so rather than inventing a rank
   }
@@ -5376,27 +7194,48 @@ function verdictPartsHtml(g: social.RunGrade): string {
  *  none of it. */
 function scoreboardHtml(s: GameState): string {
   const p = me(s);
-  const leader = (todaysBoard ?? [])[0] ?? null;
+  // ONE DEFINITION OF "#1", SHARED WITH THE MARK (blocker 5). This took
+  // `todaysBoard[0]` - the first row of a page that includes UNPROVEN claims
+  // and may be the player's own row - and headed the column "#1 — KATIA" while
+  // THE STANDINGS, which ranks sealed rows only, showed Katia at rank 2.
+  const top = social.boardLeader(todaysBoard, myPublicId);
+  const leader = top?.row ?? null;
   const num = (v: number): string | null => (v > 0 ? Math.round(v).toLocaleString() : null);
   const cols: { head: string; cells: (string | null)[] }[] = [
     {
       head: "YOU",
       cells: [
         s.status === "won" ? "CLEAR" : `floor ${s.floor}`,
-        fmt(s.elapsed), String(p.kills), Math.round(p.damageTaken).toLocaleString(),
+        // ONE CLOCK, AT ONE PRECISION, ON A SURFACE SELLING EXACTNESS
+        // (blocker 15). The same run printed 0:07.76 in the header, 0:07 in
+        // this cell and 0:07.86 in the rival's, because three helpers were in
+        // use on one table. Splits are exact tick counts; centiseconds cost
+        // nothing and they are what decides an order.
+        social.mmssc(s.elapsed), String(p.kills), Math.round(p.damageTaken).toLocaleString(),
         Math.round(p.damageDealt).toLocaleString(), p.goldSpent.toLocaleString(), String(p.level),
       ],
     },
   ];
-  // THE GHOST COLUMN ONLY EXISTS WHEN THERE IS A GHOST. A column of seven
-  // em-dashes is not a comparison, it is a promise the screen did not keep -
-  // and it makes a three-column scoreboard ship as two.
+  // THE GHOST YOU RACED - THE MIDDLE COLUMN 6.2 Beat 2 SPECIFIES (blocker 14).
+  // It used to answer two of seven rows and dash the rest, because the ghost
+  // TRACK carries a trajectory and nothing else - so the one run where the
+  // comparison is worth the most, a RUN IT BACK against yourself, printed five
+  // em-dashes. Every ghost has a source that knows the rest (a sealed board row
+  // carries the verifier's own numbers; RUN IT BACK is this browser's last
+  // run), and `armGhost` now carries it through.
   if (ghost) {
+    const f = ghost.facts ?? null;
+    const endFloor = f?.floor ?? ghost.track.floor[ghost.track.floor.length - 1] ?? 1;
     cols.push({
       head: ghost.label.toUpperCase(),
       cells: [
-        `floor ${ghost.track.floor[ghost.track.floor.length - 1] ?? 1}`,
-        fmt(ghost.ticks / 60), null, null, null, null, null,
+        f?.won ? "CLEAR" : `floor ${endFloor}`,
+        social.ticksClock(ghost.ticks),
+        f && f.kills !== null ? f.kills.toLocaleString() : null,
+        f && f.damageTaken !== null ? num(f.damageTaken) : null,
+        f && f.damageDealt !== null ? num(f.damageDealt) : null,
+        f && f.goldSpent !== null ? num(f.goldSpent) : null,
+        f && f.level !== null ? String(f.level) : null,
       ],
     });
   }
@@ -5405,7 +7244,11 @@ function scoreboardHtml(s: GameState): string {
   // on the row; printing a dash next to a figure the server demonstrably knows
   // is how a scoreboard reads unfinished.
   cols.push({
-    head: leader ? `#1 — ${leader.name.toUpperCase()}` : "TODAY'S #1",
+    // When the top sealed row IS the player's, the column says so instead of
+    // printing their own name opposite their own numbers.
+    head: !leader ? "TODAY'S #1"
+      : top!.mine ? `#1 — YOU`
+        : `#${top!.rank} — ${leader.name.toUpperCase()}`,
     cells: leader
       ? [
           leader.won ? "CLEAR" : `floor ${leader.floor}`, social.ticksClock(leader.ticks),
@@ -5435,12 +7278,14 @@ function splitsHtml(): string {
   // Compare against the bests as they stood BEFORE this run banked its own,
   // or every split proudly reports a delta of zero against itself.
   const pb = recapPrevBests;
+  const lead = social.leaderSplits(todaysBoard, RULES_HASH.slice(0, 7));
   const splits: social.BandSplit[] = ticks.map((t, i) => ({
     band: i, name: social.bandName(i), ticks: t,
-    pbTicks: pb[i] ?? null, leaderTicks: null,
+    pbTicks: pb[i] ?? null, leaderTicks: lead[i] ?? null,
   }));
   const lost = social.worstBand(splits);
-  const scale = Math.max(60, ...splits.map((sp) => Math.max(sp.ticks, sp.pbTicks ?? 0)));
+  const scale = Math.max(60, ...splits.map(
+    (sp) => Math.max(sp.ticks, sp.pbTicks ?? 0, sp.leaderTicks ?? 0)));
   return splits.map((sp) => {
     if (sp.ticks <= 0) {
       return `<div class="splitrow empty"><span class="sname">${sp.name}</span>` +
@@ -5450,6 +7295,10 @@ function splitsHtml(): string {
     const pct = (sp.ticks / scale) * 100;
     const cleared = bandCleared(sp.band);
     const pbMark = sp.pbTicks ? `<i class="spb" style="left:${(sp.pbTicks / scale) * 100}%"></i>` : "";
+    const leadMark = sp.leaderTicks
+      ? `<i class="slead" style="left:${(sp.leaderTicks / scale) * 100}%" ` +
+        `title="the board leader ran this band in ${social.ticksClock(sp.leaderTicks)}"></i>`
+      : "";
     // A partial band gets no delta: comparing an unfinished split against a
     // finished one is the same lie as ranking it.
     const delta = cleared && sp.pbTicks
@@ -5458,7 +7307,7 @@ function splitsHtml(): string {
       : cleared ? "" : ` <span style="color:#6f6757">partial</span>`;
     return `<div class="splitrow${sp.band === lost ? " lost" : ""}">` +
       `<span class="sname">${sp.name}${sp.band === lost ? " — LOST HERE" : ""}</span>` +
-      `<span class="strack"><i class="sfill" style="width:${Math.min(99, pct)}%"></i>${pbMark}</span>` +
+      `<span class="strack"><i class="sfill" style="width:${Math.min(99, pct)}%"></i>${pbMark}${leadMark}</span>` +
       `<span class="stime">${social.mmss(sp.ticks / 60)}${delta}</span></div>`;
   }).join("");
 }
@@ -5517,6 +7366,16 @@ function commitBandBests(): number[] {
   return beaten;
 }
 
+/** THE ONE CLOCK THIS RUN HAS. Built from the tick count the proof and the
+ *  board row are both built from, so no two surfaces can round it differently. */
+function runClock(s: GameState): string {
+  // ...AND IN THE SAME FORMAT. Rounding a tick count to the whole second here
+  // while the board row prints centiseconds is still two different numbers for
+  // the same run: 2:06 on the headline against 2:05.73 one screen away. The
+  // data was always exact; both surfaces print it exactly.
+  return runTicks > 0 ? social.ticksClock(runTicks) : fmt(s.elapsed);
+}
+
 function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
@@ -5534,13 +7393,17 @@ function renderRecap(s: GameState): void {
       .map((r, i) => `${i + 1}. ${r.name} (F${r.floor} · L${r.level})`)
       .join("  ·  ");
     document.getElementById("recap-sub")!.textContent =
-      `THE RACE IS OVER · run time ${fmt(s.elapsed)} · ${standings}`;
+      `THE RACE IS OVER · run time ${runClock(s)} · ${standings}`;
   } else {
     title.textContent = won ? "YOU ESCAPED THE DUNGEON" : "IN MEMORIAM";
     title.className = won ? "win" : "wipe";
+    // ONE CLOCK, FROM THE TICK COUNT THE ROW IS BUILT FROM. The headline read
+    // `fmt(s.elapsed)` and the board row read `ticksClock(ticks)`, so the same
+    // run printed "run time 2:05" here and "2:06" one screen away - on the
+    // product whose whole pitch is that its numbers agree with each other.
     document.getElementById("recap-sub")!.textContent = won
-      ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${fmt(s.elapsed)} · ${p.name}, Crawler`
-      : `Episode canceled on floor ${s.floor} · run time ${fmt(s.elapsed)} · the crowd demands a rerun`;
+      ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${runClock(s)} · ${p.name}, Crawler`
+      : `Episode canceled on floor ${s.floor} · run time ${runClock(s)} · the crowd demands a rerun`;
   }
   const stats: [string, string][] = [
     [String(p.level), "LEVEL"],
@@ -5591,22 +7454,23 @@ function renderRecap(s: GameState): void {
   document.getElementById("recap-again")!.style.display = net ? "none" : "";
 
   // ---- Beat 1: THE GRADE ------------------------------------------------
+  // A test-chamber start is HANDED its depth; it did not earn it, and the
+  // verifier would reject the proof for exactly that reason. This used to
+  // rewrite the DEPTH tile's DETAIL STRING and leave its SCORE untouched, so
+  // the meter filled to 100/100 in gold directly above a red banner saying the
+  // depth was handed to you - two elements 40px apart asserting opposite
+  // things about the same number, on a grade that is supposed to be
+  // auditable. The flag now reaches the arithmetic (src/ui/social.ts).
   runGrade = social.gradeRun(
     {
 
       floor: s.floor, won, elapsedSec: s.elapsed, kills: p.kills, level: p.level,
       damageTaken: p.damageTaken, draftsClaimed, draftsOffered,
       floorsCleared: Math.max(0, floorEntryTicks.filter((t) => t >= 0).length - 1),
+      startedAtDepth: !runIsRankable(s),
     },
     loadHistory(), todaysBoard, p.maxHp,
   );
-  // A test-chamber start is HANDED its depth; it did not earn it, and the
-  // verifier would reject the proof for exactly that reason. The tile says so
-  // rather than letting "floor 13" sit next to "no floor cleared".
-  if (!runIsRankable(s)) {
-    const depth = runGrade.parts.find((part) => part.key === "DEPTH");
-    if (depth) depth.detail = `floor ${s.floor} — started here, not walked`;
-  }
   const medal = document.getElementById("recap-medal")!;
   medal.className = `vmedal g-${runGrade.letter}`;
 
@@ -5681,6 +7545,20 @@ function renderLadderLine(s: GameState): void {
       `and no board row here — and the grade above is a rehearsal, not a result.`;
     return;
   }
+  // THE VERIFIER'S REFUSAL OUTRANKS EVERY OTHER LINE ON THIS PLATE. A rejected
+  // run holds no row, no split and no CP, so it is told that here rather than
+  // being handed a ladder plate 120px above the block that refuses it. The
+  // SEASON total survives - it belongs to earlier runs and it is still true.
+  if (verdictRefused()) {
+    const st = myStanding;
+    el.className = "notranked";
+    el.innerHTML = `<b>NO ROW, NO SPLIT, NO POINTS.</b> The System replayed this run and did not get ` +
+      `the run you claimed, so nothing from it enters the ledger — not the board row, not the band ` +
+      `splits, not a single contract point.` +
+      (st ? ` Your season stands where the runs it was earned on left it: ` +
+        `<b>${st.cp.toLocaleString()} CP</b>.` : "");
+    return;
+  }
   el.className = "ladderline";
   const st = myStanding;
   if (!st) {
@@ -5699,26 +7577,39 @@ function renderLadderLine(s: GameState): void {
     : "no ranked contract scored yet";
   // WHAT THIS RUN MOVED. CP scores the FIRST ticketed attempt on a contract and
   // nothing else, so most runs move it by zero - said plainly, with the reason.
-  let delta: string;
+  let chip: string;
+  let note: string;
   if (!runEvent) {
-    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">free seed — contract points ` +
-      `come from contracts, and this run still holds its board row and its splits</span>`;
+    chip = `<span class="ldelta flat">+0 CP</span>`;
+    // ...and if the run was on the DAY'S SEED it says so, because "free seed"
+    // was flatly false about the dungeon the front door hands you.
+    note = runContractNote
+      ?? "a free seed — contract points come from contracts. The board row and the splits still stand.";
   } else if (!runEvent.scoresCp) {
-    delta = `<span class="ldelta flat">+0 CP</span><span class="lnote">attempt ${runEvent.attemptNo} — ` +
-      `CP scores your FIRST ticketed attempt only; the board row still updates</span>`;
+    chip = `<span class="ldelta flat">+0 CP</span>`;
+    // THE REASON HAS TO BE THE ACTUAL REASON. For an unlinked crawler this
+    // branch printed "CP scores your FIRST ticketed attempt only" on ATTEMPT
+    // ONE - the one sentence that cannot be true about the run in front of
+    // them - because `scoresCp` folded two different noes into one flag.
+    note = submitResult?.needsIdentity || runEvent.attemptNo === 1
+      ? `attempt 1, and the System cannot put its name on it: an anonymous claim earns no seal `
+        + `and no contract points. Link an identity and the next one scores.`
+      : `attempt ${runEvent.attemptNo} on this contract — CP scores your FIRST ticketed attempt `
+        + `only. The board row still updates, and so do the splits.`;
   } else if (cpBeforeRun !== null && st.cp > cpBeforeRun) {
-    delta = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>` +
-      `<span class="lnote">attempt 1 on this contract — the run the ladder scores</span>`;
+    chip = `<span class="ldelta up">+${st.cp - cpBeforeRun} CP</span>`;
+    note = "attempt 1 on this contract — the run the ladder scores.";
   } else {
-    delta = `<span class="ldelta">CP PENDING</span><span class="lnote">attempt 1 — it lands when the ` +
-      `seal does, because CP only ever moves on a run the server re-executed</span>`;
+    chip = `<span class="ldelta">CP PENDING</span>`;
+    note = "attempt 1 — it lands when the seal does, because CP only ever moves on a run the server "
+      + "re-executed.";
   }
-  const floorNote = !st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor
-    ? `<span class="lnote">tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far</span>`
-    : "";
+  if (!st.tier && st.placementRemaining === 0 && st.entrants < st.tierFloor) {
+    note += ` Tier names unlock at ${st.tierFloor} ranked crawlers — ${st.entrants} so far.`;
+  }
   el.innerHTML = `<span class="lt">${esc(tier)}</span>` +
     `<span class="lcp">${st.cp.toLocaleString()} CP</span>` +
-    `<span>${esc(rank)}</span>${delta}${floorNote}`;
+    `<span>${esc(rank)}</span>${chip}<span class="lnote">${esc(note)}</span>`;
 }
 
 /**
@@ -5733,18 +7624,33 @@ function renderEarned(s: GameState): void {
   const sealEl = document.getElementById("recap-seal")!;
   const detail = document.getElementById("recap-earned-detail")!;
   const beaten = recapBandPbs;
-  const bests = careerBests(loadHistory());
+  const bests = recapPrevCareer; // the ledger this run found, not the one it joined
   const rows: string[] = [];
 
   let headline = "no personal bests this run — the ledger is unmoved";
-  if (beaten.length > 0) {
+  // A rehearsal banks nothing, and the headline must not claim otherwise. This
+  // used to print "THE CLEAR IS ON THE BOARD" on a test-chamber win, directly
+  // under the screen's own TEST CHAMBER — NOT RANKED banner.
+  if (!runIsRankable(s)) {
+    headline = "nothing banked — a run that started at depth moves no ledger";
+  } else if (verdictRefused()) {
+    // ...and neither does a run the verifier refused. This used to print
+    // "NEW PB — DEEPEST FLOOR 1" in gold, seventy pixels under the block
+    // saying the replay did not produce the run at all.
+    headline = "nothing banked — the System refused the recording, so no record stands on it";
+  } else if (beaten.length > 0) {
     headline = `<b>NEW PB — ${social.bandName(beaten[0])} SPLIT</b>`;
-  } else if (bests && s.floor >= bests.bestFloor && s.status !== "won") {
+  } else if (bests && bests.bestFloor > 0 && s.floor > bests.bestFloor && s.status !== "won") {
+    // `s.floor >= bests.bestFloor` printed "NEW PB — DEEPEST FLOOR 1" on a
+    // two-second floor-1 death against an empty ledger. A personal best has to
+    // beat something, and a hollow one spends the word.
     headline = `<b>NEW PB — DEEPEST FLOOR ${s.floor}</b>`;
   } else if (s.status === "won") {
     headline = `<b>THE CLEAR IS ON THE BOARD</b>`;
   }
-  for (const b of beaten) rows.push(`<div class="erow"><span class="pb">NEW PB</span><b>${social.bandName(b)}</b> split</div>`);
+  if (!verdictRefused()) {
+    for (const b of beaten) rows.push(`<div class="erow"><span class="pb">NEW PB</span><b>${social.bandName(b)}</b> split</div>`);
+  }
   if (runEvent) {
     rows.push(
       `<div class="erow"><b>ATTEMPT ${runEvent.attemptNo}</b> on this contract — ` +
@@ -5764,9 +7670,31 @@ function renderEarned(s: GameState): void {
   line.innerHTML = `${headline}<span class="caret">${earnedOpen ? "[ HIDE THE MATH ]" : "[ SHOW THE MATH ]"}</span>`;
   detail.innerHTML = rows.join("") || `<div class="erow">Nothing banked. The System is not impressed, but it is watching.</div>`;
   detail.style.display = earnedOpen ? "" : "none";
+  renderSeal(sealEl);
+}
 
-  // The seal, resolving under the reader.
-  if (net) { sealEl.innerHTML = ""; return; }
+/**
+ * The seal, resolving under the reader: one chip, in the family every board row
+ * wears, so a seal means the same thing wherever it appears.
+ *
+ * A block-sized treatment with a kicker, a held pending state and a strike
+ * animation was tried in an elevation round and reverted with the rest of that
+ * screen. The two things it got right are kept because they are correctness,
+ * not decoration: a SERVER-VOUCHED rivals win is sealed (the server decided it
+ * tick by tick, and the winner's own screen used to show no seal at all), and
+ * the trophy weight is decided by what the row actually HOLDS, straight from
+ * GET /runs/:id, rather than by whichever board happened to be loaded.
+ */
+function renderSeal(sealEl: HTMLElement): void {
+  const era = RULES_HASH.slice(0, 7);
+  if (net) {
+    const iWon = state.mode === "rivals" && state.status === "won"
+      && state.winnerId === me(state).id;
+    if (!iWon) { sealEl.innerHTML = ""; return; }
+    const chip = social.sealChip("verified", era, false, "ranked", "vouched");
+    sealEl.innerHTML = `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>`;
+    return;
+  }
   if (recBlocked) {
     sealEl.innerHTML = `<span class="seal claimed" title="${esc(recBlocked)}">UNSEALED</span>`;
     return;
@@ -5780,11 +7708,16 @@ function renderEarned(s: GameState): void {
   // A seal on a rank-1 clear and a seal on an eight-second floor-1 death were
   // typographically identical, which spends the scarcity that makes the gold
   // one worth anything. The filled gold seal is for a run HOLDING a board
-  // position; everything else certified gets the hairline.
-  const ranked = !!submitResult.runId && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId);
+  // position; everything else certified gets the hairline. Which boards it
+  // holds comes from the row itself, not from the one board this screen loaded.
+  const boards = submitResult.boards ?? null;
+  const ranked = !!submitResult.runId && (
+    (boards !== null && boards.length > 0)
+    || (boards === null && (todaysBoard ?? []).some((r) => r.id === submitResult!.runId))
+  );
   const chip = social.sealChip(
     (submitResult.state as social.RunState) ?? "claimed",
-    RULES_HASH.slice(0, 7),
+    era,
     submitVisibility === "private",
     ranked ? "ranked" : "plain",
   );
@@ -5813,21 +7746,44 @@ function sealRun(s: GameState): void {
  *  ledger as it stood before this run touched it. */
 let recapBandPbs: number[] = [];
 let recapPrevBests: (number | null)[] = [];
+/** The career bests as they stood BEFORE this run was written to the ledger. */
+let recapPrevCareer: ReturnType<typeof careerBests> = null;
 let submitVisibility: "public" | "private" = "public";
 
-/** Show the recap when the run ends; re-arm when a new run starts.
- *  Beat 0 — THE FREEZE: hold the killing blow for a beat before the verdict
- *  lands. The System is a game show; the death deserves the pause. */
+/**
+ * NO BEAT 0. An elevation round staged the run's end as a cinematic: a 0.6s
+ * hit-stop, `body.cine` to pull the entire HUD out of frame, the boss-intro
+ * letterbox, and a 520ms grayscale/dim lens held on the canvas for as long as
+ * the card was up. Between the lens and a radial scrim the dungeon behind the
+ * verdict went to near-black, and the player sat through ~760ms of directed
+ * nothing before the screen they came for arrived.
+ *
+ * It is reverted. The run ends, the card comes up on the same short timer it
+ * always did, and the world stays visible behind it. The letterbox, the
+ * screen grade and `body.cine` still belong to the boss beat that authored
+ * them — the verdict simply stopped borrowing them.
+ */
+
+/** Show the recap when the run ends; re-arm when a new run starts. */
 function maybeShowRecap(s: GameState): void {
   if (s.status === "playing") { recapFor = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
 
   recapPrevBests = loadBandBests();
-  recapBandPbs = net ? [] : commitBandBests();
+  // A REHEARSAL DOES NOT BANK A RECORD. `bandCleared` returns true for the
+  // final band on any win, with no rankability check, so `?test&floor=18` plus
+  // a boss kill wrote a real THE APPROACH split into the offline ledger the
+  // career panel reads - and the screen printed "NEW PB — THE APPROACH SPLIT"
+  // directly above its own TEST CHAMBER — NOT RANKED banner. That ledger is
+  // the fallback PERSONAL BESTS reads under a heading that says "sealed
+  // traversals only": exactly the two-sources-of-truth hazard 3.3 closes.
+  recapBandPbs = net || !runIsRankable(s) ? [] : commitBandBests();
   submitResult = null;
   earnedOpen = false;
   renderRecap(s);
+  // One short beat between the killing blow and the card — enough that the
+  // verdict does not land on top of the hit that caused it, and no more.
   window.setTimeout(() => {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
@@ -5885,10 +7841,13 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
   };
   center("◆ DUNGEON CRAWLER CLAUDE ◆", 78, "700 24px Cinzel, serif", "#c9a24b");
   center(won ? "THE FINALE" : "IN MEMORIAM", 168, "700 72px Cinzel, serif", won ? "#f2c14e" : "#c0392f");
+  // "EPISODE", not "season". 5.2 settled the vocabulary and the screen above
+  // this card already uses it: a single run is an EPISODE, a season is the
+  // ladder period. The card was the last place still saying the other thing.
   center(
     won
       ? `${p.name} cleared all ${CONFIG.finalFloor} floors in ${fmt(s.elapsed)}`
-      : `${p.name} · season canceled on floor ${s.floor} · ${fmt(s.elapsed)}`,
+      : `${p.name} · Episode canceled on floor ${s.floor} · ${fmt(s.elapsed)}`,
     216, "26px 'Alegreya Sans', sans-serif", "#e8ddc8",
   );
   // Gold rule.
@@ -5926,16 +7885,48 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
     g.restore();
   }
   // THE DEATH, NAMED - the line worth more than every stat tile beside it.
+  // y=516, not 500: the second stat row's labels sit at 478, and 22px of
+  // clearance had the named death colliding with the word FAVORITES.
   if (!won && p.lastHitSrc) {
-    center(social.deathHeadline(p.lastHitSrc), 500, "22px 'Alegreya Sans', sans-serif", "#e2857a");
+    center(social.deathHeadline(p.lastHitSrc), 516, "22px 'Alegreya Sans', sans-serif", "#e2857a");
   }
   // The build: The Five + the weapon in hand.
   const build = [
     ...p.abilities.slots.filter((a): a is AbilityId => a !== null).map((id) => ABILITY_INFO[id].name),
     ...(p.abilities.ultimate ? [`${ABILITY_INFO[p.abilities.ultimate].name} (ULT)`] : []),
   ].join(" · ");
-  center(build || "bare hands and bad intentions", 542, "20px 'Alegreya Sans', sans-serif", "#a99f8c");
-  if (p.equipment.weapon) center(`wielding ${p.equipment.weapon.name}`, 572, "italic 18px 'Alegreya Sans', sans-serif", "#9a6bd0");
+  center(build || "bare hands and bad intentions", 550, "20px 'Alegreya Sans', sans-serif", "#a99f8c");
+  if (p.equipment.weapon) center(`wielding ${p.equipment.weapon.name}`, 578, "italic 18px 'Alegreya Sans', sans-serif", "#9a6bd0");
+  // THE SEAL TRAVELS WITH THE CARD. This 1200x630 is the object that actually
+  // reaches strangers, and it carried the grade, six stats, the death, the
+  // build and a URL - and no seal, no rules era, no run id. Zero evidence of
+  // the one thing that makes this product different from every other
+  // screenshot in the channel it lands in.
+  {
+    const st = submitResult?.state ?? (recBlocked ? "blocked" : runProof ? "unsubmitted" : "claimed");
+    const sealed = st === "verified";
+    const label = sealed
+      ? (submitVisibility === "private" ? "SEALED · PRIVATE" : "SEALED BY THE SYSTEM")
+      : st === "rejected" ? "REFUSED ON VERIFICATION"
+        : st === "verifying" ? "VERIFICATION PENDING" : "UNSEALED CLAIM";
+    const col = sealed ? "#f2c14e" : st === "rejected" ? "#c0392f" : "#6f6757";
+    g.save();
+    g.textAlign = "right"; g.textBaseline = "alphabetic";
+    g.font = "700 20px Cinzel, serif"; g.fillStyle = col;
+    g.fillText(label, 1120, 104);
+    g.font = "14px 'Alegreya Sans', sans-serif"; g.fillStyle = "#6f6757";
+    g.fillText(
+      sealed
+        ? `the server re-executed this run · rules era ${RULES_HASH.slice(0, 7)}`
+        : "the server has not re-executed this run",
+      1120, 126,
+    );
+    if (submitResult?.runId) g.fillText(`run ${submitResult.runId}`, 1120, 146);
+    // A struck rule under the seal so it reads as a stamp, not a caption.
+    g.strokeStyle = col; g.globalAlpha = 0.5; g.lineWidth = 1;
+    g.beginPath(); g.moveTo(870, 114); g.lineTo(1128, 114); g.stroke();
+    g.restore();
+  }
   const footer = runMode.kind === "daily" && runMode.day
     ? `DAILY CRAWL ${runMode.day} · dungeon-crawler-claude.fly.dev`
     : `dungeon-crawler-claude.fly.dev`;
@@ -5943,13 +7934,13 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
   return cv;
 }
 
-document.getElementById("recap-card")!.addEventListener("click", () => {
+function saveRunCard(): void {
   const cv = composeRunCard(state);
   cv.toBlob(async (blob) => {
     if (!blob) return;
     const name = `dcc-${state.status === "won" ? "finale" : "memoriam"}-${dayFromMs(Date.now())}.png`;
     const file = new File([blob], name, { type: "image/png" });
-    // The mobile path is the share sheet; desktop falls back to a download.
+    // The mobile path is the OS share sheet; desktop falls back to a download.
     if (navigator.canShare?.({ files: [file] })) {
       try { await navigator.share({ files: [file], title: "Dungeon Crawler Claude" }); return; } catch { /* fall through */ }
     }
@@ -5959,7 +7950,7 @@ document.getElementById("recap-card")!.addEventListener("click", () => {
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 5000);
   }, "image/png");
-});
+}
 
 // COPY BUILD CODE (8.2, the receipt half). Derived from the run that actually
 // happened - a shared build here is permanently attached to evidence that it
@@ -5989,9 +7980,29 @@ document.getElementById("recap-buildcode")!.addEventListener("click", async () =
 // SHARE (COMPETITIVE.md 8.2): a seed plus a claim is about eighty characters,
 // and it reproduces the whole dungeon - because the dungeon IS the seed. The
 // link carries the same code, so one copy serves chat and browser both.
-document.getElementById("recap-share")!.addEventListener("click", async () => {
+/**
+ * THE SHARE SHEET (8.2) — one surface, both artifacts, and the artifact is
+ * SHOWN before anything is copied.
+ *
+ * SHARE used to write a URL to the clipboard with the only feedback being the
+ * button label flipping to CHALLENGE COPIED for 1.6 seconds: no preview, no
+ * card, no confirmation of what a recipient would actually see. SAVE CARD was
+ * a second, separate path that never combined with it. The two are the same
+ * act.
+ */
+const shareEl = document.getElementById("sharesheet")!;
+let shareUrl = "";
+
+function openShareSheet(): void {
   const p = me(state);
-  const code = social.encodeChallenge({
+  // A CHALLENGE CODE ONLY CARRIES A RUN ID THE SERVER WOULD STAND BEHIND.
+  // The id used to be embedded unconditionally, including for runs in state
+  // `claimed` or `rejected`, and the receiving side checked only the era - so
+  // a stranger could be handed a ghost the server had explicitly refused to
+  // certify.
+  const sealed = submitResult?.state === "verified" && !!submitResult.runId
+    && submitVisibility === "public";
+  shareUrl = `${location.origin}${location.pathname}?c=${social.encodeChallenge({
     seed: state.seed,
     ev: runEvent?.eventId,
     by: p.name,
@@ -6001,12 +8012,30 @@ document.getElementById("recap-share")!.addEventListener("click", async () => {
     kills: p.kills,
     level: p.level,
     ult: p.abilities.ultimate,
-    run: submitResult?.runId,
-  });
-  const ok = await copyText(`${location.origin}${location.pathname}?c=${code}`);
-  const btn = document.getElementById("recap-share")!;
+    run: sealed ? submitResult!.runId : undefined,
+  })}`;
+  // Draw the real card into the preview, at whatever size the sheet is.
+  const cv = composeRunCard(state);
+  const dst = document.getElementById("share-preview") as HTMLCanvasElement;
+  dst.getContext("2d")!.drawImage(cv, 0, 0);
+  document.getElementById("share-link")!.textContent = shareUrl;
+  document.getElementById("share-note")!.textContent = sealed
+    ? "The link carries the seed AND the sealed run, so whoever opens it gets this exact dungeon with your ghost already on the course."
+    : submitResult?.state === "rejected"
+      ? "The link carries the seed only. The System refused to certify this run, so it is not handed out as a ghost — a refused proof is not a rival."
+      : submitVisibility === "private"
+        ? "The link carries the seed only. This run is private: it ranks, and it is never distributed."
+        : "The link carries the seed only. A ghost needs a run the server has re-executed, and this one is not sealed.";
+  shareEl.classList.add("on");
+}
+
+document.getElementById("recap-share")!.addEventListener("click", openShareSheet);
+document.getElementById("share-close")!.addEventListener("click", () => shareEl.classList.remove("on"));
+document.getElementById("share-save")!.addEventListener("click", saveRunCard);
+document.getElementById("share-copy")!.addEventListener("click", async () => {
+  const btn = document.getElementById("share-copy")!;
   const label = btn.textContent;
-  btn.textContent = ok ? "CHALLENGE COPIED" : "COPY FAILED";
+  btn.textContent = (await copyText(shareUrl)) ? "CHALLENGE COPIED" : "COPY FAILED";
   setTimeout(() => { btn.textContent = label; }, 1600);
 });
 
@@ -6049,6 +8078,15 @@ function offerProof(): void {
   }
   if (choice === "no") return;
   consentEl.classList.add("on");
+  recapEl.classList.add("consenting"); // the verdict lifts clear of the card
+  // ...by the card's MEASURED height. A hardcoded 236px was smaller than the
+  // card actually is, so on the one run per browser where this appears the
+  // verdict's top border went above y=0 and the grade medal was clipped by the
+  // viewport edge - during the exact ten seconds this screen exists for.
+  requestAnimationFrame(() => {
+    const h = Math.ceil(consentEl.getBoundingClientRect().height);
+    if (h > 0) document.documentElement.style.setProperty("--consent-h", h + "px");
+  });
 }
 
 for (const [id, choice] of [
@@ -6057,6 +8095,8 @@ for (const [id, choice] of [
   document.getElementById(id)!.addEventListener("click", () => {
     try { localStorage.setItem(CONSENT_KEY, choice); } catch { /* best-effort */ }
     consentEl.classList.remove("on");
+    recapEl.classList.remove("consenting");
+    renderConsentToggle(); // the settings row is the same standing choice
     if (choice === "no") {
       recBlocked = "not submitted — your choice, and it stays your choice until you change it";
       renderEarned(state);
@@ -6066,6 +8106,50 @@ for (const [id, choice] of [
     void submitProof(choice);
   });
 }
+
+/**
+ * THE CHOICE IS REVERSIBLE, AND THERE IS A PLACE TO REVERSE IT (8.1:
+ * "toggleable afterwards from your own profile").
+ *
+ * `dcc:consent:v1` was written once at the disclosure card and never read
+ * anywhere except offerProof - no settings row, no menu entry, no way back -
+ * and `competitiveClient.setPrivate()` shipped with zero callers, so the
+ * per-run private flag had no surface at all. This row is both: it cycles the
+ * standing choice, and flipping PUBLIC/PRIVATE also retargets the run
+ * currently on the verdict screen, which is the run the player is looking at
+ * when they change their mind.
+ */
+const CONSENT_CYCLE = ["public", "private", "no"] as const;
+const CONSENT_LABEL: Record<string, string> = {
+  public: "PUBLIC", private: "PRIVATE — RANKS, NEVER SHARED", no: "DO NOT SUBMIT",
+};
+const kbConsent = document.getElementById("kb-consent")!;
+function renderConsentToggle(): void {
+  let choice: string | null = null;
+  try { choice = localStorage.getItem(CONSENT_KEY); } catch { /* private mode */ }
+  kbConsent.textContent = choice ? CONSENT_LABEL[choice] ?? "PUBLIC" : "NOT YET ASKED";
+}
+kbConsent.addEventListener("click", () => {
+  let choice: string | null = null;
+  try { choice = localStorage.getItem(CONSENT_KEY); } catch { /* private mode */ }
+  const next = CONSENT_CYCLE[(CONSENT_CYCLE.indexOf(choice as "public") + 1) % CONSENT_CYCLE.length];
+  try { localStorage.setItem(CONSENT_KEY, next); } catch { /* best-effort */ }
+  renderConsentToggle();
+  // Retarget the run on screen, if there is one and the server still has it.
+  if (next !== "no" && submitResult?.runId && next !== submitVisibility) {
+    submitVisibility = next;
+    void (async () => {
+      try {
+        await competitive.setPrivate(submitResult!.runId!, await accountToken(), next === "private");
+        pushLogLine(next === "private"
+          ? "THIS RUN IS NOW PRIVATE. It still ranks. Nobody else gets the film."
+          : "THIS RUN IS NOW PUBLIC. Anyone can race your ghost.");
+        renderEarned(state);
+      } catch { /* the standing choice still changed */ }
+    })();
+  }
+});
+renderConsentToggle();
 
 /**
  * Submit, then WATCH THE SEAL LAND. The seconds between VERIFYING and a gold
@@ -6081,6 +8165,7 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
     submitResult = {
       state: res.state, runId: res.runId, reason: res.reason,
       attemptNo: res.attemptNo, scoresCp: res.scoresCp,
+      needsIdentity: res.needsIdentity,
     };
     renderEarned(state);
     if (!res.queued) return;
@@ -6088,14 +8173,27 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
     // box that already knows the answer within a few seconds.
     for (let i = 0; i < 20; i++) {
       await new Promise((r) => setTimeout(r, 900));
-      const row = (await competitive.run(res.runId, token)) as social.BoardRun;
+      const row = (await competitive.run(res.runId, token)) as social.BoardRun & { boards?: string[] };
       if (row.state !== "verifying" && row.state !== "claimed") {
-        submitResult = { state: row.state, runId: res.runId, reason: row.reason ?? undefined };
+        submitResult = {
+          state: row.state, runId: res.runId, reason: row.reason ?? undefined,
+          boards: row.boards ?? [],
+        };
         if (row.state === "verified") {
           // CP and the board position only exist AFTER certification, so the
           // ladder line is re-read here rather than guessed at run end.
           await Promise.all([loadStanding(), loadTodaysBoard()]);
           pushLogLine("THE SYSTEM RE-RAN YOUR CRAWL. It agrees with you. Sealed.");
+        }
+        // A REFUSED RUN UN-BANKS WHAT IT PROVISIONALLY BANKED. The band PBs are
+        // committed to the local ledger at the status edge, minutes before the
+        // verdict arrives; leaving them there would let a run the server would
+        // not certify hold a record in the panel that reads "sealed traversals
+        // only". The ledger goes back to exactly where this run found it.
+        if (row.state === "rejected") {
+          storeBandBests(recapPrevBests);
+          recapBandPbs = [];
+          pushLogLine("THE SYSTEM DISAGREES. The row is gone and the ledger is back where it was.");
         }
         renderLadderLine(state);
         renderEarned(state);
@@ -6121,7 +8219,12 @@ let ghost: social.GhostState | null = null;
 let ghostNote = "";
 
 /** Load a proof through the era gate and precompute its track. */
-async function armGhost(bytes: Uint8Array, label: string, runId?: string): Promise<boolean> {
+async function armGhost(
+  bytes: Uint8Array, label: string, runId?: string,
+  // WHAT THE GHOST DID, from whatever armed it (blocker 14). The track knows
+  // where they were; only the caller knows what they scored.
+  facts?: social.GhostState["facts"],
+): Promise<boolean> {
   const reply = await precomputeGhost({ bytes, ghostHz: 10, eras: [RULES_HASH] });
   if (!reply.ok) {
     // NEVER step a foreign proof into the current sim to see what happens: it
@@ -6142,7 +8245,7 @@ async function armGhost(bytes: Uint8Array, label: string, runId?: string): Promi
   }
   ghost = {
     label: label || reply.label, track: reply.track,
-    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId,
+    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId, facts,
   };
   ghostNote = "";
   return true;
@@ -6156,13 +8259,36 @@ async function runItBack(): Promise<void> {
   const proof = runProof;
   recapEl.style.display = "none";
   recapEl.classList.remove("tabbed");
+  consentEl.classList.remove("on"); // the offer does not outlive the screen
+  recapEl.classList.remove("consenting");
+  shareEl.classList.remove("on");
+  if (invOpen) toggleInventory();
+  if (abilOpen) toggleAbilities();
+  document.getElementById("saferoom")!.style.display = "none";
+  document.getElementById("draft")!.style.display = "none";
   ghost = null;
   if (proof) {
     const { encodeProof } = await import("./sim/replay");
-    await armGhost(encodeProof(proof), "YOUR LAST RUN");
+    // The run you are about to race is the one this browser just filed, so the
+    // scoreboard's ghost column is a full column rather than two numbers.
+    const last = loadHistory()[0] ?? null;
+    await armGhost(encodeProof(proof), "YOUR LAST RUN", undefined, last ? {
+      won: last.won, floor: last.floor, kills: last.kills, level: last.level,
+      damageDealt: last.damageDealt, damageTaken: last.damageTaken, goldSpent: null,
+    } : undefined);
   }
   forcedSeed = seed;
-  startRun(runMode, currentRunKind);
+  // A RERUN OF TODAY'S CONTRACT IS ANOTHER ATTEMPT ON IT, and an attempt the
+  // server did not observe is exactly the hole tickets exist to close. So R on
+  // a daily signs again (attempt 2, 3, ...) instead of quietly dropping off the
+  // contract onto the same seed.
+  if (runMode.kind === "daily" && runMode.day === dayFromMs(Date.now()) && !net && !testMode) {
+    const armed = ghost;
+    await enterDailyContract(runMode.day);
+    ghost = armed; // the sign-in must not throw away the ghost we just built
+  } else {
+    startRun(runMode, currentRunKind);
+  }
   if (ghost) {
     showAnnouncement({
       text: "SAME DUNGEON. Your own ghost is on the course with you. Beat yourself.",
@@ -6176,11 +8302,11 @@ async function raceTheLeader(): Promise<void> {
   const era = RULES_HASH.slice(0, 7);
   const leader = (todaysBoard ?? []).find((r) => social.playability(r, era).ok);
   if (!leader) return;
-  await raceRun(leader.id, leader.name);
+  await raceRun(leader.id, leader.name, leader);
 }
 
 /** Download a sealed run and start the same seed beside it. */
-async function raceRun(runId: string, label: string): Promise<void> {
+async function raceRun(runId: string, label: string, row?: social.BoardRun): Promise<void> {
   const token = await accountToken();
   const got = await competitive.proof(runId, token);
   if (!got.bytes || !got.playable) {
@@ -6190,7 +8316,14 @@ async function raceRun(runId: string, label: string): Promise<void> {
     showAnnouncement({ text: `NO GHOST. ${ghostNote}`, kind: "flavor", priority: "high" });
     return;
   }
-  if (!(await armGhost(got.bytes, label, runId))) return;
+  // The verifier derived damage, gold and level as it replayed and wrote them
+  // onto the row, so racing a sealed run fills every cell of the ghost column.
+  const facts = row ? {
+    won: row.won, floor: row.floor, kills: row.kills, level: row.level,
+    damageDealt: row.damageDealt || null, damageTaken: row.damageTaken || null,
+    goldSpent: row.goldSpent || null,
+  } : undefined;
+  if (!(await armGhost(got.bytes, label, runId, facts))) return;
   closeSets();
   recapEl.style.display = "none";
   forcedSeed = null;
@@ -6230,22 +8363,34 @@ function updateGhostHud(s: GameState): void {
   const myEntry = floorEntryTicks[s.floor - 1] ?? -1;
   const entryDelta = s.floor > 1 ? social.splitDelta(ghost, s.floor, myEntry) : null;
   const live = theirExit >= 0 ? (runTicks - theirExit) / 60 : null;
-  const delta = live ?? entryDelta;
+  // THE MODAL CASE HAD NO NUMBER AT ALL. RUN IT BACK races your last run, and
+  // the most common last run died on floor 1 - precisely when the urge to
+  // re-run is strongest. `floorEntryTicks[1]` is then -1, so the chip showed
+  // "NO SPLIT YET / YOUR LAST RUN has not left floor 1" in grey with eighteen
+  // empty pips, for the entire race. A rival who DIED on this floor is not a
+  // missing split: their run END is the target, and outliving it is the race.
+  const theyEndedHere = theirExit < 0 && theirFloor <= s.floor && ghost.ticks > 0;
+  const endRace = theyEndedHere ? (runTicks - ghost.ticks) / 60 : null;
+  const delta = live ?? endRace ?? entryDelta;
   const dEl = document.getElementById("ghost-delta")!;
   const sub = document.getElementById("ghost-sub")!;
+  ghostEl.classList.toggle("racing", delta !== null);
   if (delta === null) {
     dEl.className = "gdelta pending";
     if (theirFloor < s.floor) {
       dEl.textContent = "PAST THEIR DEPTH";
       sub.textContent = `they never got below floor ${theirFloor}`;
-    } else if (theirExit >= 0) {
-      // Cannot happen (live would be set), but keep the branch honest.
-      dEl.textContent = social.mmss(theirExit / 60);
-      sub.textContent = `their floor ${s.floor} exit`;
     } else {
       dEl.textContent = "NO SPLIT YET";
       sub.textContent = `${ghost.label} has not left floor ${s.floor}`;
     }
+  } else if (endRace !== null) {
+    // Signed against their whole run: negative until you outlive them.
+    dEl.className = `gdelta ${endRace > 0 ? "ahead" : "behind"}`;
+    dEl.textContent = social.signedTime(endRace);
+    sub.textContent = endRace > 0
+      ? `you have outlived ${ghost.label.toUpperCase()} — they ended here at ${social.mmss(ghost.ticks / 60)}`
+      : `${ghost.label.toUpperCase()} ended on this floor at ${social.mmss(ghost.ticks / 60)}. Get past it.`;
   } else {
     // Signed AND coloured, both directions. Red is losing time, green is taking
     // it: a split delta that does not commit to a sign and a colour is a
@@ -6271,16 +8416,47 @@ function updateGhostHud(s: GameState): void {
   document.getElementById("ghost-splits")!.innerHTML = pips;
 }
 
+/**
+ * THE GHOST IS A BODY, NOT A LIGHTING ARTIFACT (4.1: "a race you cannot see is
+ * a number"). The mesh renders at 45% opacity, desaturated cold, with no
+ * shadow and no contribution to lighting - which is correct for a rival you
+ * cannot hit and hopeless as an IDENTIFICATION. In capture it was genuinely
+ * hard to tell from a torch flicker, and the only other cue in the world was a
+ * 3.4px dashed ring on the minimap. One projected nameplate, on the same
+ * worldToScreen the mob plates already use, is the whole fix.
+ */
+const ghostPlateLayer = document.createElement("div");
+ghostPlateLayer.id = "ghostplate";
+ghostPlateLayer.innerHTML = `<div class="gp"></div>`;
+document.body.appendChild(ghostPlateLayer);
+const ghostPlateEl = ghostPlateLayer.firstElementChild as HTMLElement;
+function updateGhostPlate(s: GameState): void {
+  const at = ghost && s.status === "playing" && !net ? social.ghostAt(ghost, runTicks) : null;
+  if (!at || !ghost || at.floor !== s.floor) { ghostPlateLayer.classList.remove("on"); return; }
+  const sp = renderer.worldToScreen(at.x, 2.05, at.y);
+  if (!sp.visible) { ghostPlateLayer.classList.remove("on"); return; }
+  ghostPlateLayer.classList.add("on");
+  ghostPlateEl.style.left = `${sp.x}px`;
+  ghostPlateEl.style.top = `${sp.y}px`;
+  if (ghostPlateEl.textContent !== ghost.label) ghostPlateEl.textContent = ghost.label;
+}
+
 // ---- THE STANDINGS (3) ----------------------------------------------------
 const ladderEl = document.getElementById("ladder")!;
 const careerEl = document.getElementById("career")!;
 let ladderTab: "contracts" | "alltime" | "bands" | "rivals" = "contracts";
 let alltimeTab = "deepest";
 
+/** The bearer token. It goes UP the wire, in a query string, and it never
+ *  comes back down: the server projects a derived public id instead, because
+ *  this string is the credential POST /runs authenticates on. */
 let myAccount = "";
-/** Crawlers the System has pointed you at, plus anyone you follow. They light
- *  up on every board, because a ladder is only contested if you can find the
- *  person you are contesting it WITH. */
+/** ...and the public name that same account wears on a board row, which is
+ *  the only thing the YOU tag ever needed. */
+let myPublicId = "";
+/** Crawlers the System has pointed you at, plus anyone you follow, BY PUBLIC
+ *  ID. They light up on every board, because a ladder is only contested if you
+ *  can find the person you are contesting it WITH. */
 const rivalAccounts = new Set<string>();
 let events: social.EventsView | null = null;
 const ERA = RULES_HASH.slice(0, 7);
@@ -6289,6 +8465,299 @@ function closeSets(): void {
   ladderEl.classList.remove("on");
   careerEl.classList.remove("on");
 }
+
+/**
+ * THE NO-SCROLLBAR RULE NEEDS AN AFFORDANCE IN ITS PLACE.
+ *
+ * `#ladder, #career { overflow: auto; scrollbar-width: none }` is the right
+ * house rule - a gilt document does not get a grey elevator down its side -
+ * but it shipped with nothing standing in for the bar it removed. At 1600x900
+ * the BANDS tab cut THE IRONWORKS and THE APPROACH mid-row and the career
+ * panel cut MILESTONES mid-entry, with no gradient, no chevron and no hint
+ * that anything was below: two of the four competitive screens read as
+ * TRUNCATED rather than scrollable on a standard desktop viewport.
+ */
+function wireScrollHint(panel: HTMLElement, hint: HTMLElement): void {
+  const sync = (): void => {
+    const more = panel.scrollHeight - panel.scrollTop - panel.clientHeight > 24;
+    hint.classList.toggle("on", more && panel.classList.contains("on"));
+  };
+  panel.addEventListener("scroll", sync, { passive: true });
+  window.addEventListener("resize", sync);
+  // Content arrives asynchronously (a board fetch, a profile fetch), so the
+  // hint cannot be decided once at open time.
+  new MutationObserver(sync).observe(panel, { childList: true, subtree: true, attributes: true });
+  sync();
+}
+wireScrollHint(ladderEl, document.getElementById("ladder-more")!);
+wireScrollHint(careerEl, document.getElementById("career-more")!);
+
+/**
+ * THE PANEL FITS THE WINDOW. THE WINDOW DOES NOT FIT THE PANEL.
+ *
+ * The house rule is no scrollbars, and MORE BELOW was shipped as the
+ * affordance that stands in for the bar — but an affordance for a state that
+ * should not exist is not a fix. Measured before this pass: THE CRAWLER was
+ * 1462px of content inside an 864px frame at 1600x900, so it cut a ledger row
+ * through its own baseline and drew MORE BELOW on top of a milestone.
+ *
+ * Layout does the work — three columns and the short-viewport compaction in
+ * iso.html — but layout alone can only ever be tuned against the content it
+ * was tuned against, and these lists grow: 60 runs on the local ledger, one
+ * milestone per record ever set, 25 rows on a museum. So the last step is
+ * measured rather than authored: trim the longest trimmable list, one entry at
+ * a time, until the panel stops overflowing.
+ *
+ * Two rules keep this honest:
+ *   - It only ever takes from lists marked `.fitlist`, never below `data-fitmin`,
+ *     and never from the headline, the histogram or either ledger.
+ *   - What it took is STATED, on the list it took it from. A shortened list
+ *     that does not say it was shortened is a worse lie than a scrollbar.
+ * MORE BELOW stays wired as the safety valve for the case where even the
+ * minimums do not fit; it should now be unreachable on a desktop viewport.
+ */
+const fitTrimmed = new WeakMap<HTMLElement, Element[]>();
+
+function fitRows(list: HTMLElement): Element[] {
+  return Array.from(list.children).filter((c) => !c.classList.contains("fitmore"));
+}
+
+/** DIRECT CHILD, ALWAYS. Lists nest now (THE OTHER MUSEUMS sits inside the
+ *  all-time footnote block), and a descendant `.fitmore` is not a valid
+ *  `insertBefore` reference — it throws, mid-render, on the panel. */
+function fitNoteOf(list: HTMLElement): HTMLElement | null {
+  for (const c of Array.from(list.children)) {
+    if (c.classList.contains("fitmore")) return c as HTMLElement;
+  }
+  return null;
+}
+
+/**
+ * ...AND WHAT IT HELD BACK IS ONE CLICK AWAY. Trimming an 18-row tail off a
+ * ranked museum to make a 768px laptop fit would make those rows UNREACHABLE,
+ * which is a straight downgrade on the thing the panel is for. The note is a
+ * button: the default state obeys the house rule, and a reader who wants the
+ * whole board says so and gets it (with MORE BELOW, the affordance that has
+ * always been the honest signal for "this one scrolls").
+ */
+function fitNote(list: HTMLElement): void {
+  const held = fitTrimmed.get(list) ?? [];
+  const open = list.dataset.fitopen === "1";
+  let note = fitNoteOf(list);
+  if (held.length === 0 && !open) { note?.remove(); return; }
+  if (!note) {
+    note = document.createElement(list.tagName === "UL" ? "li" : "div");
+    note.className = "fitmore";
+    list.appendChild(note);
+  }
+  note.innerHTML = "";
+  const btn = document.createElement("button");
+  const noun = list.dataset.fitnoun ?? "entry";
+  btn.dataset.fittoggle = "1";
+  btn.textContent = open
+    ? "SHOWING EVERY ROW — the panel scrolls. FOLD IT BACK"
+    : `+${held.length} more ${noun}${held.length === 1 ? "" : "s"} held back to fit this window — SHOW THEM`;
+  note.appendChild(btn);
+}
+
+/** The lowest point in `root` at which anything actually paints text. */
+function inkBottom(root: HTMLElement): number {
+  let deepest = root.getBoundingClientRect().top;
+  const walk = (el: Element): void => {
+    for (const c of Array.from(el.children)) {
+      let inks = false;
+      for (const n of Array.from(c.childNodes)) {
+        if (n.nodeType === 3 && (n.textContent ?? "").trim().length > 0) { inks = true; break; }
+      }
+      if (inks) {
+        const r = c.getBoundingClientRect();
+        if (r.height > 0 && r.width > 0) deepest = Math.max(deepest, r.bottom);
+      }
+      walk(c);
+    }
+  };
+  walk(root);
+  return deepest;
+}
+
+
+/** Trim order. Higher goes first: a footnote invented to fill space under a
+ *  board must never outrank a ranked row on that board. */
+function fitPri(list: HTMLElement): number {
+  return Number(list.dataset.fitpri ?? "0");
+}
+
+/**
+ * ...AND A CUT ONLY COUNTS IN THE COLUMN THAT SETS THE HEIGHT. THE CRAWLER
+ * lays out in three independent columns, and the panel is as tall as the
+ * tallest of them: measured at 1600x900, column 1 (THE SEALED RECORD +
+ * MASTERY) bottomed out at y=755 against columns 2/3 at y=833-847, while the
+ * panel held back 4 milestones and 3 runs. Rows taken from a column that was
+ * not the tallest buy zero pixels and cost real rows, so the victim is chosen
+ * from the columns that are actually setting the height.
+ */
+function tallestColumnLists(pool: HTMLElement[]): HTMLElement[] {
+  const cols = new Map<HTMLElement, HTMLElement[]>();
+  for (const l of pool) {
+    const col = l.closest<HTMLElement>(".ccol");
+    if (!col) return pool; // not a columned panel — nothing to be clever about
+    const seen = cols.get(col);
+    if (seen) seen.push(l); else cols.set(col, [l]);
+  }
+  if (cols.size < 2) return pool;
+  const bottoms = new Map<HTMLElement, number>();
+  for (const col of cols.keys()) bottoms.set(col, inkBottom(col));
+  const deepest = Math.max(...bottoms.values());
+  const winners: HTMLElement[] = [];
+  for (const [col, ls] of cols) if (deepest - bottoms.get(col)! <= 8) winners.push(...ls);
+  return winners.length > 0 ? winners : pool;
+}
+
+function fitPanel(panel: HTMLElement): void {
+  const lists = Array.from(panel.querySelectorAll<HTMLElement>(".fitlist"));
+  // Restore first, unconditionally: a window that got taller gets its rows
+  // back, and a re-render that already rebuilt the list starts from whole.
+  for (const list of lists) {
+    const held = fitTrimmed.get(list);
+    if (held && held.length > 0) for (const n of held) list.appendChild(n);
+    fitTrimmed.delete(list);
+    fitNote(list);
+  }
+  if (!panel.classList.contains("on")) return;
+  // A FLOOR IS A FLOOR, NOT A MANDATE. The frame sits on 720px (58vh on a tall
+  // screen) so a tab switch cannot resize the world behind it — but a tab that
+  // genuinely has 200px to say cannot fill 720 no matter how the slack is
+  // distributed, and stretching an empty card to cover it is the same hole
+  // with a border drawn round it. When the shortfall is big enough that no
+  // honest content could close it, the frame drops the floor and hugs, and
+  // `margin: auto` centres the result on the panel's own vignette.
+  //
+  // "Enough" is measured the way the complaint was measured: the gap between
+  // the last thing on the tab that puts INK on the stone and the bottom of the
+  // space the frame claimed. A stretched empty container does not count as
+  // filled, which is the whole point — that was the first version of this and
+  // it flattered itself by exactly the amount it was wrong by.
+  const frame = panel.querySelector<HTMLElement>(".set-frame");
+  const body = frame?.querySelector<HTMLElement>("#ladder-body, #career-body");
+  if (frame && body) {
+    frame.classList.remove("hugs");
+    if (body.getBoundingClientRect().bottom - inkBottom(body) > 150) frame.classList.add("hugs");
+  }
+  // A list the reader has explicitly unfolded is not the fit pass's business
+  // any more.
+  for (const l of lists) if (l.dataset.fitopen === "1") fitNote(l);
+  const open = lists.filter((l) => l.dataset.fitopen === "1");
+  if (open.length > 0) return;
+  // THE MEASURE IS INK, NOT BOXES — and this is the lesson of the bounded
+  // frame. `scrollHeight - clientHeight` answers "does the box overflow", and
+  // flex is perfectly happy to keep that answer at ZERO while drawing the
+  // content on top of itself: give the frame a ceiling and the board's own box
+  // is squeezed under its rows, which keep their min-content height and print
+  // straight through THE OTHER MUSEUMS beneath them. Measured at 1366x768
+  // before this: every box reported 0 overflow while row 11 of the all-time
+  // board and the footnote occupied the same 40 pixels.
+  //
+  // So the question this pass asks is the one the house rule actually asks:
+  // is anything DRAWN below the bottom of the frame that is supposed to hold
+  // it. The box measures stay in as a belt for the panel itself.
+  const frameFloor = (): number => {
+    if (!frame) return Infinity;
+    const cs = getComputedStyle(frame);
+    return frame.getBoundingClientRect().bottom
+      - parseFloat(cs.paddingBottom) - parseFloat(cs.borderBottomWidth);
+  };
+  const over = (): number => Math.max(
+    panel.scrollHeight - panel.clientHeight,
+    frame ? frame.scrollHeight - frame.clientHeight : 0,
+    body ? Math.ceil(inkBottom(body) - frameFloor()) : 0);
+  const take = (list: HTMLElement): void => {
+    const rows = fitRows(list);
+    const held = fitTrimmed.get(list) ?? [];
+    held.unshift(rows[rows.length - 1]);
+    rows[rows.length - 1].remove();
+    fitTrimmed.set(list, held);
+    fitNote(list);
+  };
+  const give = (list: HTMLElement): void => {
+    const held = fitTrimmed.get(list);
+    if (!held || held.length === 0) return;
+    const row = held.shift()!;
+    list.insertBefore(row, fitNoteOf(list));
+    if (held.length === 0) fitTrimmed.delete(list);
+    fitNote(list);
+  };
+  const roomLeft = (l: HTMLElement): number =>
+    fitRows(l).length - Math.max(1, Number(l.dataset.fitmin ?? "1"));
+
+  // CUT PADDING FIRST, THEN THE LONGEST LIST IN THE TALLEST COLUMN.
+  //
+  // Never a per-cut "did that help?" test: THE CRAWLER lays out in columns of
+  // near-equal height, so that test says no to every single cut — shortening
+  // either of two equal columns leaves the row height unchanged — and an
+  // earlier version of this pass therefore refused to trim anything at all
+  // while the panel was 98px too tall. But "longest list anywhere" is too
+  // blunt in the other direction, and round 1 shipped both of its costs: a
+  // footnote invented to fill space outlived the ranked rows it displaced
+  // (`fitPri`), and rows were taken from a column that was not setting the
+  // height (`tallestColumnLists`). The measurement that matters is still the
+  // one at the END: trim until it fits, and if it never fits, put it all back,
+  // because rows taken for nothing are rows taken for nothing.
+  let guard = 400;
+  while (over() > 0 && guard-- > 0) {
+    const room = lists.filter(roomLeft);
+    if (room.length === 0) break;
+    // ...but priority comes first, and it is not a heuristic: a list marked
+    // `data-fitpri` is padding this track invented, and it is spent before a
+    // single ranked row is.
+    const top = Math.max(...room.map(fitPri));
+    const victim = tallestColumnLists(room.filter((l) => fitPri(l) === top))
+      .sort((a, b) => fitRows(b).length - fitRows(a).length)[0];
+    if (!victim) break;
+    take(victim);
+  }
+  if (over() > 0) {
+    for (const list of lists) while (fitTrimmed.get(list)?.length) give(list);
+    return;
+  }
+  // ...then hand back what the greedy pass over-took. Cutting the longest list
+  // is a fair heuristic, not an exact one, and a panel that fits with room to
+  // spare should be showing rows in it.
+  // ...lowest priority first, so what comes back is a ranked row before it is
+  // a footnote — the same order the cut went in, run backwards.
+  for (const list of [...lists].sort((a, b) =>
+    fitPri(a) - fitPri(b)
+    || (fitTrimmed.get(b)?.length ?? 0) - (fitTrimmed.get(a)?.length ?? 0))) {
+    while (fitTrimmed.get(list)?.length) {
+      give(list);
+      if (over() > 0) { take(list); break; }
+    }
+  }
+}
+
+/** SHOW THEM / FOLD IT BACK on a trimmed list. Returns whether it handled the
+ *  click, so the panels' own delegated handlers can fall through. */
+function toggleFitList(el: HTMLElement, panel: HTMLElement): boolean {
+  const btn = el.closest("[data-fittoggle]") as HTMLElement | null;
+  if (!btn) return false;
+  const list = btn.closest(".fitlist") as HTMLElement | null;
+  if (!list) return false;
+  if (list.dataset.fitopen === "1") delete list.dataset.fitopen;
+  else list.dataset.fitopen = "1";
+  fitPanel(panel);
+  return true;
+}
+
+/** The open animation scales the frame, so a measurement taken in the same
+ *  frame as the render reads a box that is still 4% short. Re-fit once the
+ *  layout has actually settled. */
+function fitPanelSoon(panel: HTMLElement): void {
+  requestAnimationFrame(() => requestAnimationFrame(() => fitPanel(panel)));
+  window.setTimeout(() => fitPanel(panel), 260);
+}
+
+// A resize can only be answered by re-measuring: the trim depends on the
+// viewport, and both directions matter.
+window.addEventListener("resize", () => { fitPanel(ladderEl); fitPanel(careerEl); });
 
 /** Result column per board - each board brags differently. */
 
@@ -6300,11 +8769,14 @@ function boardResult(kind: string, r: social.BoardRun): string {
   // because to the reader it is. Centiseconds cost nothing - the data was
   // always this precise.
   if (kind === "band") return r.bandTicks ? social.ticksClock(r.bandTicks) : "—";
-  if (kind === "kills") return `${r.kills.toLocaleString()} kills`;
+  if (kind === "kills") return social.count(r.kills, "kill");
   if (kind === "fastest" || kind === "contracts") {
     return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor}`;
   }
-  return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor} · ${fmt(r.timeSec)}`;
+  // ...INCLUDING THE UNFINISHED RUNS. `fmt(r.timeSec)` rounded the tick count to
+  // the whole second, so the DEEPEST row read "2:06" beside a splits panel
+  // reading 2:05.73 for the same run, on the same screen.
+  return r.won ? `CLEAR · ${social.ticksClock(r.ticks)}` : `floor ${r.floor} · ${social.ticksClock(r.ticks)}`;
 }
 
 /** The key for the row colours, plus whatever tiebreak this board sorts on.
@@ -6321,36 +8793,186 @@ function rowKeyHtml(tiebreak = ""): string {
  * raceable it says WHY on the button instead of greying out - a silent disable
  * is how a player concludes the ladder is broken.
  */
+/**
+ * THE VERIFIER-DERIVED DETAIL, RENDERED (COMPETITIVE.md 0: "match history where
+ * every row carries verifier-derived detail — splits, build, cause of death").
+ *
+ * `GET /boards/:kind` already returns, per row: the full build (gear with
+ * rarities, ability ranks, glyph sockets), bandSplits, damageDealt,
+ * damageTaken, goldSpent, level and ultimate. All of it was derived during the
+ * replay, written onto the row at certification, put on the wire — and thrown
+ * away at render, so a board row printed name / era / attempt / chip / result.
+ * None of this costs a request; it is already in the response object.
+ */
+function verifierDetailHtml(r: social.BoardRun): string {
+  if (r.state !== "verified") return "";
+  const cells: string[] = [];
+  const splits = (r.bandSplits ?? []).map((t, i) => t > 0
+    ? `<i><b>${esc(social.bandName(i))}</b>${social.ticksClock(t)}</i>` : "").join("");
+  if (splits) cells.push(`<div class="dgrp"><span class="dlab">SPLITS</span><div class="dsplits">${splits}</div></div>`);
+  const b = r.build;
+  if (b) {
+    const ranks = Object.values(b.ranks ?? {}).reduce((a, n) => a + (n || 0), 0);
+    const glyphs = b.glyphs
+      ? b.glyphs.slots.flat().filter(Boolean).length + b.glyphs.ultimate.filter(Boolean).length : 0;
+    const gear = (b.gear ?? []).map((g) =>
+      `<i class="rar-${esc(String(g.rarity))}">${esc(String(g.name ?? g.slot))}</i>`).join("");
+    const kit = [
+      b.ultimate ? `${ABILITY_INFO[b.ultimate as AbilityId]?.name ?? b.ultimate} · ULT` : null,
+      ...(b.slots ?? []).filter(Boolean).map((s) => ABILITY_INFO[s as AbilityId]?.name ?? String(s)),
+    ].filter(Boolean).join(" · ");
+    cells.push(`<div class="dgrp"><span class="dlab">THE BUILD</span>` +
+      `<div class="dbuild">${esc(kit || "bare hands")}` +
+      `<span class="dmeta">${ranks} rank${ranks === 1 ? "" : "s"}` +
+      (glyphs ? ` · ${glyphs} glyph${glyphs === 1 ? "" : "s"} socketed` : "") + `</span>` +
+      (gear ? `<div class="dgear">${gear}</div>` : "") + `</div></div>`);
+  }
+  const death = r.death;
+  if (death) {
+    cells.push(`<div class="dgrp"><span class="dlab">WHAT ENDED IT</span>` +
+      `<div class="ddeath">${esc(social.deathHeadline(death))}</div></div>`);
+  } else if (r.won) {
+    cells.push(`<div class="dgrp"><span class="dlab">WHAT ENDED IT</span>` +
+      `<div class="ddeath clear">nothing — they walked out</div></div>`);
+  }
+  const nums: [string, string][] = [
+    ["DAMAGE DEALT", r.damageDealt > 0 ? Math.round(r.damageDealt).toLocaleString() : "—"],
+    ["DAMAGE TAKEN", r.damageTaken > 0 ? Math.round(r.damageTaken).toLocaleString() : "—"],
+    ["GOLD SPENT", r.goldSpent > 0 ? Math.round(r.goldSpent).toLocaleString() : "—"],
+    ["LEVEL", String(r.level)],
+  ];
+  cells.push(`<div class="dgrp"><span class="dlab">THE NUMBERS</span><div class="dnums">` +
+    nums.map(([l, v]) => `<i><b>${l}</b>${esc(v)}</i>`).join("") + `</div></div>`);
+  return `<div class="rdet" hidden>${cells.join("")}` +
+    `<div class="dfoot">Every figure here was derived by the verifier while it re-executed this run. ` +
+    `The crawler asserted none of it.</div></div>`;
+}
+
 function boardRowHtml(
   r: social.BoardRun, i: number, kind: string, extra = "",
   weight: social.SealWeight = "ranked",
 ): string {
-  const chip = social.sealChip(r.state, r.rulesEra, r.private, weight);
+  // HOW THIS ROW GOT ITS SEAL (blocker 11). A server-vouched RIVALS contract is
+  // `verified` with no film, and the chip used to promise a re-execution that
+  // never happened for it.
+  const chip = social.sealChip(r.state, r.rulesEra, r.private, weight, social.provenanceOf(r));
   const play = social.playability(r, ERA);
 
-  const mine = r.accountId === myAccount;
-  const rival = !mine && rivalAccounts.has(r.accountId);
+  const mine = !!r.publicId && r.publicId === myPublicId;
+  const rival = !mine && !!r.publicId && rivalAccounts.has(r.publicId);
   const sub = [
-    r.rulesEra ? `era ${r.rulesEra}` : "unstamped",
-    r.attemptNo ? `attempt ${r.attemptNo}` : null,
+    // "unstamped" reads as a missing field. Nothing is missing: an unproven
+    // row has no era because it was never certified, and saying that is the
+    // whole point of the chip beside it.
+    r.rulesEra ? `era ${r.rulesEra}` : "no era — never certified",
+    // WHICH GAME, NOT JUST WHICH NUMBERS (blocker 11). `mode` and `runKind`
+    // have been on the wire since the roam gate shipped and nothing rendered
+    // either, so a ruleset with no permadeath was indistinguishable on the
+    // board from the descent every other row is. Null for the plain descent.
+    social.rulesetLabel(r),
+    // "SIGNED attempt N", not "attempt N". The number comes off the event
+    // ticket, so it counts the attempts the server was asked to OBSERVE - it
+    // is not, and cannot be, a count of how many times this dungeon was
+    // played. The ticket is stamped and single-use now, so the number means
+    // something; it still is not an observed total, and the word says which.
+    r.attemptNo ? `signed attempt ${r.attemptNo}` : null,
     r.ultimate ? ABILITY_INFO[r.ultimate as AbilityId]?.name ?? r.ultimate : null,
-    r.partySize > 1 ? `party of ${r.partySize}` : null,
+    // "party of N" IS SERVER-COUNTED NOW, never self-reported (blocker 15): a
+    // proof attests to one crawler's inputs, so a proof-verified row is always
+    // solo and only the server-vouched rivals path can say otherwise.
+    r.partySize > 1 ? `party of ${r.partySize} · counted by the server` : null,
     extra || null,
   ].filter(Boolean).join(" · ");
-  const acts = play.ok
-    ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
-    : `<button disabled title="${esc(play.why)}">RACE</button>`;
+  const detail = verifierDetailHtml(r);
+  const acts = (detail
+    ? `<button class="rmore" data-more="1" title="splits, build and cause of death, all derived by the verifier">DETAIL</button>`
+    : "")
+    + (play.ok
+      ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
+      : `<button disabled title="${esc(play.why)}">RACE</button>`);
 
   // The colour is backed up by a word: a legend under the tab bar answers it
   // once, and the tag answers it on the row itself.
   const tag = mine ? `<span class="rtag you">YOU</span>`
     : rival ? `<span class="rtag rival">RIVAL</span>` : "";
-  return `<li class="brow${mine ? " you" : ""}${rival ? " rival" : ""}${i < 3 ? ` top${i + 1}` : ""}">` +
-    `<span class="rank">${i + 1}</span>` +
-    `<span class="who"><b>${esc(r.name)}${tag}</b><span class="sub">${esc(sub)}</span></span>` +
+  // A DISCRIMINATOR, BECAUSE TWO CRAWLERS SHARE A NAME ON A FOUR-ROW BOARD.
+  // Keying moved to account_id; the DISPLAY did not, so a live capture had rank
+  // 2 "Carl" (a different account, SEALED) directly above an unproven "Carl"
+  // wearing the YOU chip, with nothing between them. The derived public id is
+  // already on every row and is exactly the stable, one-way, non-credential
+  // handle this needs.
+  const hash = r.publicId ? `<span class="rhash">#${esc(r.publicId.slice(0, 4).toUpperCase())}</span>` : "";
+  // A NEGATIVE INDEX MEANS "THIS ROW HOLDS NO POSITION". Unproven claims are
+  // shown - the board still fills on day one - but they are never handed a
+  // rank ordinal, because an ordinal IS the claim that the board endorses it.
+  const ranked = i >= 0;
+  return `<li class="brow${mine ? " you" : ""}${rival ? " rival" : ""}` +
+    `${ranked && i < 3 ? ` top${i + 1}` : ""}">` +
+    `<span class="rank">${ranked ? i + 1 : "—"}</span>` +
+    `<span class="who"><b>${esc(r.name)}${hash}${tag}</b><span class="sub">${esc(sub)}</span></span>` +
     `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
     `<span class="res${r.won ? " win" : ""}">${boardResult(kind, r)}</span>` +
-    `<span class="acts">${acts}</span></li>`;
+    `<span class="acts">${acts}</span>${detail}</li>`;
+}
+
+/**
+ * THE RANKED LIST, AND THE UNPROVEN SHELF UNDER IT (COMPETITIVE.md 3.2B:
+ * "Verified-only for the top 10; `claimed` rows may appear below with a
+ * visible marker").
+ *
+ * Neither half was implemented. `GET /boards/:kind` sorts `claimed` rows into
+ * the ranked ordering beside verified ones, and this renderer gave them the
+ * identical rank ordinal, the identical green `.res.win` CLEAR treatment and
+ * the identical row chrome - only a 10.5px chip differed. Live, an unverified
+ * CLAIMED run held rank 6 all-time under five sealed 13-15 minute clears and
+ * printed "CLEAR · 0:09.81" in green, so a reader scanning THE STANDINGS saw
+ * six clears. That is the exact failure the whole document exists to prevent,
+ * living in the presentation layer instead of the spine.
+ *
+ * The rank ordering is now verified-only, end to end. Claims are not deleted -
+ * they are moved below the board, stripped of their ordinal and their result
+ * colour, under a heading that says what they are.
+ */
+function boardListHtml(
+  page: { entries: readonly social.BoardRun[]; unproven?: readonly social.BoardRun[] },
+  kind: string, empty: string,
+  extraFor?: (r: social.BoardRun) => string,
+): string {
+  // THE SPLIT NOW ARRIVES ALREADY MADE. `GET /boards/:kind` returns proofs in
+  // `entries` and claims in `unproven`, so this renderer no longer has to be
+  // the only thing in the product that knows the difference - it just has to
+  // draw it. The filters stay as a belt for an older server or a band board
+  // that still answers with one mixed array.
+  const sealed = (page.unproven ? page.entries : page.entries.filter((r) => r.state === "verified"))
+    .filter((r) => r.state === "verified");
+  const unproven = page.unproven ?? page.entries.filter((r) => r.state !== "verified");
+  const extra = (r: social.BoardRun): string => extraFor?.(r) ?? "";
+  // `fitlist`: the last five ranked rows are what a very short window takes
+  // back before anything structural goes (see `fitPanel`). The top five are
+  // never trimmable, because the top of a board is the board.
+  let html = `<ul class="board fitlist" data-fitmin="5" data-fitnoun="row">${
+    sealed.map((r, i) => boardRowHtml(r, i, kind, extra(r))).join("")
+    || `<li class="none">${empty}</li>`}</ul>`;
+  if (unproven.length > 0) {
+    // ONE LINE, NOT TWO SENTENCES OF RATIONALE. League never explains itself on
+    // a ranked surface; the copy was good and there was three times too much
+    // of it, loudest exactly where the board was emptiest.
+    // ...AND IT NAMES BOTH POPULATIONS (blocker 11). `unverifiable` rows are on
+    // this shelf now - 2.6d promises the row "keeps whatever it earned" and the
+    // verdict screen says so in as many words, while the board predicate used
+    // to drop them off every surface in the product. A row the System could not
+    // run is not a row a client made up, and one heading cannot call them the
+    // same thing.
+    const aged = unproven.filter((r) => r.state === "unverifiable").length;
+    html += `<div class="unproven">` +
+      `<div class="uhead">BELOW THE BOARD — NO RANK, NO RESULT</div>` +
+      `<div class="usub">Never re-executed${aged > 0
+        ? `, or recorded under rules this build can no longer run (${aged}). Kept, not ranked.`
+        : ". No rank, no result."}</div>` +
+      `<ul class="board fitlist" data-fitmin="1" data-fitnoun="unproven row">${unproven.map(
+        (r, i) => boardRowHtml(r, -1 - i, kind, extra(r), "plain")).join("")}</ul></div>`;
+  }
+  return html;
 }
 
 function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string {
@@ -6372,7 +8994,52 @@ function contractCardHtml(e: social.EventView, kind: "daily" | "weekly"): string
     `</div>`;
 }
 
+/**
+ * THE OTHER MUSEUMS, ONE LINE EACH. The ALL-TIME tab drew one board and then
+ * stopped, leaving 42% of a 1600x900 viewport as empty black - on a screen with
+ * four boards behind a tab strip and no indication of what was on the other
+ * three. Each line is the current leader of a board you are not looking at,
+ * which is both the missing content and the reason to look.
+ */
+/*
+ * ...AND IT IS A FOOTNOTE, WHICH MEANS IT IS THE FIRST THING TO GO. Measured
+ * at 1600x900: nine board rows ended at y=634, "+16 more rows held back to fit
+ * this window" at y=646, and then ~190px of era note and OTHER MUSEUMS under
+ * it. Both blocks were added by this track's own comments to fill space under
+ * a short board; the fit pass then trimmed the board and left the filler
+ * standing, which is the hierarchy of the flagship museum board upside down.
+ * `data-fitpri` is the fix: these are spent before a ranked row is.
+ */
+async function otherBoardsStripHtml(current: string): Promise<string> {
+  const kinds = ["deepest", "fastest", "kills", "contracts"].filter((k) => k !== current);
+  const pages = await Promise.all(kinds.map((k) =>
+    competitive.board(k, { limit: 1, verified: true }).catch(() => ({ entries: [] }))));
+  const rows = kinds.map((k, i) => {
+    const top = ((pages[i] as social.BoardPage).entries ?? [])[0] ?? null;
+    return `<button class="obrow" data-ab="${esc(k)}">` +
+      `<span class="obk">${k.toUpperCase()}</span>` +
+      (top
+        ? `<span class="obwho">${esc(top.name)}</span>` +
+          `<span class="obres">${esc(boardResult(k, top))}</span>`
+        : `<span class="obwho none">unclaimed</span><span class="obres none">—</span>`) +
+      `<span class="obgo">OPEN ▸</span></button>`;
+  }).join("");
+  return `<div class="obwrap">` +
+    `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
+    `font-variant:small-caps;letter-spacing:2px">THE OTHER MUSEUMS</div>` +
+    // One museum always survives, so the heading can never be left dangling
+    // over nothing; the other two are the first pixels a short window takes.
+    `<div class="otherboards fitlist" data-fitmin="1" data-fitnoun="museum" ` +
+    `data-fitpri="4">${rows}</div></div>`;
+}
+
 async function renderLadder(): Promise<void> {
+  await renderLadderBody();
+  fitPanel(ladderEl);
+  fitPanelSoon(ladderEl);
+}
+
+async function renderLadderBody(): Promise<void> {
   const body = document.getElementById("ladder-body")!;
   document.getElementById("ladder-sub")!.textContent =
     `rules era ${ERA} — every ranked row is a proof the server re-executed, not a number it was told`;
@@ -6394,8 +9061,9 @@ async function renderLadder(): Promise<void> {
 
       `font-family:var(--display);font-variant:small-caps">TODAY'S STANDINGS — ${esc(events.daily.day)}</div>` +
       rowKeyHtml("depth, then the faster run, then the earlier submission") +
-      `<ul class="board">${page.entries.slice(0, 9).map((r, i) => boardRowHtml(r, i, "deepest")).join("")
-        || `<li class="none">nobody has signed today's contract yet. Be the name at the top.</li>`}</ul>`;
+      boardListHtml(
+        { entries: page.entries.slice(0, 12), unproven: page.unproven?.slice(0, 12) }, "deepest",
+        "nobody has signed today's contract yet. Be the name at the top.");
     return;
   }
   if (ladderTab === "alltime") {
@@ -6409,52 +9077,77 @@ async function renderLadder(): Promise<void> {
       rowKeyHtml(alltimeTab === "kills"
         ? "kill count, then the earlier submission"
         : "the exact tick count, then the earlier submission") +
-      `<ul class="board">${page.entries.length
-        ? page.entries.map((r, i) => boardRowHtml(r, i, alltimeTab)).join("")
-        : `<li class="none">this museum is empty. The first exhibit is yours to donate.</li>`}</ul>` +
-      `<div class="gate">All-time boards never reset — they CHIP THE ERA instead. A row stamped ` +
-      `<b>era ${esc(ERA)}</b> was earned under exactly the rules you are playing now; an older stamp was ` +
-      `earned under different numbers, and the board says so rather than quietly blending a year of ` +
-      `patches together and calling it a record.</div>`;
+      boardListHtml(page, alltimeTab,
+        "this museum is empty. The first exhibit is yours to donate.") +
+      // ...AND THE FRAME FILLS. At 1600x900 the all-time board bottomed out
+      // around y=520 with 42% of the viewport empty near-black under it. The
+      // filler is the OTHER three museums, one line each, so the empty space
+      // becomes navigation instead of padding — and it is a `fitlist` at the
+      // top priority, so on the window where that space does NOT exist it is
+      // the board that keeps its rows and the filler that goes.
+      `<div class="atfoot fitlist" data-fitmin="1" data-fitnoun="footnote" data-fitpri="3">` +
+      await otherBoardsStripHtml(alltimeTab) +
+      // ONE LINE. The paragraph that used to live here explained era chipping
+      // at length under a board with four rows on it.
+      `<div class="gate">Never reset — <b>era-chipped</b> instead. A row stamped <b>era ${esc(ERA)}</b> ` +
+      `was earned under the numbers you are playing now; an older stamp says so on its face.</div>` +
+      `</div>`;
     return;
   }
   if (ladderTab === "bands") {
     const boards = await Promise.all([0, 1, 2, 3, 4, 5].map((b) =>
       competitive.bandBoard(b, 5).catch(() => ({ entries: [] }))));
+    // A SPLIT BOARD WITH NO ROWS COLLAPSES (COMPETITIVE.md 3.4). Six empty
+    // headers, each carrying a subtitle and the word "none", is the exact
+    // "reads as abandoned" failure the entrant gate exists to prevent - and the
+    // design already solved it: below the gate a split collapses into its
+    // parent and the System says out loud what unlocks it.
+    const live = boards.map((raw, b) => ({ b, rows: (raw as { entries: social.BoardRun[] }).entries }))
+      .filter((x) => x.rows.length > 0);
+    const dark = [0, 1, 2, 3, 4, 5].filter((b) => !live.some((x) => x.b === b));
     body.innerHTML =
       rowKeyHtml("the exact tick count, then the earlier certification") +
-      `<div class="bandgrid">` + boards.map((raw, b) => {
-      const rows = (raw as { entries: social.BoardRun[] }).entries;
-      const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
-      return `<div><h4>${social.bandName(b)}</h4>` +
-        // THE PREDICATE, ON THE BOARD. A split is only a record if the run
-        // WALKED OUT of the band: entered every floor in it and left the last
-        // one. Without that rule the optimal play for a band record is to step
-        // into the band and die, and the top of every board is an
-        // eight-second death.
-        `<div class="bandsub">fastest sealed TRAVERSAL of floors ${b * 3 + 1}–${last} — ` +
-        `every floor entered and floor ${last} left behind</div>` +
-        `<ul class="board">${rows.length
-          ? rows.map((r, i) => boardRowHtml(r, i, "band",
-              r.won ? "full clear" : `ran on to F${r.floor}`)).join("")
-          : `<li class="none">no sealed traversals here yet</li>`}</ul></div>`;
-    }).join("") + `</div>` +
-      `<div class="gate">Dying on floor 11 does not make you bad at the game — it makes you a crawler ` +
-      `who still holds the RUINS split. Every run passes through several bands, so these are the boards ` +
-      `you can actually win, and the splits cost nothing: the verifier already knows the tick of every ` +
-      `floor transition as it replays you. A band you died INSIDE still appears on your own splits — it ` +
-      `is a true thing that happened — but it is never a record, because a record has to be a band you ` +
-      `got out of.</div>`;
+      // ONE LINE where a 90-word essay used to sit, and it sat loudest on the
+      // emptiest tab in the product.
+      `<div class="gate">Fastest sealed <b>TRAVERSAL</b> of a band: every floor in it entered, and the ` +
+      `last one left behind. A band you died inside is on your splits and is never a record.</div>` +
+      (live.length > 0
+        ? `<div class="bandgrid">` + live.map(({ b, rows }) => {
+          const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
+          return `<div><h4>${social.bandName(b)}</h4>` +
+            `<div class="bandsub">floors ${b * 3 + 1}–${last} · ${rows.length} sealed ` +
+            `traversal${rows.length === 1 ? "" : "s"}</div>` +
+            boardListHtml({ entries: rows }, "band", "no sealed traversals here yet",
+              (r) => (r.won ? "full clear" : `ran on to F${r.floor}`)) + `</div>`;
+        }).join("") + `</div>`
+        : "") +
+      (dark.length > 0
+        ? `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">UNCLAIMED SPLITS</div>` +
+          `<div class="darkbands">` + dark.map((b) => {
+            const last = Math.min(CONFIG.finalFloor, b * 3 + 3);
+            return `<button class="dband" data-enter="${esc(events?.daily.id ?? "")}">` +
+              `<b>${social.bandName(b)}</b><span>floors ${b * 3 + 1}–${last}</span>` +
+              `<i>NOBODY HAS WALKED OUT OF IT YET — TAKE IT ▸</i></button>`;
+          }).join("") + `</div>`
+          + `<div class="gate">${dark.length === 6 ? "All six" : `${dark.length} of the six`} still ` +
+          `unclaimed. These are the most winnable boards in the game: every run passes through several ` +
+          `bands, and the first crawler out of one holds it.</div>`
+        : "");
     return;
   }
   const token = await accountToken();
   const rc = (await competitive.rivalContract(token).catch(() => null)) as social.RivalContract | null;
   if (!rc || !rc.rival) {
-    body.innerHTML = `<div class="gate">NO CONTRACT ISSUED. The System pairs you with a crawler near ` +
-
-      `your contract points and puts you both on today's seed — but it needs somebody near your CP to pair ` +
-      `you WITH. Sign a contract, bank a score, and the matchmaking has something to work with. There is ` +
-      `no queue and no lobby: you wake up with a rival.</div>`;
+    // ONE CARD AND ONE LINE. The three-heading essay (THE PAIRING / THE STAKE /
+    // WHAT DECIDES IT) outweighed the data by area on a tab whose data was
+    // "nothing yet".
+    body.innerHTML = `<div class="contract"><div class="ctag">◆ NO CONTRACT ISSUED ◆</div>` +
+      `<h3>NOBODY TO PAIR YOU WITH</h3>` +
+      `<div class="crule">Seal a run on a contract and the System puts you against the nearest crawler ` +
+      `on contract points, on today's seed. No queue, no lobby, nobody has to be online.</div>` +
+      `<button class="cgo" data-enter="${esc(events?.daily.id ?? "")}">SIGN TODAY'S CONTRACT ▶</button></div>` +
+      `<div class="gate">Decided by the better <b>SEALED</b> run. No CP changes hands.</div>`;
     return;
   }
   const theirs = rc.rivalRun;
@@ -6477,10 +9170,9 @@ async function renderLadder(): Promise<void> {
         `&nbsp;vs&nbsp; F${r.theirFloor} · ${social.ticksClock(r.theirTicks)}</span>` +
         `<span class="vd">${r.result === "won" ? "YOU TOOK IT" : r.result === "lost" ? "THEY TOOK IT" : "DEAD HEAT"}</span></div>`,
       ).join("") + `</div>` +
-      `<div class="cnamesub" style="margin-top:8px">Only contested contracts count — an event only one ` +
-      `of you finished is a walkover, and a walkover is not a win.</div>`
-    : `<div class="gate" style="margin-top:18px">NO HISTORY YET. The ledger fills the first time you both ` +
-      `seal a run on the same contract. Until then this is an introduction, not a rivalry.</div>`;
+      `<div class="cnamesub" style="margin-top:8px">Contested contracts only — a walkover is not a win.</div>`
+    : `<div class="gate" style="margin-top:18px">NO HISTORY YET. The ledger fills the first time you ` +
+      `both seal a run on the same contract.</div>`;
   body.innerHTML =
     `<div class="contract"><div class="ctag">◆ CONTRACT ISSUED ◆</div>` +
     `<h3>${esc(them)}</h3>` +
@@ -6496,13 +9188,16 @@ async function renderLadder(): Promise<void> {
       ? `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
         `font-variant:small-caps;letter-spacing:2px">THEIR RUN SO FAR</div>` +
         rowKeyHtml() +
-        `<ul class="board">${boardRowHtml(theirs, 0, "deepest")}</ul>`
+        // -1: this is one crawler's run, not a board position. Passing 0 gave
+        // a single row the podium hero treatment for a rank it never held.
+        `<ul class="board">${boardRowHtml(theirs, -1, "deepest")}</ul>`
       : "") +
     ledger +
-    // THE STAKE AND THE PAIRING RULE, both stated. A competitive surface that
-    // leaves either as folklore gets folklore back.
-    `<div class="gate" style="margin-top:16px"><b>THE STAKE:</b> ${esc(rc.stake)}<br>` +
-    `<b>THE PAIRING:</b> ${esc(rc.pairing)}</div>`;
+    // THE STAKE AND THE PAIRING RULE, still stated — a competitive surface that
+    // leaves either as folklore gets folklore back — but as one line, not two
+    // paragraphs sitting under a two-row ledger.
+    `<div class="gate" style="margin-top:16px">Paired on nearest season CP, recomputed daily. ` +
+    `Decided by the better <b>SEALED</b> run. No CP changes hands.</div>`;
 }
 
 /** Who lights up. Cheap enough to refresh whenever a set opens: one query the
@@ -6510,8 +9205,9 @@ async function renderLadder(): Promise<void> {
 async function refreshRivals(): Promise<void> {
   try {
     const rc = (await competitive.rivalContract(myAccount)) as social.RivalContract;
-    if (rc.rival) rivalAccounts.add(rc.rival.accountId);
-    const prof = (await competitive.profile(myAccount)) as social.ProfileView;
+    if (rc.rival) rivalAccounts.add(rc.rival.publicId);
+    const prof = (await competitive.myProfile(myAccount)) as social.ProfileView;
+    myPublicId = prof.publicId ?? myPublicId;
     for (const id of prof.following ?? []) rivalAccounts.add(id);
   } catch { /* no rivals is a state, not an error */ }
 }
@@ -6529,6 +9225,7 @@ document.getElementById("ladder-close")!.addEventListener("click", closeSets);
 document.getElementById("career-close")!.addEventListener("click", closeSets);
 ladderEl.addEventListener("click", (e) => {
   const el = e.target as HTMLElement;
+  if (toggleFitList(el, ladderEl)) return;
   const tab = el.closest("[data-lt]") as HTMLElement | null;
   if (tab) {
     ladderTab = (tab.dataset.lt ?? "contracts") as typeof ladderTab;
@@ -6540,9 +9237,58 @@ ladderEl.addEventListener("click", (e) => {
   if (ab) { alltimeTab = ab.dataset.ab ?? "deepest"; void renderLadder(); return; }
   const race = el.closest("[data-race]") as HTMLElement | null;
   if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "RIVAL"); return; }
+  if (toggleRowDetail(el)) return;
   const enter = el.closest("[data-enter]") as HTMLElement | null;
   if (enter) void enterContract(enter.dataset.enter!);
 });
+
+/** DETAIL opens the verifier's own record of a row: splits, build, cause of
+ *  death, and the four numbers it derived while replaying. Returns true when
+ *  the click was ours. */
+function toggleRowDetail(el: HTMLElement): boolean {
+  const more = el.closest("[data-more]") as HTMLElement | null;
+  if (!more) return false;
+  const det = more.closest(".brow")?.querySelector(".rdet") as HTMLElement | null;
+  if (!det) return true;
+  const open = det.hasAttribute("hidden");
+  det.toggleAttribute("hidden", !open);
+  more.textContent = open ? "HIDE" : "DETAIL";
+  return true;
+}
+
+/**
+ * THE GATE BELONGS AT THE DOOR (6.2 Beat 5, blocker 2).
+ *
+ * The start endpoint used to answer `scoresCp: attemptNo === 1` with no idea
+ * whether the account could ever be sealed, so the front door sold a fresh
+ * anonymous crawler a CP-scoring contract and the exit told them, in a dead
+ * sentence with no control beside it, that the System does not put its name on
+ * an anonymous claim. It answers `linked` now; this is where the player hears
+ * about it, in time to act on it, and the note rides through to the verdict.
+ */
+type SignedContract = {
+  attemptNo: number; scoresCp: boolean; linked?: boolean; unlinkedReason?: string | null;
+};
+
+/** Called BEFORE startRun, because beginRecording consumes the note. */
+function contractNoteFor(t: SignedContract): string | null {
+  return t.linked === false
+    ? `today's contract, signed as attempt ${t.attemptNo} and UNSEALABLE: ${t.unlinkedReason
+      ?? "an anonymous claim earns no seal and no contract points"}`
+    : null;
+}
+
+function contractSigned(t: SignedContract): void {
+  showAnnouncement({
+    text: t.linked === false
+      ? `CONTRACT SIGNED, UNSEALED. Attempt ${t.attemptNo}. Nobody has told the System who you are, so `
+        + "this one cannot be certified and cannot score. The run still counts for you."
+      : t.scoresCp
+        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
+        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
+    kind: "flavor", priority: "high",
+  });
+}
 
 /** ENTER THE CONTRACT. The START is observed, which is what makes an attempt
  *  count honest and closes practise-offline-then-submit-the-winner (3.2A). */
@@ -6551,24 +9297,67 @@ async function enterContract(eventId: string): Promise<void> {
     const token = await accountToken();
     const t = await competitive.startEvent(eventId, token);
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
+    pendingContractNote = contractNoteFor(t);
     closeSets();
     closeMenu();
     ghost = null;
     forcedSeed = t.seed;
     startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
-    showAnnouncement({
-      text: t.scoresCp
-        ? "CONTRACT SIGNED. Attempt one — this is the run the ladder scores. There is no second first impression."
-        : `CONTRACT SIGNED. Attempt ${t.attemptNo}. The board row is live; contract points are not.`,
-      kind: "flavor", priority: "high",
-    });
-
+    contractSigned(t);
   } catch (err) {
     pushLogLine(`CONTRACT REFUSED — ${(err as Error).message}`);
     showAnnouncement({
       text: `THE CONTRACT WAS REFUSED. ${(err as Error).message}`,
       kind: "flavor", priority: "high",
     });
+  }
+}
+
+/**
+ * THE DAILY CRAWL TILE, AND EVERY OTHER WAY INTO TODAY'S SEED.
+ *
+ * `dailySeed(day)` is the server's daily-contract seed. A run that plays it
+ * without a ticket is not "a free seed" - it is TODAY'S CONTRACT, played
+ * unranked, and the verdict screen used to state the opposite. So this is the
+ * single entry point: it signs for the contract first and starts the run
+ * either way, and the two cases it cannot sign are named rather than silently
+ * flattened into "free seed".
+ *
+ *  - A CHALLENGE LINK for another day is a rerun of a closed dungeon. There is
+ *    no open contract to sign and there never was one for that day.
+ *  - OFFLINE, or a refused signature, is the honest unranked case, and the
+ *    screen says which contract went unsigned instead of pretending the seed
+ *    was arbitrary.
+ */
+async function enterDailyContract(day: string | null): Promise<void> {
+  const today = dayFromMs(Date.now());
+  if (day && day !== today) {
+    pendingTicket = null;
+    pendingContractNote = `a challenge on the ${day} dungeon — that contract has closed, so this is `
+      + `a rerun of it. The board row and the splits still stand; contract points do not.`;
+    ghost = null;
+    startRun({ kind: "daily", day }, "race");
+    return;
+  }
+  try {
+    if (!events) events = (await competitive.events()) as social.EventsView;
+    const token = await accountToken();
+    const t = await competitive.startEvent(events.daily.id, token);
+    pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
+    pendingContractNote = contractNoteFor(t);
+    forcedSeed = t.seed;
+    ghost = null;
+    startRun({ kind: "daily", day: events.daily.day }, "race");
+    contractSigned(t);
+  } catch (err) {
+    // The dungeon is identical either way - the seed is the day - so the run
+    // starts. What changes is that the screen at the end knows the difference.
+    pendingTicket = null;
+    pendingContractNote = `today's contract dungeon, played UNSIGNED — the System could not issue an `
+      + `attempt ticket (${(err as Error).message}). Same seed, same board row, no contract points.`;
+    ghost = null;
+    startRun({ kind: "daily", day: today }, "race");
+    pushLogLine("THE CONTRACT WENT UNSIGNED. Same dungeon; the ladder is not watching this one.");
   }
 }
 
@@ -6585,8 +9374,12 @@ function histogramHtml(byFloor: number[]): string {
   let axis = "";
   for (let f = 1; f <= CONFIG.finalFloor; f++) {
     const n = byFloor[f - 1] ?? 0;
-    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 118));
-    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}px" ` +
+    // PER CENT, NOT PIXELS. The bar heights used to be authored in px against
+    // an assumed 108px track, so the moment a short viewport shortened the
+    // track the bars drew straight through the floor axis and the band strip.
+    // The track's height is CSS's business; the bar only knows its share.
+    const h = n === 0 ? 2 : Math.max(6, Math.round((n / max) * 97));
+    bars += `<div class="hb${n === 0 ? " none" : f > 12 ? " deep" : ""}" style="height:${h}%" ` +
       `title="${n} run${n === 1 ? "" : "s"} ended on floor ${f}">${n > 0 ? `<i>${n}</i>` : ""}</div>`;
     axis += `<span>${f}</span>`;
   }
@@ -6607,9 +9400,72 @@ function masteryHtml(rows: { ultimate: string; xp: number }[]): string {
   }).join("");
 }
 
+/**
+ * YOUR LAST RUNS IS A SHELF, NOT A BOARD (5.2).
+ *
+ * It reused `boardRowHtml`, which renders `i + 1` into `.rank` and applies the
+ * podium gold of `.top1/.top2/.top3` - on a list sorted by TIME, not by
+ * result. So a chronological ledger printed fake rank ordinals, dressed your
+ * three most RECENT runs as a podium, tagged all ten YOU on your own profile,
+ * printed `unstamped` where the era chip goes (which reads as a data bug), and
+ * left a REJECTED row displaying its refused claim as a green "CLEAR · 0:10.01"
+ * - the ladder showing the lie and labelling it, rather than presenting the
+ * refusal.
+ */
+function recentRowHtml(r: social.BoardRun): string {
+  const chip = social.sealChip(r.state, r.rulesEra, r.private, "plain");
+  const play = social.playability(r, ERA);
+  const refused = r.state === "rejected";
+  const sub = [
+    r.eventId ? "contract" : "free seed",
+    r.attemptNo ? `attempt ${r.attemptNo}` : null,
+    r.ultimate ? ABILITY_INFO[r.ultimate as AbilityId]?.name ?? r.ultimate : null,
+    r.partySize > 1 ? `party of ${r.partySize}` : null,
+    // "unstamped" for a row that was never certified reads as a missing field.
+    // It is not missing; there is simply no era to stamp on a claim.
+    r.rulesEra ? `era ${r.rulesEra}` : "no era — never certified",
+  ].filter(Boolean).join(" · ");
+  const result = refused
+    // A refusal is presented as a refusal. The claim it made is not reprinted
+    // in green with a small grey chip beside it.
+    ? `<span class="res">CLAIM REFUSED</span>`
+    : `<span class="res${r.won ? " win" : ""}">${boardResult("deepest", r)}</span>`;
+  // An unproven row's result is an assertion, and it is never printed in the
+  // green the server's own verdict earns.
+  return `<li class="crow${refused ? " rejected" : r.state === "verified" ? "" : " unsealed"}">` +
+    `<span class="when">${esc(social.ago(r.at))}</span>` +
+    `<span class="what"><b>${refused ? "the System did not agree" : r.won ? "escaped the dungeon" : `died on floor ${r.floor}`}</b>` +
+    `<span class="sub">${esc(sub)}</span></span>` +
+    `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
+    result +
+    `<span class="acts">${play.ok
+      ? `<button data-race="${esc(r.id)}" data-label="YOUR RUN">RACE</button>`
+      : `<button disabled title="${esc(play.why)}">RACE</button>`}</span></li>`;
+}
+
 function ledgerHtml(rows: [string, string][]): string {
   return `<table class="ledger">` + rows.map(([k, v]) =>
     `<tr><td class="lk">${k}</td><td class="ld"><i></i></td><td class="lv">${v}</td></tr>`).join("") + `</table>`;
+}
+
+/**
+ * TWO LEDGERS, TWO HEADINGS (COMPETITIVE.md 3.3: "Two sources of truth with
+ * different rules for the same record is one too many for anything
+ * competitive").
+ *
+ * THE NUMBERS interleaved them row by row with no per-row attribution: RUNS
+ * FINISHED / ESCAPES / FASTEST CLEAR / MOST KILLS / PEAK VIEWERS / TIME IN THE
+ * DUNGEON came from the localStorage `bests`, DEEPEST FLOOR from max(server,
+ * local), CAREER KILLS from the server. On a signed-in account in a fresh
+ * browser that printed "RUNS FINISHED 0 · ESCAPES 0 · FASTEST CLEAR —" directly
+ * beside "DEEPEST FLOOR 18 · CAREER KILLS 2,089" under a "6 SEALS" headline.
+ * Every number was true; the list was not. The histogram got a boundary
+ * sentence, the band splits got one, and the one list that actually mixes the
+ * ledgers row by row got none.
+ */
+function ledgerGroupHtml(title: string, note: string, rows: [string, string][]): string {
+  return `<div class="lgroup"><div class="lgtitle">${esc(title)}</div>` +
+    `<div class="lgnote">${esc(note)}</div>` + ledgerHtml(rows) + `</div>`;
 }
 
 async function renderCareerSet(): Promise<void> {
@@ -6618,7 +9474,7 @@ async function renderCareerSet(): Promise<void> {
   const bests = careerBests(history);
   const token = await accountToken();
   let prof: social.ProfileView | null = null;
-  try { prof = (await competitive.profile(token)) as social.ProfileView; } catch { /* offline */ }
+  try { prof = (await competitive.myProfile(token)) as social.ProfileView; } catch { /* offline */ }
 
   // The histogram takes whichever ledger has more runs in it and SAYS WHICH.
   // The server sees every device but only sealed runs; this browser sees every
@@ -6627,12 +9483,28 @@ async function renderCareerSet(): Promise<void> {
   const local = new Array<number>(CONFIG.finalFloor).fill(0);
   for (const r of history) if (r.floor >= 1 && r.floor <= CONFIG.finalFloor) local[r.floor - 1]++;
   const localN = local.reduce((a, b) => a + b, 0);
-  const serverN = (prof?.deathsByFloor ?? []).reduce((a, b) => a + b, 0);
-  const useServer = serverN > localN;
-  const byFloor = useServer ? prof!.deathsByFloor : local;
+  // THE CHART AND THE LEDGER UNDER IT COUNT THE SAME POPULATION NOW.
+  //
+  // `serverN` summed `profile.deathsByFloor`, which the server builds from
+  // `runsByAccount(...)` — ALL rows — while `seals` on the same response is
+  // `runs.filter(state === 'verified').length`. Live: the chart read "4 sealed
+  // runs, every device" and THE SEALED RECORD three hundred pixels below read
+  // SEALS 0 / DEEPEST FLOOR 0 / CAREER KILLS 0, because all four of those runs
+  // were REFUSED. The panel whose stated purpose is "the numbers a board row
+  // can be checked against" was counting refused runs as certified, on its
+  // headline chart, contradicted on the same screen.
+  const sealedByFloor = prof?.sealedDeathsByFloor ?? [];
+  const sealedN = sealedByFloor.reduce((a, b) => a + b, 0);
+  const submittedN = (prof?.deathsByFloor ?? []).reduce((a, b) => a + b, 0);
+  const useServer = sealedN > localN;
+  const byFloor = useServer ? sealedByFloor : local;
+  const refusedN = prof?.refused ?? 0;
   const histoSource = useServer
-    ? `${serverN} sealed runs, every device`
-    : `${localN} runs recorded in this browser`;
+    ? `${sealedN} SEALED run${sealedN === 1 ? "" : "s"}, every device`
+      + (submittedN > sealedN
+        ? ` — ${submittedN - sealedN} more reached the server unproven${refusedN > 0 ? `, ${refusedN} refused` : ""} and are not on this chart`
+        : "")
+    : `${localN} run${localN === 1 ? "" : "s"} recorded in this browser`;
   const st = prof?.standing;
   const tier = st?.tier
     ?? (st && st.placementRemaining > 0 ? `PLACEMENT — ${st.placementRemaining} TO GO` : "UNRANKED");
@@ -6673,52 +9545,139 @@ async function renderCareerSet(): Promise<void> {
     `<div class="rsec" style="margin:18px 0 4px;color:var(--gold);font-family:var(--display);` +
     `font-variant:small-caps;letter-spacing:2px">WHERE YOU DIE</div>` +
 
-    `<div class="cnamesub" style="margin-bottom:16px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
-    `This is the whole career in a glance, and the only chart that tells you where to practise.</div>` +
+    // TWO LEDGERS, ONE BOUNDARY, SAID OUT LOUD. The header prints tier, CP,
+    // rank-of-entrants and the seal count — all from the SERVER — directly
+    // above a histogram that may be counting runs from THIS BROWSER. Both
+    // numbers are true; a reader with no boundary marked assumes one
+    // population. And the gold bars had no legend at all.
+    // ...and it no longer says "below it" about a ledger that now sits BESIDE
+    // it. A caption that describes a layout it does not have is the small kind
+    // of wrong that makes a reader distrust the large kind.
+    `<div class="cnamesub" style="margin-bottom:14px">Eighteen floors, one bar each — ${esc(histoSource)}. ` +
+    `<b style="color:var(--gold)">Gold bars are floors 13+</b>, where a death costs the most. ${useServer
+      ? "Certified rows only, so this chart and THE SEALED RECORD count the same runs."
+      : "This browser alone — the tier, contract points and seals come from the server, which only ever sees sealed runs."}</div>` +
     histogramHtml(byFloor) +
-    `<div class="tcols" style="display:grid;grid-template-columns:1fr 1fr;gap:26px;margin-top:22px">` +
-      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
-      `letter-spacing:2px">THE NUMBERS</div>` +
-      ledgerHtml([
-        ["RUNS FINISHED", String(bests?.runs ?? 0)],
-        ["ESCAPES", String(bests?.wins ?? 0)],
-        ["DEEPEST FLOOR", String(Math.max(prof?.deepest ?? 0, bests?.bestFloor ?? 0))],
-        ["FASTEST CLEAR", bests?.fastestClearSec != null ? fmt(bests.fastestClearSec) : "—"],
-        ["MOST KILLS IN A RUN", (bests?.mostKills ?? 0).toLocaleString()],
-        ["CAREER KILLS", (prof?.career?.kills ?? 0).toLocaleString()],
-        ["PEAK VIEWERS", (bests?.peakViewers ?? 0).toLocaleString()],
-        ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
-      ]) +
-      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+    // THREE COLUMNS, NOT TWO, AND BALANCED ONES. At 1600x900 the two-column
+    // career was 1462px tall inside an 864px frame: it cut FASTEST CLEAR
+    // through its own baseline and drew MORE BELOW on top of a milestone.
+    // Nothing was cut to fix it — the 18-bar histogram and the two-ledger
+    // split are the best things on this surface and both survive whole; the
+    // lower half is laid out across the 1180px the frame already owns.
+    //
+    // The two ledgers now sit SIDE BY SIDE rather than stacked, which is also
+    // the better reading of them: "runs the server certified" and "runs this
+    // browser saw" are a comparison, and a comparison belongs in two columns.
+    // Each keeps its own title, its own note and its own rule, so the boundary
+    // §5.2 cares about is if anything louder than it was.
+    `<div class="ccols">` +
+      `<div class="ccol">` +
+      // THE SEALED RECORD first, because it is the one the boards agree with.
+      ledgerGroupHtml(
+        "THE SEALED RECORD",
+        prof
+          ? "runs the server re-executed and certified, on every device you have signed in on. "
+            + "These are the numbers a board row can be checked against."
+          : "the server career is offline, so there is nothing sealed to show — these arrive with the signal.",
+        [
+          ["SEALS", String(prof?.seals ?? 0)],
+          ["DEEPEST FLOOR", prof ? String(prof.deepest) : "—"],
+          ["CAREER KILLS", prof ? (prof.career?.kills ?? 0).toLocaleString() : "—"],
+          ["ESCAPES", prof ? String(prof.career?.wins ?? 0) : "—"],
+          ["FASTEST SEALED CLEAR", prof?.fastestClear
+            ? social.ticksClock(prof.fastestClear.ticks) : "—"],
+        ],
+      ) +
+      // MASTERY rides under it: it is drawn from the same sealed population,
+      // so it belongs on the sealed side of the boundary.
+      `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MASTERY</div>` +
       `<div class="cnamesub" style="margin-bottom:6px">One level per ultimate, from SEALED runs, ` +
       `weighted by depth. Every point of it is backed by a replayable proof.</div>` +
-      masteryHtml(prof?.mastery ?? []) + `</div>` +
-      `<div><div class="rsec" style="color:var(--gold);font-family:var(--display);font-variant:small-caps;` +
-      `letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
-      `<div class="cnamesub" style="margin-bottom:6px">${bandBestsNote}</div>` +
-      `<div>${bandBests.map((t, i) => {
-        const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
-        return `<div class="splitrow${t ? "" : " empty"}"><span class="sname">${social.bandName(i)}</span>` +
-          `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
-          `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`;
-      }).join("")}</div>` +
-      `<div class="rsec" style="margin-top:18px;color:var(--gold);font-family:var(--display);` +
+      masteryHtml(prof?.mastery ?? []) +
+      `</div>` +
+      // ...and THIS BROWSER'S ledger stands beside it, counting every run
+      // including the ones nobody certified, and saying so instead of standing
+      // next to the other one pretending to be the same population.
+      `<div class="ccol">` +
+      ledgerGroupHtml(
+        "THIS BROWSER'S LEDGER",
+        "every run this device finished, sealed or not, signed in or not — capped at the last 60. "
+        + "It counts more runs than THE SEALED RECORD beside it, and proves fewer of them.",
+        [
+          ["EPISODES FILED", String(episodeCount())],
+          ["RUNS ON THE LEDGER", String(bests?.runs ?? 0)],
+          ["ESCAPES", String(bests?.wins ?? 0)],
+          ["DEEPEST FLOOR", String(bests?.bestFloor ?? 0)],
+          ["FASTEST CLEAR", bests?.fastestClearSec != null ? fmt(bests.fastestClearSec) : "—"],
+          ["MOST KILLS IN A RUN", (bests?.mostKills ?? 0).toLocaleString()],
+          ["PEAK VIEWERS", (bests?.peakViewers ?? 0).toLocaleString()],
+          ["TIME IN THE DUNGEON", `${Math.round(totalSec / 60)} min`],
+        ],
+      ) +
+      // MILESTONES is drawn from the same local `history` as the ledger above
+      // it, so it belongs on this side of the boundary too.
+      `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
       `font-variant:small-caps;letter-spacing:2px">MILESTONES</div>` +
+      // A TRIMMABLE TAIL, ONE PER COLUMN. Both this and YOUR LAST RUNS grow
+      // without bound (one milestone per record ever set; 60 runs on the local
+      // ledger) and both are the least load-bearing thing on the screen, so
+      // they are what `fitPanel` gives back when a short viewport cannot hold
+      // everything — and it says how many it took rather than silently
+      // shortening the list. Giving the two tall columns a trimmable tail EACH
+      // is what makes that pass able to work at all: a cut in a column that
+      // was not the tallest one buys nothing (see `fitPanel`).
+      `<div class="fitlist" data-fitmin="2" data-fitnoun="milestone">` +
       (social.milestonesFrom(history).map((m) =>
         `<div class="mstone"><div class="mdate">${new Date(m.at).toISOString().slice(0, 10)}</div>` +
         `<div><div class="mtitle">${esc(m.title)}</div><div class="mdetail">${esc(m.detail)}</div></div></div>`,
       ).join("") || `<div class="cnamesub">nothing engraved yet — finish a run and the timeline starts</div>`) +
       `</div>` +
-    `</div>` +
-    (prof && prof.recent.length
-      ? `<div class="rsec" style="margin-top:20px;color:var(--gold);font-family:var(--display);` +
-        `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS — KEPT PLAYABLE REGARDLESS OF BOARD POSITION</div>` +
-        `<ul class="board">${prof.recent.map((r, i) =>
-          // These are YOUR last runs, not a board: a hairline seal, because a
-          // certified run that holds no position is not a trophy.
-          boardRowHtml(r, i, "deepest", social.ago(r.at), "plain")).join("")}</ul>`
-      : "");
+      `</div>` +
+      // COLUMN THREE: the band records, and the shelf of runs that back them.
+      `<div class="ccol">` +
+      `<div class="rsec" style="color:var(--gold);font-family:var(--display);` +
+      `font-variant:small-caps;letter-spacing:2px">PERSONAL BESTS — BAND SPLITS</div>` +
+      // THE BARS ARE TIME, AND THE HEADING SAYS "BESTS", so the chart read
+      // backwards: THE APPROACH at 6:32.68 filled the track under a heading
+      // that made a full bar look like an achievement, while a 0:52.78
+      // UNDERCROFT was a stub. The grammar stays time-proportional - the
+      // verdict's splits use the identical markup and there longer
+      // legitimately means slower - and the caption SAYS so, with the fastest
+      // band struck in gold so the eye has something to reward. One caption,
+      // not two stacked ones: this column is the tallest on the panel and two
+      // notes saying one thing each was 30px of the height it overflowed by.
+      `<div class="cnamesub" style="margin-bottom:6px">${bandBestsNote} ` +
+      `Bars are TIME IN THE BAND — <b style="color:var(--gold-hi)">shorter is better</b>, ` +
+      `and the gold one is your quickest.</div>` +
+      `<div>${(() => {
+        const scale = Math.max(1, ...bandBests.map((x) => x ?? 0));
+        const timed = bandBests.filter((x): x is number => !!x);
+        const fastest = timed.length > 0 ? Math.min(...timed) : -1;
+        return bandBests.map((t, i) =>
+          `<div class="splitrow${t ? "" : " empty"}${t && t === fastest ? " best" : ""}">` +
+          `<span class="sname">${social.bandName(i)}</span>` +
+          `<span class="strack"><i class="sfill" style="width:${t ? Math.min(99, (t / scale) * 100) : 0}%"></i></span>` +
+          `<span class="stime">${t ? social.ticksClock(t) : "—"}</span></div>`).join("");
+      })()}</div>` +
+
+      // THE SHELF SITS UNDER THE BAND RECORDS instead of taking a full-width
+      // band below the columns — both are the server's view of runs you can
+      // still play back, and moving it here is what buys the panel most of the
+      // height it was overflowing by.
+      (prof && prof.recent.length
+        ? `<div class="crecent"><div class="rsec" style="margin-top:16px;color:var(--gold);` +
+          `font-family:var(--display);` +
+          `font-variant:small-caps;letter-spacing:2px">YOUR LAST RUNS</div>` +
+          `<div class="cnamesub" style="margin-bottom:6px">Newest first, and kept playable regardless of ` +
+          `board position. This is a shelf, not a ladder: no ranks, no podium.</div>` +
+          `<ul class="board fitlist" data-fitmin="1" data-fitnoun="run">` +
+          `${prof.recent.map(recentRowHtml).join("")}</ul></div>`
+        : "") +
+      `</div>` +
+    `</div>`;
+  fitPanel(careerEl);
+  fitPanelSoon(careerEl);
 }
 
 async function openCareerSet(): Promise<void> {
@@ -6730,8 +9689,11 @@ async function openCareerSet(): Promise<void> {
   await renderCareerSet();
 }
 careerEl.addEventListener("click", (e) => {
-  const race = (e.target as HTMLElement).closest("[data-race]") as HTMLElement | null;
-  if (race) void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN");
+  const el = e.target as HTMLElement;
+  if (toggleFitList(el, careerEl)) return;
+  const race = el.closest("[data-race]") as HTMLElement | null;
+  if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN"); return; }
+  toggleRowDetail(el);
 });
 
 // RIVALS: the downed overlay — your 15 seconds, front and center.
@@ -6938,12 +9900,65 @@ if (new URLSearchParams(location.search).has("debug")) {
     get: () => ({
       state,
       renderer,
+      // The competitive standing of the run currently on screen: whether it is
+      // riding an event ticket, and what the server said about it. Read-only,
+      // and the only way an acceptance harness can check that the front door
+      // and THE STANDINGS really are the same door.
+      runEvent,
+      runContractNote,
+      submitResult,
       addPlayer: (name: string) => addPlayer(state, name),
       step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
       equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
       // Full hit path for staged FX shots: world FX + the DOM damage number
       // (renderer.emitHits alone skips the number layer real hits get).
       hit: (h: HitEvent) => { renderer.emitHits([h]); spawnDamageNumber(h); },
+      // Full boss-beat path for staged capture (tools/bossshot.mjs): world FX
+      // + the HUD's live line + the ringside payoff, exactly what the frame
+      // loop does with state.bossEvents. Needed because those are per-step
+      // transients — the next sim step wipes anything pushed between frames.
+      bossBeat: (e: BossEvent) => {
+        renderer.bossEvents([e]);
+        applyBossEvents([e]);
+        stageBossPayoff(state, [e]);
+      },
+      // Freeze whatever beat is currently up for `seconds` of frame time, so a
+      // slow shutter photographs the beat instead of its aftermath.
+      hold: (seconds = 10) => {
+        const until = hudNow + seconds * 1000;
+        captureHold = until;
+        if (bossCallUntil > 0) bossCallUntil = until;
+        if (bossBeatUntil > 0) bossBeatUntil = until;
+        if (killBeatUntil > 0) killBeatUntil = until;
+        if (payoffAt) payoffAt.until = until;
+        renderer.holdBossBeats(seconds);
+      },
+      release: () => { captureHold = 0; },
+      // Touch layer, for the device harness: the live zone table, the routing
+      // decision for a point, and the lock/pref state the battery asserts on.
+      touch: {
+        zones: touch.zones,
+        prefs: touchPrefs,
+        route: (x: number, y: number) => touch.debugRoute(x, y),
+        // Which chip a point claims, or null. The world zone runs UNDER the
+        // cluster (chips win at pointerdown), so a harness that wants clear
+        // ground has to ask rather than assume a fraction of the zone is free.
+        controlAt: (x: number, y: number) => touch.controlAt(x, y),
+        suspendReasons: () => touch.suspendReasons(),
+        // Every chip press writes its verdict down (input/touch.ts CastVerdict):
+        // a refusal, a queue expiry, a deaf modal gate, a re-entrant pointerId
+        // and a cancel all look like silence from outside, and one aimed cast
+        // in four was reported as silence on an iPhone 13. The battery drives
+        // 40 identical casts per slot and reads this; below 100% is a bug.
+        // Measured: 80 of 80, all verdicts `aimed`.
+        verdicts: () => touch.verdicts(),
+        clearVerdicts: () => touch.clearVerdicts(),
+        lastWorldTap,
+        clickMoveTarget: clickMove.target,
+        lockedTargetId,
+        stickyLock,
+        relayout: () => touchShell.relayout(),
+      },
     }),
   });
 }
@@ -6966,32 +9981,52 @@ let hitStop = 0;
 // until the frame loop consumes it.
 const netHits: HitEvent[] = [];
 const netAnns: Announcement[] = [];
+// BOSSES V2 §7.4: the typed boss channel, relayed by the server exactly like
+// hits and announcements so a coop client stages the same beats.
+const netBoss: BossEvent[] = [];
 let netIntentAcc = 0;
 let srRefreshAcc = 0;
 const partyChip = document.getElementById("party")!;
 
 /** Sample input and aim it at the mouse (screen -> iso ground -> sim coords). */
-/** Drag-aim telegraph shape by ability: dashes arrow, AoEs ring, else a line. */
-const TELEGRAPH_RING = new Set<AbilityId>(["nova", "cataclysm", "crowdsurf", "airstrike"]);
-function telegraphShape(a: AbilityId | null): "line" | "ring" | "arrow" {
-  if (a === "dash") return "arrow";
-  if (a && TELEGRAPH_RING.has(a)) return "ring";
-  return "line";
+
+/** The slot holding dash, or -1. Gestures cast a SLOT; they never add a rule. */
+function dashSlot(p: Player): number {
+  const i = p.abilities.slots.indexOf("dash");
+  if (i >= 0) return i;
+  return p.abilities.ultimate === "dash" ? ABILITY_SLOTS : -1;
 }
 
-/** Direction to the nearest living monster in reach — controller quick-cast. */
-function autoAimDir(range = 8): Vec2 | null {
+/**
+ * Smart cast: no explicit aim means "the target I most likely meant", not
+ * "whatever is nearest". Locked > damaged in the last 3 s > lowest HP fraction
+ * inside the ability REAL range, with a facing-cone weight. Dormant ambushers
+ * are excluded — the old autoAimDir aimed at furniture that had not woken up.
+ */
+function smartAim(slot: number): Vec2 | null {
   const p = me(state);
-  let best: Vec2 | null = null;
-  let bestD = range * range;
-  for (const m of state.monsters) {
-    if (m.hp <= 0) continue;
-    const dx = m.pos.x - p.pos.x, dy = m.pos.y - p.pos.y;
-    const d = dx * dx + dy * dy;
-    if (d < bestD && d > 1e-4) { bestD = d; best = { x: dx, y: dy }; }
-  }
-  return best;
+  const ab = abilityInSlot(p, slot);
+  const t = pickTarget(state.monsters, {
+    from: p.pos, facing: p.facing,
+    range: Math.max(2.5, castRange(ab, p)),
+    lockedId: lockedTargetId,
+    lastDamagedId,
+    lastDamagedAge: performance.now() / 1000 - lastDamagedAt,
+  });
+  if (!t) return null;
+  // WHAT THE SMART CAST CHOSE IS DRAWN, not left to be inferred from where the
+  // damage landed. The renderer flashes a transient reticle here for 420 ms;
+  // the persistent bracket belongs to the LOCK, and they are deliberately
+  // different shapes (renderer3d.setTargetMarkers).
+  smartTarget = { x: t.pos.x, y: t.pos.y };
+  smartTargetAt = performance.now() / 1000;
+  return { x: t.pos.x - p.pos.x, y: t.pos.y - p.pos.y };
 }
+
+/** The last smart-cast pick, and when — read once per frame by the markers. */
+let smartTarget: Vec2 | null = null;
+let smartTargetAt = -Infinity;
+let smartTargetShown = -Infinity;
 
 // Controller poll runs at FRAME level, not per sim step: panel buttons must
 // keep working while an open panel has the local sim paused, and in net mode
@@ -7011,19 +10046,188 @@ function pollPad(): void {
 // Touch runs the same frame-level rhythm as the pad; one-shot drag casts and
 // button taps accumulate here until the next sampleIntent consumes them.
 let touchHeld: ReturnType<TouchController["sample"]> = null;
-const touchEdges: { casts: { slot: number; aim: { x: number; y: number } | null }[]; attack: boolean; flask: boolean; stairs: boolean; ping: Vec2 | null } = {
-  casts: [], attack: false, flask: false, stairs: false, ping: null,
-};
+const touchEdges = createTouchEdges();
+// Target lock lives in the HOST, not the sim: it changes which direction an
+// ordinary Intent.aim points, and nothing else.
+let lockedTargetId: number | null = null;
+let stickyLock = touchPrefs.stickyLock;
+let lastDamagedId: number | null = null;
+let lastDamagedAt = -Infinity;
+/** Bag size last frame: growth is a pickup, and a pickup gets a tick. */
+let lastBagCount = 0;
+/** Harness/debug only: what the last world tap resolved to. */
+let lastWorldTap: { x: number; y: number; long: boolean; ground: Vec2 | null } | null = null;
+
 function pollTouch(): void {
+  // `not-playing` is the one suspend reason that is a SIM fact rather than a
+  // DOM event (MOBILE.md 2.9a): death, win and floor transitions swallow
+  // intents sim-side while the touch FSM happily keeps its state. Hit-stop and
+  // sim freezes are deliberately NOT reasons — a press during a frozen sim
+  // must still look alive, which is what the edge buffer is for.
+  if (state.status === "playing") touch.resume("not-playing");
+  else touch.suspend("not-playing");
   touchHeld = touchMode ? touch.sample(performance.now() / 1000) : null;
-  if (touchHeld) {
-    touchEdges.casts.push(...touchHeld.castEdges);
-    // Attack accumulates like the other edges so a tap while a panel has the
-    // sim paused still lands on resume (held state keeps re-arming it).
-    touchEdges.attack ||= touchHeld.castHeld[0];
-    touchEdges.flask ||= touchHeld.flaskEdge;
-    touchEdges.stairs ||= touchHeld.stairsEdge;
+  if (!touchHeld) return;
+  // Edges ACCUMULATE (input/touchIntent.ts): a tap taken while a panel has
+  // the sim paused must still land when the world thaws.
+  accumulateTouch(touchEdges, touchHeld);
+  if (touchHeld.lockToggleEdge) {
+    // The LOCK chip is a sticky-lock toggle: on for a boss fight, off for a
+    // pack. Clearing it drops whatever was held.
+    stickyLock = !stickyLock;
+    if (!stickyLock) lockedTargetId = null;
+    touchPrefs.stickyLock = stickyLock;
+    saveTouchPrefs(touchPrefs);
+    touchShell.setLocked(stickyLock);
+    haptics.fire("lock");
   }
+  if (touchHeld.mapEdge) toggleMinimapExpand();
+  // World-zone taps: the host owns the raycast, so the sim stays screen-blind.
+  for (const tap of touchHeld.worldTaps) {
+    const g = renderer.screenToGround(tap.x, tap.y);
+    lastWorldTap = { x: tap.x, y: tap.y, long: tap.long, ground: g };
+    if (!g) continue;
+    if (tap.long) { touchEdges.ping = g; continue; }
+    // Which monster did that finger mean? The GROUND point under a tap is not
+    // the monster it landed on: a body is drawn about 0.8 units up, so the ray
+    // through its chest hits the floor a tile or two BEHIND its feet. Ask the
+    // screen first (nearest projected body inside a thumb radius), and keep the
+    // ground-plane test as the fallback for anything the camera cannot project.
+    const mob = screenTapTarget(tap.x, tap.y) ?? tapTarget(state.monsters, g, 1.0);
+    if (mob) {
+      // Tap a monster: lock it AND swing at it (Wild Rift tap-to-attack).
+      lockedTargetId = lockedTargetId === mob.id && !stickyLock ? null : mob.id;
+      touchEdges.attack = true;
+      haptics.fire("lock");
+    } else if (touchPrefs.tapToMove) {
+      // Tap empty ground: Diablo walk-to-point, through the click-move path
+      // that already exists and is already tested.
+      clickMove.target = { x: g.x, y: g.y };
+      clickMove.holding = false;
+      clickMove.stall = 0;
+      if (!stickyLock) lockedTargetId = null;
+    }
+  }
+  // The controller reuses its buffers; release them now that they are copied.
+  touch.endFrame();
+}
+
+/** Thumb radius (CSS px) around a tap that still counts as "on that monster". */
+const TAP_BODY_RADIUS = 46;
+
+/** Nearest living monster whose body projects within a thumb of (x, y). */
+function screenTapTarget(x: number, y: number): { id: number } | null {
+  let best: { id: number } | null = null;
+  let bestD = TAP_BODY_RADIUS * TAP_BODY_RADIUS;
+  for (const m of state.monsters) {
+    if (m.hp <= 0 || m.dormant) continue;
+    const p = renderer.worldToScreen(m.pos.x, 0.8, m.pos.y);
+    if (!p.visible) continue;
+    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
+    if (d < bestD) { bestD = d; best = m; }
+  }
+  return best;
+}
+
+/**
+ * THE MAP CHIP'S DESTINATION.
+ *
+ * On a phone the minimap puck is not drawn at all: 114px of a 342px-tall
+ * screen is a third of the height for a chart you glance at between fights,
+ * and the old puck sat inside the movement thumb's arc anyway (MOBILE.md 1.2).
+ * The chip in the cluster — inside `comfortable` — opens this instead.
+ *
+ * The chart is a canvas, so blowing it up with a transform would turn a floor
+ * plan to mush. The BACKING STORE is resized and the static cache invalidated,
+ * and the next frame redraws the chart at the new resolution.
+ */
+function toggleMinimapExpand(): void {
+  const on = !document.body.classList.contains("mapbig");
+  document.body.classList.toggle("mapbig", on);
+  const side = on
+    ? Math.round(Math.min(window.innerWidth, window.innerHeight) * 0.74)
+    : 150;
+  if (minimap.width !== side) {
+    minimap.width = side;
+    minimap.height = side;
+    minimap.style.width = `${side}px`;
+    minimap.style.height = `${side}px`;
+    mmKey = ""; // force the static layer to rebuild at the new resolution
+  }
+}
+// Anywhere on the expanded chart closes it — there is nothing else to press.
+for (const id of ["mapbig-scrim", "minimap-frame"]) {
+  document.getElementById(id)?.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("mapbig")) return;
+    e.preventDefault();
+    toggleMinimapExpand();
+  });
+}
+
+// ---- TOUCH-FIRST PANELS (MOBILE.md 4.5) ----------------------------------
+// Every one of these measured ZERO close controls and tap-outside-closes
+// false: on a phone with no keyboard, opening one ended the session. They now
+// close three ways, and all three call the SAME close the keyboard calls, so
+// Escape, the ✕ and a swipe can never drift apart.
+//
+// Deliberately NOT wired: the safe room and the recap. Their exit is a game
+// decision (DESCEND, NEW SEASON), not a dismissal, and a ✕ on a shop would
+// read as "leave without descending", which is not a thing you can do. Their
+// buttons are held to the same 44px floor in CSS instead.
+// A panel closing takes its derivation sheet with it: a sheet left standing
+// over the dungeon would be a modal nothing can dismiss.
+attachPanel(invEl, { close: () => { hideSheet(); if (invOpen) toggleInventory(); } });
+attachPanel(abilEl, { close: () => { hideSheet(); if (abilOpen) toggleAbilities(); } });
+attachPanel(sheetEl, { close: () => { hideSheet(); if (sheetOpen) toggleSheet(); } });
+attachPanel(keysEl, { close: () => { hideSheet(); if (kbOpen) toggleKeybinds(); } });
+// A draft is dismissible — the picks bank behind the badge — so its bar says
+// so rather than pretending the choice went away.
+attachPanel(draftEl, {
+  close: () => { if (draftEl.style.display === "flex") dismissDraftModal(); },
+  done: "BANK IT FOR LATER",
+});
+
+/**
+ * HOVER BECOMES A TAP SHEET.
+ *
+ * The crawler profile says "hover anything for the math"; touch has no hover,
+ * so on a phone the entire derivation layer was invisible (MOBILE.md 1.3).
+ * Every one of those derivations is already a `title` attribute, so one
+ * delegated handler converts the whole layer at once — the stat ledger, the
+ * damage table's crit and DPS columns, item tooltips, socket reasons — with no
+ * per-site work and nothing for a future row to forget.
+ */
+for (const panel of [sheetEl, invEl, abilEl, srEl]) {
+  panel.addEventListener("click", (e) => {
+    if (!document.body.classList.contains("touch")) return;
+    const t = (e.target as HTMLElement).closest("[title]") as HTMLElement | null;
+    const tip = t?.getAttribute("title");
+    if (!t || !tip) return;
+    // Anything with its own verb keeps it: a tooltip must never eat a button.
+    if (t.closest("button, .tab, .itile, .sock, .gchip, .acard .nrow")) return;
+    e.preventDefault();
+    const label = (t.querySelector(".lab") ?? t.querySelector("small") ?? t).textContent ?? "";
+    showSheet(label.trim().slice(0, 40) || "THE MATH", `<div class="tsrow">${tip}</div>`);
+  });
+}
+
+/**
+ * body.ingame — the landscape gate's real scope.
+ *
+ * The rotate card used to cover the campfire menu, the leaderboard, the recap
+ * and the shop, all of which read BETTER in portrait; a phone player's first
+ * screen was a rotate card over a menu they could not reach (MOBILE.md 4.4).
+ * Gameplay is the only thing that needs the widescreen twin-thumb layout.
+ * Cached, because this runs once a frame from updateSkills.
+ */
+let ingameFlag = false;
+function syncIngame(): void {
+  const b = document.body;
+  const on = state.status === "playing" &&
+    !b.classList.contains("modal") && !b.classList.contains("checkin");
+  if (on === ingameFlag) return;
+  ingameFlag = on;
+  b.classList.toggle("ingame", on);
 }
 
 function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
@@ -7045,24 +10249,10 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   }
   // Touch merge: stick moves (same iso rotation), the attack chip holds
   // cast[0], and released taps/drag-casts land as one-shot edges. A drag
-  // brings its own aim; a tap leaves aim null for the auto-aim below.
-  let touchCastAim = false;
-  if (touchHeld) {
-    if (touchHeld.move) intent.move = isoRotate(touchHeld.move);
-    if (intent.cast) {
-      if (touchEdges.attack) intent.cast[0] = true;
-      for (const c of touchEdges.casts) {
-        intent.cast[c.slot] = true;
-        if (c.aim) { intent.aim = isoRotate(c.aim); touchCastAim = true; }
-      }
-    }
-    if (touchEdges.flask) intent.flask = true;
-    if (touchEdges.stairs) intent.useStairs = true;
-    if (touchEdges.ping) intent.ping = touchEdges.ping;
-    touchEdges.casts.length = 0;
-    touchEdges.attack = touchEdges.flask = touchEdges.stairs = false;
-    touchEdges.ping = null;
-  }
+  // brings its own aim; a tap leaves aim null for the smart cast below.
+  const touchCastAim = applyTouchEdges(intent, touchHeld, touchEdges, {
+    isoRotate, dashSlot: dashSlot(me(state)),
+  });
   // AIM is exclusive: an explicit source (touch drag, pad right stick) wins
   // outright; otherwise the mouse aims only if it was touched more recently
   // than pad/touch (device arbitration — a parked cursor must not pin the
@@ -7081,10 +10271,10 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
       if (dx * dx + dy * dy > 0.04) intent.aim = { x: dx, y: dy };
     }
   }
-  // Quick-cast: casting without an explicit aim on pad/touch snaps to the
-  // nearest living monster (Wild Rift-style). Facing still covers whiffs.
+  // Smart cast: casting without an explicit aim resolves at the prioritised
+  // target (input/targeting.ts). Facing still covers whiffs.
   if ((padRecent || touchRecent) && !intent.aim && intent.cast?.some(Boolean)) {
-    const snap = autoAimDir();
+    const snap = smartAim(intent.cast.findIndex(Boolean));
     if (snap) intent.aim = snap;
   }
   // Ping lands where the cursor points (ground raycast); no cursor, ping ahead.
@@ -7096,14 +10286,17 @@ function sampleIntent(dt: number): ReturnType<InputController["sample"]> {
   }
   // Diablo-style mouse movement (opt-in): LMB on ground walks, LMB on a
   // monster attacks. Pure input interpretation — the intent stays ordinary.
-  if (mouseClickMove) {
+  // Touch tap-to-move rides the SAME autopilot, with no cursor and no button:
+  // the tap set clickMove.target, and stick input clears it through the
+  // keyboardMove flag below — direct control always wins, with no blending.
+  if (mouseClickMove || (touchMode && touchPrefs.tapToMove)) {
     const p = me(state);
-    const g = input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
+    const g = mouseClickMove && input.mouse ? renderer.screenToGround(input.mouse.x, input.mouse.y) : null;
     const hover = !!g && state.monsters.some(
       (m) => m.hp > 0 && (m.pos.x - g.x) ** 2 + (m.pos.y - g.y) ** 2 <= 0.55 * 0.55,
     );
     const out = stepClickMove(clickMove, {
-      playerPos: p.pos, cursorWorld: g, lmbHeld: input.lmbHeld, hoverMonster: hover,
+      playerPos: p.pos, cursorWorld: g, lmbHeld: mouseClickMove ? input.lmbHeld : false, hoverMonster: hover,
       keyboardMove: intent.move.x !== 0 || intent.move.y !== 0, dt,
     });
     if (out.move) intent.move = out.move;
@@ -7189,6 +10382,7 @@ async function main(): Promise<void> {
     net.onEvents = (batch) => {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
+      if (batch.bossEvents) netBoss.push(...batch.bossEvents);
       for (const e of batch.events) pushLogLine(e);
     };
     net.onDisconnect = () => {
@@ -7208,7 +10402,12 @@ async function main(): Promise<void> {
   // Feedback buffers reused across frames (GC sweep: no per-frame arrays).
   const frameHits: typeof state.hits = [];
   const frameAnns: Announcement[] = [];
+  // Boss beats are per-STEP transients (cleared exactly like state.hits), so
+  // they have to be drained inside the sub-step loop or a phase edge that
+  // lands on a non-final sub-step is silently lost.
+  const frameBoss: BossEvent[] = [];
   function frame(now: number): void {
+    hudNow = now; // the boss beat line + the call-out expire on the frame clock
     let dt = (now - prev) / 1000;
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;
@@ -7219,6 +10418,7 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     frameHits.length = 0;
     frameAnns.length = 0;
+    frameBoss.length = 0;
 
     if (net) {
       // Authoritative snapshots drive the world; we pump intent + drain events.
@@ -7231,6 +10431,7 @@ async function main(): Promise<void> {
       if (disp) state = disp;
       frameHits.push(...netHits.splice(0));
       frameAnns.push(...netAnns.splice(0));
+      frameBoss.push(...netBoss.splice(0));
       // Party chip: co-op shows the roster; RIVALS shows the race standings.
       // (Drawn icons, not emoji — see STYLEGUIDE.md.)
       if (state.mode === "rivals" && state.rivals) {
@@ -7284,7 +10485,7 @@ async function main(): Promise<void> {
       // Count DRAFTS, not cards: one open pick per pending set + the owed queue.
       const banked = (rewardN > 0 ? 1 : 0) + (upgradeN > 0 ? 1 : 0) + lp.upgradeDraftsOwed;
       draftBadge.style.display = "flex";
-      draftBadge.innerHTML = `◆ DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
+      draftBadge.innerHTML = `<i class="dia"></i> DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
       draftIdleSec += dt;
       if (draftIdleSec > 45 && !draftNagged) {
         draftNagged = true; // once per run: banked power is still YOUR power to claim
@@ -7338,6 +10539,7 @@ async function main(): Promise<void> {
         for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
+        if (state.bossEvents) frameBoss.push(...state.bossEvents);
         acc -= SIM_DT;
         if (state.floor !== lastFloor) {
           lastFloor = state.floor;
@@ -7352,6 +10554,13 @@ async function main(): Promise<void> {
           lastStatus = state.status;
           persistRun(state);
           if (state.status !== "playing") {
+            // THE LEDGER AS IT STOOD BEFORE THIS RUN. Every "is this a personal
+            // best" question on the verdict screen has to be asked against the
+            // ledger this run found, not the one it just joined - the band
+            // splits already knew that; the DEEPEST FLOOR check and THE MARK
+            // did not, so a run compared itself to itself and reported that it
+            // had matched its own record.
+            recapPrevCareer = careerBests(loadHistory());
             noteDailyStreak(state); // a local nudge; boards are earned by proof
             submitTelemetry(state); // the build goes to the balance record
             if (!testMode) recordRun(state, runMode, Date.now()); // the career ledger
@@ -7389,18 +10598,76 @@ async function main(): Promise<void> {
       lastLevelByPid.set(p.id, p.level);
     }
 
+    syncPickupFeedback();
+
     // Touch feedback: the drag-aim ground telegraph + the contextual descend
     // chip (shown only while standing on the stairs tile).
     if (touchMode) {
       const p = me(state);
-      if (touchHeld && touchHeld.aimingSlot >= 0 && touchHeld.aimDir) {
-        const ab = touchHeld.aimingSlot < 4
-          ? p.abilities.slots[touchHeld.aimingSlot]
-          : p.abilities.ultimate;
-        renderer.setAimIndicator(telegraphShape(ab), p.pos, isoRotate(touchHeld.aimDir));
+      // THE INDICATOR APPEARS ON POINTERDOWN, in the same frame — not after
+      // the drag slop. On press you see the ability REAL reach (from its own
+      // params, so glyphs and ranks change the drawn shape); the drag only
+      // changes its direction. While the gesture sits in its CANCEL state the
+      // telegraph goes away, which is the one unambiguous "this will not fire"
+      // signal available before the renderer grows a dashed form.
+      const liveSlot = touchHeld
+        ? (touchHeld.aimingSlot >= 0 ? touchHeld.aimingSlot : touchHeld.pressedSlot)
+        : -1;
+      if (liveSlot >= 0 && !(touchHeld && touchHeld.aimCancel)) {
+        const spec = aimSpecFor(abilityInSlot(p, liveSlot), p);
+        // ROTATE BEFORE YOU SCALE (MOBILE.md 2.4b). The screen vector goes
+        // through isoRotate FIRST and only then does its magnitude mean a
+        // world distance, so an up-screen and a sideways drag of equal thumb
+        // travel mean equal world distance despite the iso basis
+        // foreshortening the up-screen axis 2.5:1.
+        //
+        // ...and it is rotated ONLY. `aimDir` is the raw PIXEL drag vector, so
+        // the rotation's output carries a ~110-175 magnitude while the
+        // `p.facing` fallback is unit. Multiplying a tile distance by that put
+        // nova 455 world units out and cataclysm 1050 — six of ten abilities,
+        // both ultimates, 0% of the telegraph on the glass. Direction and
+        // anchor are therefore derived together, in aimAnchor(), which
+        // normalises before either is used and is held by
+        // test/aimTelegraph.test.ts projecting the box onto a phone frame.
+        const anchor = aimAnchor(
+          spec, p.pos,
+          touchHeld && touchHeld.aimDir ? isoRotate(touchHeld.aimDir) : null,
+          touchHeld ? touchHeld.aimFrac : 0, p.facing,
+        );
+        const dir = anchor.dir;
+        // ...and the drag's LENGTH only means something for a shape the drag
+        // PLACES. A line, a cone and a chain fly their full derived reach
+        // whatever the throw; reading `frac` for them would be a game rule in
+        // the input layer (aimPlacement returns 0 for those).
+        const at = anchor.at;
+        // THE SPEC GOES THROUGH WHOLE. The renderer used to take three shapes
+        // and no numbers, so the host folded six shapes down to three and
+        // every AoE drew the same 2.0-2.2 ring whatever its real radius —
+        // nova at 2.6 and cataclysm at 6 were pixel-identical (MOBILE.md
+        // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
+        // teach itemisation: a glyph that grows the nova grows the circle.
+        renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
+        // ...and the camera LEADS the aim, because a 14.4-tile bolt does not
+        // fit in the 8.5 tiles a phone shows above the crawler: measured, 8.1%
+        // of the line's vertices were on the glass. Presentation only.
+        renderer.setAimLead(dir, Math.max(spec.range, anchor.distance + spec.radius));
       } else {
         renderer.setAimIndicator(null);
+        renderer.setAimLead(null, 0);
       }
+      // TARGET SELECTION IS DRAWN. `lockedTargetId` steered `pickTarget` and
+      // lit the LOCK chip for four rounds while nothing appeared on the
+      // monster itself; a lock a player cannot see is a lock they cannot use.
+      const lockedMob = lockedTargetId !== null
+        ? state.monsters.find((m) => m.id === lockedTargetId && m.hp > 0)
+        : undefined;
+      // Handed over ONCE, on the frame the pick happened: the renderer owns the
+      // fade, and re-sending the same pick every frame would restart it.
+      const fresh = smartTargetAt > smartTargetShown ? smartTarget : null;
+      smartTargetShown = smartTargetAt;
+      renderer.setTargetMarkers(
+        lockedMob ? { x: lockedMob.pos.x, y: lockedMob.pos.y } : null, fresh,
+      );
       const ti = Math.floor(p.pos.y) * state.map.w + Math.floor(p.pos.x);
       // Roam: the same interact chip talks to a resident in reach (the sim's
       // useStairs seam routes to startDialogue when an NPC is closer).
@@ -7431,9 +10698,63 @@ async function main(): Promise<void> {
       else if (weak > 0) gamepad.rumble(0, weak, 60);
     }
 
+    // Touch haptics ride the same per-frame feedback buffers the rumble does,
+    // rate-limited to one pulse per 60 ms inside Haptics. The same loop keeps
+    // the "last thing I damaged" note that feeds smart cast priority: hits
+    // carry a position, not a monster id, so the nearest body to the impact is
+    // the credit — good enough to make finishing a kill feel intentional.
+    if (touchMode && frameHits.length > 0) {
+      const p = me(state);
+      let ev: "hurt" | "kill" | null = null;
+      for (const h of frameHits) {
+        if (h.kind === "player") {
+          if (h.amount > p.maxHp * 0.12) ev = "hurt";
+          continue;
+        }
+        const hitMob = tapTarget(state.monsters, h.pos, 0.9);
+        if (hitMob) { lastDamagedId = hitMob.id; lastDamagedAt = performance.now() / 1000; }
+        if (h.killed && ev !== "hurt") ev = "kill";
+      }
+      if (ev) haptics.fire(ev);
+      // A locked target that died stops being a target.
+      if (lockedTargetId !== null && !state.monsters.some((m) => m.id === lockedTargetId && m.hp > 0)) {
+        lockedTargetId = null;
+      }
+    }
+    if (touchMode && frameAnns.length > 0) {
+      for (const a of frameAnns) {
+        if (a.kind === "levelup") { haptics.fire("levelup"); break; }
+      }
+    }
+    // Loot needs no input — the sim collects inside pickupRadius. What it
+    // needed was an ACKNOWLEDGEMENT: a thumb covering half a phone screen
+    // cannot see a small pickup toast behind it.
+    if (touchMode) {
+      const bag = me(state).inventory.length;
+      if (bag > lastBagCount) haptics.fire("pickup");
+      lastBagCount = bag;
+    }
+
     // Particles + shake use world space, so they can fire before the camera moves.
     renderer.emitHits(frameHits);
-    audioDirector.frame(state, frameHits, frameAnns, localId);
+    // BOSSES V2 §5: the encounter's beats. The renderer stages the world FX
+    // and takes its camera intent from them; the HUD says the WORD; the audio
+    // director fires the stinger. One buffer, three consumers, no re-derivation.
+    if (frameBoss.length > 0) {
+      renderer.bossEvents(frameBoss);
+      applyBossEvents(frameBoss);
+    }
+    // EVERY frame, not only the ones carrying a beat (r3 blocker). The DEFEATED
+    // record arrives on the frame the boss dies; the drops it pays out land on
+    // LATER frames, and those frames carry no boss events at all — so gating
+    // this call on `frameBoss.length` meant the arcs were staged for exactly
+    // the loot that already existed, i.e. none of it.
+    stageBossPayoff(state, frameBoss);
+    // §5.5/§5.7 — brief slow-mo on a phase break and the kill. Rides the same
+    // hitStop the kill pop already uses, so it composes with combat feel
+    // instead of fighting it. Solo only: the networked world never pauses.
+    if (!net && renderer.bossSlowmo > 0) hitStop = Math.max(hitStop, Math.min(0.4, renderer.bossSlowmo));
+    audioDirector.frame(state, frameHits, frameAnns, localId, frameBoss);
     updateBulletTimeGrade(state);
     if (menuOpen && charSelect) {
       // Checked in at the campfire: the select scene owns the canvas; the
@@ -7456,12 +10777,12 @@ async function main(): Promise<void> {
     // Damage numbers need the camera positioned (done in update) to project.
     for (const h of frameHits) spawnDamageNumber(h);
     for (const a of frameAnns) showAnnouncement(a);
-    updateHud(state);
     updateDowned(state);
     maybeShowRecap(state);
-
+    updateHud(state);
     updateSkills(state);
     updateGhostHud(state);
+    updateGhostPlate(state);
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);

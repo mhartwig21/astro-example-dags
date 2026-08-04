@@ -1,0 +1,8 @@
+[
+{"file":"src/sim/config.ts",
+ "old":"  // The Safety Officer: Compliance Lattice — beams arming in sequence.",
+ "new":"  // The Topiary Warden: HEDGE REGROWTH. Acceptance review round 3 found the\n  // Warden with no kit at all — a BREAK-THE-SHIELD headline whose shield only\n  // ever ticked back on the chassis' passive trickle, so the fight showed no\n  // shield and no ask. The regrow is now its own CHANNEL: interrupt it (poise)\n  // and the pool stays broken, miss it and the hedge is back and holding you.\n  hedgeRegrowCooldown: 7,\n  hedgeRegrowWindup: 1.7, // long enough to be a real interrupt stake\n  hedgeRegrowAt: 0.6, // pool fraction below which it re-walls\n  hedgeRegrowAmount: 0.75, // fraction of the pool the channel restores\n  hedgeRingSpokes: 8, // roots laid on the wall it just rebuilt\n  hedgeRingRadius: 3.6,\n  // The Furnace Marshal: THREE SWEEPS, THEN IT HAS TO BREATHE. Its epithet\n  // promises a COUNT, so the count is the kit — the sweeps stoke it and the\n  // third forces the vent (a genuine self-stagger) whether you helped or not.\n  marshalSweepsPerVent: 3,\n  marshalSweepCooldown: 6,\n  // The Safety Officer: Compliance Lattice — beams arming in sequence."},
+{"file":"src/sim/types.ts",
+ "old":"    | \"punish\" | \"latefee\" | \"bloom\" | \"pull\"; // what resolves when windup expires",
+ "new":"    | \"punish\" | \"latefee\" | \"bloom\" | \"pull\" | \"regrow\"; // what resolves when windup expires"}
+]

@@ -1549,11 +1549,32 @@ same as not being measured, and the difference is the whole point.
    barrage output ≥ **2.5x the best 3s of melee** at the same floor. A 3s channel
    at 70% move speed that fails either is a tax, not a decision (§3.3 U2).
    **MEASURED — both clauses live in `test/abilities2.test.ts`.** (i) passes and
-   is not close: paired runs (two identical fixtures driven through an identical
-   warm-up by the identical bot, one of which then presses the ultimate) take
-   **18 vs 50** damage at floor 4, **294 vs 474** at floor 8 and **510 vs 802**
-   at floor 12 across the window. Channelling is *safer* than fighting, because
-   the shells kill and stagger what was about to reach you. (ii) **failed at
+   is not close: paired runs (one warm run per seed, cloned at each checkpoint
+   into two byte-identical arms, one of which then presses the ultimate) read
+   channelled/normal **.63 .73 .78 .45** at floor 8, **.64 .51 .88 .64** at
+   floor 12 and **.92 .62 .87 .65** at floor 16, on four disjoint 24-seed bases.
+   Channelling is *safer* than fighting, because the shells kill and stagger
+   what was about to reach you.
+
+   **The fixture was rebuilt once**, after `bosses-v2` merged and this clause
+   read 300 vs 52 at floor 12. That was the ruler, not the ability: the boss
+   dealt 22 of the 352 damage in those windows and all 22 on the arm that was
+   *not* channelling, `shieldHp` was 0 in 12 of 13 and `ap.track`/`ap.band` were
+   0 in every fixture — the 300 was trash `shot` and `swarmer`. Two real
+   defects: 13 windows could not resolve the claim (neighbouring seed bases read
+   101v104, 119v240, 179v418), and the "playing normally" arm was itself
+   pressing the ultimate in 21 of 81 windows. The control arm is now forbidden
+   the ultimate, windows anyone died in are dropped, floors are **8/12/16**
+   because `ultimateMinFloor` is 7, and the sample is ~5x larger for less work.
+   The rebuilt ruler still bites: `barrageMoveMult` 0.7 -> 0.15 turns all three
+   floors red at 1.90 / 1.66 / 1.65.
+
+   **Watch item, measured not fixed:** the margin narrows with depth. A shell
+   one-shots the median mob at floor 8 (0.56 shells-to-kill) and needs 1.34 of
+   them by floor 12, so the barrage's affordability — which is bought by its
+   lethality — thins out; floors 14 and 16 sit near parity (.83–1.03 before the
+   death-window guard). If a later band pushes it past 1.0, the lever is shell
+   damage at depth, **not** channel length. (ii) **failed at
    ship: 2.34x.** §3.3's pre-registered ladder (3.0s -> 2.0s, then cut the
    commitment) is aimed at a commitment that is unaffordable, and (i) says this
    one is not — and the ladder is not the lever anyway, because shells and

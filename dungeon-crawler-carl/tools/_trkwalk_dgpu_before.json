@@ -1,0 +1,94 @@
+{
+ "adapter": "dgpu",
+ "floor": 15,
+ "scene": "combat",
+ "tag": "before",
+ "reps": 4,
+ "secs": 2.2,
+ "gpu": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+ "contamination": {
+  "before": {
+   "ok": true,
+   "own": 0,
+   "foreign": 10,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600
+   ]
+  },
+  "after": {
+   "ok": true,
+   "own": 0,
+   "foreign": 17,
+   "foreignPids": [
+    51792,
+    29044,
+    8240,
+    20120,
+    3152,
+    48600,
+    41424,
+    24300,
+    30920,
+    40600,
+    35176,
+    37084
+   ]
+  }
+ },
+ "pixelAB": null,
+ "rows": {
+  "baseline": {
+   "frame": 9.4,
+   "update": 3,
+   "render": 4.4,
+   "drain": 0,
+   "calls": 563,
+   "n": 2775,
+   "invis": 1574,
+   "parked": 0,
+   "props": 822
+  },
+  "frozen-matrices": {
+   "frame": 8.9,
+   "update": 3,
+   "render": 4,
+   "drain": 0,
+   "calls": 560,
+   "n": 2775,
+   "invis": 1574,
+   "parked": 0,
+   "props": 822
+  },
+  "park-hidden-props": {
+   "frame": 8.8,
+   "update": 3,
+   "render": 3.9,
+   "drain": 0,
+   "calls": 563,
+   "n": 1201,
+   "invis": 172,
+   "parked": 743,
+   "props": 822
+  },
+  "park-all-props": {
+   "frame": 8.9,
+   "update": 3.1,
+   "render": 3.9,
+   "drain": 0,
+   "calls": 543,
+   "n": 1030,
+   "invis": 97,
+   "parked": 822,
+   "props": 822
+  }
+ }
+}

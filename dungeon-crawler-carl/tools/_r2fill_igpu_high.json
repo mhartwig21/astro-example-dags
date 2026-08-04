@@ -1,0 +1,737 @@
+{
+  "adapter": "igpu",
+  "mode": "high",
+  "census": [
+    {
+      "i": 0,
+      "name": "(unnamed)",
+      "type": "AmbientLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 1,
+      "name": "(unnamed)",
+      "type": "HemisphereLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 2,
+      "name": "(unnamed)",
+      "type": "DirectionalLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 3,
+      "name": "(unnamed)",
+      "type": "Object3D",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 4,
+      "name": "(unnamed)",
+      "type": "DirectionalLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 5,
+      "name": "(unnamed)",
+      "type": "Object3D",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 6,
+      "name": "(unnamed)",
+      "type": "Mesh",
+      "nodes": 1,
+      "tris": 48,
+      "visible": true
+    },
+    {
+      "i": 7,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 698,
+      "tris": 81511,
+      "visible": true
+    },
+    {
+      "i": 8,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 4,
+      "tris": 6,
+      "visible": true
+    },
+    {
+      "i": 9,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 57,
+      "visible": true
+    },
+    {
+      "i": 10,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 3,
+      "tris": 4,
+      "visible": true
+    },
+    {
+      "i": 11,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 12,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 5,
+      "tris": 120,
+      "visible": true
+    },
+    {
+      "i": 13,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 2,
+      "visible": true
+    },
+    {
+      "i": 14,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 15,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 16,
+      "name": "bossFx",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 48,
+      "visible": true
+    },
+    {
+      "i": 17,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 18,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 19,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 20,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 21,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 22,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 23,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 24,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 25,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 26,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 57,
+      "tris": 4793,
+      "visible": true
+    },
+    {
+      "i": 55,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 56,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 57,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 58,
+      "name": "(unnamed)",
+      "type": "PointLight",
+      "nodes": 1,
+      "tris": 0,
+      "visible": true
+    },
+    {
+      "i": 61,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 53,
+      "tris": 4590,
+      "visible": true
+    },
+    {
+      "i": 62,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 41,
+      "tris": 15478,
+      "visible": true
+    },
+    {
+      "i": 63,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 5720,
+      "visible": true
+    },
+    {
+      "i": 64,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 12316,
+      "visible": true
+    },
+    {
+      "i": 65,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 35,
+      "tris": 17052,
+      "visible": true
+    },
+    {
+      "i": 66,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 5824,
+      "visible": true
+    },
+    {
+      "i": 67,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 5824,
+      "visible": true
+    },
+    {
+      "i": 68,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 32,
+      "tris": 6140,
+      "visible": true
+    },
+    {
+      "i": 69,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 12316,
+      "visible": true
+    },
+    {
+      "i": 70,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 53,
+      "tris": 4590,
+      "visible": true
+    },
+    {
+      "i": 71,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 35,
+      "tris": 6212,
+      "visible": true
+    },
+    {
+      "i": 72,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 12316,
+      "visible": true
+    },
+    {
+      "i": 73,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 35,
+      "tris": 17052,
+      "visible": true
+    },
+    {
+      "i": 74,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 34,
+      "tris": 8219,
+      "visible": true
+    },
+    {
+      "i": 75,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 5720,
+      "visible": true
+    },
+    {
+      "i": 76,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 5284,
+      "visible": true
+    },
+    {
+      "i": 77,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 34,
+      "tris": 5290,
+      "visible": true
+    },
+    {
+      "i": 78,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 31,
+      "tris": 3410,
+      "visible": true
+    },
+    {
+      "i": 79,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 34,
+      "tris": 5290,
+      "visible": true
+    },
+    {
+      "i": 80,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 33,
+      "tris": 12316,
+      "visible": true
+    },
+    {
+      "i": 81,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 53,
+      "tris": 4590,
+      "visible": true
+    },
+    {
+      "i": 82,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 35,
+      "tris": 17052,
+      "visible": true
+    },
+    {
+      "i": 83,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 4,
+      "tris": 6,
+      "visible": true
+    },
+    {
+      "i": 86,
+      "name": "(unnamed)",
+      "type": "Mesh",
+      "nodes": 1,
+      "tris": 48,
+      "visible": true
+    },
+    {
+      "i": 87,
+      "name": "(unnamed)",
+      "type": "Sprite",
+      "nodes": 1,
+      "tris": 2,
+      "visible": true
+    },
+    {
+      "i": 88,
+      "name": "(unnamed)",
+      "type": "Sprite",
+      "nodes": 1,
+      "tris": 2,
+      "visible": true
+    },
+    {
+      "i": 89,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 5,
+      "tris": 118,
+      "visible": true
+    },
+    {
+      "i": 90,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 5,
+      "tris": 118,
+      "visible": true
+    },
+    {
+      "i": 91,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 5,
+      "tris": 118,
+      "visible": true
+    },
+    {
+      "i": 92,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 48,
+      "visible": true
+    },
+    {
+      "i": 93,
+      "name": "(unnamed)",
+      "type": "Sprite",
+      "nodes": 1,
+      "tris": 2,
+      "visible": true
+    }
+  ],
+  "fit": {
+    "c": 39.861863602717,
+    "k": 5.926019704691283,
+    "pts": [
+      {
+        "scale": 1,
+        "mpx": 4.908,
+        "ms": 52.82,
+        "fps": 18.93,
+        "shape": {
+          "n": 116,
+          "fps": 18.93,
+          "delivered": 52.82,
+          "mean": 52.8,
+          "p50": 27.2,
+          "p90": 127.1,
+          "p99": 280.5,
+          "max": 317.1,
+          "over16": 63.8,
+          "over33": 38.8
+        }
+      },
+      {
+        "scale": 0.8,
+        "mpx": 3.14,
+        "ms": 91.1,
+        "fps": 10.98,
+        "shape": {
+          "n": 94,
+          "fps": 10.98,
+          "delivered": 91.1,
+          "mean": 91.09,
+          "p50": 30.4,
+          "p90": 105.6,
+          "p99": 2728.2,
+          "max": 2728.2,
+          "over16": 78.7,
+          "over33": 47.9
+        }
+      },
+      {
+        "scale": 0.65,
+        "mpx": 2.072,
+        "ms": 48.52,
+        "fps": 20.61,
+        "shape": {
+          "n": 126,
+          "fps": 20.61,
+          "delivered": 48.52,
+          "mean": 48.52,
+          "p50": 24.1,
+          "p90": 68.7,
+          "p99": 717.9,
+          "max": 749.2,
+          "over16": 76.2,
+          "over33": 28.6
+        }
+      },
+      {
+        "scale": 0.5,
+        "mpx": 1.227,
+        "ms": 34.25,
+        "fps": 29.2,
+        "shape": {
+          "n": 182,
+          "fps": 29.2,
+          "delivered": 34.25,
+          "mean": 34.25,
+          "p50": 17.4,
+          "p90": 36.4,
+          "p99": 456.7,
+          "max": 496.2,
+          "over16": 53.8,
+          "over33": 12.1
+        }
+      }
+    ]
+  },
+  "baseMs": 105.58,
+  "layerTable": [
+    {
+      "i": 7,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 698,
+      "tris": 81511,
+      "visible": true,
+      "delivered": 31.06,
+      "saved": 74.52,
+      "pctOfFrame": 70.6
+    },
+    {
+      "i": 61,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 53,
+      "tris": 4590,
+      "visible": true,
+      "delivered": 51.24,
+      "saved": 54.34,
+      "pctOfFrame": 51.5
+    },
+    {
+      "i": 9,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 57,
+      "visible": true,
+      "delivered": 53.66,
+      "saved": 51.92,
+      "pctOfFrame": 49.2
+    },
+    {
+      "i": 62,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 41,
+      "tris": 15478,
+      "visible": true,
+      "delivered": 56.98,
+      "saved": 48.6,
+      "pctOfFrame": 46
+    },
+    {
+      "i": 16,
+      "name": "bossFx",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 48,
+      "visible": true,
+      "delivered": 58.87,
+      "saved": 46.71,
+      "pctOfFrame": 44.2
+    },
+    {
+      "i": 26,
+      "name": "Scene",
+      "type": "Group",
+      "nodes": 57,
+      "tris": 4793,
+      "visible": true,
+      "delivered": 61.03,
+      "saved": 44.55,
+      "pctOfFrame": 42.2
+    },
+    {
+      "i": 10,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 3,
+      "tris": 4,
+      "visible": true,
+      "delivered": 83.08,
+      "saved": 22.5,
+      "pctOfFrame": 21.3
+    },
+    {
+      "i": 15,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true,
+      "delivered": 96,
+      "saved": 9.58,
+      "pctOfFrame": 9.1
+    },
+    {
+      "i": 12,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 5,
+      "tris": 120,
+      "visible": true,
+      "delivered": 99.71,
+      "saved": 5.87,
+      "pctOfFrame": 5.6
+    },
+    {
+      "i": 6,
+      "name": "(unnamed)",
+      "type": "Mesh",
+      "nodes": 1,
+      "tris": 48,
+      "visible": true,
+      "delivered": 100.74,
+      "saved": 4.84,
+      "pctOfFrame": 4.6
+    },
+    {
+      "i": 8,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 4,
+      "tris": 6,
+      "visible": true,
+      "delivered": 102.71,
+      "saved": 2.87,
+      "pctOfFrame": 2.7
+    },
+    {
+      "i": 14,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true,
+      "delivered": 104.49,
+      "saved": 1.09,
+      "pctOfFrame": 1
+    },
+    {
+      "i": 13,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 2,
+      "visible": true,
+      "delivered": 109.41,
+      "saved": -3.83,
+      "pctOfFrame": -3.6
+    },
+    {
+      "i": 11,
+      "name": "(unnamed)",
+      "type": "Group",
+      "nodes": 2,
+      "tris": 0,
+      "visible": true,
+      "delivered": 128.77,
+      "saved": -23.19,
+      "pctOfFrame": -22
+    }
+  ]
+}

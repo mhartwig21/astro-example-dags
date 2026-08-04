@@ -6,7 +6,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
 import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
-import { Tile, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
+import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { roomTemplateById } from "../content/rooms";
@@ -26,6 +26,7 @@ import { burstPeriod, residentAct } from "./staging";
 import { assignRoomPurposes } from "../sim/roomPurposes";
 import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressing";
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
+import { surfaceDetailMap } from "./surfaceMaps";
 import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
@@ -33,10 +34,33 @@ import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight,
 import { FxParticles, TEX_FLICKER } from "./fxParticles";
 import { SwingArcs, TrailRibbons } from "./fxTrails";
 import {
-  QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, guessQuality, loadQualityChoice,
-  saveQualityChoice, urlQualityOverride, type QualityChoice, type QualityProfile,
+  QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, autoTuneFrozen, guessQuality,
+  loadQualityChoice, saveQualityChoice, urlQualityOverride,
+  type QualityChoice, type QualityProfile, type QualityName,
 } from "./quality";
-import { FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+
+/**
+ * WHAT THE TUNER DID, OR WOULD HAVE DONE — the surface that makes an automatic
+ * mode change a visible event rather than a secret.
+ *
+ * `auto`    the player left the setting on AUTO and the mode HAS changed.
+ * `suggest` the player PINNED a mode; nothing was changed, and this is the
+ *           tuner telling them what it would have done so they can decide.
+ */
+export interface QualityNotice {
+  readonly kind: "auto" | "suggest";
+  readonly from: QualityName;
+  readonly to: QualityName;
+  /** Mean frame time of the window that triggered it — the evidence. */
+  readonly meanMs: number;
+}
+import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+import { BossFx } from "./bossFx";
+import { ASK_PAL, bossFamily } from "./bossSignatures";
+import {
+  AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, disposeAimShape,
+  type AimIndicatorShape,
+} from "./aimIndicator";
 
 // Isometric 3D renderer. Maps the deterministic sim's tile grid + entity positions
 // into a Three.js scene viewed through a fixed, pitched orthographic camera — the
@@ -57,6 +81,21 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
 // its highlight), gentle saturation, and a film vignette tinted to the band's
 // void color. Runs AFTER OutputPass (tone map + sRGB), so it grades the same
 // values the player sees.
+/**
+ * Walks the golden ratio to hand each rig a distinct mixer-flush phase — see
+ * the phase-spread note in the rate-gated mixer. Module scope because it must
+ * be shared by every rig built in the session; it is a spreading sequence, not
+ * randomness, so it costs nothing determinism can notice.
+ */
+let rigPhaseSeq = 0;
+
+/** Texture slots whose presence forks a three.js program permutation. */
+const MAP_SLOTS = [
+  "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap",
+  "alphaMap", "bumpMap", "displacementMap", "lightMap", "envMap", "specularMap",
+  "clearcoatMap", "sheenColorMap", "transmissionMap", "iridescenceMap",
+] as const;
+
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
@@ -159,20 +198,31 @@ class WorldGTAOPass extends GTAOPass {
     (this as unknown as { normalRenderTarget: THREE.WebGLRenderTarget }).normalRenderTarget.setSize(1, 1);
   }
 
-  // HALF-RES AO WITH A BILATERAL UPSAMPLE (quality ladder).
+  // THE AO BUFFER AND THE DENOISE BUFFER ARE SIZED INDEPENDENTLY — and after
+  // opt r2 every shipped mode sizes them the SAME.
   //
-  // The AO buffer and the denoise buffer are sized independently. Running the
-  // AO march at aoScale 0.5 costs a QUARTER of its samples; the denoise pass
-  // then runs at full resolution and reads the small AO buffer through
-  // textureLod (bilinear) while weighting every tap by depth, normal and luma
-  // from the FULL-res shared depth buffer. That is precisely a joint-bilateral
-  // upsample, and it is stock three shader code — no custom pass needed. The
-  // occlusion contact line stays pinned to the geometry edge instead of
-  // bleeding across it the way a plain bilinear stretch would.
+  // The arrangement this replaces ran the AO march at half resolution and the
+  // denoise at FULL resolution, on the argument that a depth+normal+luma
+  // weighted denoise reading a small AO buffer through bilinear textureLod is
+  // exactly a joint-bilateral upsample. That is true, and it is stock three
+  // shader code, and it was still the single most expensive thing in the frame
+  // on the machine the promises are made to:
   //
-  // Setting denoiseScale below 1 gives up the bilateral upsample and lets the
-  // AO blend do a plain bilinear stretch instead — cheaper, softer, which is
-  // the right trade on the lower rungs.
+  //     AO march     1.23 Mpx x 12 taps            = 14.7 Mtaps
+  //     denoise      4.91 Mpx x 8 samples x 2 rings = 78.6 Mtaps
+  //
+  // Five times the pass it was cleaning, spent filtering values that bilinear
+  // interpolation had just invented. Sandwiched A/B on the Intel part put the
+  // whole GTAO pass at roughly a third of a 53 ms frame at HIGH.
+  //
+  // Sizing the denoise to the AO buffer keeps the filtering — it just does it
+  // at the resolution the data has — and hands the upsample to the AO blend's
+  // own bilinear fetch. The halo bleed the old comment warned about comes from
+  // upsampling UNFILTERED half-res AO, which is not what this does.
+  //
+  // The independent sizing stays in the API because it is the honest shape of
+  // the mechanism, and a future adapter that is not bandwidth-starved could pay
+  // for the full-res filter again.
   private aoScale = 1;
   private denoiseScale = 1;
   private fullW = 2;
@@ -249,6 +299,47 @@ interface CanopyEntry {
   target: number; // 1 = full size, 0.12 = stepped aside for the camera
 }
 
+// ---------------------------------------------------------------------------
+// GPU-INSTANCED STATIC PROPS (paydown r2).
+//
+// WHAT WAS MEASURED, floor 17, staged crowd, clean box (0.7% foreign load),
+// ANGLE/Intel, BALANCED @ 1.2 (1728x1022): 613 draw calls per frame, of which
+// ~455 were named KayKit props — 144 visible props at ~3.2 draws each (a prop
+// is a glTF Group of 2-3 meshes, and the shadow pass redraws it every other
+// frame). One prop KEY, `sword_shield_broken`, was 27 draw calls per frame by
+// itself. Ablating the entire post chain moved the frame 8% and halving the
+// pixel ratio moved it 16%, so this scene is NOT fill-bound the way quality.ts's
+// floor-8 table assumes: it is bound on per-draw cost, on both sides of the
+// wire (setProgram + renderBufferDirect were 7.6 of the 7.5 ms render, and the
+// uncapped frame only fell from 30.2 to 25.3 ms at half resolution).
+//
+// The props are the one population that can be batched without changing a
+// pixel: they are static (the renderer already freezes their matrices), they
+// share geometry (every clone of a key references the loader's buffers) and
+// they share materials (worldLitProp caches by source material + tint variant),
+// so a whole floor's clutter collapses into a handful of InstancedMesh draws.
+//
+// PACKED, NOT ZERO-SCALED. A hidden prop could be "drawn" with a zero-scale
+// matrix, which is one line and wrong: an iGPU still runs the vertex shader for
+// every instance of a batch it draws, and only ~16% of a floor's 887 props are
+// ever revealed at once. Instead each batch keeps its live members packed into
+// [0, count) and `count` is what gets drawn — so an unexplored floor costs
+// nothing, and showing/hiding one prop is an O(1) swap-remove.
+interface PropBatchLeaf {
+  batch: PropBatch;
+  /** Source mesh, kept in the graph (invisible) so Box3/censuses still see it. */
+  mesh: THREE.Mesh;
+  /** Slot inside the batch, or -1 when this leaf is not currently drawn. */
+  slot: number;
+}
+interface PropBatch {
+  mesh: THREE.InstancedMesh;
+  /** slot -> leaf, valid for [0, count). */
+  members: (PropBatchLeaf | null)[];
+  count: number;
+  dirty: boolean;
+}
+
 // Which clip a committed windup PREFERS (falls back to "attack" if the rig
 // doesn't have it baked — see attachClipAnimator's fuzzy clip picker).
 // DAMAGED STATE (furniture-feel): blocking furniture at 1 hp swaps to the
@@ -256,6 +347,21 @@ interface CanopyEntry {
 // treatment at build time (see the smashables sync).
 const BREAKABLE_DAMAGED: Record<string, string> = {
   table_round_medium: "table_medium_broken",
+};
+
+// BOSSES V2 (capture round 2) — arena furniture keys are GAMEPLAY keys, not
+// asset keys: the sim writes "drain" / "vent" / "shutdown" / "barricade" /
+// "rubble" because that is what the mechanic is called. None of those exist in
+// the KayKit pool, so modelInstance returned null and the props rendered as
+// nothing at all — which is why a Sump King capture had "no floodgate, no
+// drain prop in frame" for a boss whose entire ask is the floodgates.
+const BREAKABLE_MODEL: Record<string, string> = {
+  drain: "floor_tile_grate_open", // FLOODGATE: a grate the level runs out of
+  vent: "fuel_a_barrels", // WALL VENT: pressure plant
+  shutdown: "anvil", // CONVEYOR control: heavy machinery
+  collapse: "pillar",
+  barricade: "crates_stacked",
+  rubble: "rubble_half",
 };
 
 const WINDUP_CLIP: Record<string, string> = {
@@ -325,7 +431,20 @@ export class Renderer3D {
   private quality: QualityProfile;
   private qualityChoice: QualityChoice;
   private tuner: QualityAutoTuner;
+  /** ?test: keep the deterministic startup guess and never let the wall-clock
+   *  tuner move it. Read once — the URL cannot change mid-session. */
+  private readonly tuneFrozen = autoTuneFrozen();
   private onQualityChange: ((p: QualityProfile) => void) | null = null;
+  private onQualityNotice: ((n: QualityNotice) => void) | null = null;
+  /** Mode already suggested to a player who pinned one — suggest once, not
+   *  every window. Cleared whenever the player changes the setting. */
+  private advisedTo: QualityName | null = null;
+  /** Monster ids whose rig gets a full-rate mixer update this frame (see the
+   *  rig gate in update()). Reused, never reallocated. */
+  private readonly rigFullRate = new Set<number>();
+  private readonly rigFrustum = new THREE.Frustum();
+  private readonly rigProj = new THREE.Matrix4();
+  private readonly rigSphere = new THREE.Sphere(new THREE.Vector3(), 3);
   /** Composed-frame counter, for the shadow-rebuild cadence. */
   private frameNo = 0;
   /** Force the next composed frame to rebuild the shadow map regardless of the
@@ -342,6 +461,31 @@ export class Renderer3D {
   private pixelRatio(): number {
     return Math.min(devicePixelRatio || 1, this.quality.pixelRatioCap) * this.renderScale;
   }
+
+  /**
+   * Is the GL context on a discrete GPU?
+   *
+   * The whole ladder is a statement about integrated graphics, and on a
+   * discrete part it is nearly flat and not even monotone (quality.ts
+   * MEASURED.fight, and ModeContract.discrete). The settings row needs to know
+   * which sentence to print, and the unmasked renderer string is the only thing
+   * that knows — `powerPreference` does not reach far enough up the stack to be
+   * an answer, which is the same lesson three rounds of measurement on this
+   * machine learned the hard way.
+   */
+  isDiscreteGpu(): boolean {
+    if (this.discreteGpu === null) {
+      let r = "";
+      try {
+        const gl = this.renderer.getContext();
+        const d = gl.getExtension("WEBGL_debug_renderer_info");
+        if (d) r = String(gl.getParameter(d.UNMASKED_RENDERER_WEBGL) || "");
+      } catch { /* privacy-gated in some browsers — assume integrated */ }
+      this.discreteGpu = /nvidia|geforce|rtx|gtx|radeon (rx|pro)|amd.*rx|arc a\d/i.test(r);
+    }
+    return this.discreteGpu;
+  }
+  private discreteGpu: boolean | null = null;
 
   /** Current preset (settings UI reads this). */
   get qualityProfile(): QualityProfile {
@@ -360,12 +504,27 @@ export class Renderer3D {
   }
 
   /**
+   * Fired when the tuner changes the mode (AUTO) or wants to (a pinned mode).
+   * The host is expected to SHOW it — see QualityNotice. A host that does not
+   * wire this up gets the old silent behaviour for AUTO and, for a pinned mode,
+   * simply nothing at all, which is still the correct outcome: a pinned mode is
+   * never moved either way.
+   */
+  setQualityNoticeListener(fn: ((n: QualityNotice) => void) | null): void {
+    this.onQualityNotice = fn;
+  }
+
+  /**
    * MANUAL OVERRIDE (settings row). "auto" hands control back to the tuner,
    * starting from whatever is on screen now.
    */
   setQuality(choice: QualityChoice): void {
     this.qualityChoice = choice;
     saveQualityChoice(choice);
+    // A fresh decision earns a fresh suggestion. Without this, a player who
+    // took the tuner's advice once would never hear from it again this session
+    // even if the new mode also misses.
+    this.advisedTo = null;
     if (choice === "auto") {
       this.tuner.reset(this.quality.name);
       return;
@@ -399,6 +558,26 @@ export class Renderer3D {
 
   /**
    * Push a profile into the live pipeline.
+   *
+   * IT IS RE-ALLOCATION, AND RE-ALLOCATION IS NOT CHEAP (opt r3). The sentence
+   * below used to be offered as reassurance. Measured against a same-staging
+   * control across 9 switches on the Intel part (tools/o3_switch.mjs, and
+   * quality.ts MODE_SWITCH): this call takes 106-577 ms, median 372, while
+   * building ZERO shader programs. It is exactly what the sentence says it is —
+   * the composer's two HalfFloat targets and their depth textures, the GTAO
+   * buffers, the bloom mip chain, the SMAA targets and the shadow map, tens of
+   * megabytes of GPU allocation — and that is a third of a second of frozen
+   * game.
+   *
+   * WHAT IS AND IS NOT TRUE ABOUT IT. The frames AFTER the switch are
+   * indistinguishable from the control (worst-frame median 28.6 ms against
+   * 28.7), so this is ONE long synchronous task, not a settling period. That is
+   * what makes it awkward: AUTO runs this path on a machine it has just judged
+   * too slow, mid-fight, and no amount of tuner hysteresis shortens a call.
+   * Shortening it means not reallocating — allocating the post chain at the
+   * session's maximum ratio once and rendering into a sub-viewport, or a ladder
+   * that does not move the backbuffer at all. Both are real designs; neither is
+   * in this round.
    *
    * Everything touched here is reallocation of buffers or a pass toggle —
    * deliberately NOT anything that changes a material's program. Light-pool
@@ -501,14 +680,44 @@ export class Renderer3D {
     // WALL-AWARE visibility (final pass, issue #2): per-tile walk-distance
     // field BFS'd from the player through the walkable grid — the light
     // falloff follows corridors and stops at architecture instead of
-    // airbrushing a radial blob across walls. R8, dist/32 tiles.
-    uWlDist: { value: neutralLightGrid() as THREE.Texture },
+    // airbrushing a radial blob across walls, encoded dist/32 tiles.
+    //
+    // IT HAS NO SAMPLER OF ITS OWN ANY MORE (opt r3). It rides the G channel of
+    // uWlMask: same map size, same uv, same filter, and the world shader was
+    // already fetching that texture on the line above. The world-lit fragment
+    // shader is the frame on the Intel part — the floor group alone measured
+    // 30-41% of a MEDIUM fight frame — and it was spending seven dependent
+    // texture fetches per fragment across the whole screen. See
+    // FogBank.maskTexture for the packing contract.
     // READABLE DARKNESS floor (final pass, issue #1): out-of-play geometry
     // keeps ~8-12% display luminance — band-hued cool murk that still shows
     // tile/wall texture — plus sparse warm accent glints (embers/fungus/
     // crowd-cam drones per the DCC fiction) every 8-10 tiles.
     uWlMurk: { value: new THREE.Color(0.9, 1.0, 1.25).multiplyScalar(0.034) },
     uWlGlint: { value: new THREE.Color(1.0, 0.6, 0.3).multiplyScalar(0.22) },
+    // GENERATIVE PBR DETAIL (surfaceMaps.ts). RG = tangent normal, B =
+    // roughness modulation, A = cavity. Shared by every world-lit material and
+    // sampled in WORLD space, so instanced tiles and glTF props both get it
+    // without a second UV set.
+    uWlDet: { value: surfaceDetailMap() as THREE.Texture },
+    // ATMOSPHERE (the second hue pole). The band's dark is a colour, not an
+    // absence: rgb is the murk radiance the deep void keeps no matter how far
+    // it is from the player, so unlit space reads as cold air rather than as a
+    // hole cut in the frame.
+    uWlAtmo: { value: new THREE.Color(0.32, 0.46, 0.92).multiplyScalar(0.030) },
+  };
+  // Per-surface-family detail strength: x = world scale (uv = worldPos * x),
+  // y = normal relief, z = cavity/AO depth, w = roughness modulation. INSTANCE
+  // fields, one Vector4 shared by every material of a family, so a capture
+  // harness can A/B the whole material spend by writing y/z/w to zero — this
+  // laptop cannot run two browsers, so before/after has to be measurable inside
+  // ONE session or it is measured under two different machine loads and means
+  // nothing (tools/spendab.mjs).
+  readonly wlDet = {
+    floor: new THREE.Vector4(0.85, 0.95, 0.40, 0.55),
+    wall: new THREE.Vector4(0.62, 1.20, 0.50, 0.60),
+    prop: new THREE.Vector4(1.55, 0.60, 0.26, 0.45),
+    canopy: new THREE.Vector4(1.10, 0.35, 0.14, 0.30),
   };
   // The live baked grid for the current floor (disposed on rebuild).
   private lightGridTex: THREE.DataTexture | null = null;
@@ -516,7 +725,7 @@ export class Renderer3D {
   // buffers preallocated per floor — the per-tile BFS re-runs only when the
   // player crosses a tile boundary, with zero hot-loop allocation.
   private wlDist: {
-    tex: THREE.DataTexture;
+    /** BFS scratch, then the bytes copied into the fog texture's G channel. */
     data: Uint8Array;
     field: Float32Array;
     queue: Int32Array;
@@ -556,10 +765,14 @@ export class Renderer3D {
     opts: { dim?: number; base?: boolean; canopy?: boolean; prop?: boolean } = {},
   ): T {
     const dim = opts.dim ?? 1;
+    const det = opts.canopy ? this.wlDet.canopy
+      : opts.prop ? this.wlDet.prop
+        : opts.base ? this.wlDet.wall
+          : this.wlDet.floor;
     const one = (m: THREE.Material): THREE.Material => {
       const c = m.clone();
       c.onBeforeCompile = (shader) => {
-        Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim } });
+        Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim }, uWlDetP: { value: det } });
         shader.vertexShader = shader.vertexShader
           .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;")
           .replace(
@@ -567,7 +780,7 @@ export class Renderer3D {
             "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDist;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
         let stage = "#include <color_fragment>\n{\n";
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
@@ -642,9 +855,44 @@ export class Renderer3D {
               "  diffuseColor.rgb *= 1.0 - 0.26 * pBase;\n" +
               "  wlPropR = 0.90 + 0.26 * pNz2 - 0.22 * pStone - 0.20 * pEdge;\n"
             : "") +
+          // ---- GENERATIVE PBR SURFACE DETAIL (surfaceMaps.ts) ----
+          // The measured material gap: no normal/roughness/AO map existed
+          // anywhere, so every surface was flat clay with shading painted on.
+          // One baked tileable RGBA map now supplies real relief, a varying
+          // roughness and a cavity term to the whole world.
+          //
+          // Projection is a SINGLE world-space plane chosen by the dominant
+          // axis of the face normal, not a three-tap triplanar blend: this pass
+          // is already the frame's most expensive one (~70% of GPU time), the
+          // KayKit geometry is boxy so faces sit near an axis, and the detail
+          // FADES OUT as a face turns 45 degrees (dW below) — which is exactly
+          // where a hard plane select would otherwise show its seam. One fetch,
+          // no seam, instead of three fetches and a blend.
+          "  vec3 dAbs = abs(wlN);\n" +
+          "  float dMax = max(dAbs.x, max(dAbs.y, dAbs.z));\n" +
+          "  vec2 dUv; vec3 dTan; vec3 dBit;\n" +
+          "  if (dAbs.y >= dMax) { dUv = vWlPos.xz; dTan = vec3(1.0, 0.0, 0.0); dBit = vec3(0.0, 0.0, 1.0); }\n" +
+          "  else if (dAbs.x >= dAbs.z) { dUv = vWlPos.zy; dTan = vec3(0.0, 0.0, 1.0); dBit = vec3(0.0, 1.0, 0.0); }\n" +
+          "  else { dUv = vWlPos.xy; dTan = vec3(1.0, 0.0, 0.0); dBit = vec3(0.0, 1.0, 0.0); }\n" +
+          "  vec4 dS = texture2D(uWlDet, dUv * uWlDetP.x);\n" +
+          "  float dW = smoothstep(0.60, 0.90, dMax);\n" +
+          "  wlDetN = (dTan * (dS.r * 2.0 - 1.0) + dBit * (dS.g * 2.0 - 1.0)) * (uWlDetP.y * dW);\n" +
+          "  wlDetR = (dS.b - 0.5) * uWlDetP.w * dW;\n" +
+          // Cavity multiplies albedo (baked micro-AO) and, at half strength,
+          // pushes the crack lines slightly cooler — grime sits in mortar.
+          "  float dCav = mix(1.0, dS.a, uWlDetP.z * dW);\n" +
+          "  diffuseColor.rgb *= dCav;\n" +
+          "  diffuseColor.rgb = mix(diffuseColor.rgb, diffuseColor.rgb * vec3(0.90, 0.96, 1.08), (1.0 - dCav) * 0.5);\n" +
           "  vec2 wUv = (vWlPos.xz - wlN.xz * 0.38) * uWlMapInv;\n" +
-          "  float wFog = texture2D(uWlMask, wUv).r;\n" +
-          "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wFog = 1.0;\n" +
+          "  bool wOff = wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001;\n" +
+          // ONE FETCH, TWO FIELDS (opt r3). R = the animated fog alpha, G = the
+          // wall-aware walk distance. They were two map-sized R8 textures read
+          // through two samplers at this exact uv; they are one RG8 plane now.
+          // See FogBank.maskTexture for why: this shader is the frame on the
+          // Intel part and it was spending seven dependent texture fetches per
+          // fragment over the whole screen.
+          "  vec2 wField = texture2D(uWlMask, wUv).rg;\n" +
+          "  float wFog = wOff ? 1.0 : wField.r;\n" +
           // TIGHT architectural frontier (r5 issue #1 — recurred every round):
           // the reveal band hugs the wall-shaped bilinear mask in a 1-2 tile
           // step with only a light curl of drifting noise. The old wide
@@ -657,8 +905,7 @@ export class Renderer3D {
           // level, not euclidean — light carving follows corridors and stops
           // at wall faces. Only a whisper of euclidean is blended in to soften
           // the core near the player; any more re-inflates the radial ellipse.
-          "  float wDWalk = texture2D(uWlDist, wUv).r * 32.0;\n" +
-          "  if (wUv.x < -0.001 || wUv.x > 1.001 || wUv.y < -0.001 || wUv.y > 1.001) wDWalk = 32.0;\n" +
+          "  float wDWalk = (wOff ? 1.0 : wField.g) * 32.0;\n" +
           "  float wD = mix(wDWalk, distance(vWlPos.xz, uWlPlayer), 0.10);\n" +
           "  float wT = clamp((wD - uWlFall.x) / uWlFall.y, 0.0, 1.0);\n" +
           "  float wFall = uWlFall.z + (1.0 - uWlFall.z) * (1.0 - wT * wT * (3.0 - 2.0 * wT));\n" +
@@ -709,6 +956,22 @@ export class Renderer3D {
           "  float wDepthPre = 1.0 - 0.78 * smoothstep(3.2, 10.0, wD + (wNz - 0.5) * 3.2);\n" +
           "  wDepthPre *= wDepthPre;\n" +
           "  diffuseColor.rgb = wAlb * max(wlK, wFog * 0.085 * wDepthPre);\n" +
+          // ---- THE MURK BLOCK ONLY RUNS WHERE THERE IS MURK (opt r3) ----
+          //
+          // Everything from here to the glints multiplies out to exactly zero
+          // on a fragment the player has already explored (`wFog == 0`): the
+          // silhouette term ends in `* wFog`, and the glints in `* wFog` again.
+          // It was still being evaluated on every one of those fragments —
+          // including TWO more noise fetches — and in a fight the explored room
+          // you are standing in is most of the screen. On the Intel part this
+          // shader is the frame, so "computed and then multiplied by zero" is
+          // not a rounding error, it is the bill.
+          //
+          // The branch is spatially coherent by construction (fog is a
+          // map-sized bilinear field, not a per-pixel hash), so a wavefront is
+          // almost always wholly inside or wholly outside it — which is the one
+          // condition under which a fragment-shader branch actually pays.
+          "  if (wFog > 0.002) {\n" +
           "  float wUp = max(wlN.y, 0.0) * smoothstep(0.30, 0.95, vWlPos.y);\n" +
           "  float wTex = dot(wAlb, vec3(0.299, 0.587, 0.114));\n" +
           "  wTex = wTex / (wTex + 0.22);\n" +
@@ -724,6 +987,42 @@ export class Renderer3D {
           // trees stay living green-blue, dark brick stays warm — not concrete.
           "  vec3 wChroma = mix(vec3(1.0), clamp(wAlb0 / max(dot(wAlb0, vec3(0.299, 0.587, 0.114)), 0.03), 0.0, 2.4), 0.55);\n" +
           "  wlFogSil = uWlMurk * wChroma * (wMurk * wFog * wDepth);\n" +
+          // ---- ATMOSPHERE: THE DARKNESS GETS A HUE ----
+          //
+          // Measured on the shipping build: ONE hue cluster spanning a 45-degree
+          // arc, 43% of the playfield black to the eye, 84% sitting in the
+          // bottom stop. The frame was a single warm illuminant over a hole.
+          //
+          // The previous round crushed the murk to near-black for a real reason
+          // — it was reading as a giant soft blob of faint REPEATING TILE
+          // TEXTURE — but that traded a bad texture for no image at all. The fix
+          // is to separate the two things that were fused: wlFogSil above stays
+          // albedo-derived and stays crushed (the tiling texture still dies with
+          // distance), and THIS term is pure smooth air. It carries no albedo,
+          // no tile hash and no per-texel structure, so it physically cannot
+          // re-introduce a repeating pattern — only a cold, breathing gradient.
+          //
+          // SHAPED LIKE SCATTERING, NOT LIKE PAINT. The first cut of this ramped
+          // straight up with distance and SATURATED, which put one flat
+          // periwinkle value across every far tile — a blue sheet with a
+          // dungeon cut out of it, and precisely the "flat lavender" failure
+          // the grade's own comment warns about. Fog lit by a LOCAL source does
+          // the opposite: the air just outside the light scatters the most and
+          // it decays from there. So this peaks a couple of tiles past the
+          // frontier and falls away exponentially onto a floor that is dim but
+          // never zero — a cold halo around the play space with real depth
+          // behind it, instead of a wash.
+          // GATED ON DISTANCE, NOT ONLY ON FOG. The first cut keyed this to wFog
+          // alone, which meant EXPLORED ground got no air no matter how far away
+          // it was — and floor 11, a mostly-explored corridor scene, measured
+          // back at ONE hue cluster over a 30-degree arc while floors 2 and 17
+          // measured two clusters over 140. Aerial perspective is a property of
+          // distance, not of whether the player has been there.
+          "  float wAtGate = max(wFog, wT * 0.85);\n" +
+          "  float wAtNear = smoothstep(0.0, 3.2, wD);\n" +
+          "  float wAtFar = exp(-0.115 * max(wD - 4.0, 0.0));\n" +
+          "  float wAtH = 1.0 - 0.34 * smoothstep(0.35, 2.4, vWlPos.y);\n" +
+          "  wlFogSil += uWlAtmo * (wAtGate * wAtNear * (0.34 + 0.66 * wAtFar) * (0.62 + 0.38 * wNz) * wAtH);\n" +
           // Sparse distant accents (DCC fiction: stray embers, glinting eyes,
           // crowd-cam drone lights): two decorrelated noise octaves thresholded
           // to isolated specks every ~8-10 tiles, guttering with the torch
@@ -732,6 +1031,19 @@ export class Renderer3D {
           "  float wG2 = texture2D(uWlNoise, vWlPos.xz * 0.093 + vec2(9.2, 1.4)).r;\n" +
           "  float wGl = smoothstep(0.90, 0.95, wG1 * (0.30 + 0.70 * wG2));\n" +
           "  wlFogSil += uWlGlint * (wGl * wFog * (0.55 + 0.45 * uWlFlick) * smoothstep(2.5, 6.0, wD));\n" +
+          "  }\n" +
+          // AERIAL PERSPECTIVE IS A PROPERTY OF DISTANCE, so the air term keeps
+          // its own gate: explored ground far away still gets it, and near
+          // explored ground — the fight bubble — still skips it.
+          // wFog > 0 already added `max(wFog, wT * 0.85)` inside the block
+            // above, so this arm must fire only where that one did not — or the
+          // air term is counted twice on every distant unexplored fragment.
+          ("  if (wFog <= 0.002 && wT > 0.002) {\n"
+            + "    float wAtNear2 = smoothstep(0.0, 3.2, wD);\n"
+            + "    float wAtFar2 = exp(-0.115 * max(wD - 4.0, 0.0));\n"
+            + "    float wAtH2 = 1.0 - 0.34 * smoothstep(0.35, 2.4, vWlPos.y);\n"
+            + "    wlFogSil += uWlAtmo * (wT * 0.85 * wAtNear2 * (0.34 + 0.66 * wAtFar2) * (0.62 + 0.38 * wNz) * wAtH2);\n"
+            + "  }\n") +
           "  wlBake = wAlb * wLm.rgb * (" + LM_SCALE.toFixed(3) + " * uWlFlick" + (opts.base ? " * (0.55 + 0.9 * exp(-2.6 * abs(vWlPos.y - 0.78)))" : "") + ") * wLit * (0.4 + 0.6 * wFall);\n}";
         shader.fragmentShader = shader.fragmentShader
           .replace("#include <common>", head)
@@ -743,7 +1055,20 @@ export class Renderer3D {
             "#include <roughnessmap_fragment>",
             "#include <roughnessmap_fragment>\n" +
               (opts.prop ? "  roughnessFactor = clamp(roughnessFactor * wlPropR, 0.08, 1.0);\n" : "") +
+              // The baked map's B channel: crack lines and grain are rough, the
+              // worn crowns of plates polish smooth. This is what makes a torch
+              // highlight CRAWL across a wall as the player moves instead of
+              // sitting on it as one even sheen.
+              "  roughnessFactor = clamp(roughnessFactor + wlDetR, 0.06, 1.0);\n" +
               "  roughnessFactor = mix(roughnessFactor, 1.0, wlFogG);",
+          )
+          // Detail normal, applied AFTER the stock normal chain so it composes
+          // with flat shading and with any glTF normal map a pack might bring.
+          // wlDetN is world-space (the projection above is world-space), and
+          // `normal` here is view-space, hence the viewMatrix rotation.
+          .replace(
+            "#include <normal_fragment_maps>",
+            "#include <normal_fragment_maps>\n  if (wlDetN != vec3(0.0)) normal = normalize(normal + (viewMatrix * vec4(wlDetN, 0.0)).xyz);",
           )
           .replace(
             "#include <metalnessmap_fragment>",
@@ -757,7 +1082,8 @@ export class Renderer3D {
             "#include <emissivemap_fragment>\n  totalEmissiveRadiance *= min(1.0, wlK * 1.6);\n  totalEmissiveRadiance += wlBake + wlFogSil;",
           );
       };
-      c.customProgramCacheKey = () => `wl${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
+      c.customProgramCacheKey = () =>
+        `wl3${opts.base ? "b" : ""}${opts.canopy ? "c" : ""}${opts.prop ? "p" : ""}`;
       this.floorMats.push(c);
       return c;
     };
@@ -825,6 +1151,7 @@ export class Renderer3D {
       trim?: number; // metallic edge-glint hex (gold trim on the upper body)
       trimGain?: number; // trim intensity (default 0.3)
       gloss?: number; // roughness override (porcelain sheen < the 0.82 clay cap)
+      edge?: number; // dark core-shadow edge gain (figure-ground vs BRIGHT ground)
     },
   ): void {
     const col = new THREE.Color(opts.rim);
@@ -873,6 +1200,10 @@ export class Renderer3D {
     // paid back when those terms were compiled out of its private program.
     // The branch is what makes a single shared program affordable.
     const colorGlsl =
+      // Hit-flash interior, first because that is exactly where applyHitFlash's
+      // own `#include <color_fragment>` replacement used to land it — the merge
+      // is pixel-identical, not merely equivalent. mix(x, y, 0.0) is x.
+      `\n  if (uChHitFlash > 0.0) diffuseColor.rgb = mix(diffuseColor.rgb, uChHitTint * 0.6, uChHitFlash * 0.3);` +
       // Palette pullback (mobs cede saturation to the hero). uChDesat = 1 - desat.
       `\n  diffuseColor.rgb = mix(vec3(dot(diffuseColor.rgb, vec3(0.299, 0.587, 0.114))), diffuseColor.rgb, uChDesat);` +
       // HERO AUTHORITY (issue #4): the player owns the value/saturation budget
@@ -908,18 +1239,67 @@ export class Renderer3D {
     // Normal-dependent terms run at emissivemap_fragment (normal is live):
     // cavity AO sink, the two-tone rim, the accent glow and the trim glint.
     const emisGlsl =
+      // HIT-FLASH RIM, EMITTED UNCONDITIONALLY (paydown r2). It used to live in
+      // a SECOND injected stage applied by applyHitFlash to a per-body clone,
+      // under customProgramCacheKey `chr1|hitflash` — which meant every monster
+      // material family forked a second program, built the first time a body of
+      // that family took a hit, i.e. mid-fight, by construction. Measured with
+      // tools/progkeys.mjs on floor 17: of the 4 programs built during
+      // gameplay, 3 were `chr1|hitflash` forks whose nearest prewarmed key
+      // differed in exactly that one field. The clone still happens (the flash
+      // level is per BODY and rimCache materials are shared per archetype), but
+      // it is now a material clone rather than a program build.
+      // At uHitFlash 0 this is an exact identity: += tint * 0.0 * k is nothing.
+      `{ if (uChHitFlash > 0.0) { vec3 hfV = normalize(vViewPosition);\n` +
+      `    float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n` +
+      `    totalEmissiveRadiance += uChHitTint * uChHitFlash * (0.09 + 1.05 * hfRim); } }\n` +
       `{ diffuseColor.rgb *= 0.78 + 0.22 * smoothstep(-0.7, 0.6, normal.y);\n` +
       `  vec3 rimV = normalize(vViewPosition);\n` +
-      `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 3.0);\n` +
+      // EDGE, NOT AURA (owner note: "a weird shine around the character").
+      // At power 3.0 the fresnel term still carries real energy a third of the
+      // way across the body, so the rim read as a glow welded to the figure
+      // rather than a light catching its edge. 5.0 collapses it onto the true
+      // silhouette; the strengths below are retuned to match.
+      `  float rimF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 5.0);\n` +
       `  float rimSide = smoothstep(-0.45, 0.55, -normal.x * 0.6 + normal.y * 0.55);\n` +
       `  vec3 rimC = mix(uChRim, uChWarm, rimSide);\n` +
       `  totalEmissiveRadiance += rimC * (rimF * uChRimStr);\n` +
-      // Accent rides the mid-fresnel band (trim/edges, not the whole body),
-      // breathing at ~1.3Hz so it reads alive at a glance.
+      // ---- THE OTHER HALF OF FIGURE-GROUND: A DARK EDGE (r3 major #6) -------
+      //
+      // Acceptance, on a native-pixel crop and it is the worst frame in the
+      // set: "the mob cluster is an undifferentiated pile of cream/beige blobs.
+      // You cannot count them, cannot tell melee from caster, cannot find the
+      // crawler ... the 'edge, not an aura' shading commit is present but it is
+      // doing nothing at gameplay camera distance against pale mobs on a pale
+      // floor."
+      //
+      // Both halves of that are true and they explain each other. The rim IS
+      // present, and it is ADDITIVE — which separates a figure from a DARK
+      // background and does nothing at all against a bright one. A pale mob
+      // standing on a floor lit by a warm impact pool has no background darker
+      // than itself, so there is no contrast for a light edge to make.
+      //
+      // Every painted reference solves this with two edges, not one: a light
+      // rim on the key side and a dark CORE SHADOW turning away from it. The
+      // dark edge is the one that survives a bright background, and it is the
+      // one this build never had. It multiplies diffuseColor (which
+      // lights_physical_fragment consumes after this chunk), so it darkens the
+      // LIT result rather than pasting a black outline on top — it reads as
+      // form, not as a cel border, which is what keeps it inside the KayKit
+      // look. Confined to the side the rim is NOT on, so the two never fight.
+      //
+      // Emitted unconditionally at gain 0 = exact identity (mix(x,y,0) is x),
+      // so this does not fork the one shared character program.
+      `  { float darkF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.4);\n` +
+      `    diffuseColor.rgb *= mix(1.0, 0.34, darkF * (1.0 - rimSide) * uChEdge); }\n` +
+      // Class accent: a tight edge catch, NOT a second rim. It used to run at
+      // power 2.0 — wider than the rim it sat under — and pulse at ~1.3Hz, so
+      // the two stacked into a breathing halo. A pulsing glow on the player's
+      // body is a selection highlight, which is what made this read arcade
+      // rather than lit. Steady now, tighter than the rim, and quiet.
       `  if (uChAccentGain > 0.0) {\n` +
-      `    float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 2.0);\n` +
-      `    float accPulse = 0.75 + 0.25 * sin(uChTime * 8.2);\n` +
-      `    totalEmissiveRadiance += uChAccent * (accF * uChAccentGain * accPulse); }\n` +
+      `    float accF = pow(1.0 - clamp(dot(normal, rimV), 0.0, 1.0), 6.0);\n` +
+      `    totalEmissiveRadiance += uChAccent * (accF * uChAccentGain); }\n` +
       // GOLD TRIM GLINT (r7 boss pass, matches the HUD's gold-on-black
       // language): a steady metallic edge catch on the UPPER body — fresnel
       // edges plus up-facing bevels — so the crown/shoulders read from the
@@ -939,23 +1319,39 @@ export class Renderer3D {
       uChTint: { value: tint ?? new THREE.Color(1, 1, 1) },
       uChTintGain: { value: tint ? tintGain : 0 },
       uChGrime: { value: opts.grime ?? 0 },
-      uChCeil: { value: opts.hero ? 0 : 1 },
+      // The albedo ceiling now applies to the HERO TOO. Exempting him meant a
+      // pale skin (the mage's white robe) sat at ~1.0 albedo, saturated the
+      // tone-map shoulder and lost its shading gradient — a lit figure with no
+      // form reads as the same "shine" the rim was adding. His authority comes
+      // from uChHeroSat/uChValue below, which are untouched.
+      uChCeil: { value: 1 },
       uChRim: { value: col },
       uChRimStr: { value: opts.strength },
+      // Dark-edge gain. Default 0.62 for anything that did not ask: every
+      // character in the game wants figure-ground separation, and the ones that
+      // want LESS of it (the hero, whose authority comes from being brighter
+      // than the crowd, not darker-edged than it) say so.
+      uChEdge: { value: opts.edge ?? 0.62 },
       uChAccent: { value: accent ?? new THREE.Color(0, 0, 0) },
       uChAccentGain: { value: accent ? accentGain : 0 },
       uChTrim: { value: trim ?? new THREE.Color(0, 0, 0) },
       uChTrimGain: { value: trim ? trimGain : 0 },
+      // Shared-material default: no flash. applyHitFlash swaps in a per-body
+      // pair on its clone; the PROGRAM is the same either way.
+      uChHitFlash: { value: 0 },
+      uChHitTint: { value: new THREE.Color(0xffc9a0) },
     };
     const chDecl =
       "uniform float uChDesat;\nuniform float uChHeroSat;\nuniform float uChValue;\n" +
       "uniform vec3 uChTint;\nuniform float uChTintGain;\nuniform float uChGrime;\n" +
       "uniform float uChCeil;\nuniform vec3 uChRim;\nuniform float uChRimStr;\n" +
+      "uniform float uChEdge;\n" +
       "uniform vec3 uChAccent;\nuniform float uChAccentGain;\n" +
-      "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n";
+      "uniform vec3 uChTrim;\nuniform float uChTrimGain;\n" +
+      "uniform float uChHitFlash;\nuniform vec3 uChHitTint;\n";
     // Still one MATERIAL per distinct look (it carries the uniform values), but
     // every one of them now resolves to the same PROGRAM.
-    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:w7u`;
+    const variant = `${opts.rim}:${opts.strength}:${desat}:${opts.hero ? "h" : ""}:${opts.accent ?? ""}:${accentGain}:${opts.tint ?? ""}:${tintGain}:${opts.value ?? 1}:${opts.grime ?? 0}:${opts.trim ?? ""}:${trimGain}:${opts.gloss ?? ""}:${opts.edge ?? 0.62}:w8e`;
     g.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material || mesh.userData.noAO) return;
@@ -1076,6 +1472,22 @@ export class Renderer3D {
   private atmoRefresh = 0;
 
   private floorGroup = new THREE.Group();
+  /**
+   * WHERE A FOG-HIDDEN PROP GOES (opt r1). Not a child of the scene — that is
+   * the entire point — but its world matrix is kept equal to floorGroup's, so
+   * a subtree parked here computes exactly the `matrixWorld` it computed while
+   * it was attached (updateMatrixWorld multiplies by `parent.matrixWorld`, and
+   * this parent's is floorGroup's). Nothing about a parked prop's transform,
+   * scale ease or batch membership changes; it simply stops being reachable
+   * from the scene root.
+   *
+   * Why a Group and not `parent = null`: a detached object composes
+   * `matrixWorld = matrix`, which silently drops floorGroup's transform. That
+   * is exactly the bug r1's first attempt shipped (887 props parked on the map
+   * origin), and it stays latent for as long as floorGroup happens to sit at
+   * the identity.
+   */
+  private propPark = new THREE.Group();
   // Render-side position smoothing: the sim ticks at a fixed 60Hz while the
   // display can run faster — applying raw sim positions makes movement (and
   // especially hand-grafted weapons) judder on high-refresh screens, and dash
@@ -1230,7 +1642,17 @@ export class Renderer3D {
   private ambientFx = new AmbientParticles();
   // base = the prop's placed scale; reveal eases it in as its tile's fog
   // dissipates (no more visibility popping).
-  private propEntries: { obj: THREE.Object3D; tile: number; base?: THREE.Vector3 }[] = [];
+  // `reveal` is the last reveal step actually written to the transform (see
+  // STATIC PROP TRANSFORMS in updateFogTint) — -1 means "never written".
+  private propEntries: {
+    obj: THREE.Object3D; tile: number; base?: THREE.Vector3; reveal?: number;
+    /** Leaves of this prop that a batch draws instead of the graph (r2 paydown). */
+    leaves?: PropBatchLeaf[];
+    /** Last visibility pushed to the batches — visibility is a membership edit. */
+    shown?: boolean;
+  }[] = [];
+  /** One InstancedMesh per (geometry, material, shadow flags) — see PropBatch. */
+  private propBatches: PropBatch[] = [];
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
@@ -1346,9 +1768,45 @@ export class Renderer3D {
   private ribbons = new TrailRibbons();
   private decals = new GroundDecals();
   private shocks = new Shockwaves();
+  // The ability FOOTPRINT (r2 SPEND). Every detonation that used to be "a big
+  // additive ring at the ability's radius" is now this: layered ribbon fronts
+  // over a dark scorch core, with its per-pixel energy divided by its own area.
+  // See the long note in fx.ts — it is the fix for BOTH the fullscreen
+  // chromatic wash and the "one flat radial gradient" critique.
+  private aoe = new AoeBursts();
+  // FX GLARE GOVERNOR (r2 SPEND, the general guard behind the wash blocker).
+  // Every big detonation adds a decaying "how much of the screen are the FX
+  // currently painting" figure; bloom strength and radius are divided by it.
+  // WHY THIS IS NOT BACKWARDS: the thing a player needs from bloom is a halo
+  // around a SMALL hot thing. A halo around a screen-filling hot thing is just
+  // a fullscreen tint — which is literally the frame acceptance rejected. So
+  // the wider the emissive gets, the tighter its halo has to be, or the frame
+  // stops being a picture of a fight. The thin ribbon fronts still bloom.
+  private fxGlare = 0;
+  private bloomBaseRadius = -1;
+  // BOSSES V2 §5: the encounter's own stage manager — plates, shield shells,
+  // tether cords, punish beacons, per-boss signature beats, and the camera
+  // intent the fight is allowed to borrow. Everything it needs from the
+  // renderer arrives through this dependency bundle, so the boss layer never
+  // reaches into scene-graph internals.
+  readonly bossFx = new BossFx({
+    fxp: this.fxp,
+    shocks: this.shocks,
+    decals: this.decals,
+    light: (x, z, hex, peak, max, y) => this.spawnFxLight(x, z, hex, peak, max, y),
+    trauma: (a) => this.addTrauma(a),
+    bloom: (a) => { this.bloomKick = Math.min(1.4, this.bloomKick + a); },
+  });
   private dustTint = 0x3a332c; // floor-ambient dust color, set per floor build
   private bloomBase = -1;
   private bloomKick = 0;
+  // Combat framing bias (r3 major #13) — see the long note at the camera rig.
+  private fightBiasX = 0;
+  private fightBiasZ = 0;
+  /** Enemies inside this radius count toward the framing centroid. */
+  private static CAM_FIGHT_R2 = 9 * 9;
+  /** Hard cap on how far the anchor may leave the crawler, in world units. */
+  private static CAM_FIGHT_MAX = 2.6;
 
   private glowTexture(): THREE.Texture {
     if (this.glowTex) return this.glowTex;
@@ -1564,34 +2022,48 @@ export class Renderer3D {
           const prevKey = Object.prototype.hasOwnProperty.call(std, "customProgramCacheKey")
             ? std.customProgramCacheKey.bind(std)
             : null;
-          c.onBeforeCompile = (shader, renderer) => {
-            if (prevOBC) prevOBC.call(c, shader, renderer);
-            shader.uniforms.uHitFlash = uFlash;
-            shader.uniforms.uHitTint = uTint;
-            shader.fragmentShader = shader.fragmentShader
-              .replace(
-                "#include <common>",
-                "#include <common>\nuniform float uHitFlash;\nuniform vec3 uHitTint;",
-              )
-              .replace(
-                // Interior: nudge the albedo toward the tint but PRESERVE the
-                // texture read — never a solid untextured fill.
-                "#include <color_fragment>",
-                "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uHitTint * 0.6, uHitFlash * 0.3);",
-              )
-              .replace(
-                // Silhouette: the flash energy lives in a fresnel rim, so the
-                // body reads as a lit CREATURE taking a hit, not a decal.
-                // Gains tuned down (r5 blocker): on bright albedos (bone,
-                // ivory) the old 0.18 interior add pushed the whole body over
-                // the tone-map shoulder — flat white marshmallows again.
-                "#include <emissivemap_fragment>",
-                "#include <emissivemap_fragment>\n{ vec3 hfV = normalize(vViewPosition);\n" +
-                  "  float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n" +
-                  "  totalEmissiveRadiance += uHitTint * uHitFlash * (0.09 + 1.05 * hfRim); }",
-              );
-          };
-          c.customProgramCacheKey = () => `${prevKey ? prevKey() : ""}|hitflash`;
+          // NO SHADER EDIT AND NO CACHE-KEY FORK (paydown r2). The interior
+          // nudge and the fresnel-rim silhouette now live in
+          // applyCharacterShading's own stage, emitted unconditionally and
+          // guarded by `uChHitFlash > 0.0`. All this clone does is give THIS
+          // BODY its own pair of uniform objects — which is the only thing that
+          // ever needed to be per-body, the flash LEVEL. Chaining prevOBC and
+          // then overwriting the two uniforms is what makes that work: the base
+          // stage installs the shared defaults, we replace them after.
+          if (prevOBC) {
+            c.onBeforeCompile = (shader, renderer) => {
+              prevOBC.call(c, shader, renderer);
+              shader.uniforms.uChHitFlash = uFlash;
+              shader.uniforms.uChHitTint = uTint;
+            };
+            // Same key as the material it was cloned from: same program, and
+            // the first hit of a run stops building a shader inside a frame.
+            if (prevKey) c.customProgramCacheKey = () => prevKey();
+          } else {
+            // A body whose material never went through applyCharacterShading
+            // has no uChHitFlash in its shader, so it still needs its own
+            // stage — and therefore still forks a program. Kept rather than
+            // dropped because a silent loss of the hit flash on some archetype
+            // is a worse bug than a program build, and the guard names any
+            // build that survives. Nothing in the shipped cast reaches here.
+            c.onBeforeCompile = (shader) => {
+              shader.uniforms.uChHitFlash = uFlash;
+              shader.uniforms.uChHitTint = uTint;
+              shader.fragmentShader = shader.fragmentShader
+                .replace("#include <common>", "#include <common>\nuniform float uChHitFlash;\nuniform vec3 uChHitTint;")
+                .replace(
+                  "#include <color_fragment>",
+                  "#include <color_fragment>\n  diffuseColor.rgb = mix(diffuseColor.rgb, uChHitTint * 0.6, uChHitFlash * 0.3);",
+                )
+                .replace(
+                  "#include <emissivemap_fragment>",
+                  "#include <emissivemap_fragment>\n{ vec3 hfV = normalize(vViewPosition);\n" +
+                    "  float hfRim = pow(1.0 - clamp(dot(normal, hfV), 0.0, 1.0), 2.0);\n" +
+                    "  totalEmissiveRadiance += uChHitTint * uChHitFlash * (0.09 + 1.05 * hfRim); }",
+                );
+            };
+            c.customProgramCacheKey = () => "|hitflash";
+          }
           mats.push(c);
           return c;
         };
@@ -1690,7 +2162,15 @@ export class Renderer3D {
     // map edge and the light-pool sizes are all decided here, once.
     this.qualityChoice = urlQualityOverride() ?? loadQualityChoice();
     this.quality = QUALITY_PRESETS[
-      this.qualityChoice === "auto" ? guessQuality(this.renderer.getContext()) : this.qualityChoice
+      this.qualityChoice === "auto"
+        ? guessQuality(this.renderer.getContext(), {
+          // Safari does not expose WEBGL_debug_renderer_info, so on an iPhone
+          // the renderer string is empty and the mobile branch never fires.
+          // These two facts are not gated by anything.
+          coarse: window.matchMedia?.("(pointer: coarse)").matches ?? false,
+          shortEdge: Math.min(screen?.width ?? innerWidth, screen?.height ?? innerHeight),
+        })
+        : this.qualityChoice
     ];
     this.tuner = new QualityAutoTuner(this.quality.name);
 
@@ -1767,13 +2247,30 @@ export class Renderer3D {
       this.scene.add(this.voidPlane);
     }
 
+    // THE SCENE ROOT MUST NOT MARK ITSELF DIRTY (paydown r1). This is what lets
+    // the static-transform work elsewhere in this file actually save anything.
+    //
+    // Object3D.updateMatrix() ends with `this.matrixWorldNeedsUpdate = true`,
+    // unconditionally. A Scene left on the default matrixAutoUpdate=true
+    // therefore recomposes its own (always identity) matrix every frame, flags
+    // itself dirty, and updateMatrixWorld sets `force = true` for the entire
+    // descent. `force` is what makes every node below re-multiply its
+    // matrixWorld even when the node itself is frozen — so with the root
+    // dirtying itself, freezing a prop saved only its own compose and none of
+    // the world multiplies underneath it.
+    //
+    // The scene root is at the identity and never moves, so nothing is given up.
+    this.scene.matrixAutoUpdate = false;
+    this.scene.updateMatrix();
+
     this.scene.add(this.floorGroup);
     this.scene.add(this.fogBank.group);
     this.scene.add(this.ambientFx.group);
     // World-lit materials erode their fog frontier with the bank's own noise.
     this.wl.uWlNoise.value = this.fogBank.noiseTexture;
     // Round-2 combat FX layers ride the scene root (world-space effects).
-    this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group);
+    this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group, this.aoe.group);
+    this.scene.add(this.bossFx.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
     // Post chain. HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
@@ -1821,7 +2318,21 @@ export class Renderer3D {
     // Threshold LIFTED to 0.92 (critic r2 blocker): the combat-FX layers are
     // budgeted to peak ~0.9, so their hue passes through untouched — only the
     // rare true-hot pixel (flame cores, the tiny impact core) blooms.
-    this.bloom = new ScaledBloomPass(new THREE.Vector2(2, 2), 0.5, 0.7, 0.92);
+    // RADIUS 0.70 IS THE MECHANISM THAT TURNS A LOCAL EFFECT INTO A GLOBAL TINT
+    // (r3 blocker #4). UnrealBloomPass composites five mips with per-mip weights
+    // lerpBloomFactor(f) = mix(f, 1.2 - f, radius) over f = [1.0 .. 0.2]. At
+    // 0.70 that evaluates to [0.44, 0.52, 0.60, 0.68, 0.76] — the WIDEST mip,
+    // which is a 1/32-resolution blur of the whole screen, is weighted HIGHEST
+    // and the tightest is weighted lowest. Any large bright region therefore
+    // resolves to a near-constant colour added to every pixel in the frame,
+    // which is precisely what acceptance photographed: "the tint is global
+    // rather than local — the floor is pink out to the frame edge".
+    // At 0.40 the weights are [0.68, 0.64, 0.60, 0.56, 0.52]: still a soft wide
+    // kernel (flames keep bleeding into the dark, which the note above is right
+    // to want), but the tight mips now lead, so a hot core gets a HALO instead
+    // of the room getting a wash. Strength comes up a notch to keep the same
+    // energy in the halo the frame actually reads.
+    this.bloom = new ScaledBloomPass(new THREE.Vector2(2, 2), 0.56, 0.4, 0.92);
     this.bloom.setScale(this.quality.bloomScale);
     this.bloom.enabled = this.quality.bloom;
     this.composer.addPass(this.bloom);
@@ -2201,6 +2712,183 @@ export class Renderer3D {
     }
   }
 
+  // ---- THE LATE-PROGRAM CATCHER (opt r2) --------------------------------
+  //
+  // THE GUARD ABOVE WAS ONLY EVER A DETECTOR, AND IT KEPT DETECTING. Measured
+  // on the shipped build AFTER full readiness — assets settled, #loading gone
+  // and boxless, plus three seconds — the guard fired 17 times in 90 s of
+  // ordinary floor-15 play: skeleton x4, texture x2, glass x2, 4GTN_glow,
+  // robot_glow and others. Every one of those is a synchronous GLSL->HLSL->D3D
+  // build on the frame the material is FIRST DRAWN, and they are the 393 ms to
+  // 2078 ms p99 that no quality mode can remove and no contract mentions.
+  //
+  // Prewarm cannot close this by enumeration. It builds a character zoo from
+  // the manifest, but ~200 GLBs stream in behind the running game, floors are
+  // rebuilt as they land, and boss encounters mint per-boss shield/tether/
+  // punish/arena/plate/spore materials on the beat that needs them. The set of
+  // permutations is open, so the fix has to be a mechanism, not a longer list.
+  //
+  // SO: DETECT THE NEW MATERIAL BEFORE THE DRAW, AND KEEP IT OUT OF THE DRAW
+  // UNTIL ITS PROGRAM IS READY.
+  //
+  //   1. On a cadence, walk the scene for materials never compiled before.
+  //   2. Park each owning object on a layer the camera does not watch. It stays
+  //      `visible` — which matters, because WebGLRenderer.compile() uses
+  //      traverseVisible and a hidden object would not get compiled at all —
+  //      but the camera's layer test drops it from the render list.
+  //   3. compileAsync() with a composer target bound (the permutation the game
+  //      actually draws — see compileForComposer), which polls
+  //      KHR_parallel_shader_compile instead of blocking the main thread.
+  //   4. Put the objects back on their own layers when it resolves.
+  //
+  // WHAT THIS COSTS: a new body can be absent for a few frames instead of
+  // present in a frame that takes two seconds. That is the trade, stated
+  // plainly, and it is the right way round — a pop-in is a frame of missing
+  // information, a two-second freeze is a lost fight.
+  private readonly compiledKeys = new Set<string>();
+  /**
+   * Materials whose key has already been computed once.
+   *
+   * WITHOUT THIS THE CATCHER PAYS FOR ITSELF EVERY SWEEP. Measured on the Intel
+   * part by sandwiched A/B (tools/r2_which.mjs), the first version — which
+   * rebuilt a key STRING for every material in the scene on every sweep — cost
+   * 4.3% of a 46.6 ms frame. The keys of resident materials do not change; only
+   * the arrival of a new material instance is news. A WeakSet membership test
+   * per material replaces the string build, and the set does not retain
+   * anything (a disposed material is collected with its entry).
+   */
+  private readonly seenMats = new WeakSet<THREE.Material>();
+  private matSweepTick = 0;
+  private matSweepBusy = false;
+  /** Armed only once prewarm has seeded the baseline. Without this the sweep
+   *  would fire during prewarm's own warm frames and park the entire scene. */
+  private matSweepArmed = false;
+  /** Objects parked off-camera awaiting a program, with the layer mask to
+   *  restore. Emptied in a finally, so a failed compile cannot strand them. */
+  private readonly matParked = new Map<THREE.Object3D, number>();
+  /** How many async compiles the catcher has kicked off, and how many programs
+   *  they actually produced. Read by tools/ — a catcher that fires constantly
+   *  and builds nothing is a broken key function, not a working guard. */
+  matSweepFires = 0;
+  matSweepProgramsBuilt = 0;
+  /** Layer the camera never watches. 31 is the last three.js layer. */
+  private static readonly COMPILE_LAYER = 31;
+
+  /**
+   * A cheap stand-in for three.js's program cache key.
+   *
+   * IT MUST NOT BE MATERIAL IDENTITY, and the first version of this was. Every
+   * floor rebuild mints fresh Material INSTANCES whose programs are already
+   * cached — three.js keys the cache on the permutation, not on the object — so
+   * an identity-keyed sweep would have parked the whole floor for a few frames
+   * every time one was rebuilt, to compile nothing at all.
+   *
+   * So the key is the set of things that actually fork a program: the material
+   * class, which texture slots are populated, the blend/side/vertex-colour
+   * flags, whether the object is skinned or instanced, and — for the hand-
+   * written shaders, where the source IS the permutation — the shader source
+   * lengths and define names.
+   *
+   * It is deliberately approximate in the SAFE direction. A false negative
+   * (a genuinely new permutation that hashes onto an old key) just leaves
+   * today's behaviour: one hitch, once. A false positive costs a few frames of
+   * pop-in on an object that needed nothing.
+   */
+  private matKey(o: THREE.Object3D, m: THREE.Material): string {
+    const a = m as THREE.Material & Record<string, unknown>;
+    const mesh = o as THREE.Object3D & { isSkinnedMesh?: boolean; isInstancedMesh?: boolean; isPoints?: boolean; isSprite?: boolean };
+    let k = m.type;
+    if (typeof a.vertexShader === "string") {
+      k += `|v${(a.vertexShader as string).length}|f${(a.fragmentShader as string).length}`;
+      const d = a.defines as Record<string, unknown> | undefined;
+      if (d) k += `|D${Object.keys(d).sort().join(",")}`;
+    }
+    for (const slot of MAP_SLOTS) if (a[slot]) k += `|${slot}`;
+    k += `|t${m.transparent ? 1 : 0}|s${m.side}|c${(a.vertexColors as boolean) ? 1 : 0}`;
+    k += `|f${(a.fog as boolean) ? 1 : 0}|a${(a.alphaTest as number) > 0 ? 1 : 0}`;
+    k += `|k${mesh.isSkinnedMesh ? 1 : 0}${mesh.isInstancedMesh ? 1 : 0}${mesh.isPoints ? 1 : 0}${mesh.isSprite ? 1 : 0}`;
+    return k;
+  }
+
+  private eachMaterial(o: THREE.Object3D, fn: (m: THREE.Material) => void): void {
+    const m = (o as THREE.Mesh).material as THREE.Material | THREE.Material[] | undefined;
+    if (!m) return;
+    if (Array.isArray(m)) { for (const x of m) fn(x); } else fn(m);
+  }
+
+  /** Seed the "already compiled" set from whatever is resident right now. */
+  private seedCompiledMaterials(): void {
+    this.matSweepArmed = true;
+    this.scene.traverse((o) => this.eachMaterial(o, (m) => {
+      this.seenMats.add(m);
+      this.compiledKeys.add(this.matKey(o, m));
+    }));
+  }
+
+  /**
+   * How many frames may pass between sweeps.
+   *
+   * IT WAS 30 AND THAT IS WHY THE CATCHER ONLY EVER CAUGHT HALF (opt r3).
+   * The commit that shipped it recorded `SHADER_BUILDS_PER_MIN.after = 0` and
+   * "across 4.1 minutes of measured play after: zero fires". Re-measured on a
+   * quiet box with the quality mode never touched, the shipped build fires 1.19
+   * [shader-guard] warnings per minute of ordinary floor-15 roaming, 6.0-6.75
+   * per minute once abilities are being spent on the Intel part and 10.9 on the
+   * RTX. It is a ~57% reduction, not a close.
+   *
+   * The mechanism explains the residue exactly. The sweep runs at the END of
+   * update(), which is the right place — every object the host added this frame
+   * is already in the graph and nothing has been drawn yet — but on a 30-frame
+   * cadence a material could be added and then DRAWN for up to 29 frames before
+   * the sweep that was supposed to park it ever ran. At 30 fps that is a
+   * one-second window per new material, and a boss beat or an ability first-use
+   * mints several at once.
+   *
+   * At 1 the window closes: nothing can be drawn between the frame that creates
+   * it and the sweep that parks it. What that costs is one scene.traverse with a
+   * WeakSet probe per material, and — measured — 0.45 ms/frame of
+   * `getProgramParameter`, which is compileAsync's KHR_parallel_shader_compile
+   * poll running far more often than it has anything to poll for. 4 keeps the
+   * exposure window under ~100 ms at 40 fps (against the old ~750 ms) for a
+   * quarter of the poll traffic.
+   */
+  matSweepEvery = 4;
+
+  private sweepNewMaterials(): void {
+    if (!this.matSweepArmed || this.matSweepBusy) return;
+    if (this.matSweepEvery > 1
+      && (this.matSweepTick = (this.matSweepTick + 1) % this.matSweepEvery) !== 0) return;
+    const fresh: THREE.Object3D[] = [];
+    this.scene.traverse((o) => {
+      let isNew = false;
+      this.eachMaterial(o, (m) => {
+        // The common case, by a very long way: a material we have already
+        // classified. One WeakSet probe and nothing else.
+        if (this.seenMats.has(m)) return;
+        this.seenMats.add(m);
+        if (!this.compiledKeys.has(this.matKey(o, m))) isNew = true;
+      });
+      if (isNew) fresh.push(o);
+    });
+    if (!fresh.length) return;
+    for (const o of fresh) {
+      this.eachMaterial(o, (m) => this.compiledKeys.add(this.matKey(o, m)));
+      this.matParked.set(o, o.layers.mask);
+      o.layers.set(Renderer3D.COMPILE_LAYER);
+    }
+    this.matSweepBusy = true;
+    this.matSweepFires++;
+    const before = this.renderer.info.programs?.length ?? 0;
+    void this.compileForComposer()
+      .catch(() => { /* a failed compile must not strand the objects */ })
+      .finally(() => {
+        this.matSweepProgramsBuilt += (this.renderer.info.programs?.length ?? 0) - before;
+        for (const [o, mask] of this.matParked) o.layers.mask = mask;
+        this.matParked.clear();
+        this.matSweepBusy = false;
+      });
+  }
+
   /** Arm the guard with everything prewarm produced. Called at the end of
    *  prewarm; enabled by `?debug` (the capture harnesses all pass it) or a dev
    *  build, so a normal player never pays for it. */
@@ -2291,6 +2979,11 @@ export class Renderer3D {
     this.ribbons.release(-999999);
     this.decals.spawn(WX, WZ, 0.6, 0x120a18, 0xffb057, 1);
     this.shocks.spawn(WX, WZ, 0xffb057, 1, 0.3);
+    // The AoE footprint program. It is a NEW ShaderMaterial (r2 SPEND) and it
+    // is only ever built on the first detonation, i.e. mid-fight, which is the
+    // exact hitch this routine exists to prevent — so it is warmed here and the
+    // program guard will fail the build if that ever stops being true.
+    this.aoe.spawn(WX, WZ, FX_PAL.nova, 1, 0.3);
     this.burst(WX, WZ, 0xc9a24b, 3, 0.5, 0.5);
     this.spawnGlow(WX, 0.5, WZ, 0xf5e6bf, 0.5, 0.3);
     this.spawnFxLight(WX, WZ, 0xc9a24b, 1, 0.2, 0.9); // allocates the pooled FX lights
@@ -2310,6 +3003,23 @@ export class Renderer3D {
       const lane = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), makeLaneMat());
       lane.rotation.x = -Math.PI / 2;
       addWarm(lane, WX + 4, WZ);
+    }
+    {
+      // THE INSTANCED PROP PERMUTATION (paydown r2). batchStaticProps draws the
+      // floor's clutter through InstancedMesh, and USE_INSTANCING is part of
+      // three.js's program cache key — so the world-lit prop material forks a
+      // program the zoo's ordinary props can never build. buildFloor runs AFTER
+      // prewarm returns, which would put that build on the first frame the
+      // player sees, and again on the first frame of every floor until the
+      // cache filled. castShadow/receiveShadow are on so the instanced DEPTH
+      // permutation warms with it.
+      const pm = this.worldLit(new THREE.MeshStandardMaterial({ color: 0x8a8079 }), { prop: true });
+      this.floorMats.push(pm);
+      const im = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), pm, 1);
+      im.castShadow = im.receiveShadow = true;
+      im.setMatrixAt(0, new THREE.Matrix4());
+      this.zooScrap.push(im.geometry);
+      addWarm(im, WX + 6, WZ + 4);
     }
     addWarm(this.buildBeamGroup(0xff5a2e, 1), WX, WZ + 2);
     addWarm(this.buildOrbitBlade(), WX + 2, WZ + 2);
@@ -2400,8 +3110,13 @@ export class Renderer3D {
     this.swingArcs.update(30);
     this.decals.update(30);
     this.shocks.update(30);
+    this.aoe.update(30, 0);
     this.ribbons.update(30);
     this.prewarmQualityLadder();
+    // Everything resident at this instant has just been compiled for the buffer
+    // the game draws into. That set is the late-catcher's baseline; anything
+    // that appears after it is by definition a permutation prewarm did not have.
+    this.seedCompiledMaterials();
     this.armProgramGuard();
     onStep?.(3, TOTAL);
     await breathe();
@@ -2427,13 +3142,36 @@ export class Renderer3D {
     // compilation. Killing the GC pauses means an allocation audit of boot, not
     // a renderer setting, and it is bounded at ~105 ms in the first four
     // seconds — versus the 4981 ms worst frame this work started from.
-    // NOT DONE HERE: renderer.debug.checkShaderErrors = false. It looks like
-    // the obvious fix for the multi-second stalls (it drops the synchronous
-    // getProgramParameter(LINK_STATUS) read that forces the driver to finish
-    // linking on the main thread), but tools/progtrace.mjs already established
-    // the stalls are not gl.linkProgram, and an A/B of it here did not beat
-    // the machine's noise. It only moves the stall to first USE of the
-    // program. Leave validation on until something measures a real win.
+    // SHADER VALIDATION IS NOW OFF — BUT ONLY FROM HERE ON. (paydown r2.)
+    //
+    // The previous revision of this comment declined to touch
+    // debug.checkShaderErrors, on the grounds that "the stalls are not
+    // gl.linkProgram; it only moves the stall to first USE of the program".
+    // Both halves of that are true and the conclusion was still wrong, because
+    // first USE is where the cost actually lands and nobody had measured it
+    // there. A V8 CPU profile of 14 s of staged floor-17 combat on a clean box
+    // (tools/_r2profile.mjs, foreign load 0.7%, 676 frames) attributes, as
+    // INCLUSIVE time per composed frame:
+    //
+    //     onFirstUse ................ 1.42 ms/frame   6.5%
+    //       getProgramInfoLog ....... 1.30 ms/frame   6.0%
+    //       getShaderInfoLog ........ 0.12 ms/frame
+    //
+    // That is ~0.9 s of wall clock inside a 14 s window, and it is not spread
+    // out: three.js reads those logs once per program, on the frame that first
+    // draws with it, and each read blocks the main thread until ANGLE has
+    // finished the D3D compile. It is a stutter generator by construction, and
+    // the scene it fires in is the one whose p99 is 139.9 ms.
+    //
+    // The split is what makes this safe. Every program built during prewarm is
+    // also first USED during prewarm (that is what the two compile+render
+    // passes above are for), so all 180 of them are still validated, still
+    // behind the loading screen, and a genuinely broken shader still throws
+    // there with its info log. What is switched off is validation of the
+    // handful of programs that escape the prewarm net — and for those the
+    // program guard armed below already reports them by name, which is a better
+    // signal than a 30 ms stall.
+    this.renderer.debug.checkShaderErrors = false;
   }
 
   /** The campfire check-in scene shares this renderer's GL context + streamed
@@ -2623,8 +3361,54 @@ export class Renderer3D {
     g.userData.playFirst = (...names: string[]) => {
       for (const n of names) if (actions[n]) { play(n, true); return; }
     };
-    g.userData.animTick = (dt: number) => {
-      mixer.update(dt);
+    // RATE-GATED MIXER (quality.ts: the rig lever). `minStep` is the smallest
+    // amount of animation time worth flushing — 0, the default, is "every
+    // frame" and is exactly the old behaviour, so every caller that does not
+    // pass it is unchanged.
+    //
+    // The accumulator is what makes a gated rig CORRECT rather than merely
+    // cheap: mixer.update(acc) advances clips by the full elapsed time, so
+    // crossfades complete, LoopOnce actions reach their end and fire
+    // `finished`, and the pose a body is holding when it walks back into view
+    // is the pose it should be holding. Only the SAMPLING granularity changes.
+    //
+    // The busy/locoHold timers drain at full rate regardless. They gate which
+    // clip may be chosen next, and that decision is made every frame by code
+    // that must not see a stale answer just because the body is off screen.
+    //
+    // AND THE FLUSHES ARE PHASE-SPREAD, WHICH IS THE HALF THAT WAS MISSING.
+    //
+    // Every rig started its accumulator at zero and every rig was fed the same
+    // dt, so `animAcc >= minStep` came true for ALL of them on the SAME frame.
+    // At LOW's 6 Hz that turned a smooth 131-rig-per-frame mixer load into one
+    // frame in ten carrying all 131 flushes and nine carrying none — the mode
+    // whose whole purpose is a steady frame was manufacturing a periodic spike,
+    // and it is visible in the tail: on the RTX 5090 the acceptance pass
+    // measured LOW with the WORST p90 of the three modes (52.0 ms against
+    // MEDIUM's 28.8) while delivering the fewest frames.
+    //
+    // The fix is a per-rig phase on the FIRST flush after the gate engages.
+    // After that each rig keeps flushing every `minStep`, so the offset it was
+    // born with persists and the load is spread across the whole period. The
+    // phase walks the golden ratio, which spreads any prefix of the sequence as
+    // evenly as a sequence can be spread — no RNG, no clustering.
+    const animPhase = (rigPhaseSeq = (rigPhaseSeq + 0.6180339887498949) % 1);
+    let animAcc = 0;
+    /** Accumulated time at which the next flush is due; <0 = not yet gated. */
+    let animNext = -1;
+    g.userData.animTick = (dt: number, minStep = 0) => {
+      animAcc += dt;
+      if (minStep <= 0) {
+        // Ungated: every frame, exactly the old behaviour.
+        mixer.update(animAcc);
+        animAcc = 0;
+        animNext = -1;
+      } else {
+        // First flush after the gate engages lands somewhere inside the period;
+        // every flush after that is one full period later.
+        if (animNext < 0) animNext = minStep * (0.1 + 0.9 * animPhase);
+        if (animAcc >= animNext) { mixer.update(animAcc); animAcc = 0; animNext = minStep; }
+      }
       if (busy > 0) busy = Math.max(0, busy - dt);
       const hold = g.userData.locoHold as number | undefined;
       if (hold && hold > 0) g.userData.locoHold = Math.max(0, hold - dt);
@@ -2796,6 +3580,56 @@ export class Renderer3D {
     return { x: hit.x, y: hit.z };
   }
 
+  /**
+   * THE PICKUP RING (MOBILE.md §2.7).
+   *
+   * Measured across four devices with a live drop on the floor: no renderer
+   * key matching `pickup|lootring|magnet` and no DOM node matching
+   * `pickup|lootstrip` existed at all, so a player on glass had no way to know
+   * an item had been collected — or how close they had to get. The ring is the
+   * world half of the answer: it draws the SIM's own `pickupRadius` around the
+   * crawler while there is anything nearby to collect, and flares on the
+   * frame something is actually taken.
+   *
+   * It reads a sim constant and paints it. It decides nothing.
+   */
+  setPickupRing(at: Vec2 | null, radius: number): void {
+    if (!at) {
+      if (this.pickupRing) this.pickupRing.visible = false;
+      return;
+    }
+    if (!this.pickupRing) {
+      const m = new THREE.Mesh(
+        new THREE.RingGeometry(0.86, 1, 40),
+        new THREE.MeshBasicMaterial({
+          color: 0x9a6bd0, transparent: true, opacity: 0.34,
+          side: THREE.DoubleSide, depthWrite: false,
+        }),
+      );
+      m.rotation.x = -Math.PI / 2;
+      m.renderOrder = 3980;
+      this.pickupRing = m;
+      this.scene.add(m);
+    }
+    const r = this.pickupRing;
+    r.visible = true;
+    // The flare decays on wall clock: it is presentation, and the sim is not
+    // stepping while a panel holds it.
+    const age = (performance.now() - this.pickupFlareAt) / 380;
+    const flare = age >= 0 && age < 1 ? 1 - age : 0;
+    const s = radius * (1 + flare * 0.55);
+    r.position.set(at.x, 0.05, at.y);
+    r.scale.set(s, s, 1);
+    (r.material as THREE.MeshBasicMaterial).opacity = 0.28 + flare * 0.55;
+  }
+
+  /** Something was collected this frame: flare the ring. */
+  pulsePickup(): void {
+    this.pickupFlareAt = performance.now();
+  }
+  private pickupRing: THREE.Mesh | null = null;
+  private pickupFlareAt = -1e9;
+
   /** Show/hide the click-to-move destination chip (null hides it). */
   setMoveMarker(pos: Vec2 | null): void {
     if (!pos) {
@@ -2817,46 +3651,215 @@ export class Renderer3D {
   }
 
   /**
-   * Drag-to-aim ground telegraph (touch/controller): a gold line, ring, or
-   * arrow from the player. kind null hides it. dir need not be normalized.
+   * TARGET SELECTION, DRAWN (MOBILE.md §3.3).
+   *
+   * Measured: a world tap set `lockedTargetId` correctly on 4 of 4 devices, the
+   * LOCK chip lit, and `pickTarget` steered the smart cast — and NOTHING was
+   * drawn on the monster. `grep lockedTargetId src/` returned the tap handler,
+   * `smartAim` and the clear-on-death, and no renderer call at all. Wild Rift
+   * draws a ring on the locked champion; on a phone where the thumb covers a
+   * third of the glass, a lock you cannot see is a lock you do not trust.
+   *
+   * TWO MARKERS, DELIBERATELY DIFFERENT, because they answer different
+   * questions:
+   *
+   *   LOCK   persistent, a closed bracket ring — "this is mine until I say
+   *          otherwise". Survives between casts and follows the monster.
+   *   SMART  transient, four corner ticks that fade over 420 ms — "THIS is
+   *          what the chip you just tapped chose". It is the answer to the
+   *          only question a smart cast leaves open, and it must not look like
+   *          the lock or it teaches the wrong permanence.
+   *
+   * Positions arrive per frame in world units; either may be null.
    */
-  setAimIndicator(kind: "line" | "ring" | "arrow" | null, from?: Vec2, dir?: Vec2): void {
-    if (!kind || !from) {
+  setTargetMarkers(locked: Vec2 | null, smart: Vec2 | null): void {
+    if (locked) {
+      if (!this.lockRing) {
+        const g = new THREE.Group();
+        // A BRACKET, NOT A CIRCLE. The enemy ground telegraph is already a
+        // ring, and a second ring a few pixels away is how §1.6's palette
+        // problem happened in shape instead of colour. Four arcs with gaps
+        // read as a reticle at 20 px and cannot be mistaken for an AoE.
+        for (let i = 0; i < 4; i++) {
+          const a0 = i * (Math.PI / 2) + 0.34;
+          const m = new THREE.Mesh(
+            new THREE.RingGeometry(0.62, 0.78, 18, 1, a0, Math.PI / 2 - 0.68),
+            new THREE.MeshBasicMaterial({
+              color: 0xeaf9ff, transparent: true, opacity: 0.9,
+              side: THREE.DoubleSide, depthWrite: false, depthTest: false,
+            }),
+          );
+          m.rotation.x = -Math.PI / 2;
+          g.add(m);
+        }
+        g.renderOrder = 4010;
+        this.lockRing = g;
+        this.scene.add(g);
+      }
+      this.lockRing.visible = true;
+      this.lockRing.position.set(locked.x, 0.09, locked.y);
+      // A slow spin is what separates "the game is tracking this" from "a
+      // decal was left here"; it costs one rotation write.
+      this.lockRing.rotation.y = (performance.now() / 1000) * 0.9;
+    } else if (this.lockRing) {
+      this.lockRing.visible = false;
+    }
+
+    if (smart) {
+      this.smartMarkAt = performance.now();
+      this.smartMarkPos = { x: smart.x, y: smart.y };
+    }
+    // 420 ms, not 260: the question this answers is "what did that tap pick",
+    // and the eye has to leave the thumb and find the monster before it can be
+    // answered. Measured under the harness's 3 fps renderer a 260 ms flash was
+    // already gone two frames after the cast — which is also what it would be
+    // on a phone dropping frames in a pack fight, i.e. exactly when it matters.
+    const age = (performance.now() - this.smartMarkAt) / 420;
+    if (this.smartMarkPos && age >= 0 && age < 1) {
+      if (!this.smartMark) {
+        const g = new THREE.Group();
+        for (let i = 0; i < 4; i++) {
+          const a = i * (Math.PI / 2) + Math.PI / 4;
+          const m = new THREE.Mesh(
+            new THREE.PlaneGeometry(0.42, 0.09),
+            new THREE.MeshBasicMaterial({
+              color: 0x39c8e8, transparent: true, opacity: 0.95,
+              side: THREE.DoubleSide, depthWrite: false, depthTest: false,
+            }),
+          );
+          m.rotation.x = -Math.PI / 2;
+          m.rotation.z = a;
+          m.position.set(Math.cos(a) * 0.72, 0, Math.sin(a) * 0.72);
+          g.add(m);
+        }
+        g.renderOrder = 4012;
+        this.smartMark = g;
+        this.scene.add(g);
+      }
+      this.smartMark.visible = true;
+      this.smartMark.position.set(this.smartMarkPos.x, 0.1, this.smartMarkPos.y);
+      // Snap in, ease out: the tick starts wide and closes on the target, so
+      // the eye is led to the monster rather than asked to find the marker.
+      const s = 1 + (1 - age) * 0.5;
+      this.smartMark.scale.set(s, 1, s);
+      for (const c of this.smartMark.children) {
+        ((c as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.95 * (1 - age);
+      }
+    } else if (this.smartMark) {
+      this.smartMark.visible = false;
+    }
+  }
+  private lockRing: THREE.Group | null = null;
+  private smartMark: THREE.Group | null = null;
+  /** Public for the device harness: when the last smart pick was flashed. */
+  smartMarkAt = -1e9;
+  private smartMarkPos: Vec2 | null = null;
+
+  /**
+   * THE AIM TELEGRAPH (MOBILE.md §3.1) — the single read a touch ARPG lives on.
+   *
+   * What this replaces, measured in §1.6: three hardcoded meshes — a
+   * `PlaneGeometry(4.2, 0.2)`, a `RingGeometry(2.0, 2.2)` and a 0.34 arrow —
+   * painted gold `#c9a24b` at 0.42 with no outline. Nova (radius 2.6) and
+   * cataclysm (radius 6) therefore drew the PIXEL-IDENTICAL ring, bolt's
+   * telegraph was a 4.2-unit stub whatever its derived reach, and the frame
+   * diff inside the indicator's own projected box came back AT OR BELOW the
+   * scene's churn between two consecutive frames: the thing carried no signal
+   * the torchlight did not already carry.
+   *
+   * Four changes, each answering a measured failure:
+   *
+   * 1. GEOMETRY IS REBUILT FROM THE ABILITY. `range`, `radius` and `arc` come
+   *    from the `AimSpec` the host already computes off the crawler's own
+   *    params, so glyphs and ranks change the drawn circle — a thing Wild Rift
+   *    structurally cannot do, because its indicators are per-ability art.
+   * 2. SIX SHAPES, not three: `cone` and `scatter` exist now instead of being
+   *    folded into line and ring by the host.
+   * 3. COLOUR THE WORLD DOES NOT OWN. Gold is the HUD, the chips, the
+   *    torchlight and the loot glow; red/orange is the ENEMY ground telegraph.
+   *    The player indicator is cyan `#39c8e8` fill at 0.30 under a white
+   *    `#eaf9ff` core stroke at 0.85, over a `#08131a` outline at 0.7.
+   * 4. FLOORS, so a correct shape cannot be an invisible one: a 3 CSS px
+   *    minimum stroke width converted to world units through the live camera
+   *    scale, and a 96x96 CSS px minimum projected footprint — the dash arrow
+   *    measured 71x28.
+   *
+   * The core stroke draws with `depthTest: false` and a high `renderOrder`, so
+   * a pack of sprites standing on the telegraph cannot swallow it (the failure
+   * photographed in `r5/crop-aim-line.png`); the fill keeps `depthTest` so it
+   * still reads as something lying on the floor.
+   */
+  setAimIndicator(
+    kind: AimIndicatorShape | null, from?: Vec2, dir?: Vec2,
+    range = 4.2, radius = 2.1, arc = 0,
+  ): void {
+    if (!kind || kind === "none" || !from) {
       if (this.aimIndicator) this.aimIndicator.visible = false;
       return;
     }
     if (!this.aimIndicator) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xc9a24b, transparent: true, opacity: 0.42, side: THREE.DoubleSide, depthWrite: false,
-      });
       const g = new THREE.Group();
-      const line = new THREE.Mesh(new THREE.PlaneGeometry(4.2, 0.2), mat);
-      line.rotation.x = -Math.PI / 2;
-      line.position.set(2.1, 0, 0); // extends along +x from the player
-      line.name = "line";
-      const ring = new THREE.Mesh(new THREE.RingGeometry(2.0, 2.2, 40), mat);
-      ring.rotation.x = -Math.PI / 2;
-      ring.name = "ring";
-      const arrow = new THREE.Group();
-      const shaft = new THREE.Mesh(new THREE.PlaneGeometry(2.2, 0.22), mat);
-      shaft.rotation.x = -Math.PI / 2;
-      shaft.position.set(1.1, 0, 0);
-      const tip = new THREE.Mesh(new THREE.CircleGeometry(0.34, 3), mat);
-      tip.rotation.x = -Math.PI / 2;
-      tip.position.set(2.35, 0, 0);
-      arrow.add(shaft, tip);
-      arrow.name = "arrow";
-      g.add(line, ring, arrow);
-      g.position.y = 0.07;
+      g.name = "aimIndicator";
+      // Render after the world; the fill still depth-tests, the stroke does not.
+      g.renderOrder = 4000;
       this.aimIndicator = g;
       this.scene.add(g);
     }
     const ind = this.aimIndicator;
     ind.visible = true;
     ind.position.set(from.x, 0.07, from.y);
-    for (const child of ind.children) child.visible = child.name === kind;
     if (dir && (dir.x !== 0 || dir.y !== 0)) ind.rotation.y = -Math.atan2(dir.y, dir.x);
+
+    // STROKE WIDTH IS A SCREEN QUANTITY. The old 0.2-world-unit plane is what
+    // made the line vanish: at the iso zoom a phone actually runs, 0.2 units
+    // is barely over a pixel. Convert 3 CSS px through the camera's own
+    // world-per-pixel scale, and never go below it.
+    const worldPerPx = this.aimWorldPerPx();
+    const stroke = Math.max(0.13, AIM_STROKE_PX * worldPerPx);
+    // MINIMUM FOOTPRINT. `AIM_MIN_FOOTPRINT_PX` of screen, in world units,
+    // measured on the SHORT screen axis so an iso-foreshortened up-screen aim
+    // is the case that binds.
+    const minSpan = AIM_MIN_FOOTPRINT_PX * worldPerPx;
+    const key = `${kind}|${range.toFixed(2)}|${radius.toFixed(2)}|${arc.toFixed(3)}|${stroke.toFixed(3)}|${minSpan.toFixed(2)}`;
+    if (this.aimKey === key) return;
+    this.aimKey = key;
+    for (const c of ind.children.slice()) disposeAimShape(c);
+    ind.clear();
+    for (const m of buildAimShape(kind, range, radius, arc, stroke, minSpan)) ind.add(m);
   }
+
+  /**
+   * World units per CSS pixel at the ground plane, from the live orthographic
+   * frustum. One division, no raycast: the iso camera is orthographic, so the
+   * scale is constant across the frame.
+   */
+  /**
+   * The host publishes the live aim every frame while a chip is held: a UNIT
+   * world direction and the reach in tiles, or null the moment it is released.
+   *
+   * The lead is capped rather than proportional — a 6-tile nova and a 14.4-tile
+   * bolt want the same "show me a bit more that way", and a camera that slides
+   * 7 tiles for an ultimate would lose the crawler, which is the thing the
+   * player is dodging with.
+   */
+  setAimLead(dir: Vec2 | null, reach: number): void {
+    if (!dir || reach <= 0) { this.aimLeadWant = 0; return; }
+    this.aimDirWorld = dir;
+    // Half the reach, capped at 4.2 tiles (half the ortho half-height), and
+    // nothing at all for a shape that already fits comfortably in frame.
+    this.aimLeadWant = reach < 5 ? 0 : Math.min(reach * 0.5, 4.2);
+  }
+  private aimLead = 0;
+  private aimLeadWant = 0;
+  private aimDirWorld: Vec2 | null = null;
+
+  private aimWorldPerPx(): number {
+    const cam = this.camera;
+    const h = Math.abs(cam.top - cam.bottom) / Math.max(1, cam.zoom);
+    const px = Math.max(1, this.lastH);
+    return h / px;
+  }
+  private aimKey = "";
 
   // RENDER SCALE (SYSTEM menu setting): scales the backing buffer + composer
   // targets only — the canvas CSS size and every DOM overlay stay crisp.
@@ -2885,7 +3888,41 @@ export class Renderer3D {
     this.aspect = w / h;
     // "close" view: a third more zoomed in — furnishing and character read
     // bigger; you see less of the floor at once.
-    const hh = THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1);
+    this.lastProjHH = -1; // the aspect moved: force the rebuild
+    this.applyProjection();
+  }
+
+  /** Last half-height actually pushed to the camera (see applyProjection). */
+  private lastProjHH = -1;
+
+  /**
+   * The ortho frame. BOSSES V2 §5.5 lets the boss layer BORROW it — wider one
+   * step per phase transition (the arena is more dangerous, so show more of
+   * it), tighter on the intermission — and `bossFx.zoom` eases back to 1 the
+   * moment the beat is over. Re-applied every frame because the boss zoom is
+   * continuous, unlike the one-shot `viewClose` setting.
+   */
+  /** The ortho half-height the camera is (about to be) projected at, with
+   *  every live multiplier applied — the boss layer's zoom, the close-view
+   *  setting and the aim-lead widen. The safe-area clamp in updateCamera and
+   *  applyProjection must agree on this number, so it lives in one place. */
+  private projHalfHeight(): number {
+    // The aim lead widens the frame as well as sliding it: sliding alone trades
+    // the far end of the skillshot for the crawler's own feet, and on a 342 px
+    // phone you need both in one picture to aim at all.
+    const aimWide = 1 + Math.min(0.22, this.aimLead * 0.052);
+    return THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
+      this.bossFx.zoom * aimWide;
+  }
+
+  private applyProjection(): void {
+    const hh = this.projHalfHeight();
+    // The boss zoom eases continuously, so this is called every frame — but
+    // rebuilding the projection matrix (and dirtying the frustum) when nothing
+    // moved is pure waste, and the last perf round was won on exactly this
+    // kind of thing.
+    if (Math.abs(hh - this.lastProjHH) < 1e-4) return;
+    this.lastProjHH = hh;
     const hw = hh * this.aspect;
     this.camera.left = -hw; this.camera.right = hw;
     this.camera.top = hh; this.camera.bottom = -hh;
@@ -2936,12 +3973,23 @@ export class Renderer3D {
       // class-colored trim glow — the player reads FIRST in any crowd.
       // Stored on userData so late attachments (headgear, grafted weapons)
       // inherit the exact same treatment instead of swallowing the rim.
+      // Rim strength is EMISSIVE energy and bloom thresholds at 0.92, so 1.45
+      // on a near-white rim did not light the hero — it lit a halo around him.
+      // 0.42 under the tightened falloff keeps the silhouette separated from
+      // the floor without crossing the bloom threshold on its own.
       const shade = {
         rim: 0xcfe0ff,
-        strength: 1.45,
+        strength: 0.42,
         hero: true,
         accent: Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff,
-        accentGain: 0.62,
+        accentGain: 0.2,
+        // The crawler takes LESS dark edge than the pack. His separation comes
+        // from being the brightest, most saturated figure on screen (see
+        // uChHeroSat/uChValue) plus his own travelling kick light; a heavy
+        // core shadow would spend his value authority to buy contrast he
+        // already has, and "find yourself in the brawl" is the one read that
+        // must not get quieter.
+        edge: 0.34,
       };
       model.userData.charShade = shade;
       this.applyCharacterShading(model, shade);
@@ -2952,26 +4000,42 @@ export class Renderer3D {
       // inside the warm impact pools. One PointLight per player; cheap.
       {
         const gs = model.scale.x || 1;
-        const kick = new THREE.PointLight(0x9fd0ff, 1.05, 4.5, 2);
+        // Halved (owner note): with the rim and the accent both firing, this
+        // third hero-only source was double-counting the same separation job
+        // and washing the crawler's own albedo cool.
+        const kick = new THREE.PointLight(0x9fd0ff, 0.5, 4.5, 2);
         kick.position.set(-0.55 / gs, 2.0 / gs, -0.5 / gs);
         kick.userData.noAO = true;
         model.add(kick);
       }
-      // Crisp directional contact shadow: a second, tighter dark ellipse
-      // offset opposite the key light so the hero visibly SITS on the floor.
+      // Crisp directional contact shadow: a dark ellipse cast opposite the key
+      // light so the hero visibly SITS on the floor. Reworked for the owner's
+      // "stuttering shadow" bug: on every preset whose shadowInterval > 1 the
+      // hero no longer writes into the cadenced shadow map (see
+      // applyHeroShadowPolicy), so THIS ellipse is the hero's cast shadow and
+      // has to carry the motion — it is elongated along the key light's real
+      // ground direction (key sits at +8,20,+6 → shadow runs along -0.8,-0.6,
+      // ~0.85u for a 1.7u figure) and it must stay WORLD-oriented, so it lives
+      // in a wrapper group the per-frame player loop counter-rotates against
+      // the body's facing. Parented to the model, it moves every composed
+      // frame by construction — no cadence can stale it.
       {
         const gs = model.scale.x || 1;
         const { geo, mat } = this.blobResources();
         if (!this.dirBlobMat) {
           this.dirBlobMat = mat.clone();
-          this.dirBlobMat.opacity = 0.5;
+          this.dirBlobMat.opacity = 0.44;
         }
+        const dirG = new THREE.Group();
         const dsh = new THREE.Mesh(geo, this.dirBlobMat);
-        dsh.position.set(-0.1 / gs, 0.042 / gs, -0.08 / gs);
-        dsh.scale.set(0.3 / gs, 1 / gs, 0.24 / gs);
+        dsh.position.set(-0.30 / gs, 0.042 / gs, -0.23 / gs);
+        dsh.rotation.y = Math.atan2(0.6, -0.8); // long axis along the cast line
+        dsh.scale.set(0.52 / gs, 1 / gs, 0.26 / gs);
         dsh.renderOrder = 1;
         dsh.userData.noAO = true;
-        model.add(dsh);
+        dirG.add(dsh);
+        model.add(dirG);
+        model.userData.dirShadow = dirG;
       }
       model.userData.skinId = skin;
       return model;
@@ -3151,7 +4215,7 @@ export class Renderer3D {
     }
   }
 
-  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef): THREE.Group {
+  private buildMonsterMesh(kind: keyof typeof THEME.archetype, floor: number, elite?: boolean, def?: CustomMobDef, idSeed = 0): THREE.Group {
     const spec = THEME.archetype[kind];
     // A crafted def's chosen body wins; then a floor-named menace (city
     // bosses + the finale), then an elite skin variant when one exists (the
@@ -3199,7 +4263,25 @@ export class Renderer3D {
     }
     // Fold the archetype size onto whatever scale the model normalization set
     // (a crafted def's scale multiplies on top).
-    const base = (model ? g.scale.x : 1) * spec.scale * (def?.scale ?? 1);
+    //
+    // A BOSS GETS BIGGER AS THE DUNGEON GETS DEEPER (r3 major #8). Acceptance,
+    // on a verified floor-18 frame: "the final boss occupies ~3% of the frame
+    // ... a small red-armoured humanoid smaller than the crates next to it. In
+    // d4_02 the world boss sprawls across a third of the screen and the frame
+    // is unmistakably about it. Floor 18 of 18 has no 'this thing is enormous'
+    // beat anywhere."
+    //
+    // A flat scale of 3.0 for every boss on all eighteen floors is exactly the
+    // shape of that complaint: the floor-2 menace and the finale are the same
+    // size, so nothing about the last one says LAST. The ramp is deliberately
+    // gentle at the top of the dungeon and steep at the bottom — floor 1 is
+    // unchanged, the finale is 1.45x linear (~3x the screen AREA), which puts
+    // the Board at ~6.3 world units against the crawler's 1.55 and makes it the
+    // tallest thing in its own arena instead of a match for the scenery.
+    const bossDepth = kind === "boss"
+      ? 1 + 0.45 * Math.min(1, Math.max(0, (floor - 1) / 17)) ** 0.85
+      : 1;
+    const base = (model ? g.scale.x : 1) * spec.scale * bossDepth * (def?.scale ?? 1);
     g.scale.setScalar(base);
     g.userData.baseScale = base;
     this.addBlobShadow(g, 0.44 * spec.scale);
@@ -3255,10 +4337,39 @@ export class Renderer3D {
       // shipping as identical bone-white blanks. Bosses lean harder — the
       // menace must read as ITS OWN THING from across the arena.
       tint: def?.tint ?? spec.color,
-      tintGain: isBossKind ? 0.6 : 0.5,
+      // ARCHETYPE HUE, RAISED (r3 major #6). The tint is normalized so its max
+      // component is 1 (value-preserving, deliberately), which means a gain of
+      // 0.5 on a red archetype only pulls green and blue down ~30% — white
+      // KayKit clay came out PALE PINK, and eleven pale-pink/pale-green mobs at
+      // gameplay distance under a warm impact pool are the "undifferentiated
+      // pile of cream/beige blobs" acceptance photographed. 0.78 is far enough
+      // for a shaman to read GREEN and a sentinel to read RED across a room,
+      // and still short of the jelly-bean look that would fight the art
+      // direction: it tints the white clay, not the dyed cloth or the leather
+      // (see the tSat/tMx gate this multiplies into).
+      tintGain: isBossKind ? 0.6 : 0.78,
+      // Enemies take the FULL dark edge — they are the ones that must separate
+      // from a bright floor, from each other, and from a mob pile.
+      edge: isBossKind ? 0.5 : 0.78,
       // Mobs cede brightness to the hero (issue #4): a white ogre must never
       // out-value the player's silhouette.
-      value: isBossKind ? 1 : 0.9,
+      //
+      // PER-INSTANCE VALUE JITTER (r2 SPEND). Acceptance: "a pack reads as one
+      // undifferentiated mass". The rim and the archetype tint were both
+      // already here — what was missing is that eleven members of one archetype
+      // were pixel-identical, so the rim separated the PACK from the floor and
+      // nothing separated the pack from ITSELF. A deterministic +/-7% value
+      // spread keyed off the monster id gives every neighbour a different tone,
+      // which is what makes a crowd countable. Bosses are exempt: there is only
+      // ever one, and its value is a deliberate authored number.
+      //
+      // FIVE BUCKETS, NOT A CONTINUUM, and that is a cost decision. `variant`
+      // below folds `value` into the material cache key, so a continuous jitter
+      // would mint one material per monster; five discrete steps cap it at five
+      // per archetype. The program cache key is unaffected either way (the
+      // numbers are uniforms — see the long note on applyCharacterShading), so
+      // this cannot reintroduce a mid-fight shader build.
+      value: isBossKind ? 1 : 0.9 * (1 + (((idSeed * 2654435761) >>> 0) % 5 - 2) * 0.035),
     };
     g.userData.charShade = shade;
     this.applyCharacterShading(g, shade);
@@ -3547,14 +4658,25 @@ export class Renderer3D {
   }
 
   private buildFloor(state: GameState): void {
+    // RECLAIM THE PARKED PROPS FIRST (opt r1). Most of the last floor's props
+    // are sitting in propPark, out of the scene, because the fog never revealed
+    // them. The teardown walks floorGroup — so anything still parked would miss
+    // both the dispose pass and the clear(), and would come back attached to
+    // the NEXT floor's prop entries. Hand them back before the walk.
+    for (const o of this.propPark.children.slice()) this.floorGroup.add(o);
+    this.propPark.clear();
+
     // Release the previous floor's GPU buffers. Tile geometries are per-build
     // clones (tileSource) or per-build boxes, so disposing them is safe; prop
     // meshes share the loader cache and are skipped.
     this.floorGroup.traverse((o) => {
       const im = o as THREE.InstancedMesh;
-      if (im.isInstancedMesh) { im.dispose(); im.geometry.dispose(); }
+      // `sharedGeo` marks a prop batch: its geometry belongs to the loader cache
+      // and is referenced by every other floor, so only the instance buffer dies.
+      if (im.isInstancedMesh) { im.dispose(); if (!im.userData.sharedGeo) im.geometry.dispose(); }
     });
     this.floorGroup.clear();
+    this.propBatches = [];
     this.torchAnchors = [];
     this.torchStreaks = [];
     for (const m of this.floorMats) m.dispose();
@@ -4031,6 +5153,14 @@ export class Renderer3D {
         mesh.receiveShadow = true;
         mesh.computeBoundingSphere(); // per-chunk sphere -> real frustum culling
         this.floorGroup.add(mesh);
+        // Chunk meshes sit at the origin and never move — only their INSTANCE
+        // matrices are ever rewritten (canopy camera courtesy), which is a
+        // different buffer. Freezing the object transform keeps three.js from
+        // recomposing an identity matrix for ~180 chunks on every frame.
+        // Compose once while parented, THEN freeze (see the prop freeze below
+        // for why the order matters).
+        mesh.updateMatrixWorld(true);
+        mesh.matrixAutoUpdate = false;
         if (kind.startsWith("cluster") || kind.startsWith("accent")) {
           for (let i = 0; i < list.length; i++) {
             const e = list[i].m.elements;
@@ -4131,19 +5261,28 @@ export class Renderer3D {
       m.multiplyScalar(1 / luma).multiply(new THREE.Color(0.86, 0.94, 1.18));
       (this.wl.uWlMurk.value as THREE.Color).copy(m).multiplyScalar(0.028);
       (this.wl.uWlGlint.value as THREE.Color).set(theme.torchColor).multiplyScalar(0.3);
+      // THE SECOND HUE POLE (theme.ts BandMood.atmo). Luma-normalized first so
+      // `atmoLevel` alone decides how bright the district's air is and the hex
+      // alone decides its colour — otherwise a saturated blue and a pale blue
+      // at the same level land at different exposures and the bands drift apart
+      // in value for no stated reason.
+      const mood: BandMood = theme.mood ?? DEFAULT_MOOD;
+      const a = new THREE.Color(mood.atmo);
+      const aLuma = Math.max(1e-4, 0.2126 * a.r + 0.7152 * a.g + 0.0722 * a.b);
+      (this.wl.uWlAtmo.value as THREE.Color).copy(a).multiplyScalar(mood.atmoLevel / aLuma);
     }
     // Walk-distance field for the wall-aware falloff (issue #2): allocated
     // per floor, BFS'd from the player's tile whenever it changes.
-    this.wlDist?.tex.dispose();
     {
+      // No texture of its own any more: the field is uploaded into the G
+      // channel of the fog bank's RG8 mask, which every world fragment was
+      // already fetching at the same uv. `data` stays as the BFS's own scratch
+      // so the bake loop keeps writing a tightly-packed byte per tile.
       const n = map.w * map.h;
-      const data = new Uint8Array(n).fill(255);
-      const tex = new THREE.DataTexture(data, map.w, map.h, THREE.RedFormat, THREE.UnsignedByteType);
-      tex.magFilter = tex.minFilter = THREE.LinearFilter;
-      tex.unpackAlignment = 1;
-      tex.needsUpdate = true;
-      this.wlDist = { tex, data, field: new Float32Array(n), queue: new Int32Array(n * 8), lastTile: -1 };
-      this.wl.uWlDist.value = tex;
+      this.wlDist = {
+        data: new Uint8Array(n).fill(255),
+        field: new Float32Array(n), queue: new Int32Array(n * 8), lastTile: -1,
+      };
     }
     this.ambientFx.rebuild(floorBand(state.floor), this.renderer.getPixelRatio());
     this.atmoRefresh = 0; // feed the mote cloud fresh spawn candidates now
@@ -4782,6 +5921,35 @@ export class Renderer3D {
     // placed scale so the fog reveal can ease it in instead of popping it.
     for (const e of this.propEntries) {
       e.base = e.obj.scale.clone();
+      // FREEZE (paydown r1). A placed prop's transform changes only on the
+      // handful of frames its fog reveal is easing (updateFogTint recomputes it
+      // by hand there), so the whole subtree drops matrixAutoUpdate.
+      //
+      // What that buys, in three.js r169's updateMatrixWorld: with
+      // matrixAutoUpdate false the per-node compose is skipped, and because
+      // nothing then sets matrixWorldNeedsUpdate, the parent-multiply is skipped
+      // too and `force` stays false all the way down — so a frozen prop costs a
+      // pointer walk instead of a matrix compose plus a 4x4 multiply per mesh,
+      // across ~1150 prop meshes, every frame.
+      //
+      // NOT matrixWorldAutoUpdate=false, which is the trap: in r169 the
+      // matrixWorld composition is itself guarded by that flag, so setting it
+      // does not mean "skip my subtree" — it means "I will write matrixWorld
+      // myself". Setting it left every prop's matrixWorld at the identity, i.e.
+      // 887 props stacked on the map origin. It did not show up in a screenshot
+      // because the props that proved it were still under fog and invisible;
+      // tools/staticmatrix.mjs caught it by checking world positions directly.
+      //
+      // Safe because nothing animated lives under a prop: the torch pool and the
+      // hero lamp are children of the scene (addTorches), and the flame sprites
+      // are children of floorGroup, not of the sconce mesh they sit on.
+      e.reveal = -1; // force the first updateFogTint pass to write a transform
+      // Compose the placed transform for the whole subtree ONCE, while the
+      // engine is still willing to, then freeze. Doing it here rather than
+      // leaning on the first updateFogTint pass also covers the case where that
+      // pass early-returns because a fog-bank rebuild is in flight.
+      e.obj.updateMatrixWorld(true);
+      e.obj.traverse((o) => { o.matrixAutoUpdate = false; });
       const cell = groundByTile.get(e.tile);
       if (!cell) continue;
       // Whisper only — the baked contact stamp does the real grounding now.
@@ -4791,6 +5959,11 @@ export class Renderer3D {
         cols[i * 3 + 2] *= 0.94;
       }
     }
+
+    // Collapse the floor's static clutter into InstancedMesh batches. Must run
+    // AFTER the freeze loop above (it reads each prop's composed world matrix)
+    // and BEFORE anything that counts draw calls.
+    this.batchStaticProps();
 
     // Stamp the finished static instance tints (one-time — per-frame light
     // now happens per fragment in the world-lit materials).
@@ -5097,7 +6270,162 @@ export class Renderer3D {
       }
       data[i] = v === Infinity ? 255 : Math.min(255, Math.round((v / 32) * 255));
     }
-    d.tex.needsUpdate = true;
+    // Into the G channel of the fog mask (see FogBank.maskTexture): one plane,
+    // one sampler, one fetch per fragment for both fields.
+    const packed = this.fogBank.fieldData();
+    if (packed && packed.length === data.length * 2) {
+      for (let i = 0; i < data.length; i++) packed[i * 2 + 1] = data[i];
+      this.fogBank.markFieldDirty();
+    }
+  }
+
+  /** Fewer than this many copies of one (geometry, material) is not worth a
+   *  batch: an InstancedMesh is itself a draw call plus an attribute buffer. */
+  private static readonly PROP_BATCH_MIN = 4;
+  /** World radius around the crawler inside which a revealed prop joins its
+   *  batch. An InstancedMesh is frustum-culled as ONE object, so a batch that
+   *  spans the map can never be culled — this is the per-prop cull that three.js
+   *  can no longer do for us. The iso camera's half-height is 8.5 tiles and its
+   *  ground footprint stretches with the pitch; 38 is a comfortable superset of
+   *  anything on screen, so this removes work without removing pixels. */
+  private static readonly PROP_BATCH_RADIUS = 38;
+  private batchMtx = new THREE.Matrix4();
+  private floorInv = new THREE.Matrix4();
+  private static readonly PROP_BATCH_HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
+  /**
+   * Collapse this floor's static clutter into InstancedMesh batches.
+   *
+   * Only leaves that instancing cannot change the look of are taken: opaque,
+   * single-material, non-skinned, non-morphing meshes. Everything rejected keeps
+   * drawing exactly as before, so this is additive — a prop the filter does not
+   * understand is simply not batched.
+   *
+   * The source mesh STAYS in the graph, invisible. That is deliberate: several
+   * later passes (the contact-shadow blob census, Box3.setFromObject, the debug
+   * scene censuses) walk prop subtrees expecting geometry to be there, and
+   * Box3.setFromObject ignores `visible`. Leaving it costs nothing at draw time
+   * — three.js's projectObject returns at the first invisible node.
+   */
+  private batchStaticProps(): void {
+    this.propBatches = [];
+    this.floorGroup.updateMatrixWorld(true);
+    // Instance matrices are relative to the batch's parent (floorGroup), so
+    // every write folds floorGroup's own transform out of the leaf's world
+    // matrix. Cached because it is needed on every reveal, not just here.
+    this.floorInv.copy(this.floorGroup.matrixWorld).invert();
+    // The park stands in for floorGroup as a parent, so it has to BE floorGroup
+    // as far as matrix composition is concerned (see propPark).
+    this.propPark.matrix.copy(this.floorGroup.matrix);
+    this.propPark.matrixWorld.copy(this.floorGroup.matrixWorld);
+    this.propPark.matrixAutoUpdate = false;
+    this.propPark.matrixWorldAutoUpdate = false;
+
+    type Cand ={ e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
+    const cands: Cand[] = [];
+    const counts = new Map<string, number>();
+    for (const e of this.propEntries) {
+      e.obj.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if ((m as THREE.SkinnedMesh).isSkinnedMesh) return;
+        if ((m as unknown as THREE.InstancedMesh).isInstancedMesh) return;
+        if (Array.isArray(m.material)) return; // multi-material needs geometry groups
+        const mat = m.material as THREE.Material | undefined;
+        // Blended surfaces (the Sewers' water sheets) are painter-sorted per
+        // object; batching them would fix their order relative to each other.
+        if (!mat || mat.transparent) return;
+        const g = m.geometry as THREE.BufferGeometry | undefined;
+        if (!g || !g.attributes?.position) return;
+        if (g.morphAttributes && Object.keys(g.morphAttributes).length > 0) return;
+        const key = `${g.uuid}|${mat.uuid}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
+        counts.set(key, (counts.get(key) ?? 0) + 1);
+        cands.push({ e, mesh: m, key });
+      });
+    }
+
+    const byKey = new Map<string, PropBatch>();
+    for (const c of cands) {
+      const cap = counts.get(c.key) ?? 0;
+      if (cap < Renderer3D.PROP_BATCH_MIN) continue;
+      let b = byKey.get(c.key);
+      if (!b) {
+        const im = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material as THREE.Material, cap);
+        im.name = `propbatch:${c.mesh.name || "mesh"}`;
+        im.castShadow = c.mesh.castShadow;
+        im.receiveShadow = c.mesh.receiveShadow;
+        im.renderOrder = c.mesh.renderOrder;
+        im.count = 0;
+        im.visible = false; // nothing revealed yet; see propLeafShow
+        im.frustumCulled = false; // culled per-instance by membership, see above
+        im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // THE TEARDOWN MUST NOT DISPOSE THIS GEOMETRY. buildFloor disposes every
+        // InstancedMesh geometry it finds in floorGroup because tile geometry is
+        // a per-build clone — but a prop batch points straight at the loader's
+        // shared buffers, and disposing those would empty every later floor.
+        im.userData.sharedGeo = true;
+        this.floorGroup.add(im);
+        im.matrixAutoUpdate = false;
+        im.updateMatrix();
+        im.updateMatrixWorld(true);
+        b = { mesh: im, members: new Array<PropBatchLeaf | null>(cap).fill(null), count: 0, dirty: false };
+        byKey.set(c.key, b);
+        this.propBatches.push(b);
+      }
+      c.mesh.visible = false; // the batch draws it now
+      (c.e.leaves ??= []).push({ batch: b, mesh: c.mesh, slot: -1 });
+    }
+  }
+
+  /** Write one leaf's current world transform into the slot it occupies. */
+  private propLeafWrite(leaf: PropBatchLeaf): void {
+    if (leaf.slot < 0) return;
+    // Read the leaf's matrixWorld rather than a captured local: a prop's
+    // transform DOES change while its fog reveal eases the scale in, and
+    // updateFogTint recomposes the whole subtree on exactly those frames. A
+    // frozen prop's matrixWorld stays valid in between, which is what makes a
+    // pure visibility flip cheap.
+    this.batchMtx.multiplyMatrices(this.floorInv, leaf.mesh.matrixWorld);
+    leaf.batch.mesh.setMatrixAt(leaf.slot, this.batchMtx);
+    leaf.batch.dirty = true;
+  }
+
+  /** Add a leaf to its batch's live set (O(1)); no-op if already live. */
+  private propLeafShow(leaf: PropBatchLeaf): void {
+    const b = leaf.batch;
+    if (leaf.slot >= 0 || b.count >= b.members.length) return;
+    leaf.slot = b.count++;
+    b.members[leaf.slot] = leaf;
+    b.mesh.count = b.count;
+    // AN EMPTY BATCH IS STILL A DRAW CALL. three.js does not skip an
+    // InstancedMesh whose count is 0 — the first census after this landed
+    // showed `INST:propbatch:Weaponrack(x0)` issuing 4.5 draws a frame — and a
+    // floor has far more distinct (geometry, material) pairs than are revealed
+    // at any moment, so most batches are empty most of the time.
+    b.mesh.visible = true;
+    this.propLeafWrite(leaf);
+  }
+
+  /** Swap-remove a leaf from its batch's live set (O(1)). */
+  private propLeafHide(leaf: PropBatchLeaf): void {
+    const b = leaf.batch;
+    if (leaf.slot < 0) return;
+    const last = --b.count;
+    const moved = b.members[last];
+    if (moved && moved !== leaf) {
+      b.members[leaf.slot] = moved;
+      moved.slot = leaf.slot;
+      this.propLeafWrite(moved);
+    }
+    b.members[last] = null;
+    leaf.slot = -1;
+    b.mesh.count = b.count;
+    if (b.count === 0) b.mesh.visible = false; // see propLeafShow
+    // The vacated tail slot keeps stale bytes; count is what stops it drawing,
+    // but zero it anyway so a future off-by-one shows as nothing, not as a prop
+    // teleported to the wrong place.
+    b.mesh.setMatrixAt(last, Renderer3D.PROP_BATCH_HIDDEN);
+    b.dirty = true;
   }
 
   private updateFogTint(state: GameState, px: number, pz: number): void {
@@ -5116,14 +6444,101 @@ export class Renderer3D {
     if (alphas.length !== map.w * map.h) return; // rebuild in flight
     // Props ride the same animated alpha: they scale in as their tile's fog
     // dissipates instead of visibility-popping into the frame.
+    //
+    // STATIC PROP TRANSFORMS (paydown r1). This loop used to write scale and
+    // visible on every one of the ~920 placed props EVERY FRAME, and every prop
+    // kept three.js's default matrixAutoUpdate — so the engine recomposed
+    // position/quaternion/scale into a matrix, and walked the whole subtree
+    // (~1150 meshes) to recompute world matrices, on every frame, for objects
+    // that are standing still in a dungeon. Nothing in src/render3d had ever set
+    // matrixAutoUpdate=false; this is the first place that does.
+    //
+    // A prop only moves when its tile's fog reveal eases it in, which is a
+    // second or two after the player first sees it and then never again. So the
+    // reveal is QUANTIZED to 1/128 steps and the transform is rewritten only on
+    // a step change — at which point the matrix is recomputed explicitly. The
+    // quantum is far finer than the 0.72..1.0 scale ramp it drives, so the ease
+    // is visually identical; what goes away is the per-frame rewrite.
+    // BATCH MEMBERSHIP RIDES THE SAME EDGES (paydown r2). A batched prop no
+    // longer draws through the scene graph, so `visible` alone would do nothing
+    // — the equivalent edit is joining or leaving its InstancedMesh's live set,
+    // and the equivalent of a transform rewrite is re-writing its instance
+    // matrix. Both happen on exactly the frames the old code already paid for.
+    // AND THE HIDDEN ONES LEAVE THE GRAPH ENTIRELY (opt r1). The two paydowns
+    // above stopped a hidden prop from COMPOSING a matrix and from issuing a
+    // DRAW. Neither stopped three.js from VISITING it: Object3D.updateMatrixWorld
+    // recurses `children` unconditionally — it never looks at `visible`, and
+    // `matrixAutoUpdate = false` only skips the compose at the node it is set on.
+    //
+    // Measured on floor 15 with the crawler alive (tools/trk_who.mjs — and the
+    // qualifier matters, see tools/trk_live.mjs): the scene is 2,774 nodes, of
+    // which 1,575 are visible=false, and 1,537 of THOSE live under floorGroup as
+    // unrevealed prop subtrees and the invisible source meshes of batched props.
+    // 57% of every per-frame matrix walk was spent on clutter the fog hides.
+    //
+    // So a hidden prop is moved to propPark, which is not in the scene. Same
+    // pixels — it was already invisible and its batch membership is unchanged —
+    // and the same transform, because propPark's world matrix is floorGroup's.
+    // Edge-triggered on the fog reveal, so a floor's worth of reparenting is
+    // paid out over the walk that reveals it, a few props at a time.
+    //
+    // NOT A MODE LEVER, for the same reason the monster parking is not: it
+    // removes work without removing anything anybody can see.
+    const R2 = Renderer3D.PROP_BATCH_RADIUS * Renderer3D.PROP_BATCH_RADIUS;
+    const mapW = map.w;
     for (const e of this.propEntries) {
       const a = alphas[e.tile] ?? 1;
       const f = 1 - a;
-      e.obj.visible = f > 0.04;
+      const vis = f > 0.04;
+      const step = Math.round(Math.min(1, Math.max(0, f)) * 128);
+      // A pointer compare per prop per frame; the reparent itself only runs on
+      // the reveal edge. `updateMatrixWorld(true)` on the way back in is
+      // belt-and-braces — the parked matrixWorld is already correct — and costs
+      // one subtree recompose on the frame a prop is first seen.
+      if ((e.obj.parent === this.floorGroup) !== vis) {
+        if (vis) { this.floorGroup.add(e.obj); e.obj.updateMatrixWorld(true); }
+        else this.propPark.add(e.obj);
+      }
+      let shown = vis;
+      if (shown && e.leaves) {
+        // An InstancedMesh is culled as one object, so the per-prop cull has to
+        // happen here (see PROP_BATCH_RADIUS).
+        const tx = (e.tile % mapW) + 0.5 - px;
+        const tz = Math.floor(e.tile / mapW) + 0.5 - pz;
+        if (tx * tx + tz * tz > R2) shown = false;
+      }
+      if (e.reveal === step) {
+        // Visibility is not part of the transform, so it can flip without one.
+        if (e.obj.visible !== vis) e.obj.visible = vis;
+        if (e.leaves && e.shown !== shown) {
+          e.shown = shown;
+          for (const leaf of e.leaves) (shown ? this.propLeafShow(leaf) : this.propLeafHide(leaf));
+        }
+        continue;
+      }
+      e.reveal = step;
+      e.obj.visible = vis;
       if (e.base) {
         if (f < 0.999) e.obj.scale.copy(e.base).multiplyScalar(0.72 + 0.28 * f);
         else e.obj.scale.copy(e.base);
       }
+      // The engine no longer does this for us (frozen in buildFloor), so the
+      // one frame in which a prop actually changes pays for its own matrix.
+      e.obj.updateMatrix();
+      e.obj.updateMatrixWorld(true);
+      if (e.leaves) {
+        if (e.shown !== shown) {
+          e.shown = shown;
+          for (const leaf of e.leaves) (shown ? this.propLeafShow(leaf) : this.propLeafHide(leaf));
+        } else if (shown) {
+          for (const leaf of e.leaves) this.propLeafWrite(leaf);
+        }
+      }
+    }
+    for (const b of this.propBatches) {
+      if (!b.dirty) continue;
+      b.dirty = false;
+      b.mesh.instanceMatrix.needsUpdate = true;
     }
     if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
   }
@@ -5150,8 +6565,9 @@ export class Renderer3D {
         this.fxp.sparks(pos.x, 0.6, pos.y, pal.mid, 18);
         this.fxp.embers(pos.x, pos.y, pal.mid, 12, CONFIG.ultAirstrikeRadius * 0.7);
         this.fxp.smoke(pos.x, 0.5, pos.y, 5, 0x28222f);
-        this.shocks.spawn(pos.x, pos.y, pal.mid, CONFIG.ultAirstrikeRadius, 0.5);
-        this.decals.spawn(pos.x, pos.y, CONFIG.ultAirstrikeRadius * 0.55, 0x120a18, pal.rim, 9);
+        this.blast(pos.x, pos.y, pal, CONFIG.ultAirstrikeRadius, 0.55);
+        // Sponsor ordnance leaves a crater that outlives the barrage.
+        this.decals.spawn(pos.x, pos.y, CONFIG.ultAirstrikeRadius * 0.65, 0x0b0710, pal.rim, 34);
         // Debris ring under the impact: the crater the shell leaves behind.
         this.spawnFadeProp("fx_blast_star", pos.x, 0.04, pos.y, CONFIG.ultAirstrikeRadius * 0.8, 0.4,
           { tint: pal.mid, spin: 0.6, grow: 1.6, footprint: true, pop: true });
@@ -5563,7 +6979,7 @@ export class Renderer3D {
           // the plain brace heals.
           const params = bulwarkParams(p);
           if (params.shove) {
-            this.shocks.spawn(p.pos.x, p.pos.y, bpal.core, CONFIG.bulwarkShoveRadius * 1.15, 0.4);
+            this.blast(p.pos.x, p.pos.y, bpal, CONFIG.bulwarkShoveRadius * 1.15, 0.45);
             this.fxp.radialStreaks(p.pos.x, 0.7, p.pos.y, bpal.mid, 18, CONFIG.bulwarkShoveRadius);
             this.fxp.dust(p.pos.x, 0.15, p.pos.y, 14, 0x4a4438);
             this.addTrauma(0.3);
@@ -5597,15 +7013,28 @@ export class Renderer3D {
         (rud.inner.material as THREE.MeshBasicMaterial).opacity = 0.3 + 0.3 * beat;
         rig.visible = true;
         if (prevIt <= 0) {
-          // The loudest cast in the game, on purpose: the design asks the
-          // biggest ultimate to carry the biggest counterplay window, and the
-          // whole floor was just told it has one.
-          this.fxp.flash3(p.pos.x, 0.8, p.pos.y, spal, 2.0);
-          this.fxp.column(p.pos.x, p.pos.y, spal.mid, 14, 3.2);
-          this.shocks.spawn(p.pos.x, p.pos.y, spal.mid, 7, 0.6);
-          this.fxp.radialStreaks(p.pos.x, 0.6, p.pos.y, spal.core, 22, 5.5);
-          this.spawnFxLight(p.pos.x, p.pos.y, spal.mid, 7, 0.7, 1.2);
-          this.addTrauma(0.55);
+          // THE FRAME ACCEPTANCE REJECTED WAS THIS CAST. "The loudest cast in
+          // the game, on purpose" was implemented as loudness measured in
+          // SCREEN AREA — a size-2 flash, a 14-unit-tall glow column, a
+          // radius-7 additive ring, 22 streaks thrown 5.5 units and a peak-7
+          // point light, all in crimson, all at once. The capture is
+          // unambiguous: the whole world went flat pink-red, black fell to
+          // 0.1% of the frame, and nothing in the fight was readable.
+          //
+          // It is still the loudest cast. Loudness now buys REACH and
+          // DURATION, not luminance: the footprint covers the same 7 units
+          // (the sim's number is unchanged, so the promise to the player is
+          // unchanged) but paints each pixel at 37% energy, over a dark core,
+          // with the bright part confined to the ribbon fronts. The column is
+          // a third of its height, the streaks stay inside the seal, and the
+          // light no longer tries to be room lighting.
+          this.fxp.flash3(p.pos.x, 0.8, p.pos.y, spal, 1.1);
+          this.fxp.column(p.pos.x, p.pos.y, spal.mid, 5, 1.9);
+          this.blast(p.pos.x, p.pos.y, spal, 7, 0.75);
+          this.fxp.radialStreaks(p.pos.x, 0.6, p.pos.y, spal.core, 14, 3.4);
+          this.spawnFxLight(p.pos.x, p.pos.y, spal.mid, 3.0, 0.5, 1.2);
+          this.decals.spawn(p.pos.x, p.pos.y, 4.2, 0x0d0705, spal.rim, 34);
+          this.addTrauma(0.4);
         }
         // The bodies that were told smoulder for the duration, so the price of
         // the ultimate is visible on the things that will be collecting it.
@@ -5781,8 +7210,13 @@ export class Renderer3D {
           // puffs pooled into an ambiguous pale lobe under the blast).
           this.fxp.smoke(p.pos.x, 0.5, p.pos.y, kind === "cataclysm" ? 3 : 2, 0x2e2820);
           this.fxp.dust(p.pos.x, 0.2, p.pos.y, 4, this.dustTint);
-          this.shocks.spawn(p.pos.x, p.pos.y, pal.mid, radius0, kind === "cataclysm" ? 0.55 : 0.45);
-          this.decals.spawn(p.pos.x, p.pos.y, radius0 * 0.5, 0x141008, pal.rim, 9);
+          // The footprint, through the one door (see blast()): layered fronts
+          // over a dark core, energy divided by area, glare registered.
+          this.blast(p.pos.x, p.pos.y, pal, radius0, kind === "cataclysm" ? 0.62 : 0.5);
+          // AFTERMATH (r2 SPEND, "no ground decals survive a fight"): the
+          // scorch outlives the blast by half a minute, so a room the player
+          // has fought through is visibly a room they fought through.
+          this.decals.spawn(p.pos.x, p.pos.y, radius0 * 0.62, 0x0e0b06, pal.rim, 34);
           // Layered secondary: the crown's blast kicks up a debris ring too.
           if (kind === "cataclysm") {
             this.spawnFadeProp("fx_blast_star", p.pos.x, 0.03, p.pos.y,
@@ -5879,6 +7313,26 @@ export class Renderer3D {
     return s;
   }
 
+  /**
+   * BOSSES V2 §7.4 — consume the sim's typed boss beats. The host buffers
+   * them across sub-steps (exactly like hits) and hands them over BEFORE
+   * update(), so a phase edge stages in the same frame it happened in.
+   */
+  bossEvents(events: BossEvent[]): void {
+    for (const e of events) this.bossFx.beat(e);
+  }
+
+  /** Seconds of hit-stop the boss layer wants this frame (§5.5/§5.7). */
+  get bossSlowmo(): number { return this.bossFx.slowmo; }
+
+  /** §5.7 — draw the ringside loot arc from the corpse to where a drop landed. */
+  /** Capture hold (tools/bossshot.mjs): keep live boss rigs up for `seconds`. */
+  holdBossBeats(seconds: number): void { this.bossFx.hold(seconds); }
+
+  bossLootArc(fromX: number, fromZ: number, toX: number, toZ: number, hex: number): void {
+    this.bossFx.lootArc(fromX, fromZ, toX, toZ, hex);
+  }
+
   update(state: GameState, time: number): void {
     this.setPoolI = 0;
     // Rebuild cached floor geometry on descent, on in-place tile mutations
@@ -5973,6 +7427,12 @@ export class Renderer3D {
       }
       this.smoothTo(mesh, pl.pos.x, 0, pl.pos.y, dt);
       this.turnTo(mesh, Math.atan2(pl.facing.x, pl.facing.y), dt);
+      // The directional contact shadow is WORLD-oriented (a cast shadow does
+      // not turn when the body turns): unwind the body's yaw every frame.
+      {
+        const dirG = mesh.userData.dirShadow as THREE.Group | undefined;
+        if (dirG) dirG.rotation.y = -mesh.rotation.y;
+      }
       mesh.visible = true;
       this.applyLoadout(mesh, pl);
       // Weapon trail on the melee swing edge (attackSwing jumps up).
@@ -6155,6 +7615,20 @@ export class Renderer3D {
             mm.receiveShadow = false;
           });
           (mesh.userData.play as ((n: string) => void) | undefined)?.("run");
+          // A GROUND MARKER, because a 34%-opacity cold body in a torchlit
+          // room reads as a lighting artifact. The ring is the cue that says
+          // "something is standing there" from across an arena; the projected
+          // nameplate (main3d: updateGhostPlate) says WHO.
+          const ring = new THREE.Mesh(
+            new THREE.RingGeometry(0.42, 0.56, 40).rotateX(-Math.PI / 2),
+            new THREE.MeshBasicMaterial({
+              color: 0x8fc0e8, transparent: true, opacity: 0.5,
+              depthWrite: false, side: THREE.DoubleSide,
+            }),
+          );
+          ring.position.y = 0.03;
+          ring.renderOrder = 2;
+          mesh.add(ring);
           mesh.position.set(gp.x, 0, gp.y);
           this.scene.add(mesh);
           this.ghostMesh = mesh;
@@ -6188,7 +7662,8 @@ export class Renderer3D {
       }
       if (!this.breakableMeshes.has(b.id)) {
         const swap = damaged ? BREAKABLE_DAMAGED[b.key] : undefined;
-        const obj = this.modelInstance(swap && this.models[swap] ? swap : b.key);
+        const asset = BREAKABLE_MODEL[b.key] ?? b.key;
+        const obj = this.modelInstance(swap && this.models[swap] ? swap : asset);
         if (obj) {
           const box = new THREE.Box3().setFromObject(obj);
           const fp = Math.max(box.max.x - box.min.x, box.max.z - box.min.z, 1e-4);
@@ -6227,6 +7702,84 @@ export class Renderer3D {
       }
       return false;
     };
+
+    // ---- WHICH RIGS ANIMATE AT FULL RATE THIS FRAME (quality.ts, the CPU
+    //      lever the four-rung ladder never had) ---------------------------
+    //
+    // Floor 15 carries 149 animated rigs and 18 of them are on screen. The
+    // other 131 are 4,664 scene nodes and 3,277 bones — 87% of every bone in
+    // the scene — and AnimationMixer.update poses all of them, every frame, to
+    // produce not one pixel. Measured: 2.5-3.0 ms/frame on the Intel part in
+    // combat, 1.3-1.5 ms on the RTX 5090.
+    //
+    // THE GATE IS A RATE, NOT A SWITCH. An off-screen rig still advances its
+    // clips in real time; it just samples them at the mode's offscreenRigHz
+    // (animTick accumulates dt and flushes one larger mixer.update). Skipping
+    // the mixer outright would leave one-shots never finishing, crossfades
+    // never completing and LoopOnce actions never firing `finished` — the body
+    // would walk back on screen wedged mid-swing.
+    //
+    // "ON SCREEN" IS A PADDED FRUSTUM TEST, DELIBERATELY GENEROUS, and it is
+    // measured against LAST frame's camera (the camera is repositioned later in
+    // this same update, below). Both facts push the same way: a 3-unit sphere
+    // around a body that is at most one frame of camera pan from where it will
+    // be draws the boundary well outside the visible edge, so a monster walking
+    // into frame is already at full rate before it is drawn. The failure this
+    // avoids is the one that matters — popping into the correct pose after
+    // entering view.
+    // THE RIG BUDGET IS GONE, AND IT WAS A NET LOSS ON BOTH ADAPTERS (opt r2).
+    //
+    // The gate used to sort the in-frustum bodies by distance and keep only
+    // `rigBudget` of them (14 on LOW, 28 on MEDIUM), demoting the overflow to
+    // the off-screen rate. Two measurements retired it:
+    //
+    //  1. IT DEMOTED BODIES THE PLAYER WAS LOOKING AT, which is the one thing
+    //     the comment above this block promised it would never do — "an
+    //     off-screen rig is off screen". Measured with the gate's own output
+    //     (rigFullRate.size against the in-frustum count it computes itself):
+    //     on LOW, 23-45 bodies in frustum against 14 at full rate, i.e. a
+    //     third to a half of the visible pack animating at 6 Hz.
+    //  2. IT WAS NOT BUYING ANYTHING. Sandwiched A/B on the RTX 5090 at HIGH
+    //     in the dense floor-15 pack (tools/r2_cpu.mjs): turning EVERY rig's
+    //     AnimationMixer off entirely moved delivered frame time by 3.0%
+    //     (0.43 ms of 14.2). A cap that costs visible animation to save a
+    //     fraction of half a millisecond is not a quality lever, it is a bug
+    //     with a knob on it.
+    //
+    // What stays is the RATE gate on rigs that are genuinely not on screen —
+    // the 131-of-149 that pose bones no pass reads. That one is invisible by
+    // construction, which is what the original argument was actually about.
+    //
+    // "ON SCREEN" IS A PADDED FRUSTUM TEST, DELIBERATELY GENEROUS, and it is
+    // measured against LAST frame's camera (the camera is repositioned later in
+    // this same update, below). Both facts push the same way: a 3-unit sphere
+    // around a body that is at most one frame of camera pan from where it will
+    // be draws the boundary well outside the visible edge, so a monster walking
+    // into frame is already at full rate before it is drawn.
+    const rigFull = this.rigFullRate;
+    rigFull.clear();
+    const rigStep = 1 / Math.max(1, this.quality.offscreenRigHz);
+    if (this.quality.offscreenRigHz !== Infinity) {
+      this.camera.updateMatrixWorld();
+      this.rigFrustum.setFromProjectionMatrix(
+        this.rigProj.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse),
+      );
+      for (const mon of state.monsters) {
+        // Fog first, and it is not redundant with the frustum: a body can sit
+        // inside the camera's box and still be unrevealed dark, in which case it
+        // is parked out of the graph below and drawing nothing.
+        if (!inVision(mon.pos)) continue;
+        this.rigSphere.center.set(mon.pos.x, 0.9, mon.pos.y);
+        if (!this.rigFrustum.intersectsSphere(this.rigSphere)) continue;
+        rigFull.add(mon.id);
+      }
+    }
+
+    // BOSSES V2 §5 — the encounter's persistent rigs (plates, shield shells,
+    // tether cords, punish beacons) reconcile here, one pass, sharing the
+    // same fog gate every other entity uses. Everything else about the boss
+    // layer is edge-triggered off state.bossEvents.
+    this.bossFx.update(state, dt, time, (m: Monster) => inVision(m.pos));
 
     // Roam settlement residents: id-keyed mesh pool over the full roster
     // (state.npcs; v1 snapshots only carried the singular state.npc).
@@ -6327,7 +7880,7 @@ export class Renderer3D {
       }
       if (!mesh) {
         mesh = this.buildMonsterMesh(mon.kind, state.floor, mon.elite,
-          mon.defId ? mobDefById(mon.defId) : undefined);
+          mon.defId ? mobDefById(mon.defId) : undefined, mon.id);
         mesh.userData.simKind = mon.kind;
         if (mon.elite) {
           // Neighborhood boss: visibly bigger than its archetype.
@@ -6348,6 +7901,58 @@ export class Renderer3D {
       }
 
       mesh.visible = inVision(mon.pos);
+      // OFF-SCREEN BODIES DO NOT GET MATRICES (paydown r1).
+      //
+      // three.js updates the whole scene graph's matrices before it culls
+      // anything, so a floor holding 205 rigged monsters was recomposing ~7300
+      // matrices per frame — measured, tools/staticmatrix.mjs — when only the
+      // dozen or two in the player's vision are ever drawn. Rigs are deep
+      // (~35 nodes each once the skeleton is counted), and the monsters alone
+      // were 96% of all remaining per-frame matrix work on floor 17.
+      //
+      // THE MECHANISM MATTERS, AND THE FIRST TWO ATTEMPTS BOTH FELL SHORT.
+      //
+      // (1) matrixWorldAutoUpdate=false looks like "skip my subtree" and is
+      //     not: in r169 (three.module.js:7772) the child recursion is
+      //     UNCONDITIONAL —
+      //
+      //         for ( ... ) { const child = children[i]; child.updateMatrixWorld( force ); }
+      //
+      //     — and the flag only guards whether THIS node composes its own
+      //     matrixWorld. It therefore skips nothing and quietly leaves the
+      //     node's matrixWorld at the identity (which is how the prop freeze
+      //     below first parked 887 props on the map origin).
+      //
+      // (2) matrixAutoUpdate=false, which r1 shipped, DOES remove the compose,
+      //     and the census says it worked: of 7,566 nodes walked per frame only
+      //     289 still recompose. But the walk itself never went away. three.js
+      //     recurses into every child of every child regardless of any flag, so
+      //     1,739 nodes belonging to bodies nobody can see were still being
+      //     visited every frame to be told there was nothing to do. Measured
+      //     cost of the whole walk on the Intel part: 5.5 ms of a 17.2 ms
+      //     frozen dense frame — the single biggest line in the profile.
+      //
+      // SO THE BODY LEAVES THE GRAPH. A parked mesh is not a child of anything;
+      // updateMatrixWorld cannot reach it and neither can projectObject, so the
+      // cost is not reduced, it is absent. This is edge-triggered on the same
+      // visibility change the old traverse was, so add/remove is paid on fog
+      // transitions rather than per frame.
+      //
+      // Cannot change a rendered pixel: WebGLRenderer.projectObject already
+      // skipped these subtrees, so what is being removed from the walk is
+      // exactly what nothing read. Coming back is safe because mesh.position is
+      // rewritten every frame below whether or not the body is in vision, and
+      // re-adding makes the next walk recompose the root — which forces every
+      // bone under it — before anything is drawn. `mesh.visible` is still
+      // maintained because the reveal beat and the status rings read it.
+      //
+      // NOT A MODE LEVER. This is free: the same pixels, fewer nodes. Tiering
+      // it would only make HIGH slower for no one's benefit.
+      if (mesh.userData.mtxLive !== mesh.visible) {
+        mesh.userData.mtxLive = mesh.visible;
+        if (mesh.visible) this.scene.add(mesh);
+        else this.scene.remove(mesh);
+      }
       // Enraged bodies burn for the duration (see applyHitFlash). Pulsed and
       // phase-offset per monster so a full room reads as a crowd catching
       // fire rather than one strobing mass.
@@ -6526,7 +8131,11 @@ export class Renderer3D {
         }
         } // end non-dormant branch
         ud.prevStagger = mon.stagger;
-        (ud.animTick as (dt: number) => void)(dt);
+        // Full rate on screen (and inside the mode's rig budget); everything
+        // else accumulates and flushes at offscreenRigHz. See the rig gate above.
+        (ud.animTick as (dt: number, minStep?: number) => void)(
+          dt, rigFull.has(mon.id) ? 0 : rigStep,
+        );
         // Lift + scale-punch ride the renderer flash envelope (audit r4): the
         // struck body pops ~9% and settles over ~250ms instead of 2 frames.
         const hitEnv = (ud.flashEnv as number) ?? 0;
@@ -6627,6 +8236,13 @@ export class Renderer3D {
           mon.windupKind === "vent" ? CONFIG.slagVentRadius :
           mon.windupKind === "hex" ? 0.6 :
           mon.windupKind === "morph" ? 0.9 :
+          // ---- BOSSES V2 windups. Each one covers what it will actually do,
+          // because a telegraph whose disc lies about its reach is worse than
+          // no telegraph at all.
+          mon.windupKind === "punish" ? CONFIG.bossSlamRadius * 0.8 :
+          mon.windupKind === "latefee" ? 3.2 :
+          mon.windupKind === "bloom" ? CONFIG.bloomRadius * 2.2 :
+          mon.windupKind === "pull" ? CONFIG.greasePullRange * 0.55 :
           mon.attackRange + CONFIG.monsterStrikeGrace;
         tel.position.set(mon.pos.x, 0.06, mon.pos.y);
         tel.scale.setScalar(radius);
@@ -6641,12 +8257,23 @@ export class Renderer3D {
           mon.windupKind === "slam" ? 0xff2020 :
           mon.windupKind === "ritual" ? 0x8800ee :
           mon.windupKind === "hex" ? 0xa64ca6 :
-          mon.windupKind === "morph" ? 0xd8d0a8 : 0xff5030;
+          mon.windupKind === "morph" ? 0xd8d0a8 :
+          // ---- BOSSES V2: the tell wears the fight's ASK color (bossFx.ts),
+          // so a player who has learned "gold means unload" or "green means
+          // storm" reads the disc before they read the boss.
+          mon.windupKind === "punish" ? ASK_PAL.window.mid :
+          mon.windupKind === "latefee" ? ASK_PAL.window.mid :
+          mon.windupKind === "bloom" ? ASK_PAL.storm.mid :
+          mon.windupKind === "pull" ? ASK_PAL.arena.mid :
+          mon.kind === "boss" ? ASK_PAL[bossFamily(mon.bossId)].mid : 0xff5030;
         const tm = tel.userData.telMat as THREE.ShaderMaterial;
         (tm.uniforms.uColor.value as THREE.Color).setHex(telColor);
         tm.uniforms.uProg.value = prog;
         tm.uniforms.uTime.value = time + mon.id * 0.7; // desync neighboring tells
         tm.uniforms.uBoss.value = mon.kind === "boss" || mon.elite ? 1 : 0;
+        // The ASK silhouette outranks the shared disc while it is up (r3 minor).
+        tm.uniforms.uDemote.value =
+          mon.kind === "boss" && this.bossFx.silhouetteLive ? 1 : 0;
         tel.visible = mesh.visible;
         // CAST ANTICIPATION: motes gather INTO the body while the tell runs —
         // the caster visibly draws power before the strike fires.
@@ -6776,10 +8403,10 @@ export class Renderer3D {
           if (bigDeath) {
             const mx = mesh.position.x, mz = mesh.position.z;
             const boss = mesh.userData.simKind === "boss";
-            this.shocks.spawn(mx, mz, 0xffd9a0, boss ? 4.4 : 2.8, boss ? 0.6 : 0.45);
+            this.blast(mx, mz, FX_PAL.crit, boss ? 4.4 : 2.8, boss ? 0.65 : 0.5);
             this.spawnFxLight(mx, mz, 0xffdca0, boss ? 7 : 4.5, 0.6, 1.2);
             this.fxp.column(mx, mz, boss ? 0xffb457 : 0xffe0b0, boss ? 18 : 10, boss ? 2.6 : 1.8);
-            this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 12);
+            this.decals.spawn(mx, mz, boss ? 1.9 : 1.25, 0x120807, 0xc03024, 40);
             this.addTrauma(boss ? 0.5 : 0.32);
           }
           const delay = (rigged ? 0.8 : 0.4) + (fling ? 0.4 : 0);
@@ -6948,6 +8575,38 @@ export class Renderer3D {
         }
         continue;
       }
+      // SPORE PODS (BOSSES V2 §7.4 — the Pollinator's new Hazard.kind). Its
+      // own primitive, not a sludge recolor: petal seams that SPREAD and a
+      // core that swells as the pod arms, so "this is about to open and seed
+      // two more" reads from the silhouette without a timer. Pods that go off
+      // seed pods, so the arena saturates if the player ignores them — the
+      // read has to survive twenty of these on screen at once.
+      if (hz.kind === "spore") {
+        let pod = this.hazardRings.get(hz.id);
+        if (!pod) {
+          pod = new THREE.Mesh(TELEGRAPH_GEO, this.bossFx.sporeMat(hz.id));
+          pod.renderOrder = 5;
+          pod.userData.noAO = true;
+          pod.userData.spore = true;
+          this.scene.add(pod);
+          this.hazardRings.set(hz.id, pod);
+        }
+        const armT = hz.arm ?? 0;
+        const elapsed = hz.total - hz.t;
+        const sm = pod.material as THREE.ShaderMaterial;
+        sm.uniforms.uTime.value = time + (hz.id % 11) * 0.53;
+        sm.uniforms.uArm.value = armT > 0 ? Math.min(1, elapsed / armT) : 1;
+        sm.uniforms.uDry.value = 1 - Math.min(1, hz.t / Math.max(hz.total, 1e-3));
+        pod.position.set(hz.pos.x, 0.07, hz.pos.y);
+        pod.scale.setScalar(hz.radius);
+        pod.visible = inVision(hz.pos);
+        // Pollen drifts off a live pod: the garden is BREATHING, and the motes
+        // mark the ground the pod will claim when it opens.
+        if (pod.visible && Math.random() < dt * 5) {
+          this.fxp.embers(hz.pos.x, hz.pos.y, ASK_PAL.storm.core, 1, hz.radius * 0.9);
+        }
+        continue;
+      }
       // FAULT LINE / RIFT (V2 U1, R1): player-owned BROKEN GROUND. It reads
       // through the living-pool shader like every other lingering zone, but in
       // the owning ability's hue -- Fault Line magma, a Collapse rift void.
@@ -7068,7 +8727,11 @@ export class Renderer3D {
       }
     }
     for (const [id, ring] of this.hazardRings) {
-      if (!hazSeen.has(id)) { this.scene.remove(ring); this.hazardRings.delete(id); }
+      if (!hazSeen.has(id)) {
+        this.scene.remove(ring);
+        this.hazardRings.delete(id);
+        if (ring.userData.spore) this.bossFx.releaseSpore(id);
+      }
     }
     for (const [id, bomb] of this.hazardBombs) {
       if (!hazSeen.has(id)) { this.scene.remove(bomb); this.hazardBombs.delete(id); }
@@ -7243,14 +8906,23 @@ export class Renderer3D {
         group.userData.lastTrail = 0;
         mesh = group;
         this.scene.add(mesh); this.projectiles.set(pr.id, mesh);
-        // MUZZLE FLARE (r5 major): ordnance visibly LEAVES a source — a hot
-        // pop + directional sparks at the spawn point. Enemy fire only (the
-        // player's own cast FX already covers the hero's hands).
-        if (pr.from !== "player" && inVision(pr.pos)) {
+        // MUZZLE FLARE. "Enemy fire only — the player's own cast FX already
+        // covers the hero's hands" was wrong, and acceptance photographed the
+        // consequence: the crawler's bolts were "2px constant-width white lines
+        // with no muzzle, no falloff, no impact bloom". The cast animation is
+        // not a muzzle; a muzzle is the frame where the shot LEAVES. Both sides
+        // get one now — the player's a touch tighter and hue-hot rather than
+        // white, so it punctuates the hand without competing with the bolt.
+        if (inVision(pr.pos)) {
           const sp = Math.hypot(pr.vel.x, pr.vel.y) || 1;
-          this.fxp.impactFlash(pr.pos.x, 0.62, pr.pos.y, color, 0.55);
-          this.fxp.sparks(pr.pos.x, 0.6, pr.pos.y, color, 2,
+          const mine = pr.from === "player";
+          this.fxp.impactFlash(pr.pos.x, 0.62, pr.pos.y, color, mine ? 0.42 : 0.55);
+          this.fxp.sparks(pr.pos.x, 0.6, pr.pos.y, color, mine ? 3 : 2,
             { x: pr.vel.x / sp, y: pr.vel.y / sp });
+          // A brief pool of the school's colour on the floor under the hand:
+          // the shot lights the ground it launched from, which is the read
+          // that says "that came from ME".
+          if (mine) this.spawnFxLight(pr.pos.x, pr.pos.y, color, 0.9, 0.11, 0.75);
         }
       }
       this.smoothTo(mesh, pr.pos.x, 0.6, pr.pos.y, dt);
@@ -7259,7 +8931,10 @@ export class Renderer3D {
       // RIBBON TRAIL (round 2): a continuous tapered streak in the school's
       // color replaces the gappy puff chain; arrows keep a thin speed line.
       if (mesh.visible) {
-        this.ribbons.claim(pr.id, mesh.userData.color as number, mesh.userData.aim ? 0.07 : 0.24);
+        // Width: a bolt is ordnance, not a hairline. 0.24 world units at this
+        // camera is the ~2px stripe acceptance measured; 0.38 gives the shader's
+        // core/skirt layering room to actually be two things.
+        this.ribbons.claim(pr.id, mesh.userData.color as number, mesh.userData.aim ? 0.09 : 0.38);
         this.ribbons.push(pr.id, mesh.position.x, mesh.position.y, mesh.position.z);
         // EMBER EMITTER (audit r3, LoL anatomy layer 4): tiny flickering
         // motes shed along the flight path, sinking as they die.
@@ -7463,10 +9138,26 @@ export class Renderer3D {
     this.ribbons.update(dt);
     this.decals.update(dt);
     this.shocks.update(dt);
+    this.aoe.update(dt, time);
     if (this.bloomBase < 0) this.bloomBase = this.bloom.strength;
+    if (this.bloomBaseRadius < 0) this.bloomBaseRadius = this.bloom.radius;
     this.bloomKick = Math.max(0, this.bloomKick - dt * 4.2);
-    // Kick stays a tight accent: a big kick used to fog the whole quadrant.
-    this.bloom.strength = this.bloomBase + this.bloomKick * 0.18;
+    // GLARE GOVERNOR. The kick comment below used to say "a big kick used to
+    // fog the whole quadrant" — acceptance then photographed the whole FRAME
+    // fogged, because the kick was never the only thing feeding the pass. What
+    // actually fogged it was a screen-sized emissive footprint meeting a
+    // radius-0.7 five-mip blur. `fxGlare` is fed by the AoE spawner in
+    // proportion to the WORLD RADIUS of what just detonated, decays over ~0.6s,
+    // and divides both bloom terms. A crit on one monster is untouched
+    // (glare 0); an arena-wide ultimate keeps its hot ribbon fronts and loses
+    // its arena-wide halo.
+    this.fxGlare = Math.max(0, this.fxGlare - dt * 1.7);
+    const glareK = 1 / (1 + this.fxGlare);
+    this.bloom.strength = (this.bloomBase + this.bloomKick * 0.18) * glareK;
+    // The RADIUS is the wash term (see the mip-weight note at construction), so
+    // the governor bites it harder than it bites strength: a big detonation
+    // keeps its energy and loses its reach.
+    this.bloom.radius = this.bloomBaseRadius * (1 - 0.62 * Math.min(1, this.fxGlare));
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
@@ -7477,14 +9168,178 @@ export class Renderer3D {
     const dist = THEME.camDist;
     const len = Math.hypot(d.x, d.y, d.z);
     const anchor = this.playerMeshes.get(p.id)?.position;
-    const ax = anchor ? anchor.x : p.pos.x;
-    const az = anchor ? anchor.z : p.pos.y;
+    let ax = anchor ? anchor.x : p.pos.x;
+    let az = anchor ? anchor.z : p.pos.y;
+    // Where the crawler actually stands, kept for the safe-area clamp below:
+    // every borrow after this line moves the ANCHOR, never this.
+    const px = ax, pz = az;
+    // BOSSES V2 §5.2/§5.3 — THE REVEAL. During the ringside beat the camera
+    // ORBITS: the anchor slides toward the boss and the fixed iso direction
+    // gains a yaw offset, so the introduction ends on a silhouette instead of
+    // a static three-quarter. It eases back to zero the moment the beat ends —
+    // §5.5's rule is that normal combat gets no camera work at all.
+    const orbit = this.bossFx.orbit;
+    // BOSSES V2 (capture round 2) — ENCOUNTER FRAMING. The health plate owns
+    // the top of the screen and the boss stands UP-SCREEN of the crawler, so
+    // every fight shot had the star of the fight behind its own UI panel. The
+    // fix is two camera moves the boss layer asks for and this applies, since
+    // this is where camDir lives:
+    //   1) slide the anchor part-way to the boss, so the PAIR is the subject
+    //   2) push the anchor along SCREEN-UP, which slides the whole framing
+    //      DOWN the screen and out from under the panel
+    // Both ease to zero the moment the fight ends.
+    const bias = this.bossFx.frameBias;
+    const drop = this.bossFx.frameDrop;
+    if (bias > 1e-3 || Math.abs(orbit) > 1e-3) {
+      const star = state.monsters.find((m) => m.kind === "boss" && m.hp > 0);
+      if (star) {
+        // The reveal's orbit bias and the fight's framing bias are the same
+        // move; take whichever is asking for more rather than stacking them.
+        const k = Math.max(bias, Math.min(1, Math.abs(orbit) / 0.55) * 0.45);
+        ax += (star.pos.x - ax) * k;
+        az += (star.pos.y - az) * k;
+      }
+    }
+    // AIMING A SKILLSHOT LONGER THAN THE FRAME (MOBILE.md §3.4).
+    //
+    // Measured on an iPhone 13 landscape: bolt's telegraph projected a box
+    // (348,-202)-(402,169) on a 750x342 viewport dragging up, and
+    // (-214,152)-(375,186) dragging inboard — 8.1% of its vertices on the
+    // glass, both devices. The camera shows 8.5 tiles of world above the
+    // crawler and bolt reaches 14.4, so a phone player was committing a
+    // full-reach skillshot without ever seeing where it ends. The shape was
+    // correct; the FRAME was wrong, and no amount of stroke width fixes a
+    // frame.
+    //
+    // So the camera leads the aim while the drag is LIVE — the anchor slides
+    // along the aim direction, and the frame widens a little, both eased so a
+    // flick-aim does not whip the scene. It returns the instant the finger
+    // lifts. This is the same borrowing the boss layer already does (§5.5),
+    // and it is presentation only: the sim never learns the camera moved.
+    this.aimLead += (this.aimLeadWant - this.aimLead) * Math.min(1, dt * 9);
+    if (this.aimLead > 1e-3 && this.aimDirWorld) {
+      ax += this.aimDirWorld.x * this.aimLead;
+      az += this.aimDirWorld.y * this.aimLead;
+    }
+    // ---- THE CAMERA FRAMES THE FIGHT, NOT JUST THE CRAWLER (r3 major #13) ---
+    //
+    // Acceptance: "in combat_0/1/3 the entire engagement is jammed into the
+    // upper-left quadrant with a large empty quadrant opposite ... in
+    // ours_f8_environment.png the crawler is pressed against a wall with the
+    // readable content off to the left."
+    //
+    // That is what a camera rigidly centred on one body does: the crawler is
+    // always at the exact middle of the frame, so the pack he is fighting is
+    // always somewhere else, and the half of the screen behind him is always
+    // empty. Every ARPG solves it the same way — bias the anchor toward the
+    // MIDPOINT of the engagement, so the composition is about the fight rather
+    // than about one avatar.
+    //
+    // The rules that keep it from feeling loose: it needs at least two live
+    // enemies inside 9 units before it engages at all (walking a corridor gets
+    // no camera work), it never moves more than CAM_FIGHT_MAX units (the
+    // crawler stays comfortably inside the frame and never leaves it), and it
+    // eases at ~3/s so a mob dying does not snap the shot. Presentation only:
+    // the sim never learns the camera moved, and the anchor is not an input.
+    {
+      let cx = 0, cz = 0, n = 0;
+      for (const m of state.monsters) {
+        if (m.hp <= 0 || m.dormant) continue;
+        const dx = m.pos.x - p.pos.x, dz = m.pos.y - p.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > Renderer3D.CAM_FIGHT_R2) continue;
+        cx += dx; cz += dz; n++;
+      }
+      let wx = 0, wz = 0;
+      if (n >= 2) {
+        // Half-way to the pack's centroid, then clamped — "the pair is the
+        // subject" is the same rule the boss framing above already uses.
+        wx = (cx / n) * 0.5; wz = (cz / n) * 0.5;
+        const l = Math.hypot(wx, wz);
+        if (l > Renderer3D.CAM_FIGHT_MAX) {
+          wx *= Renderer3D.CAM_FIGHT_MAX / l; wz *= Renderer3D.CAM_FIGHT_MAX / l;
+        }
+      }
+      const k = Math.min(1, dt * 3);
+      this.fightBiasX += (wx - this.fightBiasX) * k;
+      this.fightBiasZ += (wz - this.fightBiasZ) * k;
+      ax += this.fightBiasX;
+      az += this.fightBiasZ;
+    }
+    if (drop > 1e-3) {
+      // Screen-up, on the ground plane, is the reverse of the camera's own
+      // horizontal heading: move the anchor that way and everything else in
+      // the frame slides down.
+      const hx = d.x / Math.hypot(d.x, d.z);
+      const hz = d.z / Math.hypot(d.x, d.z);
+      ax -= hx * drop;
+      az -= hz * drop;
+    }
+    const cosO = Math.cos(orbit), sinO = Math.sin(orbit);
+    const dirX = (d.x * cosO - d.z * sinO) / len;
+    const dirZ = (d.x * sinO + d.z * cosO) / len;
+    // ---- THE PLAYER IS NEVER LOST (owner bug, boss camera) -----------------
+    //
+    // Reproduced (tools/_bugcam.mjs): with the boss borrow live — frameBias
+    // 0.5 toward a boss 10u away, frameDrop 6.8 down-screen, reveal zoom 0.78
+    // — the crawler projected to NDC y = -1.28, fully below the frame for
+    // 60/60 sampled frames, exactly the owner's "run your PC off screen a bit
+    // and you can't see your character and get lost".
+    //
+    // The rule a AAA camera follows: every borrow above (boss framing, reveal
+    // orbit, aim lead, fight midpoint, screen drop) may compose the shot, and
+    // none of them may compose the CRAWLER out of it. So the last word on the
+    // anchor is a hard screen-space clamp: express the crawler's offset from
+    // the anchor in the camera's own screen basis, and if the crawler would
+    // land outside the safe area — 80% of the half-width, 80% of the bottom
+    // half, head clear of the top strip the boss plate owns — pull the anchor
+    // back along exactly the violated axis until the crawler is inside. The
+    // boss framing keeps everything it asked for whenever both bodies fit;
+    // when they stop fitting, the crawler wins, which reads in play as the
+    // camera giving the boss back the moment you sprint out of the shot.
+    {
+      const hh = this.projHalfHeight();
+      const hw = hh * this.aspect;
+      // Camera basis for lookAt(anchor) with up=(0,1,0): zc points from the
+      // anchor to the camera, xc is screen-right (horizontal), yc screen-up.
+      const zcx = dirX, zcy = d.y / len, zcz = dirZ;
+      let xcx = zcz, xcz = -zcx; // up x zc (its y term is zero)
+      const xn = Math.hypot(xcx, xcz) || 1;
+      xcx /= xn; xcz /= xn;
+      const ycx = zcy * xcz; // yc = zc x xc
+      const ycy = zcz * xcx - zcx * xcz;
+      const ycz = -zcy * xcx;
+      // The ground direction that maps to screen-up, and how much screen-y one
+      // ground unit along it buys (c ~ 0.63 at the shipped iso elevation).
+      let gux = -zcx, guz = -zcz;
+      const gn = Math.hypot(gux, guz) || 1;
+      gux /= gn; guz /= gn;
+      const c = gux * ycx + guz * ycz;
+      // Crawler offset from the borrowed anchor, in that ground basis.
+      const ox = px - ax, oz = pz - az;
+      const a = ox * xcx + oz * xcz;
+      const b = ox * gux + oz * guz;
+      const aMax = 0.80 * hw;
+      const bMin = -0.80 * hh / Math.max(0.2, c); // feet stay off the bottom edge
+      // Head (rig tops out ~1.9 world units) stays under the top strip the
+      // boss plate occupies: b*c + 1.9*yc.y <= 0.62*hh.
+      const bMax = (0.62 * hh - 1.9 * ycy) / Math.max(0.2, c);
+      const a2 = Math.min(aMax, Math.max(-aMax, a));
+      const b2 = Math.min(bMax, Math.max(bMin, b));
+      if (a2 !== a || b2 !== b) {
+        ax = px - (a2 * xcx + b2 * gux);
+        az = pz - (a2 * xcz + b2 * guz);
+      }
+    }
     this.camera.position.set(
-      ax + (d.x / len) * dist + sx,
+      ax + dirX * dist + sx,
       (d.y / len) * dist,
-      az + (d.z / len) * dist + sz,
+      az + dirZ * dist + sz,
     );
     this.camera.lookAt(ax, 0, az);
+    // The boss layer's zoom is continuous, so the frame is re-derived every
+    // composed frame rather than only on resize.
+    this.applyProjection();
     // Shadow texel snap: quantize the key rig's anchor in shadow-plane
     // coordinates so the map samples the same texels while the camera glides —
     // kills the edge shimmer/crawl on every wall as the player moves.
@@ -7520,6 +9375,12 @@ export class Renderer3D {
 
     // Camera courtesy: shrink foliage that hides the action (open-air only).
     this.updateCanopy(state, ax, az, dt);
+
+    // LAST, because it must see everything this frame added. Anything carrying
+    // a material the game has never drawn is parked off-camera and compiled
+    // asynchronously rather than blocking the frame it first appears in — see
+    // the late-program catcher.
+    this.sweepNewMaterials();
   }
 
   /**
@@ -7727,7 +9588,7 @@ export class Renderer3D {
         // Ability/magic hits scorch the ground they land on (short-lived for
         // ordinary hits — kills below stamp the long one).
         if (h.school === "magic" && !h.killed) {
-          this.decals.spawn(h.pos.x, h.pos.y, 0.45, 0x120a18, FX_PAL.magic.rim, 5);
+          this.decals.spawn(h.pos.x, h.pos.y, 0.45, 0x120a18, FX_PAL.magic.rim, 16);
         }
       }
       // The crawler TAKING a hit is a damage event too (audit r3: the kit
@@ -7745,7 +9606,10 @@ export class Renderer3D {
       // corpse (school-tinted flash, fading over ~10s).
       if (h.killed && h.kind !== "player") {
         const hot = h.school === "magic" ? 0x8a5cff : 0xc03024;
-        this.decals.spawn(h.pos.x, h.pos.y, 0.72 + (h.overkill ? 0.35 : 0), 0x120807, hot, 10);
+        // The corpse mark outlives the fight (r2 SPEND): 10 s meant every
+        // aftermath frame acceptance took was of a floor nothing had happened
+        // on. A cleared room now reads as cleared.
+        this.decals.spawn(h.pos.x, h.pos.y, 0.72 + (h.overkill ? 0.35 : 0), 0x120807, hot, 34);
         this.fxp.gibs(h.pos.x, h.pos.y, 0x6e2018, h.overkill ? 16 : 9, h.dir);
         // Dust slap where the body lands + one sooty wisp over it.
         this.fxp.dust(h.pos.x, 0.15, h.pos.y, 3, this.dustTint);
@@ -7926,6 +9790,27 @@ export class Renderer3D {
     this.dying.length = dw;
   }
 
+  /**
+   * THE ONE DOOR FOR AN ABILITY DETONATION (r2 SPEND).
+   *
+   * Draws the layered footprint AND registers its glare, so the two can never
+   * drift apart — an effect cannot get bigger without the bloom governor
+   * hearing about it. `radius` is the ability's real world radius (the sim's
+   * number), which is also what the player is being told the cast covers, so
+   * the picture and the rule stay the same picture.
+   *
+   * The glare coefficient is deliberately superlinear in radius/4: a 2-unit
+   * strike registers ~0.13 (bloom essentially untouched), a 7-unit ultimate
+   * registers ~1.5 (bloom to 40% and its blur radius to 60%).
+   */
+  private blast(
+    x: number, z: number, pal: { core: number; mid: number; rim: number },
+    radius: number, dur = 0.6, dir = 0,
+  ): void {
+    this.aoe.spawn(x, z, pal, radius, dur, dir);
+    this.fxGlare = Math.min(2.2, this.fxGlare + (radius / 4) ** 1.5);
+  }
+
   /** Claim a pooled point light: explosions and magic actually illuminate the
    * world for a beat (snap on, quadratic decay out). */
   private spawnFxLight(x: number, z: number, color: number, peak = 8, max = 0.45, y = 0.9): void {
@@ -7975,12 +9860,21 @@ export class Renderer3D {
     // yellow-white pool that erased the hero, the tiles and the numbers): the
     // POOL shares a fixed brightness budget — simultaneous hits split it
     // instead of summing past the tone-map shoulder. A lone crit is untouched.
-    const BUDGET = 2.4;
+    // ...and the budget itself SHRINKS while a big footprint is on the ground
+    // (r2 SPEND). Ablation, 12 stacked-cast frames per condition on the real
+    // GPU: with this pool forced dark the frame never washed once; with it live
+    // it washed on the ultimate. The reason is double counting — a detonation
+    // already paints its own light onto the floor through the AoE shader, and
+    // then asks this pool to light the same floor again. Whatever the footprint
+    // is doing, the pool does less of.
+    const BUDGET = 2.4 / (1 + this.fxGlare * 0.8);
     if (total > BUDGET) {
-      // Soft shoulder, not a hard ceiling: excess energy lands at 25% so a
-      // deliberate hero moment (portal beacon, ultimate blast) still spikes
-      // visibly — it just can't stack four of itself into pure white.
-      const k = (BUDGET + (total - BUDGET) * 0.25) / total;
+      // Soft shoulder, not a hard ceiling: excess energy still lands so a
+      // deliberate hero moment (portal beacon, ultimate blast) spikes visibly —
+      // it just can't stack four of itself into pure white. 0.25 -> 0.15
+      // because at 0.25 four stacked blasts still cleared the tone-map
+      // shoulder, which is the failure this line was written for.
+      const k = (BUDGET + (total - BUDGET) * 0.15) / total;
       for (const s of this.fxLights) s.light.intensity *= k;
     }
     // IDLE LIGHT DIET (perf round): with nothing burning, the pool goes
@@ -8142,6 +10036,172 @@ export class Renderer3D {
     return this.w2sOut;
   }
 
+  // -------------------------------------------------------------------------
+  // THE MEASURED EXPOSURE GOVERNOR (BOSSES-V2 r3 blocker).
+  //
+  // §5.9 shipped a governor that added up a DECLARED cost per beat. It could
+  // not see the case that actually broke: the arena floor itself. The Topiary
+  // Warden on floor 9's bright forest was a solid white ellipse in its own
+  // reveal and an unreadable white sphere in combat, while the identical
+  // budget held fine on the dark brick arenas — because a budget of beats has
+  // no idea how bright the room already is.
+  //
+  // So it measures. After the composed frame, an 8x8 block of the FINAL,
+  // display-referred image around the boss's screen position is read back and
+  // reduced to a mean luma plus a saturated-pixel fraction. That is the actual
+  // thing the review asked about ("does the boss silhouette blow out"), it
+  // counts a bright floor automatically, and it costs one 64-pixel readback —
+  // only while a boss is on screen, and only every 4th frame.
+  // -------------------------------------------------------------------------
+  private lumBuf = new Uint8Array(8 * 8 * 4);
+  private lumTick = 0;
+  /**
+   * ASYNC READBACK STATE (opt r3) — and the reason it exists.
+   *
+   * `gl.readPixels` into a typed array is SYNCHRONOUS: it flushes every command
+   * the GPU has queued and blocks the main thread until the pixel it wants has
+   * actually been drawn. That is the single most expensive thing a WebGL app
+   * can do per frame, and this governor was doing it in the middle of the frame
+   * loop. Measured with the V8 sampling profiler over a 906-frame floor-15
+   * fight at LOW (tools/o3_cpu.mjs): `readPixels` was 1.55 ms of a 13.3 ms
+   * delivered frame — 11.5% of the whole main thread, the second-largest entry
+   * in the profile — even though the read itself is 64 pixels and only fires on
+   * one frame in four.
+   *
+   * A PIXEL_PACK_BUFFER read is the same read with the stall removed: the GPU
+   * copies into a buffer object on its own schedule, a fence says when that is
+   * done, and `getBufferSubData` on a LATER frame costs nothing because the
+   * data is already there. The governor consequently reads a value that is a
+   * few frames old, which is exactly right for what it governs — how bright the
+   * arena is does not change in 30 ms, and the previous code's insistence on
+   * this-frame data was buying nothing for a very high price.
+   */
+  private lumPbo: WebGLBuffer | null = null;
+  private lumFence: WebGLSync | null = null;
+
+  /**
+   * 0..1 — how hard the boss layer should pull its bloom kicks, light peaks
+   * and additive rig alphas back this frame. 1 = a dark arena with headroom to
+   * spare; ~0.25 = the neighbourhood is already at the top of the range.
+   * Consumed by BossFx (shaders + light peaks) and by the intro key light.
+   */
+  get bossExposureScale(): number { return this.bossFx.exposureScale; }
+
+  private measureBossExposure(): void {
+    const star = this.bossFx.starPos;
+    if (!star) { this.bossFx.setMeasuredLuma(0, 0); return; }
+    const gl = this.renderer.getContext() as WebGL2RenderingContext;
+    const gl2 = this.renderer.capabilities.isWebGL2;
+
+    // (a) DRAIN FIRST. If a read from an earlier frame has landed, take it —
+    // this costs nothing, the bytes are already in the buffer object.
+    if (gl2 && this.lumFence) {
+      const st = gl.clientWaitSync(this.lumFence, 0, 0);
+      if (st === gl.ALREADY_SIGNALED || st === gl.CONDITION_SATISFIED) {
+        gl.deleteSync(this.lumFence);
+        this.lumFence = null;
+        try {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+          gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, this.lumBuf);
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+          this.applyMeasuredLuma();
+        } catch { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); }
+      } else if (st === gl.WAIT_FAILED) {
+        gl.deleteSync(this.lumFence);
+        this.lumFence = null;
+      }
+    }
+
+    if ((this.lumTick = (this.lumTick + 1) & 3) !== 0) return;
+    if (this.lumFence) return; // one read in flight at a time
+    const sp = this.worldToScreen(star.x, 1.6, star.y);
+    if (!sp.visible) return;
+    const size = this.renderer.getSize(this.w2sSize);
+    const ratio = this.renderer.getPixelRatio();
+    // GL's origin is bottom-left; worldToScreen hands back CSS pixels top-left.
+    const px = Math.round(sp.x * ratio) - 4;
+    const py = Math.round((size.y - sp.y) * ratio) - 4;
+    const w = Math.round(size.x * ratio), h = Math.round(size.y * ratio);
+    if (px < 0 || py < 0 || px + 8 > w || py + 8 > h) return;
+    // Reading the DEFAULT framebuffer, in the same task as the draw that filled
+    // it — valid without preserveDrawingBuffer, and it is the presented image,
+    // so tone mapping, bloom and the grade are all already in the numbers.
+    try {
+      this.renderer.setRenderTarget(null);
+      if (gl2) {
+        // (b) ASYNC ISSUE. readPixels with a PIXEL_PACK_BUFFER bound and an
+        // integer OFFSET writes into the buffer object instead of into client
+        // memory, and returns immediately: no flush, no stall. The fence tells
+        // a later frame when the bytes are real.
+        if (!this.lumPbo) {
+          this.lumPbo = gl.createBuffer();
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+          gl.bufferData(gl.PIXEL_PACK_BUFFER, this.lumBuf.byteLength, gl.STREAM_READ);
+        } else {
+          gl.bindBuffer(gl.PIXEL_PACK_BUFFER, this.lumPbo);
+        }
+        gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, 0);
+        gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+        this.lumFence = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+        return; // the numbers arrive on a later frame, via (a)
+      }
+      // WebGL1 has no pixel-pack buffers: the old blocking read stands, and so
+      // does its cost. Nothing shipping targets WebGL1, but the fallback path
+      // must still produce a governed exposure rather than none.
+      gl.readPixels(px, py, 8, 8, gl.RGBA, gl.UNSIGNED_BYTE, this.lumBuf);
+    } catch {
+      try { gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null); } catch { /* context lost */ }
+      return; // a context loss mid-frame is not worth a crash over a governor
+    }
+    this.applyMeasuredLuma();
+  }
+
+  /** Reduce the 8x8 readback to the two numbers BossFx consumes. */
+  private applyMeasuredLuma(): void {
+    let sum = 0, hot = 0;
+    for (let i = 0; i < 64; i++) {
+      const r = this.lumBuf[i * 4], g2 = this.lumBuf[i * 4 + 1], b = this.lumBuf[i * 4 + 2];
+      const l = (r * 0.2126 + g2 * 0.7152 + b * 0.0722) / 255;
+      sum += l;
+      if (l > 0.93) hot++;
+    }
+    this.bossFx.setMeasuredLuma(sum / 64, hot / 64);
+  }
+
+  /**
+   * THE HERO DOES NOT CAST INTO A CADENCED MAP (owner bug: "stuttering shadow
+   * around the player character"). The cadence comment below claims a stale
+   * shadow is invisible "on a camera that only pans" — true for WALLS, false
+   * for the one body that moves every composed frame: the hero's cast shadow
+   * updated at half (MEDIUM) or quarter (LOW) framerate, welded to a
+   * full-framerate body. So on any preset whose shadowInterval > 1 the hero's
+   * meshes stop writing into the key-light map, and the per-frame directional
+   * contact ellipse (buildPlayerMesh) is the hero's cast shadow — it rides the
+   * model transform, so its motion is full-rate by construction. Monsters keep
+   * their map shadows: they are not the fixation point welded to the player's
+   * own input, and their blobs already soften the cadence. HIGH (interval 1)
+   * keeps the real per-frame silhouette shadow, unchanged.
+   *
+   * Each mesh's own casting intent is recorded once in userData.heroCast (late
+   * attachments — weapon grafts — get recorded the first time this sees them),
+   * so blob discs that never cast are never switched ON by the restore path.
+   */
+  heroShadowLegacy = false; // measurement arm: put the stutter back (tools/_shadowfix.mjs)
+  private heroCastOn = true;
+  private applyHeroShadowPolicy(): void {
+    const want = this.quality.shadowInterval <= 1 || this.heroShadowLegacy;
+    if (want && this.heroCastOn) return; // steady state on HIGH: no traversal
+    for (const mesh of this.playerMeshes.values()) {
+      mesh.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh) return;
+        if (m.userData.heroCast === undefined) m.userData.heroCast = m.castShadow;
+        m.castShadow = want && (m.userData.heroCast as boolean);
+      });
+    }
+    this.heroCastOn = want;
+  }
+
   render(): void {
     // shadowMap.autoUpdate is off (constructor): arm exactly one rebuild for
     // this composed frame. three.js clears needsUpdate itself after the first
@@ -8151,16 +10211,18 @@ export class Renderer3D {
     // SHADOW CADENCE: on the cheaper presets the map is rebuilt every Nth
     // composed frame instead. The map persists in between, and this camera is a
     // fixed-angle ortho that only pans, so a one-frame-stale shadow is not
-    // something you can see — but it is a whole extra scene traversal + depth
-    // pass that you do not pay for.
+    // something you can see on STATIC casters — the one caster that moves
+    // every frame is excluded above (applyHeroShadowPolicy).
     this.frameNo++;
     if (this.quality.shadowMapSize > 0
       && (this.shadowDirty || this.frameNo % this.quality.shadowInterval === 0)) {
+      this.applyHeroShadowPolicy();
       this.renderer.shadowMap.needsUpdate = true;
       this.shadowDirty = false;
     }
     this.composer.render();
     if (this.progGuard) this.checkProgramGuard();
+    this.measureBossExposure();
 
     // AUTO-DETECT feed. Frame time is measured between composed frames, which
     // is what the player actually experiences (sim + render + present), not
@@ -8184,13 +10246,38 @@ export class Renderer3D {
     // tuner spent its first windows judging shader-compilation frames, scored
     // two bad windows, stepped down, and `ceiling` made that permanent.
     // Nothing about those frames was a statement about the hardware.
-    if (this.qualityChoice === "auto" && this.tuningArmed) {
+    // ...and under ?test the tuner does not run AT ALL: the startup guess is
+    // deterministic per machine, the tuner's windows are not, and an acceptance
+    // gate has to score the same rung twice. See autoTuneFrozen().
+    //
+    // ...and A PINNED MODE IS NEVER MOVED. When the player has chosen LOW,
+    // MEDIUM or HIGH the tuner still WATCHES, but it may only ADVISE: the
+    // decision is handed to the notice listener as a suggestion and the mode
+    // the player picked stays exactly where they put it. The old behaviour —
+    // silently walking a chosen preset down and never telling anyone — is the
+    // thing that made "which rung was this screenshot taken at?" unanswerable,
+    // and it is worse for a player than for a harness: the game got quietly
+    // softer and nothing in the UI ever said so.
+    if (this.tuningArmed && !this.tuneFrozen) {
       const now = performance.now();
       if (this.warmupUntil === 0) this.warmupUntil = now + 4000;
       if (now < this.warmupUntil) { this.lastFrameAt = 0; return; }
       if (this.lastFrameAt !== 0) {
         const next = this.tuner.sample(now - this.lastFrameAt);
-        if (next && next !== this.quality.name) this.applyQuality(QUALITY_PRESETS[next]);
+        if (next && next !== this.quality.name) {
+          const from = this.quality.name;
+          const mean = this.tuner.lastWindowMs;
+          if (this.qualityChoice === "auto") {
+            this.applyQuality(QUALITY_PRESETS[next]);
+            this.onQualityNotice?.({ kind: "auto", from, to: next, meanMs: mean });
+          } else if (!this.advisedTo) {
+            // Suggest ONCE per session per direction. A tuner that nags every
+            // three seconds is a tuner the player learns to ignore, which is
+            // the same as a silent one.
+            this.advisedTo = next;
+            this.onQualityNotice?.({ kind: "suggest", from, to: next, meanMs: mean });
+          }
+        }
       }
       this.lastFrameAt = now;
     } else {

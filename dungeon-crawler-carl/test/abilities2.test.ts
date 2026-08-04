@@ -4,9 +4,9 @@ import {
   applySavedPlayer, chooseReward, chooseUpgrade, createGame, createTestGame, damagePlayerHit,
   decoySoak, learnAbility, migrateRanks, RANK_MIGRATIONS, step,
 } from "../src/sim/game";
-import { botIntent, freshMemory, runBot } from "../src/sim/bot";
+import { botIntent, freshMemory, runBot, type BotMemory } from "../src/sim/bot";
 import {
-  ABILITY_INFO, DISCOVERABLE_ABILITIES, GATHER_ABILITIES, SCALING, UPGRADES, airstrikeParams,
+  ABILITY_INFO, ABILITY_SLOTS, DISCOVERABLE_ABILITIES, GATHER_ABILITIES, SCALING, UPGRADES, airstrikeParams,
   availableUpgrades, bulletTimeParams, bulwarkParams, cataclysmParams, crowdSurfParams, cutToParams,
   dashParams, injunctionParams, meleeParams, novaParams, orbitParams, overchargeParams, power, rank,
   stanceStrikePower, stuntDoubleParams, tomeSchedule, type AbilityId,
@@ -961,9 +961,16 @@ describe("§6.4.9 — Barrage pays for its commitment", () => {
   // a paragraph — a 3s commitment that is never measured is the same
   // unfalsifiable claim §1.2 says the roster already has six of.
 
-  /** Drive the bot for `steps`, optionally forcing one slot on the first step. */
-  function drive(g: GameState, steps: number, force: number | null): void {
-    const mem = freshMemory();
+  /**
+   * Drive the bot for `steps`. `force` presses one slot on the first step;
+   * `noUlt` forbids the ultimate for the whole drive (that is what makes the
+   * control arm a CONTROL); `mem` is carried in so a warm run and the arms
+   * that branch off it share one path cache, exactly as a real run would.
+   */
+  function drive(
+    g: GameState, steps: number, force: number | null,
+    mem: BotMemory = freshMemory(), noUlt = false,
+  ): void {
     const p = g.players[0];
     for (let i = 0; i < steps; i++) {
       if (p.pendingRewards.length > 0) chooseReward(g, p.id, 0);
@@ -976,50 +983,100 @@ describe("§6.4.9 — Barrage pays for its commitment", () => {
         c[force] = true;
         it.cast = c;
       }
+      if (noUlt && it.cast) it.cast[ABILITY_SLOTS] = false;
       step(g, it, 1 / 60);
     }
   }
 
   it("(i) a barrage window costs no more incoming damage than 3s of normal play", () => {
-    // PAIRED and deterministic: two identical fixtures are driven through the
-    // identical warm-up by the identical bot, so they are the same state at
-    // the branch. One presses the ultimate; one keeps playing. If channelling
-    // costs more than fighting, the commitment is unaffordable and the
-    // pre-registered ladder is owed.
+    // PAIRED and deterministic: one warm run per seed, cloned at each
+    // checkpoint into two arms that are byte-identical at the branch. One
+    // presses the ultimate; one keeps playing. If channelling costs more than
+    // fighting, the commitment is unaffordable and the ladder is owed.
+    //
+    // THE FIXTURE WAS REBUILT after `bosses-v2` merged and this clause went
+    // red at floor 12 (300 damage channelling vs 52 playing normally). The
+    // reading was an artifact, and the diagnosis is worth keeping because the
+    // obvious explanations are all WRONG and measured wrong:
+    //
+    //   - It is NOT the boss. A boss is present in all 13 of the old floor-12
+    //     windows (foundation / architect / permitoffice) and dealt 22 of the
+    //     352 damage in them -- all 22 on the arm that was NOT channelling.
+    //   - It is NOT a shield pool eating the shells. `shieldHp` is 0 in 12 of
+    //     13; the one plated boss took no damage in its window; and the boss
+    //     hit cap (10% of 14690) never binds on a ~128 shell.
+    //   - It is NOT Precision Strike snapping shells onto it. `ap.track` and
+    //     `ap.band` are 0 in every fixture -- the bot drafts neither node.
+    //   The 300 was trash: `shot` 200, `swarmer` 70, one blast for 30 that
+    //   both arms ate identically.
+    //
+    // What was actually broken was the RULER. Two defects, both measured:
+    //   (a) 6 seeds x 3 warm-ups yields ~13 windows and three of them carried
+    //       the mass. The same fixture on neighbouring seed bases read 101v104,
+    //       119v240 and 179v418 -- the shipped base was the outlier of four.
+    //   (b) the "playing normally" arm was not playing normally: the bot's own
+    //       §6.2 policy pressed the ultimate on it in 21 of 81 floor-12 windows.
+    //       §3.3 U2 states this clause against "3s of NORMAL play", and a
+    //       control that channels is a barrage-vs-barrage comparison.
+    //
+    // So: the control arm is now forbidden the ultimate, windows in which
+    // either arm DIED are dropped (a corpse stops dodging, and post-death
+    // accrual is not a cost of the channel), and branch-and-clone sampling
+    // buys ~5x the windows for less work than re-warming a second fixture.
+    //
+    // FLOORS ARE 8/12/16, not 4/8/12: `ultimateMinFloor` is 7, so a barrage
+    // window at floor 4 is a state the game never hands a crawler -- and it is
+    // where the ruler had least power (~10 damage per window either way).
+    //
+    // MEASURED on four disjoint 24-seed bases (9500/9700/9900/10100), as
+    // channelled/normal: floor 8 .63 .73 .78 .45, floor 12 .64 .51 .88 .64,
+    // floor 16 .92 .62 .87 .65. Channelling is SAFER than fighting, because
+    // the shells kill and stagger what was about to reach you -- which also
+    // says the margin narrows with depth (a shell one-shots the median mob at
+    // floor 8 and needs 1.3 of them by floor 12), and floors 14+ sit near
+    // parity. That trend is the thing to watch, not the channel length.
+    //
+    // AND IT STILL BITES: crippling the channel's feet (barrageMoveMult 0.7
+    // -> 0.15) turns all three floors red at 1.90 / 1.66 / 1.65. Stretching
+    // the channel does not (8s reads .54 / 1.00 / .70), which is the same
+    // finding clause (ii) records -- length is not the lever, vulnerability is.
     const WIN = Math.round(CONFIG.barrageSeconds * 60);
-    for (const floor of [4, 8, 12]) {
+    for (const floor of [8, 12, 16]) {
       let channelled = 0;
       let normal = 0;
       let samples = 0;
-      for (let seed = 0; seed < 6; seed++) {
-        for (const warm of [400, 900, 1500]) {
-          const mk = (): GameState => {
-            const g = createTestGame({ seed: 9500 + seed, floor, level: Math.min(20, floor + 4), abilities: "all" });
-            g.players[0].abilities.ultimate = "airstrike";
-            return g;
-          };
-          const a = mk(); drive(a, warm, null);
-          const b = mk(); drive(b, warm, null);
-          if (a.status !== "playing") continue;
-          const pa = a.players[0];
+      for (let seed = 0; seed < 24; seed++) {
+        const g = createTestGame({ seed: 9500 + seed, floor, level: Math.min(20, floor + 4), abilities: "all" });
+        g.players[0].abilities.ultimate = "airstrike";
+        const mem = freshMemory();
+        let at = 0;
+        for (const checkpoint of [400, 700, 1000, 1300, 1600, 1900, 2200]) {
+          drive(g, checkpoint - at, null, mem);
+          at = checkpoint;
+          if (g.status !== "playing") break;
+          const p = g.players[0];
+          // Already directing a barrage: branching here compares a channel to
+          // a channel, which is the defect (b) above.
+          if ((p.barrageT ?? 0) > 0) continue;
           // Only measure windows where there is something to be hurt BY --
           // an empty room proves nothing about a commitment.
-          const near = a.monsters.filter(
-            (m) => m.hp > 0 && dist2(m.pos, pa.pos) < 9,
-          ).length;
-          if (near < 2) continue;
+          if (g.monsters.filter((m) => m.hp > 0 && dist2(m.pos, p.pos) < 9).length < 2) continue;
+          const a = structuredClone(g), b = structuredClone(g);
+          const ma = structuredClone(mem), mb = structuredClone(mem);
+          const pa = a.players[0], pb = b.players[0];
           pa.cd.airstrike = 0;
-          const d0a = pa.damageTaken, d0b = b.players[0].damageTaken;
-          drive(a, 1, 4);
+          const d0a = pa.damageTaken, d0b = pb.damageTaken;
+          drive(a, 1, 4, ma);
           if ((pa.barrageT ?? 0) <= 0) continue; // the channel did not open; not a sample
-          drive(a, WIN - 1, null);
-          drive(b, WIN, null);
+          drive(a, WIN - 1, null, ma);
+          drive(b, WIN, null, mb, true); // ...and this one keeps PLAYING
+          if (!pa.alive || !pb.alive) continue; // a window someone died in measures nothing
           channelled += pa.damageTaken - d0a;
-          normal += b.players[0].damageTaken - d0b;
+          normal += pb.damageTaken - d0b;
           samples++;
         }
       }
-      expect(samples, `floor ${floor}: no barrage windows were sampled`).toBeGreaterThanOrEqual(5);
+      expect(samples, `floor ${floor}: too few barrage windows to resolve the claim`).toBeGreaterThanOrEqual(40);
       expect(
         channelled,
         `floor ${floor}: ${samples} windows — ${channelled.toFixed(0)} damage taken while channelling vs ` +
@@ -1027,7 +1084,7 @@ describe("§6.4.9 — Barrage pays for its commitment", () => {
           `(barrageSeconds 3 -> 2, then cut the channel).`,
       ).toBeLessThanOrEqual(normal);
     }
-  }, 120_000);
+  }, 180_000);
 
   it("(ii) the whole channel out-damages the best 3s of melee by >= 2.5x", () => {
     // The opportunity-cost half. 3s at 70% move speed with no attacking is

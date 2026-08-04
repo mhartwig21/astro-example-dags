@@ -26,16 +26,17 @@ import { decodeProof, MAX_PROOF_BYTES, REPLAY_DT, validateProofShape, type RunPr
 import { RULES_HASH } from "../sim/rulesHash";
 import { dayFromMs } from "../sim/daily";
 import { sanitizeName } from "./names";
-import { inflateArtifact } from "./verifyWorker";
+import { executableEras, inflateArtifact, rulesetRefusal } from "./verifyWorker";
 import {
-  BOARD_KINDS, SPLIT_GATE_ENTRIES, type BoardKind, type CompetitiveStore, type RunRow,
+  BOARD_KINDS, RANK_REFUSED_REASON, SPLIT_GATE_ENTRIES, compareDeepest, publicIdFor,
+  type BoardKind, type CompetitiveStore, type RunRow,
 } from "./competitive";
 import {
   VerifyQueue, VERIFY_MS_PER_ACCOUNT_PER_DAY, VERIFY_MS_PER_IP_PER_DAY,
   PRIORITY_EVENT, PRIORITY_TOP3, PRIORITY_TOP25,
   type VerifyExecutor, type VerifyJob,
 } from "./verify";
-import type { TokenService } from "./tokens";
+import { TICKET_GRACE_MS, TICKET_SKEW_MS, type TokenService } from "./tokens";
 import type { PersistDb } from "./db";
 import { cpFor, dailyEvent, seasonIdFor, standingFor, weeklyEvent, type EventSpec } from "./season";
 
@@ -44,6 +45,10 @@ import { cpFor, dailyEvent, seasonIdFor, standingFor, weeklyEvent, type EventSpe
 const MAX_BODY = MAX_PROOF_BYTES + 8192;
 /** Personal proof retention, on top of whatever is on a board (2.4 Storage). */
 export const KEEP_PROOFS_PER_ACCOUNT = 10;
+/** How long a board answer may be reused before the tick thread pays for it
+ *  again (blocker 9). Any write clears the cache outright, so this bounds the
+ *  cost of READ VOLUME and never the freshness of a result. */
+export const READ_CACHE_MS = 2000;
 
 const CORS = {
   "access-control-allow-origin": "*",
@@ -77,6 +82,15 @@ interface SubmitOutcome {
   reason?: string;
   attemptNo?: number;
   scoresCp?: boolean;
+  /**
+   * THE REFUSAL THAT NEEDS A BUTTON (6.2 Beat 5, blocker 2). "LINK AN IDENTITY"
+   * existed only as a sentence in this file, and the post-run screen printed it
+   * with no control anywhere near it - the ten seconds ended with the game
+   * demanding an action and providing no way to take it. A typed flag beside
+   * the reason is what lets the verdict render the control instead of
+   * string-matching prose that a copy edit would silently break.
+   */
+  needsIdentity?: boolean;
 }
 
 export class CompetitiveApi {
@@ -96,7 +110,12 @@ export class CompetitiveApi {
     this.store = o.store;
     this.db = o.db;
     this.tokens = o.tokens;
-    this.eras = o.eras ?? [RULES_HASH];
+    // KEYED TO MODULES, NOT TO STRINGS (2.6f). Whatever the deployment asks
+    // for, an era with no sim behind it can only ever produce a silent desync,
+    // so it is dropped here as well as in the worker - and the same narrowed
+    // list is what the wire's `playable` flag is computed from, so the client
+    // is never offered a ghost the box cannot replay.
+    this.eras = executableEras(o.eras);
     this.now = o.now ?? Date.now;
     // The queue is built HERE, with this API as its hooks, so there is exactly
     // one object that knows how a verdict becomes a row.
@@ -114,7 +133,7 @@ export class CompetitiveApi {
           else this.onFailed(job, r.state, r.detail);
         },
         onShed: (job) => this.onShed(job),
-        onSpend: (job, ms) => this.onSpend(job, ms),
+        onSpend: (job, cpuMs) => this.onSpend(job, cpuMs),
       },
     });
     // PATCH DAY (2.6e): any event pinned to an era this build cannot execute
@@ -132,12 +151,27 @@ export class CompetitiveApi {
     return {
       verify_queue_depth: this.queue.depth,
       verify_ms_total: Math.round(this.queue.msTotal),
+      /** The CPU half of the same total. The budgets ration THIS one. */
+      verify_cpu_ms_total: Math.round(this.queue.cpuMsTotal),
       verify_backlog_seconds: Math.round(this.queue.backlogSeconds()),
       verify_verified_total: this.queue.verified,
       verify_rejected_total: this.queue.rejected,
       verify_unverifiable_total: this.queue.unverifiable,
       verify_shed_total: this.queue.shed,
       verify_deferred: this.deferred.length,
+      // THE CERTIFICATION CEILING, AND THE NUMBER THAT MOVES IT (blocker 8).
+      // The ceiling is a live function of a measured value that every submitter
+      // can push on, and neither the value nor the ceiling was on any operator
+      // surface - so a poisoned cost model and a genuinely slow box looked
+      // identical from outside. x1000 because the exposition format is numeric
+      // and a scale of 1.37 should not round to 1.
+      verify_cost_scale_milli: Math.round(this.queue.scale * 1000),
+      verify_certifiable_ticks: this.queue.certifiableTicks,
+      // Read-path protection (blocker 9): how much of the tick thread the board
+      // queries are actually costing, and how much of it the cache absorbed.
+      read_cache_hits: this.readCacheHits,
+      read_cache_misses: this.readCacheMisses,
+      read_throttled_total: this.readThrottled,
     };
   }
 
@@ -159,6 +193,64 @@ export class CompetitiveApi {
     if (b.tokens < 1) return false;
     b.tokens -= 1;
     return true;
+  }
+
+  /**
+   * THE READ PATH RUNS ON THE TICK THREAD TOO (blocker 9).
+   *
+   * `allow()` was called at exactly three places - `/auth/anon`,
+   * `/events/:id/start` and `POST /runs`. `GET /runs/:id`, `/boards/:kind`,
+   * `/bands/:n`, `/crawler/:id` and `/events/current` had no bucket, no token
+   * and no cache, and `gameServer.onRequest` dispatches all of them onto the
+   * main loop - which is ONE shared vCPU with a 33 ms budget per 30 Hz tick
+   * ACROSS EVERY LIVE PARTY (2.4). `GET /runs/:id` alone runs `holdsBoards`:
+   * eight window-function board queries plus six band joins, unauthenticated,
+   * per request. The subsystem spent an entire worker thread keeping replay off
+   * that thread and left the front door open to the same stall.
+   *
+   * Two mechanisms, because a bucket alone is not enough: a bucket bounds ONE
+   * client and the cache is what bounds the SUM. Every distinct board query
+   * costs the tick thread at most one execution per TTL no matter how many
+   * clients ask for it, and a board that changes on certification is allowed to
+   * be two seconds stale - the seal itself takes seconds to land (2.4 rule 4).
+   */
+  private readCache = new Map<string, { at: number; body: unknown }>();
+  private readCacheHits = 0;
+  private readCacheMisses = 0;
+  private readThrottled = 0;
+
+  /** Reads are cheap to ask for and expensive to answer, so the bucket is
+   *  generous and the cache is what actually holds the line. */
+  private allowRead(ip: string): boolean {
+    if (this.allow("read:" + ip, 40, 120)) return true;
+    this.readThrottled++;
+    return false;
+  }
+
+  private cached<T>(key: string, ttlMs: number, build: () => T): T {
+    const now = this.now();
+    const hit = this.readCache.get(key);
+    if (hit && now - hit.at < ttlMs) {
+      this.readCacheHits++;
+      return hit.body as T;
+    }
+    this.readCacheMisses++;
+    const body = build();
+    // Bounded, and evicted oldest-first rather than cleared, so a scan over
+    // distinct keys cannot flush the hot ones a real audience shares.
+    if (this.readCache.size > 512) {
+      const oldest = [...this.readCache.entries()].sort((a, b) => a[1].at - b[1].at);
+      for (let i = 0; i < 128; i++) this.readCache.delete(oldest[i][0]);
+    }
+    this.readCache.set(key, { at: now, body });
+    return body;
+  }
+
+  /** A write invalidates every read: certification changes boards, profiles and
+   *  the run row at once, and stale-after-write is the one staleness a player
+   *  would actually notice (they are watching their own seal land). */
+  private invalidateReads(): void {
+    this.readCache.clear();
   }
 
   private json(res: ServerResponse, code: number, body: unknown): void {
@@ -210,7 +302,9 @@ export class CompetitiveApi {
    */
   async submit(
     artifact: Uint8Array, accountId: string, rawName: string, ip: string,
-    opts: { private?: boolean; partySize?: number } = {},
+    // NO `partySize` HERE ANY MORE: a proof attests to one crawler's inputs,
+    // so party size is not a thing a submitter may assert (blocker 15).
+    opts: { private?: boolean } = {},
   ): Promise<SubmitOutcome | { error: string }> {
     const now = this.now();
     const day = dayFromMs(now);
@@ -238,6 +332,8 @@ export class CompetitiveApi {
     // --- event legitimacy (2.5 step 2). Checked before anything is stored.
     let attemptNo: number | null = null;
     let eventSeed: number | undefined;
+    /** Set when a ticket VERIFIES but does not back the run it arrived with. */
+    let ticketRefusal: string | null = null;
     if (eventId) {
       this.ensureEvents(now);
       const evt = this.store.getEvent(eventId);
@@ -247,13 +343,55 @@ export class CompetitiveApi {
       }
       if (now > evt.closesAt + 3600_000) return { error: "that contract has closed" };
       if (h.seed !== evt.seed) return { error: "seed does not match the event" };
-      attemptNo = this.tokens.readTicket(h.ticket, eventId, accountId);
       eventSeed = evt.seed;
+
+      // THE TICKET HAS TO FIT THE RUN (3.2A). A signature alone proves only
+      // that the contract was signed at some point; it does not prove that
+      // THIS run is the one that followed. Three checks turn it back into what
+      // the design says it is - the START being observed rather than the
+      // finish - and each of them stores the row and states its reason rather
+      // than throwing the run away.
+      const claim = this.tokens.readTicket(h.ticket, eventId, accountId);
+      if (claim) {
+        const runMs = h.ticks * REPLAY_DT * 1000;
+        const sinceSigned = now - claim.issuedAtMs;
+        if (sinceSigned + TICKET_SKEW_MS < runMs) {
+          // Arithmetic: a run of N ticks cannot reach the box before it has
+          // been played. This one claims to have.
+          ticketRefusal = "the attempt ticket is younger than the run it carries — "
+            + Math.round(runMs / 1000) + "s of play submitted "
+            + Math.max(0, Math.round(sinceSigned / 1000)) + "s after the contract was signed";
+        } else if (sinceSigned > runMs + TICKET_GRACE_MS) {
+          // ...and the half that actually closes "sign once, play twenty runs
+          // offline, submit the best as attempt 1".
+          ticketRefusal = "the attempt ticket has gone cold — it was signed "
+            + Math.round(sinceSigned / 60_000) + " minutes ago for a "
+            + Math.round(runMs / 60_000) + " minute run. Sign the contract again and play it.";
+        } else if (!this.store.consumeTicket(claim.sig, accountId, eventId, claim.attemptNo, now)) {
+          ticketRefusal = "that attempt ticket has already been spent — one signature, one submission";
+        } else {
+          attemptNo = claim.attemptNo;
+        }
+      }
     }
 
     const row: RunRow = {
       id: runId, accountId, displayName, eventId, seed: h.seed, rulesHash: null,
-      mode: h.mode, partySize: Math.max(1, Math.min(6, opts.partySize ?? 1)),
+      // WHICH GAME, FROM THE ARTIFACT, NEVER FROM THE QUERY STRING.
+      mode: String(h.mode), runKind: String(h.runKind),
+      // PARTY SIZE IS NOT A SELF-REPORTED FIELD (blocker 15). It arrived as
+      // `Number(q.get("size"))`, was stored, returned on the wire and PRINTED
+      // ON A SEALED BOARD ROW as "party of N" - and nothing in
+      // ReplaySession.summary() or VerifiedFacts derives or contradicts it,
+      // while `board({partySize})` filters on it and `splitEntrants` counts it
+      // toward opening the co-op split boards. Worse: MUST-3 does not record
+      // party runs at all, so every "party of N>1" on a proof-verified row was
+      // necessarily fabricated - `POST /runs?token=...&size=6` put a solo run
+      // on the 5-6 board with the gold seal. A proof is a recording of ONE
+      // crawler's inputs; that is what it can attest to, so that is what the
+      // row says. Party rows come from the server-vouched path, where the
+      // authoritative sim counted the seats itself.
+      partySize: 1,
       won: c.won, floor: c.floor, timeTicks: c.ticks, kills: c.kills, level: c.level,
       ultimate: c.ultimate, bandSplits: null, deathCause: null, finalBuild: null,
       damageDealt: 0, damageTaken: 0, goldSpent: 0,
@@ -262,16 +400,29 @@ export class CompetitiveApi {
     };
 
     // --- can this even be verified? ---------------------------------------
-    const refuse = (reason: string, state: "claimed" | "unverifiable" = "claimed"): SubmitOutcome => {
+    const refuse = (
+      reason: string, state: "claimed" | "unverifiable" = "claimed", needsIdentity = false,
+    ): SubmitOutcome => {
       this.store.insertRun({ ...row, state });
       if (state !== "claimed") this.store.setState(runId, state, reason);
       else if (reason) this.store.setState(runId, "claimed", reason);
-      return { runId, state, queued: false, reason, attemptNo: attemptNo ?? undefined };
+      this.invalidateReads(); // a new row is a new board (blocker 9)
+      return { runId, state, queued: false, reason, attemptNo: attemptNo ?? undefined, needsIdentity };
     };
 
     if (h.startKind !== "fresh") {
       return refuse("a test-mode start is never eligible for a board");
     }
+    // THE RULESET GATE, STRUCTURAL AND SERVER-SIDE (blocker 14).
+    // `validateProofShape` never looked at `mode` or `runKind`, and
+    // `ReplaySession` builds the world straight from them - so a ROAM header
+    // replayed honestly to floor 16 with 171 kills and came back CERTIFIED,
+    // taking DEEPEST, owning KILLS, and taking every band board at ~2x pace,
+    // because roam floors have no boss gate and a flat 30-minute budget instead
+    // of `floorTimeBudget`. The client refusal for this was polite only, which
+    // is precisely the pattern 2.5 step 2 says it fixed for test starts.
+    const ruleset = rulesetRefusal(h);
+    if (ruleset) return refuse(ruleset);
     if (!this.eras.includes(h.rulesHash)) {
       // NOT rejected. The row keeps whatever stamp it earned and the player is
       // told plainly, and offered a re-run - the seed is in the artifact, and
@@ -282,15 +433,34 @@ export class CompetitiveApi {
         "unverifiable",
       );
     }
+    // THE DEPTH LIMIT, SAID AT THE DOOR (blocker 21). Verification depth is a
+    // function of box speed and nothing stated it: past the ceiling the run used
+    // to be queued, burn two minutes of wall clock and come back REJECTED - the
+    // ladder calling an honest player a cheat for the length of their run. It is
+    // `unverifiable` now, before a tick is spent, with the boundary printed.
+    if (h.ticks > this.queue.certifiableTicks) {
+      return refuse(
+        "this run is longer than the System can re-execute inside its verification budget — about "
+        + Math.round((this.queue.certifiableTicks * REPLAY_DT) / 60) + " sim-minutes is the ceiling on "
+        + "this machine, and this run is " + Math.round((h.ticks * REPLAY_DT) / 60) + ". Nothing here "
+        + "says the run is false; the row keeps whatever it earned.",
+        "unverifiable",
+      );
+    }
     if (!this.isLinked(accountId)) {
-      return refuse("unsealed. The System does not put its name on an anonymous claim. LINK AN IDENTITY.");
+      return refuse(
+        "unsealed. The System does not put its name on an anonymous claim — verification costs this "
+        + "box real CPU, and it is spent on crawlers it can name.",
+        "claimed", true,
+      );
     }
     const cool = this.cooldown.get(accountId) ?? 0;
     if (now < cool) {
       return refuse("cooling down after a rejected submission");
     }
     if (eventId && attemptNo === null) {
-      return refuse("no attempt ticket - start the contract from the game to earn CP");
+      return refuse(ticketRefusal
+        ?? "no attempt ticket - start the contract from the game to earn CP");
     }
 
     // --- the queue rule (2.4 rule 2) --------------------------------------
@@ -298,10 +468,12 @@ export class CompetitiveApi {
     let queueable = false;
     if (eventId) {
       const best = this.store.bestVerifiedOnEvent(accountId, eventId);
-      const improves = !best
-        || (row.won && !best.won)
-        || row.floor > best.floor
-        || (row.floor === best.floor && row.won === best.won && row.timeTicks < best.timeTicks);
+      // THE BOARD'S OWN COMPARATOR (blocker 4). This test had its own copy of
+      // `won DESC, floor DESC, time ASC`, so on a contract where both rows were
+      // deaths at the same depth it called a FASTER death an improvement and
+      // bought a verify for it - paying CPU for exactly the play the ordering
+      // fix exists to stop rewarding.
+      const improves = !best || compareDeepest(row, best) < 0;
       if (!improves) {
         return refuse("attempt recorded - it did not beat your verified best on this contract");
       }
@@ -316,7 +488,23 @@ export class CompetitiveApi {
           if (this.store.wouldRank(kind, row, 25)) { queueable = true; priority = PRIORITY_TOP25; break; }
         }
       }
-      if (!queueable) return refuse("stored, unproven - it would not reach a board top 25");
+      if (!queueable) {
+        // KEEP THE FILM FOR THIS ONE. `wouldRank` is a snapshot of a board that
+        // moves, so a near miss is re-offered later (see reconsiderRankRefused)
+        // - which it cannot be if the proof was thrown away at the door. The
+        // artifact lands inside this account's own last-10 retention and is
+        // swept by the same rule as everything else.
+        const nearId = "p-" + runId;
+        this.store.insertRun({ ...row, state: "claimed", proofId: nearId });
+        this.store.putProof({
+          id: nearId, accountId, rulesHash: h.rulesHash, seed: h.seed,
+          eventId, ticks: h.ticks, bytes: gzipSync(Buffer.from(raw), { level: 6 }), now,
+        });
+        const reason = RANK_REFUSED_REASON + " It is re-offered if the rows above it move.";
+        this.store.setState(runId, "claimed", reason);
+        this.invalidateReads();
+        return { runId, state: "claimed", queued: false, reason, attemptNo: attemptNo ?? undefined };
+      }
     }
 
     // --- verify-CPU accounting (2.7.3) ------------------------------------
@@ -339,8 +527,9 @@ export class CompetitiveApi {
     const job: VerifyJob = {
       runId, proofId, bytes: stored, priority, ticks: h.ticks, accountId, ip,
       hasHistory: this.hasVerifiedHistory(accountId), eventSeed,
-      requireFreshStart: true, enqueuedAt: now,
+      requireFreshStart: true, enqueuedAt: now, rulesHash: h.rulesHash,
     };
+    this.invalidateReads();
     const accepted = this.queue.enqueue(job);
     if (!accepted) {
       this.deferred.push(job);
@@ -376,7 +565,11 @@ export class CompetitiveApi {
       deathCause: summary.death, finalBuild: summary.build,
       damageDealt: summary.damageDealt, damageTaken: summary.damageTaken,
       goldSpent: summary.goldSpent,
-      rulesHash: RULES_HASH,
+      // THE ERA OF THE PROOF, NOT THE ERA OF THE BOX. 2.6c requires
+      // `rules_hash = H`, the hash the row was certified UNDER; passing
+      // RULES_HASH stamps every row with today's era, which is invisible while
+      // `eras` holds one entry and becomes a lie on the first widened deploy.
+      rulesHash: job.rulesHash || RULES_HASH,
     }, now);
 
     // Career aggregates, on VERIFIED runs only.
@@ -417,15 +610,52 @@ export class CompetitiveApi {
 
   /** Charge the measured CPU, then re-admit shed work if the backlog cleared. */
   private afterJob(job: VerifyJob): void {
-    const day = dayFromMs(this.now());
+    // A verdict moves boards, profiles and the run row at once. Reads may be
+    // two seconds stale under LOAD; they are never stale after a WRITE, which
+    // is the staleness a player watching their own seal land would notice.
+    this.invalidateReads();
     this.store.sweepVerifyBudget(dayFromMs(this.now() - 48 * 3600_000));
-    void day;
+    this.store.sweepSpentTickets(this.now() - 48 * 3600_000);
     while (this.deferred.length > 0 && this.queue.backlogSeconds() < 60) {
       const j = this.deferred.shift()!;
       if (!this.queue.enqueue(j)) { this.deferred.unshift(j); break; }
       this.store.setState(j.runId, "claimed", "re-queued");
     }
+    // A ROW REFUSED FOR RANK IS RE-ASKED, NOT CONDEMNED. `wouldRank` is
+    // evaluated against the board AS IT STANDS AT SUBMIT TIME, so a run that
+    // missed the top 25 by one place was permanently `claimed` with the reason
+    // "it would not reach a board top 25" and never looked at again - even
+    // after the rows above it were rejected, deleted by FORGET ME, or pushed
+    // off by an eviction. The shed path already re-queues; this is the same
+    // courtesy for the other refusal, bounded to the rows whose film is still
+    // on disk.
+    this.reconsiderRankRefused();
     void job;
+  }
+
+  /** Re-offer recently refused-for-rank rows whose proof is still retained.
+   *  Bounded work: a handful of rows, one board query each, only when the
+   *  queue is otherwise idle enough to take them. */
+  private reconsiderRankRefused(limit = 8): void {
+    if (this.queue.backlogSeconds() > 30) return;
+    for (const row of this.store.rankRefused(limit)) {
+      const proof = row.proofId ? this.store.getProof(row.proofId) : null;
+      if (!proof) continue;
+      const better = BOARD_KINDS.some((kind) => this.store.wouldRank(kind, row, 25));
+      if (!better) continue;
+      const job: VerifyJob = {
+        runId: row.id, proofId: row.proofId!, bytes: proof.bytes,
+        priority: PRIORITY_TOP25, ticks: row.timeTicks, accountId: row.accountId,
+        // The submitting IP is not on the row, so the CPU is charged to a
+        // shared re-queue subject and, as always, to the ACCOUNT - which is
+        // the budget that actually bounds a flood (2.7.3).
+        ip: "requeue", hasHistory: this.hasVerifiedHistory(row.accountId),
+        eventSeed: undefined, requireFreshStart: true, enqueuedAt: this.now(),
+        rulesHash: proof.rulesHash,
+      };
+      if (!this.queue.enqueue(job)) return;
+      this.store.setState(row.id, "claimed", "re-queued — the board moved under it");
+    }
   }
 
   /** Shed: stored claimed with a deferred note, re-queued when the backlog
@@ -435,10 +665,12 @@ export class CompetitiveApi {
     this.deferred.push(job);
   }
 
-  onSpend(job: VerifyJob, ms: number): void {
+  /** CPU ms, which is the unit `estimateMs` predicts and the unit
+   *  VERIFY_MS_PER_*_PER_DAY is denominated in (blocker 7). */
+  onSpend(job: VerifyJob, cpuMs: number): void {
     const day = dayFromMs(this.now());
-    this.store.spendVerifyMs("ip:" + job.ip, day, ms);
-    this.store.spendVerifyMs("acct:" + job.accountId, day, ms);
+    this.store.spendVerifyMs("ip:" + job.ip, day, cpuMs);
+    this.store.spendVerifyMs("acct:" + job.accountId, day, cpuMs);
   }
 
   // ---- routes ------------------------------------------------------------
@@ -465,15 +697,19 @@ export class CompetitiveApi {
 
     // GET /events/current
     if (path === "/events/current" && req.method === "GET") {
-      const { daily, weekly } = this.ensureEvents(now);
-      const decorate = (e: EventSpec): unknown => {
-        const stored = this.store.getEvent(e.id);
-        return {
-          ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
-          entrants: this.store.eventEntrants(e.id),
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const body = this.cached("events", READ_CACHE_MS, () => {
+        const { daily, weekly } = this.ensureEvents(now);
+        const decorate = (e: EventSpec): unknown => {
+          const stored = this.store.getEvent(e.id);
+          return {
+            ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
+            entrants: this.store.eventEntrants(e.id),
+          };
         };
-      };
-      this.json(res, 200, { season: seasonIdFor(now), daily: decorate(daily), weekly: decorate(weekly) });
+        return { season: seasonIdFor(now), daily: decorate(daily), weekly: decorate(weekly) };
+      });
+      this.json(res, 200, body);
       return true;
     }
 
@@ -492,11 +728,27 @@ export class CompetitiveApi {
         return true;
       }
       const attemptNo = this.store.nextAttempt(token, evt.id);
+      // THE GATE BELONGS AT THE DOOR (6.2 Beat 5, blocker 2). This used to
+      // answer `scoresCp: attemptNo === 1` with no idea whether the account
+      // could ever be sealed - so a fresh anonymous crawler was sold a
+      // CP-scoring contract at entry and told at the exit, in a dead sentence
+      // with no control beside it, that the System does not put its name on an
+      // anonymous claim. An unlinked account gets the truth here instead, in
+      // time to do something about it.
+      const linked = this.isLinked(token);
       this.json(res, 200, {
         eventId: evt.id, seed: evt.seed, attemptNo,
-        ticket: this.tokens.issueTicket(evt.id, token, attemptNo),
-        scoresCp: attemptNo === 1,
+        ticket: this.tokens.issueTicket(evt.id, token, attemptNo, now),
+        linked,
+        scoresCp: attemptNo === 1 && linked,
+        unlinkedReason: linked ? null
+          : "an anonymous claim earns no seal and no contract points — verification costs this box CPU, "
+            + "so it is spent on crawlers the System can name. Link an identity and the run seals.",
         rulesHash: evt.rulesHash,
+        // The window is STATED rather than discovered. A ticket backs the run
+        // that follows it; it is not a permanent licence to submit the best of
+        // twenty offline attempts as attempt one.
+        graceMs: TICKET_GRACE_MS,
       });
       return true;
     }
@@ -510,7 +762,6 @@ export class CompetitiveApi {
       if (!body) { this.json(res, 413, { error: "artifact too large" }); return true; }
       const out = await this.submit(new Uint8Array(body), token, q.get("name") ?? "", ip, {
         private: q.get("private") === "1",
-        partySize: Number(q.get("size") ?? 1),
       });
       if ("error" in out) { this.json(res, 400, out); return true; }
       this.json(res, 200, out);
@@ -530,6 +781,7 @@ export class CompetitiveApi {
     // GET /runs/:id - metadata, and the artifact for ghosts and replay.
     const one = MATCH_RUN.exec(path);
     if (one && req.method === "GET") {
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
       const run = this.store.getRun(one[1]);
       if (!run) { this.json(res, 404, { error: "not found" }); return true; }
       const token = q.get("token") ?? "";
@@ -538,6 +790,20 @@ export class CompetitiveApi {
       // owner, never served as a ghost, never offered as RACE THE LEADER.
       if (run.private && !owner) { this.json(res, 404, { error: "not found" }); return true; }
       if (q.get("proof") === "1") {
+        // A RUN THE SERVER REFUSED IS NOT A GHOST. The proof was served with
+        // no state check at all, so a challenge link built from a `claimed` or
+        // `rejected` run handed a stranger a raceable rival the server had
+        // explicitly declined to certify - and 2.6f's whole point is that the
+        // refusal is STATED. The owner can still pull their own artifact back.
+        if (run.state !== "verified" && !owner) {
+          this.json(res, 409, {
+            error: run.state === "rejected"
+              ? "REFUSED ON VERIFICATION - the replay did not produce the claimed run, so it is not raceable"
+              : "UNPROVEN - only runs the server re-executed are handed out as ghosts",
+            rulesHash: run.rulesHash, playable: false,
+          });
+          return true;
+        }
         const proof = run.proofId ? this.store.getProof(run.proofId) : null;
         if (!proof) {
           this.json(res, 410, {
@@ -558,7 +824,17 @@ export class CompetitiveApi {
         res.end(proof.bytes);
         return true;
       }
-      this.json(res, 200, this.publicRun(run));
+      // WHAT THIS ROW ACTUALLY HOLDS. The verdict screen weights its seal on
+      // it (6.2), and it used to answer the question against today's daily
+      // board alone - so a free-seed run taking rank 1 all-time got the plain
+      // hairline and the line "It ranks nowhere, and it is still true", which
+      // is false about the run that most deserved the gold.
+      // `holdsBoards` is EIGHT window-function board queries plus six band
+      // joins, on the tick thread, per request. Cached by run id: a run's board
+      // positions change only when something is certified, and certification
+      // clears the cache (blocker 9).
+      this.json(res, 200, this.cached("run:" + run.id, READ_CACHE_MS, () =>
+        ({ ...this.publicRun(run), boards: this.store.holdsBoards(run.id) })));
       return true;
     }
 
@@ -570,6 +846,14 @@ export class CompetitiveApi {
         this.json(res, 404, { error: "unknown board" });
         return true;
       }
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const cacheKey = "board:" + path + "?" + [...q.entries()].sort().map(([k, v]) => k + "=" + v).join("&");
+      const hit = this.readCache.get(cacheKey);
+      if (hit && this.now() - hit.at < READ_CACHE_MS) {
+        this.readCacheHits++;
+        this.json(res, 200, hit.body);
+        return true;
+      }
       const eventParam = q.get("event");
       const eventId = eventParam === "daily" ? dailyEvent(now).id
         : eventParam === "weekly" ? weeklyEvent(now).id
@@ -577,16 +861,39 @@ export class CompetitiveApi {
       const archetype = q.get("archetype");
       const size = q.get("size") ? Number(q.get("size")) : null;
       const rows = this.store.board({
-        kind, eventId: eventId ?? null, archetype, partySize: size,
+        // NO `event` PARAM MEANS THE MUSEUM, NOT "FREE SEEDS ONLY". `?? null`
+        // compiled to `event_id IS NULL`, which excluded every contract run
+        // from every all-time board by construction - so DEEPEST and KILLS,
+        // the two boards the verdict's seal names most often, both answered
+        // `entries: 0` while sealed daily rows sat in the table.
+        kind, eventId: eventId ?? undefined, archetype, partySize: size,
         verifiedOnly: q.get("verified") === "1",
         limit: Number(q.get("limit") ?? 50),
       });
-      this.json(res, 200, {
+      // THE VERIFIED / UNPROVEN SPLIT BELONGS IN THE RESPONSE SHAPE, not in one
+      // renderer. `entries` used to mix both in one ranked array, bounded only
+      // by validateProofShape (floor 1..18, kills up to 1,000,000) - so a
+      // fabricated floor-18 / one-million-kill row rode inside a payload whose
+      // own subtitle says "every ranked row is a proof the server re-executed".
+      // main3d's boardListHtml did the right thing with it; a share page, an
+      // embed, a third party or a future mobile host would not have.
+      const verified = rows.filter((r) => r.state === "verified").map((r) => this.publicRun(r));
+      const unproven = rows.filter((r) => r.state !== "verified").map((r) => this.publicRun(r));
+      const body = {
         kind, eventId: eventId ?? null, rulesEra: RULES_HASH.slice(0, 7),
         splitGate: SPLIT_GATE_ENTRIES,
-        archetypeEntrants: archetype ? this.store.splitEntrants("ultimate", archetype, eventId ?? null) : null,
-        entries: rows.map((r) => this.publicRun(r)),
-      });
+        archetypeEntrants: archetype ? this.store.splitEntrants("ultimate", archetype, eventId ?? undefined) : null,
+        // `entries` is the BOARD: proofs only, so a consumer that reads nothing
+        // else cannot render a claim as a rank.
+        entries: verified,
+        verified,
+        unproven,
+        note: "entries are runs this server re-executed and certified. unproven rows were stored "
+          + "exactly as a client reported them, hold no rank, and are never a result.",
+      };
+      this.readCacheMisses++;
+      this.readCache.set(cacheKey, { at: this.now(), body });
+      this.json(res, 200, body);
       return true;
     }
 
@@ -596,19 +903,52 @@ export class CompetitiveApi {
     // asking the reader to assume it did not.
     const band = MATCH_BAND.exec(path);
     if (band && req.method === "GET") {
-      const rows = this.store.bandBoard(Number(band[1]), Number(q.get("limit") ?? 25));
-      this.json(res, 200, {
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const limit = Number(q.get("limit") ?? 25);
+      this.json(res, 200, this.cached("band:" + band[1] + ":" + limit, READ_CACHE_MS, () => ({
         band: Number(band[1]),
         tiebreak: "split ticks, then the earliest run to be certified",
-        entries: rows.map((r) => ({ ...this.publicRun(r), bandTicks: r.bandTicks })),
-      });
+        entries: this.store.bandBoard(Number(band[1]), limit)
+          .map((r) => ({ ...this.publicRun(r), bandTicks: r.bandTicks })),
+      })));
       return true;
     }
 
-    // GET /crawler/:id - the profile.
+    /**
+     * GET /crawler/:id - the profile.
+     *
+     * THE PATH SEGMENT IS NOT A CREDENTIAL (blocker 10). This used to read
+     * `accountForPublicId(who[1]) ?? who[1]`: when the public-id lookup missed,
+     * the raw path segment was passed straight to `profile()` as an ACCOUNT ID
+     * - and the account id IS the bearer token `POST /runs` authenticates on.
+     * The endpoint was unauthenticated and unthrottled, so it answered
+     * populated for a real token and empty for a wrong one: a free confirmation
+     * oracle for anyone holding a maybe-leaked token, and a full career read for
+     * anyone who ever saw one over a shoulder, in a log, or in a screenshot.
+     *
+     * There is now exactly one way to name a stranger - the derived, one-way
+     * public id - and exactly one way to ask for your own career: present the
+     * token as a token, at `/crawler/me?token=`, where `isUsable` decides.
+     */
     const who = MATCH_CRAWLER.exec(path);
     if (who && req.method === "GET") {
-      this.json(res, 200, this.profile(who[1], now));
+      if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
+      const token = q.get("token") ?? "";
+      const accountId = who[1] === "me"
+        ? (this.tokens.isUsable(token) ? token : null)
+        : this.store.accountForPublicId(who[1]);
+      if (!accountId) {
+        // The same answer for "no such crawler" and "that is not your token",
+        // because a different answer is the oracle this endpoint just stopped
+        // being.
+        this.json(res, 404, { error: "no such crawler" });
+        return true;
+      }
+      // Only public profiles are cached. `/crawler/me` is one caller by
+      // definition and caching it would key a private read on a credential.
+      this.json(res, 200, who[1] === "me"
+        ? this.profile(accountId, now)
+        : this.cached("crawler:" + who[1], READ_CACHE_MS, () => this.profile(accountId, now)));
       return true;
     }
 
@@ -635,10 +975,29 @@ export class CompetitiveApi {
    */
   publicRun(r: RunRow): Record<string, unknown> {
     return {
-      id: r.id, name: r.displayName, accountId: r.accountId, eventId: r.eventId,
+      // NEVER `accountId`. It is the bearer token: POST /runs passes it in as
+      // the account id and TokenService.isUsable authenticates that exact
+      // string, so one unauthenticated GET /boards/deepest used to hand out a
+      // working credential for every ranked crawler on the board. The client
+      // only ever needed it for the YOU / RIVAL tag on a row, and a one-way
+      // derived id does that job exactly as well.
+      id: r.id, name: r.displayName, publicId: publicIdFor(r.accountId), eventId: r.eventId,
       state: r.state, reason: r.rejectReason,
       rulesEra: r.rulesHash ? r.rulesHash.slice(0, 7) : null,
+      // WHICH GAME THIS ROW WAS PLAYED UNDER (blocker 20). The era chip answers
+      // "which numbers"; until now nothing answered "which ruleset", so no
+      // consumer could label or audit a row - and the roam exploit lived in
+      // exactly that blind spot.
+      mode: r.mode, runKind: r.runKind,
       playable: !!r.rulesHash && this.eras.includes(r.rulesHash) && !!r.proofId && !r.private,
+      // WHY THERE IS NO FILM, TOLD APART FROM "IT AGED OUT" (blocker 18). A
+      // RIVALS row is inserted verified with `proofId = null` - the film never
+      // existed, because nobody records a party run - and `playability()` fell
+      // through to "the proof has aged out of retention", which is a false
+      // statement to the player in the one product whose pitch is that it does
+      // not make them. `proof_id` is never cleared by retention (sweepProofs
+      // only drops the bytes), so a null id means the row NEVER had a film.
+      film: !r.proofId ? "never" : this.store.getProof(r.proofId) ? "retained" : "expired",
       won: r.won, floor: r.floor, timeSec: Math.round(r.timeTicks * REPLAY_DT),
       ticks: r.timeTicks, kills: r.kills, level: r.level, ultimate: r.ultimate,
       partySize: r.partySize, attemptNo: r.attemptNo, private: r.private,
@@ -655,22 +1014,39 @@ export class CompetitiveApi {
    *  can draw: a whole career in one glance. */
   profile(accountId: string, now: number): Record<string, unknown> {
     const runs = this.store.runsByAccount(accountId, 200);
+    const verifiedRuns = runs.filter((r) => r.state === "verified");
+    // TWO HISTOGRAMS, BECAUSE THEY COUNT TWO POPULATIONS (blocker 4). The
+    // career panel labelled `deathsByFloor` "N sealed runs, every device" while
+    // this array was built from ALL runs, and printed SEALS 0 three hundred
+    // pixels below the same chart - four REFUSED runs counted as certified on
+    // the headline chart of the panel whose stated purpose is "the numbers a
+    // board row can be checked against".
     const byFloor = new Array<number>(18).fill(0);
+    const sealedByFloor = new Array<number>(18).fill(0);
     for (const r of runs) if (r.floor >= 1 && r.floor <= 18) byFloor[r.floor - 1]++;
+    for (const r of verifiedRuns) if (r.floor >= 1 && r.floor <= 18) sealedByFloor[r.floor - 1]++;
     const season = seasonIdFor(now);
     const cp = this.store.seasonCp(accountId, season);
     const entrants = this.store.seasonSize(season);
     const rank = this.store.seasonRank(season, accountId);
-    const verified = runs.filter((r) => r.state === "verified");
+    const verified = verifiedRuns;
     const bestFast = verified.filter((r) => r.won).sort((a, b) => a.timeTicks - b.timeTicks)[0] ?? null;
     return {
-      accountId,
+      publicId: publicIdFor(accountId),
       name: runs[0]?.displayName ?? null,
       seals: verified.length,
+      /** Every row this account has on the server, sealed or not. Named apart
+       *  from `seals` so no consumer can label one with the other's word. */
+      runsSubmitted: runs.length,
+      refused: runs.filter((r) => r.state === "rejected").length,
       career: this.db?.getAccountStats(accountId) ?? null,
       standing: standingFor(cp?.cp ?? 0, rank, entrants, cp?.eventsCounted ?? 0),
       season,
+      /** ALL rows this account submitted, by ending floor. */
       deathsByFloor: byFloor,
+      /** The same chart over CERTIFIED rows only - the population the seal
+       *  count, the CP and the board rows are drawn from. */
+      sealedDeathsByFloor: sealedByFloor,
       // THE ONE SOURCE OF TRUTH for band personal bests. The career panel used
       // to render a localStorage ledger with its own completeness rule, so the
       // profile and the band board could disagree about the same record.
@@ -678,7 +1054,7 @@ export class CompetitiveApi {
       deepest: verified.reduce((m, r) => Math.max(m, r.floor), 0),
       fastestClear: bestFast ? this.publicRun(bestFast) : null,
       mastery: this.store.masteryOf(accountId),
-      following: this.store.following(accountId),
+      following: this.store.following(accountId).map(publicIdFor),
       recent: runs.slice(0, 10).map((r) => this.publicRun(r)),
     };
   }
@@ -704,7 +1080,9 @@ export class CompetitiveApi {
       : null;
     return {
       eventId: daily.id, seed: daily.seed, resolvesAt: daily.closesAt,
-      rival: rival ? { accountId: rival.accountId, cp: rival.cp, name: theirs?.displayName ?? null } : null,
+      rival: rival
+        ? { publicId: publicIdFor(rival.accountId), cp: rival.cp, name: theirs?.displayName ?? null }
+        : null,
       rivalRun: theirs ? this.publicRun(theirs) : null,
       myCp: mine,
       // THE LEDGER. A rivalry with no record of what happened last time is a
@@ -741,11 +1119,14 @@ export class CompetitiveApi {
     for (const [eventId, a] of mineBy) {
       const b = theirBy.get(eventId);
       if (!b) continue; // only contested events count - a walkover is not a win
-      // The board's own order, so the ledger and the ladder never disagree.
-      let result: "won" | "lost" | "drew" = "drew";
-      if (a.won !== b.won) result = a.won ? "won" : "lost";
-      else if (a.floor !== b.floor) result = a.floor > b.floor ? "won" : "lost";
-      else if (a.ticks !== b.ticks) result = a.ticks < b.ticks ? "won" : "lost";
+      // THE BOARD'S OWN ORDER, from the board's own comparator, so the ledger
+      // and the ladder never disagree - including on the case that used to
+      // award the head-to-head to whoever died SOONER at the same depth.
+      const c = compareDeepest(
+        { won: a.won, floor: a.floor, timeTicks: a.ticks, kills: a.kills },
+        { won: b.won, floor: b.floor, timeTicks: b.ticks, kills: b.kills },
+      );
+      const result: "won" | "lost" | "drew" = c < 0 ? "won" : c > 0 ? "lost" : "drew";
       if (result === "won") mine++; else if (result === "lost") theirs++; else drawn++;
       rows.push({
         eventId, won: a.won, mineFloor: a.floor, theirFloor: b.floor,

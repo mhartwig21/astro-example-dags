@@ -1,0 +1,998 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "shop",
+    "file": "tools\\_mobile\\r1\\iphone13-land-shop.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": {
+      "body": "phone touch",
+      "dpr": 3,
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 668,
+          "y": 260,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 578,
+          "y": 278,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 595,
+          "y": 217,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 639,
+          "y": 173,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 686,
+          "y": 148,
+          "w": 54,
+          "h": 54,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 512,
+          "y": 284,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 51,
+        "w": 330,
+        "h": 291,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 115,
+        "h": 115,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 506,
+        "y": 144,
+        "w": 234,
+        "h": 188,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 275,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "sheet",
+    "file": "tools\\_mobile\\r1\\iphone13-land-sheet.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": {
+      "body": "phone touch",
+      "dpr": 3,
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 668,
+          "y": 260,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 578,
+          "y": 278,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 595,
+          "y": 217,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 639,
+          "y": 173,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 686,
+          "y": 148,
+          "w": 54,
+          "h": 54,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 512,
+          "y": 284,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 51,
+        "w": 330,
+        "h": 291,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 115,
+        "h": 115,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 506,
+        "y": 144,
+        "w": 234,
+        "h": 188,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "constellation",
+    "file": "tools\\_mobile\\r1\\iphone13-land-constellation.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": {
+      "body": "phone touch",
+      "dpr": 3,
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 668,
+          "y": 260,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 578,
+          "y": 278,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 595,
+          "y": 217,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 639,
+          "y": 173,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 686,
+          "y": 148,
+          "w": 54,
+          "h": 54,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 512,
+          "y": 284,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 51,
+        "w": 330,
+        "h": 291,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 115,
+        "h": 115,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 506,
+        "y": 144,
+        "w": 234,
+        "h": 188,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "inventory",
+    "file": "tools\\_mobile\\r1\\iphone13-land-inventory.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "probe": {
+      "body": "phone touch modal",
+      "dpr": 3,
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 668,
+          "y": 260,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 578,
+          "y": 278,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 595,
+          "y": 217,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 639,
+          "y": 173,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 686,
+          "y": 148,
+          "w": 54,
+          "h": 54,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 512,
+          "y": 284,
+          "w": 48,
+          "h": 48,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 51,
+        "w": 330,
+        "h": 291,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 115,
+        "h": 115,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 506,
+        "y": 144,
+        "w": 234,
+        "h": 188,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": [
+        "inv"
+      ]
+    }
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "shop",
+    "file": "tools\\_mobile\\r1\\ipadpro11-land-shop.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": {
+      "body": "touch",
+      "dpr": 2,
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 1088,
+          "y": 728,
+          "w": 96,
+          "h": 96,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 964,
+          "y": 752,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 988,
+          "y": 668,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 1048,
+          "y": 608,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 1112,
+          "y": 574,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 876,
+          "y": 760,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 125,
+        "w": 525,
+        "h": 709,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 160,
+        "h": 160,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 864,
+        "y": 568,
+        "w": 320,
+        "h": 256,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 275,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "sheet",
+    "file": "tools\\_mobile\\r1\\ipadpro11-land-sheet.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": {
+      "body": "touch",
+      "dpr": 2,
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 1088,
+          "y": 728,
+          "w": 96,
+          "h": 96,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 964,
+          "y": 752,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 988,
+          "y": 668,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 1048,
+          "y": 608,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 1112,
+          "y": 574,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 876,
+          "y": 760,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 125,
+        "w": 525,
+        "h": 709,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 160,
+        "h": 160,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 864,
+        "y": 568,
+        "w": 320,
+        "h": 256,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "constellation",
+    "file": "tools\\_mobile\\r1\\ipadpro11-land-constellation.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": {
+      "body": "touch",
+      "dpr": 2,
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 1088,
+          "y": 728,
+          "w": 96,
+          "h": 96,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 964,
+          "y": 752,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 988,
+          "y": 668,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 1048,
+          "y": 608,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 1112,
+          "y": 574,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 876,
+          "y": 760,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 125,
+        "w": 525,
+        "h": 709,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 160,
+        "h": 160,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 864,
+        "y": 568,
+        "w": 320,
+        "h": 256,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": []
+    }
+  },
+  {
+    "device": "ipadpro11-land",
+    "scene": "inventory",
+    "file": "tools\\_mobile\\r1\\ipadpro11-land-inventory.png",
+    "viewport": {
+      "width": 1194,
+      "height": 834
+    },
+    "dpr": 2,
+    "errs": [],
+    "probe": {
+      "body": "touch modal",
+      "dpr": 2,
+      "vp": {
+        "w": 1194,
+        "h": 834
+      },
+      "coarse": true,
+      "maxTouch": 1,
+      "chips": [
+        {
+          "id": "slot0",
+          "x": 1088,
+          "y": 728,
+          "w": 96,
+          "h": 96,
+          "vis": true
+        },
+        {
+          "id": "slot1",
+          "x": 964,
+          "y": 752,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot2",
+          "x": 988,
+          "y": 668,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot3",
+          "x": 1048,
+          "y": 608,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        },
+        {
+          "id": "slot4",
+          "x": 1112,
+          "y": 574,
+          "w": 72,
+          "h": 72,
+          "vis": true
+        },
+        {
+          "id": "flask-chip",
+          "x": 876,
+          "y": 760,
+          "w": 64,
+          "h": 64,
+          "vis": true
+        }
+      ],
+      "stick": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "stickzone": {
+        "x": 0,
+        "y": 125,
+        "w": 525,
+        "h": 709,
+        "vis": true
+      },
+      "stairs": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "minimap": {
+        "x": 12,
+        "y": 96,
+        "w": 160,
+        "h": 160,
+        "vis": true
+      },
+      "rotateGate": {
+        "x": 0,
+        "y": 0,
+        "w": 0,
+        "h": 0,
+        "vis": false
+      },
+      "cockpit": {
+        "x": 864,
+        "y": 568,
+        "w": 320,
+        "h": 256,
+        "vis": true
+      },
+      "player": {
+        "x": 17.5,
+        "y": 45.5,
+        "hp": 370,
+        "facing": {
+          "x": 0,
+          "y": 1
+        }
+      },
+      "floor": 3,
+      "panelsOpen": [
+        "inv"
+      ]
+    }
+  }
+]

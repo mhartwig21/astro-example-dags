@@ -1,0 +1,1276 @@
+{
+  "url": "http://localhost:5282/iso.html?test&floor=17&level=30&abilities=all&seed=41&eagerassets&clean=1&debug=1",
+  "gameGpu": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+  "staged": {
+    "placed": 18,
+    "liveTotal": 205,
+    "totalMonsters": 205
+  },
+  "scene": {
+    "objects": 9878,
+    "meshes": 3264,
+    "visibleMeshes": 3244,
+    "skinned": 1620,
+    "instanced": 182,
+    "lights": 18,
+    "materials": 518,
+    "geometries": 395,
+    "autoUpdatingMatrices": 1424,
+    "simMonsters": 203,
+    "liveMonsters": 203,
+    "monsterMeshes": 203,
+    "visibleMonsterMeshes": 30,
+    "riggedMonsterMeshes": 203,
+    "riggedVisible": 30,
+    "propEntries": 887,
+    "visibleProps": 139,
+    "near10": 30,
+    "preset": "balanced",
+    "pixelRatioCap": 1.2,
+    "backbuffer": {
+      "w": 1728,
+      "h": 1022
+    },
+    "dmgElements": 3,
+    "plateElements": 35
+  },
+  "post": {
+    "frames": 266,
+    "medianMs": 68.3,
+    "p95Ms": 142.7,
+    "p99Ms": 1302.4,
+    "maxMs": 1895.8,
+    "callsPerFrame": 807,
+    "ktrisPerFrame": 1058,
+    "composedFrames": 266,
+    "cpuUpdateMedian": 12.6,
+    "cpuRenderMedian": 22.5,
+    "cpuUpdateP95": 23.1,
+    "passStats": [
+      {
+        "i": 0,
+        "name": "RenderPass",
+        "enabled": true,
+        "ms": 12061.200000047684,
+        "calls": 208713,
+        "n": 266
+      },
+      {
+        "i": 1,
+        "name": "WorldGTAOPass",
+        "enabled": true,
+        "ms": 55.90000069141388,
+        "calls": 1064,
+        "n": 266
+      },
+      {
+        "i": 2,
+        "name": "ScaledBloomPass",
+        "enabled": true,
+        "ms": 71.6999980211258,
+        "calls": 3458,
+        "n": 266
+      },
+      {
+        "i": 3,
+        "name": "OutputPass",
+        "enabled": true,
+        "ms": 12.99999988079071,
+        "calls": 266,
+        "n": 266
+      },
+      {
+        "i": 4,
+        "name": "ShaderPass",
+        "enabled": true,
+        "ms": 6.300000190734863,
+        "calls": 266,
+        "n": 266
+      },
+      {
+        "i": 5,
+        "name": "SMAAPass",
+        "enabled": true,
+        "ms": 19.400001645088196,
+        "calls": 798,
+        "n": 266
+      }
+    ],
+    "census": [
+      [
+        "Mesh",
+        25027
+      ],
+      [
+        "Sprite",
+        7801
+      ],
+      [
+        "sword_shield_broken",
+        7410
+      ],
+      [
+        "card_hearts_king_1",
+        5761
+      ],
+      [
+        "card_hearts_king_2",
+        5761
+      ],
+      [
+        "banner_shield_red",
+        4674
+      ],
+      [
+        "coin_stack_medium",
+        4509
+      ],
+      [
+        "coin_stack_small",
+        4029
+      ],
+      [
+        "rubble_half",
+        3930
+      ],
+      [
+        "torch_lit",
+        3192
+      ],
+      [
+        "bone_A",
+        2662
+      ],
+      [
+        "SKINNED:Skeleton_Minion_ArmLeft",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_ArmRight",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_Body",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_Cloak",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_Eyes",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_Head",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_Jaw",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_LegLeft",
+        2394
+      ],
+      [
+        "SKINNED:Skeleton_Minion_LegRight",
+        2394
+      ],
+      [
+        "card_spades_ace_1",
+        1995
+      ],
+      [
+        "card_spades_ace_2",
+        1995
+      ],
+      [
+        "ribcage",
+        1939
+      ],
+      [
+        "skull",
+        1596
+      ],
+      [
+        "INSTANCED:Mesh(x144)",
+        1197
+      ],
+      [
+        "banner_red",
+        1197
+      ],
+      [
+        "Weaponrack_Decorated",
+        1197
+      ],
+      [
+        "chair",
+        1197
+      ],
+      [
+        "INSTANCED:Mesh(x3)",
+        1064
+      ],
+      [
+        "INSTANCED:Mesh(x6)",
+        1034
+      ]
+    ],
+    "playerHp": 999999316,
+    "recapUp": false,
+    "near10": 28
+  },
+  "foreignLoadPct": 65.9,
+  "load0": {
+    "at": 1785726823741,
+    "cpuPct": 83,
+    "gpu3dPct": 97.9,
+    "foreignBrowserProcs": 15,
+    "totalBrowserProcs": 24,
+    "foreignCpuSec": 4249.375,
+    "ownCpuSec": 111.65625
+  },
+  "load1": {
+    "at": 1785726843671,
+    "cpuPct": 87.2,
+    "gpu3dPct": 99.1,
+    "foreignBrowserProcs": 15,
+    "totalBrowserProcs": 24,
+    "foreignCpuSec": 4459.609375,
+    "ownCpuSec": 141.46875
+  },
+  "seconds": 12,
+  "frames": 266,
+  "buckets": [
+    [
+      "idle/program",
+      5437820
+    ],
+    [
+      "three:matrix",
+      391581
+    ],
+    [
+      "three:projectObject/sort",
+      198444
+    ],
+    [
+      "three:setProgram/uniforms",
+      6375785
+    ],
+    [
+      "three:renderBufferDirect",
+      211831
+    ],
+    [
+      "canvas2d",
+      15727
+    ],
+    [
+      "three:shadowmap",
+      45269
+    ],
+    [
+      "gc",
+      17631
+    ],
+    [
+      "three:frustum/cull",
+      12485
+    ],
+    [
+      "dom/style",
+      611
+    ],
+    [
+      "three:animation/skinning",
+      7159
+    ]
+  ],
+  "self": [
+    [
+      "getProgramInfoLog @:0",
+      5655068
+    ],
+    [
+      "(idle) @:0",
+      2765031
+    ],
+    [
+      "(program) @:0",
+      879558
+    ],
+    [
+      "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:4735",
+      246200
+    ],
+    [
+      "update @renderer3d.ts?t=1785725972391:5383",
+      223802
+    ],
+    [
+      "separateMonsters @ai.ts?t=1785725972391:46",
+      201346
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:29394",
+      168997
+    ],
+    [
+      "_setValue_fromArray_setMatrixWorldNeedsUpdate @chunk-3AO7Z7HT.js?v=593067fe:28411",
+      150218
+    ],
+    [
+      "r3d.update @:8",
+      119701
+    ],
+    [
+      "stepMonster @ai.ts?t=1785725972391:1132",
+      114545
+    ],
+    [
+      "projectObject @chunk-3AO7Z7HT.js?v=593067fe:17645",
+      110710
+    ],
+    [
+      "multiplyMatrices @chunk-3AO7Z7HT.js?v=593067fe:3737",
+      103462
+    ],
+    [
+      "evaluate @chunk-3AO7Z7HT.js?v=593067fe:24718",
+      86771
+    ],
+    [
+      "setProgram @chunk-3AO7Z7HT.js?v=593067fe:17902",
+      79649
+    ],
+    [
+      "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js?v=593067fe:17366",
+      68834
+    ],
+    [
+      "stepFloor @game.ts?t=1785725972391:6072",
+      68322
+    ],
+    [
+      "paintNumeral @main3d.ts?t=1785725972391:4190",
+      62967
+    ],
+    [
+      "slerpFlat @chunk-3AO7Z7HT.js?v=593067fe:1988",
+      55283
+    ],
+    [
+      "getAnimations @:0",
+      50819
+    ],
+    [
+      "upload @chunk-3AO7Z7HT.js?v=593067fe:11573",
+      48089
+    ],
+    [
+      "getShaderInfoLog @:0",
+      47361
+    ],
+    [
+      "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:19189",
+      40130
+    ],
+    [
+      "setValueV3f @chunk-3AO7Z7HT.js?v=593067fe:11055",
+      38153
+    ],
+    [
+      "setFromRotationMatrix @chunk-3AO7Z7HT.js?v=593067fe:4277",
+      36412
+    ],
+    [
+      "renderObjects @chunk-3AO7Z7HT.js?v=593067fe:17782",
+      34269
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:10914",
+      32833
+    ],
+    [
+      "refreshPlateHudRects @main3d.ts?t=1785725972391:4401",
+      32383
+    ],
+    [
+      "arraysEqual @chunk-3AO7Z7HT.js?v=593067fe:11012",
+      31539
+    ],
+    [
+      "flatten @chunk-3AO7Z7HT.js?v=593067fe:10994",
+      31203
+    ],
+    [
+      "animate @:0",
+      30216
+    ],
+    [
+      "setTexture2D @chunk-3AO7Z7HT.js?v=593067fe:14762",
+      27515
+    ],
+    [
+      "setValue @chunk-3AO7Z7HT.js?v=593067fe:11565",
+      27397
+    ],
+    [
+      "setValueT1 @chunk-3AO7Z7HT.js?v=593067fe:11237",
+      26133
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:19291",
+      25909
+    ],
+    [
+      "markUniformsLightsNeedsUpdate @chunk-3AO7Z7HT.js?v=593067fe:18097",
+      25788
+    ],
+    [
+      "texSubImage2D @:0",
+      25724
+    ],
+    [
+      "refreshUniformsCommon @chunk-3AO7Z7HT.js?v=593067fe:16538",
+      25517
+    ],
+    [
+      "cloneUniforms @chunk-3AO7Z7HT.js?v=593067fe:7315",
+      25493
+    ],
+    [
+      "uniformMatrix4fv @:0",
+      25067
+    ],
+    [
+      "bindVertexArray @:0",
+      25019
+    ],
+    [
+      "renderObject @chunk-3AO7Z7HT.js?v=593067fe:13571",
+      24472
+    ],
+    [
+      "shown @touchShell.ts:148",
+      24111
+    ],
+    [
+      "dmgShade @main3d.ts?t=1785725972391:4185",
+      20861
+    ],
+    [
+      "gl.renderBufferDirect @:34",
+      18117
+    ],
+    [
+      "(garbage collector) @:0",
+      17631
+    ],
+    [
+      "frame @director.ts?t=1785725970738:69",
+      16144
+    ],
+    [
+      "setValue @chunk-3AO7Z7HT.js?v=593067fe:11520",
+      15918
+    ],
+    [
+      "setFromEuler @chunk-3AO7Z7HT.js?v=593067fe:2093",
+      15569
+    ],
+    [
+      "frame @main3d.ts?t=1785725972391:6689",
+      14957
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:8217",
+      14290
+    ],
+    [
+      "dist @combat.ts:3",
+      13389
+    ],
+    [
+      "bindBuffer @:0",
+      13216
+    ],
+    [
+      "vertexAttribPointer @chunk-3AO7Z7HT.js?v=593067fe:9342",
+      12800
+    ],
+    [
+      "SRGBToLinear @chunk-3AO7Z7HT.js?v=593067fe:1139",
+      12394
+    ],
+    [
+      "copyArray @chunk-3AO7Z7HT.js?v=593067fe:11019",
+      12238
+    ],
+    [
+      "isWalkableForMonster @floor.ts?t=1785725970738:426",
+      11902
+    ],
+    [
+      "setTextureParameters @chunk-3AO7Z7HT.js?v=593067fe:14825",
+      11291
+    ],
+    [
+      "getProgramCacheKey @chunk-3AO7Z7HT.js?v=593067fe:12536",
+      10823
+    ],
+    [
+      "setValues @chunk-3AO7Z7HT.js?v=593067fe:5729",
+      10611
+    ],
+    [
+      "getBindingState @chunk-3AO7Z7HT.js?v=593067fe:9218",
+      10447
+    ],
+    [
+      "updateShowHud @main3d.ts?t=1785725972391:1569",
+      10218
+    ],
+    [
+      "getRGB @chunk-3AO7Z7HT.js?v=593067fe:5537",
+      10122
+    ],
+    [
+      "nearestPlayer @game.ts?t=1785725972391:1151",
+      10027
+    ],
+    [
+      "skinIdFor @renderer3d.ts?t=1785725972391:2850",
+      9811
+    ],
+    [
+      "updateMobPlates @main3d.ts?t=1785725972391:4416",
+      9528
+    ],
+    [
+      "_getShaderCacheForMaterial @chunk-3AO7Z7HT.js?v=593067fe:12266",
+      9253
+    ],
+    [
+      "getParameters @chunk-3AO7Z7HT.js?v=593067fe:12323",
+      9018
+    ],
+    [
+      "setValueM4 @chunk-3AO7Z7HT.js?v=593067fe:11121",
+      8857
+    ],
+    [
+      "uniform3f @:0",
+      8798
+    ],
+    [
+      "getProgram @chunk-3AO7Z7HT.js?v=593067fe:17813",
+      8410
+    ],
+    [
+      "setValueV1f @chunk-3AO7Z7HT.js?v=593067fe:11035",
+      8264
+    ],
+    [
+      "useProgram @:0",
+      8069
+    ],
+    [
+      "emitHits @renderer3d.ts?t=1785725972391:6967",
+      7933
+    ],
+    [
+      "getTextureCacheKey @chunk-3AO7Z7HT.js?v=593067fe:14744",
+      7926
+    ],
+    [
+      "applyMatrix4 @chunk-3AO7Z7HT.js?v=593067fe:3158",
+      7877
+    ],
+    [
+      "needsUpdate @chunk-3AO7Z7HT.js?v=593067fe:9259",
+      7662
+    ],
+    [
+      "determinant @chunk-3AO7Z7HT.js?v=593067fe:3787",
+      7547
+    ],
+    [
+      "play @renderer3d.ts?t=1785725972391:2350",
+      7527
+    ],
+    [
+      "smoothedVel @renderer3d.ts?t=1785725972391:2456",
+      7512
+    ],
+    [
+      "uploadTexture @chunk-3AO7Z7HT.js?v=593067fe:14886",
+      7512
+    ],
+    [
+      "pixelStorei @:0",
+      7356
+    ],
+    [
+      "bindTexture @:0",
+      7166
+    ],
+    [
+      "_updateTime @chunk-3AO7Z7HT.js?v=593067fe:28991",
+      7159
+    ],
+    [
+      "texSubImage2D @chunk-3AO7Z7HT.js?v=593067fe:14172",
+      7061
+    ],
+    [
+      "clearRect @:0",
+      6928
+    ],
+    [
+      "dmgText @main3d.ts?t=1785725972391:4181",
+      6919
+    ],
+    [
+      "setup @chunk-3AO7Z7HT.js?v=593067fe:9189",
+      6823
+    ],
+    [
+      "vertexAttribPointer @:0",
+      6708
+    ],
+    [
+      "getProgramParameter @:0",
+      6671
+    ],
+    [
+      "intersectsObject @chunk-3AO7Z7HT.js?v=593067fe:8043",
+      6507
+    ],
+    [
+      "drawMinimap @main3d.ts?t=1785725972391:3592",
+      6285
+    ],
+    [
+      "WebGLRenderer.render @chunk-3AO7Z7HT.js?v=593067fe:17558",
+      6208
+    ],
+    [
+      "setMaterial @chunk-3AO7Z7HT.js?v=593067fe:14048",
+      5843
+    ],
+    [
+      "pump @:4",
+      5644
+    ],
+    [
+      "applyHitFlash @renderer3d.ts?t=1785725972391:1602",
+      5365
+    ],
+    [
+      "shaderSource @:0",
+      5136
+    ],
+    [
+      "dmgAnimate @main3d.ts?t=1785725972391:4250",
+      4987
+    ],
+    [
+      "maybeStartEncounter @game.ts?t=1785725972391:1615",
+      4900
+    ],
+    [
+      "updateHud @main3d.ts?t=1785725972391:6212",
+      4811
+    ],
+    [
+      "step @game.ts?t=1785725972391:6052",
+      4803
+    ],
+    [
+      "activeTexture @:0",
+      4657
+    ],
+    [
+      "get @chunk-3AO7Z7HT.js?v=593067fe:8205",
+      4622
+    ],
+    [
+      "fillText @:0",
+      4571
+    ],
+    [
+      "residentAct @staging.ts:27",
+      4192
+    ],
+    [
+      "anim.onfinish @main3d.ts?t=1785725972391:4272",
+      4105
+    ],
+    [
+      "bindTexture @chunk-3AO7Z7HT.js?v=593067fe:14127",
+      3906
+    ],
+    [
+      "initTexture @chunk-3AO7Z7HT.js?v=593067fe:14851",
+      3866
+    ],
+    [
+      "updateMonsterStatuses @game.ts?t=1785725972391:5233",
+      3679
+    ],
+    [
+      "setValueV2f @chunk-3AO7Z7HT.js?v=593067fe:11041",
+      3637
+    ],
+    [
+      "save @:0",
+      3604
+    ],
+    [
+      "spawnDamageNumber @main3d.ts?t=1785725972391:4280",
+      3468
+    ],
+    [
+      "replaceLightNums @chunk-3AO7Z7HT.js?v=593067fe:11728",
+      3136
+    ],
+    [
+      "c.onBeforeCompile @renderer3d.ts?t=1785725972391:1628",
+      3115
+    ],
+    [
+      "stroke @:0",
+      3006
+    ],
+    [
+      "getNormalMatrix @chunk-3AO7Z7HT.js?v=593067fe:843",
+      2872
+    ],
+    [
+      "sort @chunk-3AO7Z7HT.js?v=593067fe:12866",
+      2766
+    ],
+    [
+      "createBufferSource @:0",
+      2685
+    ],
+    [
+      "play @engine.ts:75",
+      2682
+    ],
+    [
+      "get @chunk-3AO7Z7HT.js?v=593067fe:12758",
+      2665
+    ],
+    [
+      "dashParams @abilities.ts?t=1785725970738:283",
+      2550
+    ],
+    [
+      "includeReplacer @chunk-3AO7Z7HT.js?v=593067fe:11740",
+      2541
+    ],
+    [
+      "WebGLProgram.getUniforms @chunk-3AO7Z7HT.js?v=593067fe:12190",
+      2525
+    ],
+    [
+      "refreshFogUniforms @chunk-3AO7Z7HT.js?v=593067fe:16486",
+      2520
+    ],
+    [
+      "texParameteri @:0",
+      2393
+    ],
+    [
+      "updateWindupFx @renderer3d.ts?t=1785725972391:4802",
+      2387
+    ],
+    [
+      "viewport @:0",
+      2387
+    ],
+    [
+      "measureText @:0",
+      2366
+    ],
+    [
+      "wander @ai.ts?t=1785725972391:151",
+      2338
+    ],
+    [
+      "generateUUID @chunk-3AO7Z7HT.js?v=593067fe:250",
+      2291
+    ],
+    [
+      "setOptional @chunk-3AO7Z7HT.js?v=593067fe:11569",
+      2264
+    ],
+    [
+      "drawElements @:0",
+      2257
+    ],
+    [
+      "(anonymous) @main3d.ts?t=1785725972391:3414",
+      2247
+    ],
+    [
+      "querySelectorAll @:0",
+      2231
+    ],
+    [
+      "copy @chunk-3AO7Z7HT.js?v=593067fe:3111",
+      2198
+    ],
+    [
+      "updateHazards @game.ts?t=1785725972391:5289",
+      2065
+    ],
+    [
+      "g.userData.animTick @renderer3d.ts?t=1785725972391:2366",
+      2008
+    ],
+    [
+      "update @ambient.ts:277",
+      1985
+    ],
+    [
+      "resolveIncludes @chunk-3AO7Z7HT.js?v=593067fe:11736",
+      1925
+    ],
+    [
+      "c.onBeforeCompile @renderer3d.ts?t=1785725972391:1284",
+      1919
+    ],
+    [
+      "makeRotationFromEuler @chunk-3AO7Z7HT.js?v=593067fe:3616",
+      1861
+    ],
+    [
+      "saveCache @chunk-3AO7Z7HT.js?v=593067fe:9283",
+      1852
+    ],
+    [
+      "createVertexArray @:0",
+      1801
+    ],
+    [
+      "checkProgramGuard @renderer3d.ts?t=1785725972391:1979",
+      1793
+    ],
+    [
+      "invert @chunk-3AO7Z7HT.js?v=593067fe:3831",
+      1781
+    ],
+    [
+      "painterSortStable @chunk-3AO7Z7HT.js?v=593067fe:12783",
+      1754
+    ],
+    [
+      "dhypot @dmath.ts:1",
+      1751
+    ],
+    [
+      "_lerp @chunk-3AO7Z7HT.js?v=593067fe:28199",
+      1731
+    ],
+    [
+      "getChannel @chunk-3AO7Z7HT.js?v=593067fe:12318",
+      1721
+    ],
+    [
+      "TouchController.now @touch.ts:324",
+      1691
+    ],
+    [
+      "WebGLShader @chunk-3AO7Z7HT.js?v=593067fe:11590",
+      1664
+    ],
+    [
+      "enable @chunk-3AO7Z7HT.js?v=593067fe:13873",
+      1648
+    ],
+    [
+      "_SphereGeometry @chunk-3AO7Z7HT.js?v=593067fe:23538",
+      1580
+    ],
+    [
+      "_Object3D @chunk-3AO7Z7HT.js?v=593067fe:4438",
+      1557
+    ],
+    [
+      "Mesh @chunk-3AO7Z7HT.js?v=593067fe:7018",
+      1512
+    ],
+    [
+      "visible @main3d.ts?t=1785725972391:1196",
+      1470
+    ],
+    [
+      "cancel @:0",
+      1453
+    ],
+    [
+      "getMaxScaleOnAxis @chunk-3AO7Z7HT.js?v=593067fe:3871",
+      1438
+    ],
+    [
+      "getUniformLocation @:0",
+      1375
+    ],
+    [
+      "key @ai.ts?t=1785725972391:50",
+      1372
+    ],
+    [
+      "hot @fxParticles.ts:186",
+      1368
+    ],
+    [
+      "requestAnimationFrame @:0",
+      1367
+    ],
+    [
+      "updateInterference @game.ts?t=1785725972391:1574",
+      1310
+    ],
+    [
+      "updateBossBar @main3d.ts?t=1785725972391:1393",
+      1306
+    ],
+    [
+      "worldToScreen @renderer3d.ts?t=1785725972391:7415",
+      1304
+    ],
+    [
+      "write @fxParticles.ts:238",
+      1296
+    ],
+    [
+      "moveWithCollision @movement.ts?t=1785725970183:5",
+      1290
+    ],
+    [
+      "flowDir @pathfield.ts?t=1785725970738:64",
+      1282
+    ],
+    [
+      "applyLoadout @renderer3d.ts?t=1785725972391:2941",
+      1274
+    ],
+    [
+      "drawImage @:0",
+      1267
+    ],
+    [
+      "doPlayerAttack @game.ts?t=1785725972391:3125",
+      1263
+    ],
+    [
+      "onRotationChange @chunk-3AO7Z7HT.js?v=593067fe:4452",
+      1252
+    ],
+    [
+      "d2 @renderer3d.ts?t=1785725972391:6688",
+      1251
+    ],
+    [
+      "cdRose @renderer3d.ts?t=1785725972391:2388",
+      1247
+    ],
+    [
+      "onFirstUse @chunk-3AO7Z7HT.js?v=593067fe:12146",
+      1229
+    ],
+    [
+      "getUniforms @chunk-3AO7Z7HT.js?v=593067fe:12700",
+      1222
+    ],
+    [
+      "getUniformList @chunk-3AO7Z7HT.js?v=593067fe:17876",
+      1220
+    ],
+    [
+      "damagePlayerHit @game.ts?t=1785725972391:2467",
+      1198
+    ],
+    [
+      "uniformMatrix3fv @:0",
+      1194
+    ],
+    [
+      "setup @chunk-3AO7Z7HT.js?v=593067fe:13065",
+      1190
+    ],
+    [
+      "seqWithValue @chunk-3AO7Z7HT.js?v=593067fe:11581",
+      1186
+    ],
+    [
+      "g.userData.animBusy @renderer3d.ts?t=1785725972391:2372",
+      1183
+    ],
+    [
+      "angleBetween @combat.ts:21",
+      1161
+    ],
+    [
+      "monsterTempo @config.ts?t=1785725970738:2270",
+      1143
+    ],
+    [
+      "getUnlitUniformColorSpace @chunk-3AO7Z7HT.js?v=593067fe:7354",
+      1123
+    ],
+    [
+      "dropLoot @game.ts?t=1785725972391:2751",
+      1112
+    ],
+    [
+      "setValueM3 @chunk-3AO7Z7HT.js?v=593067fe:11107",
+      1111
+    ],
+    [
+      "(anonymous) @main3d.ts?t=1785725972391:1067",
+      1049
+    ],
+    [
+      "addColorStop @:0",
+      991
+    ],
+    [
+      "setupVertexAttributes @chunk-3AO7Z7HT.js?v=593067fe:9349",
+      972
+    ],
+    [
+      "createGain @:0",
+      969
+    ],
+    [
+      "uniform1f @:0",
+      961
+    ],
+    [
+      "setScalar @chunk-3AO7Z7HT.js?v=593067fe:2386",
+      912
+    ],
+    [
+      "reapDead @game.ts?t=1785725972391:3299",
+      901
+    ],
+    [
+      "pollTouch @main3d.ts?t=1785725972391:6429",
+      878
+    ],
+    [
+      "tickStatuses @status.ts?t=1785725970738:28",
+      873
+    ],
+    [
+      "castAbility @game.ts?t=1785725972391:5783",
+      858
+    ],
+    [
+      "lookAt @chunk-3AO7Z7HT.js?v=593067fe:4572",
+      846
+    ],
+    [
+      "transform @:0",
+      843
+    ],
+    [
+      "connect @:0",
+      822
+    ],
+    [
+      "disableUnusedAttributes @chunk-3AO7Z7HT.js?v=593067fe:9332",
+      786
+    ]
+  ],
+  "incl": [
+    [
+      "(root) @:0",
+      12714343
+    ],
+    [
+      "frame @main3d.ts?t=1785725972391:6689",
+      9010134
+    ],
+    [
+      "r3d.render @:10",
+      7257030
+    ],
+    [
+      "render @renderer3d.ts?t=1785725972391:7465",
+      7257030
+    ],
+    [
+      "render @three_examples_jsm_postprocessing_EffectComposer__js.js?v=b61c1568:128",
+      7255237
+    ],
+    [
+      "p.render @:22",
+      7254602
+    ],
+    [
+      "WebGLRenderer.render @chunk-3AO7Z7HT.js?v=593067fe:17558",
+      7247375
+    ],
+    [
+      "render @three_examples_jsm_postprocessing_RenderPass__js.js?v=edfea5ec:22",
+      7224949
+    ],
+    [
+      "gl.renderBufferDirect @:34",
+      6587616
+    ],
+    [
+      "WebGLRenderer.renderBufferDirect @chunk-3AO7Z7HT.js?v=593067fe:17366",
+      6569499
+    ],
+    [
+      "renderScene @chunk-3AO7Z7HT.js?v=593067fe:17703",
+      6480533
+    ],
+    [
+      "renderObjects @chunk-3AO7Z7HT.js?v=593067fe:17782",
+      6477654
+    ],
+    [
+      "setProgram @chunk-3AO7Z7HT.js?v=593067fe:17902",
+      6371681
+    ],
+    [
+      "WebGLProgram.getUniforms @chunk-3AO7Z7HT.js?v=593067fe:12190",
+      5714750
+    ],
+    [
+      "onFirstUse @chunk-3AO7Z7HT.js?v=593067fe:12146",
+      5712225
+    ],
+    [
+      "getProgramInfoLog @:0",
+      5655068
+    ],
+    [
+      "(idle) @:0",
+      2765031
+    ],
+    [
+      "r3d.update @:8",
+      941021
+    ],
+    [
+      "(program) @:0",
+      879558
+    ],
+    [
+      "update @renderer3d.ts?t=1785725972391:5383",
+      821320
+    ],
+    [
+      "g.userData.animTick @renderer3d.ts?t=1785725972391:2366",
+      508579
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:29394",
+      506571
+    ],
+    [
+      "step @game.ts?t=1785725972391:6052",
+      465656
+    ],
+    [
+      "stepFloor @game.ts?t=1785725972391:6072",
+      459641
+    ],
+    [
+      "updateMatrixWorld @chunk-3AO7Z7HT.js?v=593067fe:4735",
+      327352
+    ],
+    [
+      "WebGLShadowMap.render @chunk-3AO7Z7HT.js?v=593067fe:13428",
+      245813
+    ],
+    [
+      "renderObject @chunk-3AO7Z7HT.js?v=593067fe:13571",
+      244555
+    ],
+    [
+      "separateMonsters @ai.ts?t=1785725972391:46",
+      214855
+    ],
+    [
+      "upload @chunk-3AO7Z7HT.js?v=593067fe:11573",
+      205901
+    ],
+    [
+      "spawnDamageNumber @main3d.ts?t=1785725972391:4280",
+      198898
+    ],
+    [
+      "setValue @chunk-3AO7Z7HT.js?v=593067fe:11565",
+      198535
+    ],
+    [
+      "_setValue_fromArray_setMatrixWorldNeedsUpdate @chunk-3AO7Z7HT.js?v=593067fe:28411",
+      186630
+    ],
+    [
+      "projectObject @chunk-3AO7Z7HT.js?v=593067fe:17645",
+      179316
+    ],
+    [
+      "stepMonster @ai.ts?t=1785725972391:1132",
+      149506
+    ],
+    [
+      "setValueT1 @chunk-3AO7Z7HT.js?v=593067fe:11237",
+      139317
+    ],
+    [
+      "evaluate @chunk-3AO7Z7HT.js?v=593067fe:24718",
+      138159
+    ],
+    [
+      "setTexture2D @chunk-3AO7Z7HT.js?v=593067fe:14762",
+      121133
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:10914",
+      108491
+    ],
+    [
+      "setup @chunk-3AO7Z7HT.js?v=593067fe:9189",
+      106421
+    ],
+    [
+      "multiplyMatrices @chunk-3AO7Z7HT.js?v=593067fe:3737",
+      103462
+    ],
+    [
+      "paintNumeral @main3d.ts?t=1785725972391:4190",
+      99099
+    ],
+    [
+      "getProgram @chunk-3AO7Z7HT.js?v=593067fe:17813",
+      87183
+    ],
+    [
+      "uploadTexture @chunk-3AO7Z7HT.js?v=593067fe:14886",
+      82446
+    ],
+    [
+      "update @chunk-3AO7Z7HT.js?v=593067fe:19291",
+      73254
+    ],
+    [
+      "slerpFlat @chunk-3AO7Z7HT.js?v=593067fe:1988",
+      55283
+    ]
+  ]
+}

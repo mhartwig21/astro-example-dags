@@ -1,0 +1,365 @@
+[
+  {
+    "device": "iphone13-land",
+    "scene": "inventory",
+    "file": "tools\\_hud\\final\\iphone13-land-inventory.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "inv"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "inv": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 59,
+            "y": 12,
+            "w": 632,
+            "h": 297
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 361,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 10,
+            "under44": 0,
+            "smallest": {
+              "t": "on",
+              "w": 292,
+              "h": 44
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "EQUIPPED",
+            "BAG",
+            "DONE"
+          ],
+          "cols": {
+            ".cols": {
+              "display": "block",
+              "cols": "1fr 1fr",
+              "columnCount": "auto",
+              "w": 590,
+              "children": [
+                590
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "sheet",
+    "file": "tools\\_hud\\final\\iphone13-land-sheet.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "sheet"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "sheet": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 59,
+            "y": 12,
+            "w": 632,
+            "h": 297
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 1076,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 2,
+            "under44": 0,
+            "smallest": {
+              "t": "tp-x",
+              "w": 46,
+              "h": 46
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "DONE"
+          ],
+          "cols": {
+            ".sheet-cols": {
+              "display": "grid",
+              "cols": "590px",
+              "columnCount": "auto",
+              "w": 590,
+              "children": [
+                590,
+                590
+              ]
+            },
+            ".sheet-duo": {
+              "display": "grid",
+              "cols": "590px",
+              "columnCount": "auto",
+              "w": 590,
+              "children": [
+                590,
+                590
+              ]
+            }
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  },
+  {
+    "device": "iphone13-land",
+    "scene": "constellation",
+    "file": "tools\\_hud\\final\\iphone13-land-constellation.png",
+    "viewport": {
+      "width": 750,
+      "height": 342
+    },
+    "dpr": 3,
+    "errs": [],
+    "panelsOpen": [
+      "abil"
+    ],
+    "probe": null,
+    "measure": {
+      "vp": {
+        "w": 750,
+        "h": 342
+      },
+      "dpr": 3,
+      "body": "phone touch modal",
+      "panels": {
+        "abil": {
+          "root": {
+            "x": 0,
+            "y": 0,
+            "w": 750,
+            "h": 342
+          },
+          "panel": {
+            "x": 59,
+            "y": 12,
+            "w": 632,
+            "h": 297
+          },
+          "overflow": {
+            "right": 0,
+            "bottom": 0,
+            "left": 0,
+            "top": 0,
+            "scrollX": 0,
+            "scrollY": 3424,
+            "overflowX": "hidden",
+            "overflowY": "auto"
+          },
+          "targets": {
+            "n": 28,
+            "under44": 0,
+            "smallest": {
+              "t": "tp-x",
+              "w": 46,
+              "h": 46
+            },
+            "examples": []
+          },
+          "closers": [
+            "✕",
+            "DONE"
+          ],
+          "cols": {
+            ".grid": {
+              "display": "block",
+              "cols": "none",
+              "columnCount": "1",
+              "w": 590,
+              "children": [
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590,
+                590
+              ]
+            }
+          },
+          "constellation": {
+            "grid": {
+              "x": 80,
+              "y": 141,
+              "w": 590,
+              "h": 2685
+            },
+            "overflow": {
+              "right": 0,
+              "bottom": 2484,
+              "left": 0,
+              "top": 0,
+              "scrollX": 0,
+              "scrollY": 0,
+              "overflowX": "visible",
+              "overflowY": "visible"
+            },
+            "cards": [
+              {
+                "x": 80,
+                "y": 141,
+                "w": 590,
+                "h": 217
+              },
+              {
+                "x": 80,
+                "y": 372,
+                "w": 590,
+                "h": 217
+              },
+              {
+                "x": 80,
+                "y": 602,
+                "w": 590,
+                "h": 238
+              },
+              {
+                "x": 80,
+                "y": 854,
+                "w": 590,
+                "h": 240
+              },
+              {
+                "x": 80,
+                "y": 1108,
+                "w": 590,
+                "h": 169
+              },
+              {
+                "x": 80,
+                "y": 1290,
+                "w": 590,
+                "h": 193
+              }
+            ],
+            "nodes": [
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 13,
+                "h": 13
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              },
+              {
+                "w": 8,
+                "h": 8
+              }
+            ],
+            "colStyle": "1"
+          }
+        }
+      }
+    },
+    "drive": null,
+    "aim": null,
+    "aimDiff": null
+  }
+]
