@@ -107,9 +107,9 @@ const APPROACH_DUCK = 0.22;
  */
 const BEAT_SOUNDS: Record<BossEvent["kind"], SoundId | null> = {
   intro: "boss_intro",
-  phase: "band_sting", // the phase-transition stinger §5.4 asked for
+  phase: "boss_phase", // dedicated phase HIT (row 15 — band_sting retired from double duty)
   intermission: "sponsor", // THE COMMERCIAL BREAK, and the clip is literally a jingle
-  punish: "crit", // the unload window: the fattest impact clip we own
+  punish: "boss_punish", // the unload window OPENS: crowd-gasp + crack
   plate: "item", // armour coming off, metal on stone
   shieldbreak: "door_unlock", // a lock giving way
   enrage: "warning",
@@ -144,6 +144,7 @@ interface Prev {
   cataCd: number;
   flask: number;
   doubleCd: number;
+  conceded: boolean;
 }
 
 export class AudioDirector {
@@ -424,17 +425,25 @@ export class AudioDirector {
         be.kind === "punish" ||
         (be.kind === "phase" && be.reason === "mechanic")
       ) this.sink.play("crowd");
-      // The kill: the sim marks it as a phase edge labelled DEFEATED.
+      // The kill: the sim marks it as a phase edge labelled DEFEATED. The
+      // low tail (boss_down) settles the building over the corpse (row 15).
       if (be.kind === "phase" && be.label === "DEFEATED") {
         this.sink.play("kill", { gain: 1, force: true });
+        this.sink.play("boss_down", { force: true });
         this.sink.play("crowd");
       }
     }
 
     // A multi-kill this step: the crowd loves it. (Throttled in the engine.)
     if (state.killsThisStep >= 3) this.sink.play("crowd");
-    // The System speaks — one chime regardless of how many lines queued.
-    if (announcements.length > 0) this.sink.play("announce");
+    // The System speaks — one IDENT regardless of how many lines queued
+    // (row 8): normal lines get the 2-note blip, a headline anywhere in the
+    // batch upgrades it to the heavy ident. TODAY'S RULE additionally gets
+    // its paper stamp — bureaucracy, audible (row 11).
+    if (announcements.length > 0) {
+      this.sink.play(announcements.some((a) => a.priority === "high") ? "ident_high" : "ident");
+      if (announcements.some((a) => a.text.startsWith("TODAY'S RULE"))) this.sink.play("stamp");
+    }
 
     const cur: Prev = {
       phase: state.phase,
@@ -456,6 +465,7 @@ export class AudioDirector {
       cataCd: p.cd.cataclysm ?? 0,
       flask: p.flaskCharges,
       doubleCd: p.cd.stuntdouble ?? 0,
+      conceded: p.conceded === true,
     };
 
     const prev = this.prev;
@@ -467,12 +477,16 @@ export class AudioDirector {
       if (prev.phase === "safe" && cur.phase === "warning") this.sink.play("warning");
       if (cur.floor !== prev.floor) {
         this.sink.play("descend");
+        this.sink.play("descend_whoosh"); // row 17: the portal swallows you
         // Crossing into a new 3-floor band: the season enters a new act.
         if (Math.floor((cur.floor - 1) / 3) !== Math.floor((prev.floor - 1) / 3)) {
           this.sink.play("band_sting");
         }
       }
       if (prev.status === "playing" && cur.status === "dead") this.sink.play("death");
+      // DEATH IS A DOOR (row 14): the concede is a single cold door-close.
+      // Terminal, dry, no musical comment — the race forgets nobody.
+      if (cur.conceded && !prev.conceded) this.sink.play("door_close", { force: true });
       if (prev.status === "playing" && cur.status === "won") this.sink.play("victory");
       if (prev.locked && !cur.locked) this.sink.play("door_unlock");
       // Local player beats.

@@ -167,6 +167,8 @@ pointers for the audio sources too.
 | `sfx/swing,tell,kill,crowd,boss_intro.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (seeded/deterministic; measured against SOUNDPLAN §2.2 by `tools/audio/measure.mjs`) | this project | CC0 (own work) |
 | `sfx/apply_{burn,poison,chill}.ogg`, `sfx/smash_{wood,clay}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-world.mjs` (status-apply cues + breakable smash family) | this project | CC0 (own work) |
 | `sfx/barks/bark_{skel,org,hum,mech,air}_{aggro,pain,death}_{a,b}.ogg` (30 files) | Synthesized in-repo by `tools/audio/gen-sfx-barks.mjs` (five archetype-family voices; SOUNDPLAN row 9) | this project | CC0 (own work) |
+| `sfx/{ident,ident_high,stamp,count_tick,count_go,ledger_bank,door_close,draft_pick,draft_bank,descend_whoosh,verdict,till}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (the System's stinger language — one shared bell timbre) | this project | CC0 (own work) |
+| `sfx/boss_{phase,punish,down}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (dedicated boss beats; SOUNDPLAN row 15) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.

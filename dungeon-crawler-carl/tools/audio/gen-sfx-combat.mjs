@@ -90,6 +90,59 @@ const OUT = new URL("../../public/audio/sfx/", import.meta.url).pathname.replace
   renderOgg(OUT + "crowd.ogg", x);
 }
 
+// ---- boss_phase: the phase-transition HIT (SOUNDPLAN row 15 — band_sting
+// was doing double duty). A dry cluster impact + short upward sweep: the
+// fight just changed shape, says the broadcast.
+{
+  const r = rng(0xb0552);
+  const hit = [98, 98 * 1.012, 147].map((f, i) => {
+    const s = saw(0.7, f, f * 0.99);
+    filt(s, "lowpass", 900, 0.8);
+    env(s, [[0, 0], [0.005, 1], [0.4, 0.4], [0.7, 0]]);
+    return [s, 0, i < 2 ? 0.5 : 0.35];
+  });
+  const sweep = filt(noise(0.35, r), "bandpass", [500, 3200], 1.4);
+  env(sweep, [[0, 0], [0.28, 0.7], [0.35, 0]]);
+  const sub = sine(0.4, 80, 45);
+  env(sub, [[0, 0], [0.005, 1], [0.4, 0]]);
+  let x = mix([sweep, 0, 0.5], ...hit.map(([s, at, g]) => [s, 0.3, g]), [sub, 0.3, 0.9]);
+  x = verb(x, { time: 0.5, wet: 0.14, damp: 0.4 });
+  master(x, { rmsDb: -14, peakDb: -4.5, windowSec: 0.4 });
+  declick(x);
+  renderOgg(OUT + "boss_phase.ogg", x);
+}
+
+// ---- boss_punish: the unload window OPENS — a crowd gasp (inhale swell)
+// into a dry crack. The one moment the studio holds its breath.
+{
+  const r = rng(0xb0553);
+  const gasp = filt(pink(0.4, r), "bandpass", [600, 1800], 1.6);
+  env(gasp, [[0, 0], [0.3, 1], [0.4, 0.2]]);
+  const crack = filt(noise(0.06, r), "bandpass", [4200, 1200], 0.9);
+  env(crack, [[0, 0], [0.002, 1], [0.06, 0]]);
+  const thump = sine(0.2, 130, 60);
+  env(thump, [[0, 0], [0.004, 1], [0.2, 0]]);
+  let x = mix([gasp, 0, 0.7], [crack, 0.4, 1], [thump, 0.4, 0.9]);
+  master(x, { rmsDb: -14, peakDb: -4.5, windowSec: 0.3 });
+  declick(x);
+  renderOgg(OUT + "boss_punish.ogg", x);
+}
+
+// ---- boss_down: the LOW TAIL layered under kill+crowd on DEFEATED — a sub
+// drop and a long dark decay. The building settles over the corpse.
+{
+  const r = rng(0xb0554);
+  const drop = sine(1.4, 90, 30);
+  env(drop, [[0, 0], [0.01, 1], [0.8, 0.4], [1.4, 0]]);
+  const rumble = filt(noise(1.4, r), "lowpass", 160, 0.9);
+  env(rumble, [[0, 0], [0.05, 0.8], [1.4, 0]]);
+  let x = mix([drop, 0, 1], [rumble, 0, 0.6]);
+  x = verb(x, { time: 0.8, wet: 0.2, damp: 0.6 });
+  master(x, { rmsDb: -15, peakDb: -4.5, windowSec: 0.5 });
+  declick(x);
+  renderOgg(OUT + "boss_down.ogg", x);
+}
+
 // ---- boss_intro: THE RINGSIDE INTRODUCTION, ~1.7s. Stinger language, not a
 // fanfare: a noise riser into a detuned low brass-cluster hit with a sub
 // thump, and a single dry broadcast "ping" over the decay. A little too

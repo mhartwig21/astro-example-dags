@@ -120,6 +120,30 @@ export const AUDIO_MANIFEST = {
   death: { url: "/audio/sfx/death.ogg", bus: "sfx" },
   victory: { url: "/audio/sfx/victory.ogg", bus: "sfx" },
 
+  // The System's stinger language (SOUNDPLAN §4.1 + rows 8/10-17): twelve
+  // cues from ONE generator (tools/audio/gen-sfx-announcer.mjs) sharing a
+  // bell timbre, so the whole announcer surface is one voice — dry,
+  // broadcast, a little too professional. Never a laugh track.
+  ident: { url: "/audio/sfx/ident.ogg", bus: "ui", volume: 0.6, throttleMs: 400 },
+  ident_high: { url: "/audio/sfx/ident_high.ogg", bus: "ui", volume: 0.7, throttleMs: 1000 },
+  stamp: { url: "/audio/sfx/stamp.ogg", bus: "ui", volume: 0.65, throttleMs: 2000 },
+  count_tick: { url: "/audio/sfx/count_tick.ogg", bus: "ui", volume: 0.7, throttleMs: 150 },
+  count_go: { url: "/audio/sfx/count_go.ogg", bus: "ui", volume: 0.85, throttleMs: 1000 },
+  ledger_bank: { url: "/audio/sfx/ledger_bank.ogg", bus: "ui", volume: 0.7, throttleMs: 3000 },
+  door_close: { url: "/audio/sfx/door_close.ogg", bus: "sfx", volume: 0.8, throttleMs: 2000 },
+  draft_pick: { url: "/audio/sfx/draft_pick.ogg", bus: "ui", volume: 0.7 },
+  draft_bank: { url: "/audio/sfx/draft_bank.ogg", bus: "ui", volume: 0.6, throttleMs: 500 },
+  descend_whoosh: { url: "/audio/sfx/descend_whoosh.ogg", bus: "sfx", volume: 0.6, throttleMs: 1500 },
+  verdict: { url: "/audio/sfx/verdict.ogg", bus: "ui", volume: 0.8, throttleMs: 3000 },
+  till: { url: "/audio/sfx/till.ogg", bus: "ui", volume: 0.7, throttleMs: 300 },
+
+  // Boss beats that earned dedicated files (row 15): the phase HIT
+  // (band_sting stops doing double duty), the punish-window opener
+  // (crowd-gasp + crack), and the DEFEATED low tail under kill+crowd.
+  boss_phase: { url: "/audio/sfx/boss_phase.ogg", bus: "sfx", volume: 0.85, throttleMs: 800 },
+  boss_punish: { url: "/audio/sfx/boss_punish.ogg", bus: "sfx", volume: 0.9, throttleMs: 800 },
+  boss_down: { url: "/audio/sfx/boss_down.ogg", bus: "sfx", volume: 0.9, throttleMs: 2000 },
+
   // The Show / DCC flavor.
   announce: { url: "/audio/sfx/announce.ogg", bus: "ui", volume: 0.6, throttleMs: 400 },
   sponsor: { url: "/audio/sfx/sponsor.ogg", bus: "ui" },

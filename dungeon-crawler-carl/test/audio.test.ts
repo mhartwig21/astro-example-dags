@@ -81,15 +81,73 @@ describe("audio director", () => {
     expect(sink.ids()).toHaveLength(0);
   });
 
-  it("chimes once for announcements and roars on multi-kills", () => {
+  it("idents once for announcements and roars on multi-kills", () => {
     const { sink, director, state } = setup();
     state.killsThisStep = 3;
     director.frame(state, [], [
       { text: "LINE ONE", kind: "flavor", priority: "normal" },
       { text: "LINE TWO", kind: "flavor", priority: "normal" },
     ], 0);
-    expect(sink.ids().filter((i) => i === "announce")).toHaveLength(1);
+    expect(sink.ids().filter((i) => i === "ident")).toHaveLength(1);
+    expect(sink.ids()).not.toContain("ident_high");
     expect(sink.ids()).toContain("crowd");
+  });
+
+  it("a headline anywhere in the batch upgrades the ident; TODAY'S RULE stamps", () => {
+    const { sink, director, state } = setup();
+    director.frame(state, [], [
+      { text: "minor line", kind: "flavor", priority: "normal" },
+      { text: "BOSS DOWN", kind: "boss", priority: "high" },
+    ], 0);
+    expect(sink.ids()).toContain("ident_high");
+    expect(sink.ids()).not.toContain("ident");
+    expect(sink.ids()).not.toContain("stamp");
+    sink.played = [];
+    director.frame(state, [], [
+      { text: "TODAY'S RULE: RUSH HOUR. The collapse clocks run 20% shorter.", kind: "show", priority: "high" },
+    ], 0);
+    expect(sink.ids()).toContain("ident_high");
+    expect(sink.ids()).toContain("stamp");
+  });
+
+  it("the descent layers its whoosh under the thunk", () => {
+    const { sink, director, state } = setup();
+    director.frame(state, [], [], 0);
+    state.floor = 2;
+    director.frame(state, [], [], 0);
+    expect(sink.ids()).toEqual(expect.arrayContaining(["descend", "descend_whoosh"]));
+  });
+
+  it("DEATH IS A DOOR: the concede is one cold door-close", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id);
+    p.conceded = true;
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("door_close");
+    sink.played = [];
+    director.frame(state, [], [], p.id); // still conceded — no re-close
+    expect(sink.ids()).not.toContain("door_close");
+  });
+
+  it("boss beats: dedicated phase hit, punish opener, and the DEFEATED low tail", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id, [
+      { kind: "phase", monsterId: 1, phase: 1, reason: "hp", pos: { ...p.pos } },
+    ]);
+    expect(sink.ids()).toContain("boss_phase");
+    sink.played = [];
+    director.frame(state, [], [], p.id, [
+      { kind: "punish", monsterId: 1, pos: { ...p.pos }, duration: 2 },
+    ]);
+    expect(sink.ids()).toContain("boss_punish");
+    expect(sink.ids()).toContain("crowd");
+    sink.played = [];
+    director.frame(state, [], [], p.id, [
+      { kind: "phase", monsterId: 1, label: "DEFEATED", pos: { ...p.pos } },
+    ]);
+    expect(sink.ids()).toEqual(expect.arrayContaining(["boss_phase", "kill", "boss_down", "crowd"]));
   });
 
   it("selects the music bed from run state", () => {

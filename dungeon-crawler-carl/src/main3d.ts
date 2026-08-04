@@ -985,6 +985,10 @@ function submitTelemetry(s: GameState): void {
       for (const line of deposits) pushLogLine(line);
       const headline = deposits.find((l) => /CONTRACT COMPLETE|MILESTONE/.test(l)) ?? deposits[0];
       if (headline) showAnnouncement({ text: headline, kind: "progress", priority: "normal" });
+      // SOUNDPLAN row 13: the run end IS the deposit — coins settle, the
+      // drawer closes. Losing runs bank too; the System is indifferent,
+      // so the sound is the same either way.
+      if (deposits.length > 0) audio.play("ledger_bank");
     })
     .catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
 }
@@ -1744,6 +1748,7 @@ let draftIdleSec = 0; // how long picks have sat unclaimed (drives the one nag)
 let draftNagged = false; // the System reminds exactly once per run
 let prevRewardN = 0;
 let prevUpgradeN = 0;
+let prevBankedN = 0; // drafts already announced by the badge's filing cue
 let prevInSafe = false;
 let shownSponsors = 0;
 let shownViewers = 0;
@@ -2544,7 +2549,15 @@ function chooseDraft(idx: number): void {
   const p = me(state);
   const count = p.pendingRewards.length > 0 ? p.pendingRewards.length : p.pendingUpgrades.length;
   if (idx < 0 || idx >= count) return;
-  audio.play("buy");
+  // SOUNDPLAN rows 6 + 16: a service purchase rings the till (the System
+  // takes a cut — make the cut audible); a constellation pick confirms with
+  // its own shimmer; sponsor/shrine rewards keep the shop chime.
+  const rewardKind = p.pendingRewards[idx]?.kind;
+  audio.play(
+    p.pendingRewards.length === 0 ? "draft_pick"
+    : rewardKind?.startsWith("svc") ? "till"
+    : "buy",
+  );
   if (net) {
     net.choose(p.pendingRewards.length > 0 ? "reward" : "upgrade", idx);
   } else {
@@ -8300,6 +8313,13 @@ function maybeShowRecap(s: GameState): void {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
+    // SOUNDPLAN row 12: ONE grade-reveal sting, pitched by the letter — an
+    // S rings high, a D sits low. Five grades, one file. Fires here (the
+    // status edge, with the card) so board-upgrade re-renders and a second
+    // run in the same session both behave.
+    if (runGrade) {
+      audio.play("verdict", { rate: { S: 1.22, A: 1.12, B: 1.0, C: 0.9, D: 0.82 }[runGrade.letter] ?? 1 });
+    }
   }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
@@ -10918,11 +10938,26 @@ async function main(): Promise<void> {
       gateBtn.disabled = true;
       gateBtn.textContent = "HOLDING FOR THE FIELD";
     });
+    // STARTING GUN audio (SOUNDPLAN row 10): the last five seconds tick,
+    // clinically, and second zero is a GUN — the one synchronized moment
+    // every seat shares. force: the caller (one edge per displayed second)
+    // IS the rate limit, and the beat must not lose a tick to the throttle.
+    let gateShown = false;
+    let gateLastSec = -1;
     net.onGate = (g) => {
       if (g.started) {
+        if (gateShown) audio.play("count_go", { force: true });
+        gateShown = false;
+        gateLastSec = -1;
         gateEl.classList.remove("on");
         return;
       }
+      gateShown = true;
+      const secLeft = Math.ceil(g.msLeft / 1000);
+      if (secLeft !== gateLastSec && secLeft <= 5 && secLeft > 0) {
+        audio.play("count_tick", { force: true });
+      }
+      gateLastSec = secLeft;
       gateEl.classList.add("on");
       gateCountEl.textContent = String(Math.ceil(g.msLeft / 1000));
       // TODAY'S RULE, ON THE CARD (NICHE.md §4.8). The gate frames carry the
@@ -11026,6 +11061,10 @@ async function main(): Promise<void> {
     if (draftPending && draftEl.style.display !== "flex") {
       // Count DRAFTS, not cards: one open pick per pending set + the owed queue.
       const banked = (rewardN > 0 ? 1 : 0) + (upgradeN > 0 ? 1 : 0) + lp.upgradeDraftsOwed;
+      // SOUNDPLAN row 16: a pick banking behind the badge files softly —
+      // the paperwork went somewhere, and the badge is where.
+      if (banked > prevBankedN) audio.play("draft_bank");
+      prevBankedN = banked;
       draftBadge.style.display = "flex";
       draftBadge.innerHTML = `<i class="dia"></i> DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
       draftIdleSec += dt;
@@ -11036,6 +11075,7 @@ async function main(): Promise<void> {
     } else {
       draftBadge.style.display = "none";
       draftIdleSec = 0;
+      prevBankedN = 0;
     }
     // Settlement outfitter (Roam): opened by a dialogue choice, closed by its
     // exit button or by leaving the walls. Reuses the #saferoom panel wholesale.
