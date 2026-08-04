@@ -46,10 +46,31 @@ export const AIM_FILL = 0x39c8e8;
 export const AIM_CORE = 0xeaf9ff;
 export const AIM_OUTLINE = 0x08131a;
 
+/**
+ * MATERIALS ARE SHARED SINGLETONS AND ARE NEVER DISPOSED. A drag rebuilds the
+ * telegraph every time its key changes (the camera's aim-lead ease changes the
+ * stroke width per frame), and each rebuild used to mint 5-10 fresh materials
+ * and dispose the old ones — which (a) made the late shader-catcher re-compile
+ * mid-aim, and (b) could destroy a material the catcher's in-flight poll still
+ * held, three's `reading 'isReady'` crash. The parameters are constants; one
+ * material per role for the life of the app is the correct shape.
+ */
+const MATS: { fill?: THREE.MeshBasicMaterial; fillFade?: THREE.MeshBasicMaterial;
+  core?: THREE.MeshBasicMaterial; outline?: THREE.MeshBasicMaterial;
+  rangeFill?: THREE.MeshBasicMaterial; rangeEdge?: THREE.MeshBasicMaterial } = {};
+
 function fillMat(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
+  return MATS.fill ??= new THREE.MeshBasicMaterial({
     color: AIM_FILL, transparent: true, opacity: 0.30,
     side: THREE.DoubleSide, depthWrite: false,
+  });
+}
+
+/** The faded ribbon needs vertexColors, which must not leak onto the shared fill. */
+function fillFadeMat(): THREE.MeshBasicMaterial {
+  return MATS.fillFade ??= new THREE.MeshBasicMaterial({
+    color: AIM_FILL, transparent: true, opacity: 0.30,
+    side: THREE.DoubleSide, depthWrite: false, vertexColors: true,
   });
 }
 
@@ -60,14 +81,14 @@ function fillMat(): THREE.MeshBasicMaterial {
  * z-fight.
  */
 function coreMat(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
+  return MATS.core ??= new THREE.MeshBasicMaterial({
     color: AIM_CORE, transparent: true, opacity: 0.85,
     side: THREE.DoubleSide, depthWrite: false, depthTest: false,
   });
 }
 
 function outlineMat(): THREE.MeshBasicMaterial {
-  return new THREE.MeshBasicMaterial({
+  return MATS.outline ??= new THREE.MeshBasicMaterial({
     color: AIM_OUTLINE, transparent: true, opacity: 0.7,
     side: THREE.DoubleSide, depthWrite: false, depthTest: false,
   });
@@ -233,6 +254,34 @@ export function buildAimShape(
 }
 
 /**
+ * THE MAX-RANGE RING (wr_04): while an aim is live, Wild Rift draws the cast's
+ * reach as a world-space circle around the champion, so committing a throw is
+ * a decision about a visible boundary rather than a guess. Ours: a translucent
+ * cyan boundary stroke centred on the CRAWLER (the shape itself stays at the
+ * aim anchor), with a whisper of fill on close ranges only — a 14-tile bolt
+ * disc would wash the scene the fill is supposed to sit under.
+ */
+export function buildRangeRing(r: number, stroke: number): THREE.Object3D[] {
+  const out: THREE.Object3D[] = [];
+  if (r <= 8) {
+    MATS.rangeFill ??= new THREE.MeshBasicMaterial({
+      color: AIM_FILL, transparent: true, opacity: 0.07,
+      side: THREE.DoubleSide, depthWrite: false,
+    });
+    out.push(ground(new THREE.CircleGeometry(r, 72), MATS.rangeFill, 0.001, 3970));
+  }
+  MATS.rangeEdge ??= new THREE.MeshBasicMaterial({
+    color: AIM_FILL, transparent: true, opacity: 0.4,
+    side: THREE.DoubleSide, depthWrite: false,
+  });
+  out.push(ground(
+    new THREE.RingGeometry(Math.max(0.01, r - stroke / 2), r + stroke / 2, 96),
+    MATS.rangeEdge, 0.003, 3972,
+  ));
+  return out;
+}
+
+/**
  * Fade the near 40% of a ribbon toward its origin. Vertex colours, so it costs
  * no extra draw and no custom shader.
  */
@@ -246,16 +295,16 @@ function fadeNear(mesh: THREE.Mesh, len: number): void {
     col[i * 3] = a; col[i * 3 + 1] = a; col[i * 3 + 2] = a;
   }
   geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
-  (mesh.material as THREE.MeshBasicMaterial).vertexColors = true;
+  mesh.material = fillFadeMat();
 }
 
-/** Free the geometry + materials of a discarded telegraph. */
+/**
+ * Free the GEOMETRY of a discarded telegraph. Materials are the shared
+ * singletons above and live for the app — disposing them released programs
+ * the shader-catcher was still polling (see MATS).
+ */
 export function disposeAimShape(o: THREE.Object3D): void {
   o.traverse((n) => {
-    const m = n as THREE.Mesh;
-    m.geometry?.dispose?.();
-    const mat = m.material as THREE.Material | THREE.Material[] | undefined;
-    if (Array.isArray(mat)) for (const x of mat) x.dispose();
-    else mat?.dispose?.();
+    (n as THREE.Mesh).geometry?.dispose?.();
   });
 }

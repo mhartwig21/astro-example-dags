@@ -357,7 +357,11 @@
       .topbtn:hover, .tb.open .topbtn { color: var(--gold-hi); border-color: var(--bronze-hi); }
       .topbtn:active { transform: translateY(1px);
         box-shadow: inset 0 2px 5px rgba(0,0,0,0.55), inset 0 0 0 1px rgba(0,0,0,0.5); }
+      /* The dropdown must never outgrow the glass: on a 293px-tall Pixel 5
+         the CRAWLER menu's last rows (ledger, standings, career) sat below
+         the fold with no way to reach them (wr-fix1 r5). It scrolls. */
       .topmenu { display: none; position: absolute; top: calc(100% + 6px); left: 0;
+        max-height: calc(100vh - 64px); overflow-y: auto; scrollbar-width: none;
         min-width: 250px; background: rgba(14,11,9,0.94); border: 1px solid rgba(110,85,51,0.6);
         border-radius: 3px; padding: 4px;
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.5), 0 8px 24px rgba(0,0,0,0.55); }
@@ -638,9 +642,14 @@
         border-radius: 4px; color: #e8dcc0; font-size: 13px; }
       #rushgate .gseat .gready { color: #7dc17d; letter-spacing: 1px; }
       #rushgate .gseat .gwait { color: #a99f8c; letter-spacing: 1px; }
+      /* READY is the one control every racer must hit at second zero, and it
+         measured 126x39 — under the 44px/9mm floor on every device (wr-surf
+         r1 MAJOR). It now clears the floor everywhere; a mouse can only be
+         pleased by a bigger starting gun. */
       #rushgate button { pointer-events: auto; background: #c9a24b; color: #17111f;
-        border: 0; border-radius: 4px; padding: 10px 34px; font-weight: 700;
-        font-size: 14px; letter-spacing: 1.5px; cursor: pointer; }
+        border: 0; border-radius: 4px; padding: 12px 44px; font-weight: 700;
+        min-height: 48px; min-width: 220px;
+        font-size: 15px; letter-spacing: 1.5px; cursor: pointer; }
       #rushgate button[disabled] { background: rgba(201,162,75,0.35); color: #3a3145; cursor: default; }
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 26; }
@@ -752,6 +761,20 @@
         box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5);
         padding: 4px 14px; font-size: 12px; color: #a99f8c; pointer-events: none; }
       body.phone #party { top: 78px; font-size: 10px; padding: 3px 10px; }
+      /* wr r2: on phone classes the roster chip sat at a fixed 78px while the
+         plaque + XP under-rail it docks beneath breathe with content — during
+         a race it collided with the XP-bar plate top-right
+         (ac-wr-r1/iphone13-deathdoor.png). It now hangs from the same
+         measured fact the rail itself uses (--xp-top = plaque bottom + 4). */
+      body.touch[data-uiclass="compact"] #party,
+      body.touch[data-uiclass="phone"] #party {
+        top: calc(var(--xp-top, 96px) + 14px); right: var(--gut-r, 12px); }
+      /* Tablets measured the same collision (3659px² with the plate on an
+         iPad Pro 11) — but their right rail also carries the minimap puck at
+         --xp-top + 14, 160px scaled 0.85. The roster slides in under it. */
+      body.touch[data-uiclass="tablet-s"] #party,
+      body.touch[data-uiclass="tablet-l"] #party {
+        top: calc(var(--xp-top, 96px) + 158px); right: var(--gut-r, 12px); }
 
       /* Boss encounter: ringside intro splash + persistent top health bar.
          The splash sits BELOW the headline zone (see screen zones above) — a
@@ -1070,7 +1093,12 @@
          Zone: between the headline band and the boss intro card; only one of
          the three is ever up, and it outranks nothing else because nothing
          else occupies this band. */
-      #bosscall { position: fixed; top: max(27%, 236px); left: 50%;
+      /* The 236px floor kept the call-out clear of the top band on desktop,
+         but on a 293px-tall Pixel 5 it planted a 40px marquee at 80% of the
+         glass — straight across the stick zone and the lower chips at the
+         exact punish-window moment (wr-a r1 MAJOR). The floor now yields on
+         short screens: never below 34% of the viewport. */
+      #bosscall { position: fixed; top: max(27%, min(236px, 34vh)); left: 50%;
         transform: translateX(-50%) scale(0.86); opacity: 0; pointer-events: none;
         z-index: 18; text-align: center; white-space: nowrap;
         transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.2, 0.9, 0.25, 1); }
@@ -1198,14 +1226,44 @@
       body.touch.modal #skills .skill, body.touch.modal #t-map {
         opacity: calc(var(--chip-op) * 0.35); filter: saturate(0.55) brightness(0.85); }
       body.touch.checkin #skills .skill, body.touch.checkin #t-map { visibility: hidden; }
+      /* ---- THE CONTROL SKIN (the owner's STYLE half — wr_03/wr_04) ----
+         Wild Rift's chips are dark glass the world reads through, identity
+         carried by a thin bright rim; ours were near-opaque bronze plates
+         sitting ON the world. The face drops to glass, the rim stays gold
+         (house language), and the rim is the state channel: bright = ready,
+         dimmed bronze = cooling, warm bloom = the ultimate. */
       body.touch #skills .skill { position: fixed; left: 0; top: 0; margin: 0;
         width: 62px; height: 62px; border-radius: 50%; pointer-events: auto;
         touch-action: none; opacity: var(--chip-op); will-change: transform;
-        transition: opacity 110ms linear; }
+        transition: opacity 110ms linear;
+        background: radial-gradient(circle at 50% 30%, rgba(34,26,16,0.58), rgba(9,7,4,0.74) 74%);
+        border: 2px solid rgba(201,162,75,0.85);
+        outline: 1px solid rgba(6,10,14,0.6); outline-offset: 0;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.38),
+          inset 0 8px 12px -9px rgba(242,222,180,0.18), 0 2px 8px rgba(0,0,0,0.45); }
       body.touch #skills .skill:active, body.touch #skills .skill.press { opacity: 1; }
       body.touch #skills .skill .key { display: none; }   /* no keycaps under a thumb */
       body.touch #skills .skill .label { display: none; } /* icons + sweeps only */
       body.touch #skills .skill .icon { width: 52%; height: 52%; }
+      /* Cooling: the rim steps down to bronze and the icon recedes — the state
+         reads from the rim across the glass, not from squinting at a sweep. */
+      body.touch #skills .skill[data-rdy="0"]:not(.empty) {
+        border-color: rgba(110,85,51,0.55); }
+      body.touch #skills .skill[data-rdy="0"]:not(.empty) .icon {
+        opacity: 0.45; filter: grayscale(0.5) brightness(0.8); }
+      body.touch #skills .skill.ready { border-color: var(--gold-hi); }
+      /* Numeric seconds on the cooling face (the '42' in wr_04): sweeps say
+         "not yet", numerals say "when". Touch only — the desktop hotbar keeps
+         its own language. */
+      .skill .cdnum { display: none; }
+      body.touch #skills .skill .cdnum { position: absolute; inset: 0; z-index: 2;
+        display: flex; align-items: center; justify-content: center;
+        pointer-events: none; font-family: "Barlow Condensed", var(--display), sans-serif;
+        font-weight: 700; font-size: 21px; color: #f4ead2;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 1px 2px #000, 0 0 8px rgba(0,0,0,0.9); }
+      body.touch #skills .skill .cdnum:empty { display: none; }
+      body.touch #skills .skill.ult .cdnum { font-size: 24px; }
       /* Pips ride INSIDE the disc. Hung off the bottom edge they were the first
          thing the viewport clipped: the flask, dash and attack pip rows all sat
          below the fold on iPhone 13 landscape (r0). */
@@ -1217,20 +1275,36 @@
         box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.2),
           inset 0 0 16px rgba(0,0,0,0.5), 0 0 16px -3px rgba(242,193,78,0.55),
           0 3px 10px rgba(0,0,0,0.55); }
+      /* LOCKED SLOTS ARE FACTS, NOT CONTROLS (the owner's screenshot: two
+         full-size locked circles — one of them the LARGEST disc on the glass,
+         the empty ultimate — advertising an absence). hudLayout paints an
+         empty ability slot at 40% of its tier (inline width/height, which is
+         why the SIZE cannot live here); this rule quiets what remains: a
+         faint socket, the engraved lock scaled to the disc instead of a fixed
+         32px well that would overflow it. The flask keeps its own treatment —
+         a spent flask is a live control refilling, not a lock. */
+      body.touch #skills .skill.empty:not(#flask-chip) {
+        opacity: calc(var(--chip-op) * 0.4); border-width: 1.5px;
+        box-shadow: inset 0 2px 6px rgba(0,0,0,0.8), 0 1px 4px rgba(0,0,0,0.4); }
+      body.touch #skills .skill.empty::before { width: 62%; height: 62%;
+        margin: 0; transform: translate(-50%, -50%); }
+      body.touch #skills .skill.empty::after { width: 42%; height: 42%;
+        margin: 0; transform: translate(-50%, -50%); }
 
       /* ---- chips this layer owns: MAP, and the context pill ---- */
       #hud-chips { display: none; }
       body.touch #hud-chips { display: block; position: fixed; inset: 0;
         pointer-events: none; z-index: 5; }
       body.modal #hud-chips, body.checkin #hud-chips { display: none; }
+      /* Utility tier: same glass, thinner rim, a step dimmer than the combat
+         chips — WR's satellites defer to the abilities (wr_03). */
       #t-map { position: fixed; left: 0; top: 0; display: flex; padding: 0;
         align-items: center; justify-content: center; pointer-events: auto;
-        touch-action: none; opacity: var(--chip-op); border-radius: 50%;
-        background: var(--noise), linear-gradient(180deg, #241c14, #100c09 60%);
-        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
-        outline: 1px solid #16100a; outline-offset: 1px; will-change: transform;
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.75), inset 0 1px 0 rgba(242,222,180,0.14),
-          0 3px 10px rgba(0,0,0,0.55); }
+        touch-action: none; opacity: calc(var(--chip-op) * 0.85); border-radius: 50%;
+        background: radial-gradient(circle at 50% 30%, rgba(31,24,15,0.6), rgba(10,8,5,0.74) 74%);
+        border: 1.5px solid rgba(201,162,75,0.6);
+        outline: 1px solid rgba(6,10,14,0.55); will-change: transform;
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.4), 0 2px 8px rgba(0,0,0,0.45); }
       #t-map .uic { width: 44%; height: 44%; background: var(--gold);
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
@@ -1244,6 +1318,10 @@
         font-size: 12px; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase;
         touch-action: none; box-shadow: 0 0 18px rgba(201,162,75,0.25); }
       body.touch #t-stairs.on { display: block; }
+      /* COMPACT demotes the context pill's chrome with the rest of the
+         satellites — same label, less padding, one type size down. */
+      body.touch[data-tpreset="compact"] #t-stairs { padding: 10px 15px;
+        font-size: 11px; }
 
       /* ---- the top status band ----
          Everything transient lives up here, above the world and clear of both
@@ -1398,28 +1476,46 @@
       body[data-uiclass="compact"] #banner #tb-crawler::before { content: "☰"; }
       body[data-uiclass="compact"] #banner .tb.open .topbtn { opacity: 1; }
       /* THE COURTESY CARD MOVED OUT OF THE STICK ZONE AND NEVER OUT OF THE
-         SIGHT LINE. Measured on an iPhone 13 combat frame: 266x144 = 33% of a
-         750x342 screen, parked over the monster pack, with 6 of 13 on-screen
-         monsters resolving under a non-canvas element, 81% overlap with
-         `#banner` and 89% with `#show` — the HYPE meter the compact class
-         explicitly keeps because "HYPE is a mechanic". Same on a Pixel 5
-         (65% / 69%). And these cards fire constantly.
-         On a phone the card is therefore a TWO-LINE System line inside the
-         read band, with its dismiss inline: it cannot reach the crawler (the
-         keepout starts at 37% of height), it cannot cover the pack, and the
-         full text is one tap away in the derivation sheet. */
-      body[data-uiclass="compact"] #tutorial { max-width: min(36ch, 52vw); }
+         SIGHT LINE — and then the phone treatment CUT THE SYSTEM OFF MID-WORD.
+         The first repair was a two-line clamp with an inline dismiss; measured
+         on a live fresh-crawler run it clipped 73% of the ONRAMP's teaching
+         line (47px shown of 179px scroll on a Pixel 5) and the clamp's hidden
+         overflow swallowed GOT IT itself — 78x44 on the glass, not
+         hit-testable, because the button lived INSIDE the clamped body. The
+         System's voice truncating mid-word ('BOX. It will not') is exactly the
+         style wound the house language forbids, and the ONRAMP's entire
+         purpose is those six lines (NICHE.md 4.4).
+         The card now reads IN FULL on phones: a 44px head strip carries the
+         ribbon (abbreviated to SYSTEM on compact) with GOT IT as a permanent
+         thumb target in its right end, and the body wraps completely below it
+         across the full measured plaque band (--card-w). Worst measured line
+         (170 chars) is 3-4 wrapped lines ≈ 110px of card on a Pixel 5 — glass,
+         pointer-transparent except the button, gone on any gameplay input. */
       body[data-uiclass="compact"] #tutorial .tut,
-      body[data-uiclass="phone"] #tutorial .tut { display: flex; align-items: center;
-        gap: 8px; padding: 6px 8px; }
+      body[data-uiclass="phone"] #tutorial .tut { position: relative; }
+      /* GOT IT docks at the band's LEFT end, not the right: the right half of
+         the band is where the ⚙/☰ glyph chips live on compact, and a
+         top-right button measured EXACTLY over ☰ (both 'tappable' at (491,35)
+         on a Pixel 5 — the CRAWL LEDGER tap opened a courtesy dismissal
+         instead). The card's glass may cover the chips (pointer-transparent,
+         taps pass through); its one real button may not. Left of the band is
+         the FLOOR plaque's 10px gutter — nothing tappable under it, on any
+         device in the matrix, either hand. */
+      body[data-uiclass="compact"] #tutorial .tut-head,
+      body[data-uiclass="phone"] #tutorial .tut-head { min-height: 44px;
+        box-sizing: border-box; padding: 6px 10px 6px 116px;
+        justify-content: flex-end; }
+      body[data-uiclass="compact"] #tutorial .tut-hx,
+      body[data-uiclass="phone"] #tutorial .tut-hx { display: none; }
       body[data-uiclass="compact"] #tutorial .tut-body,
-      body[data-uiclass="phone"] #tutorial .tut-body {
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-        overflow: hidden; line-height: 1.35; max-height: 2.7em; flex: 1 1 auto; }
+      body[data-uiclass="phone"] #tutorial .tut-body { line-height: 1.35;
+        padding: 8px 10px; }
       body[data-uiclass="compact"] #tutorial .tut-dismiss,
-      body[data-uiclass="phone"] #tutorial .tut-dismiss { float: none; flex: 0 0 auto;
-        margin-top: 0; min-width: 64px; padding: 0 12px; }
-      body[data-uiclass="compact"] .tut-body { font-size: 11.5px; padding: 8px 10px; }
+      body[data-uiclass="phone"] #tutorial .tut-dismiss { position: absolute;
+        top: 0; left: 0; right: auto; float: none; width: auto; margin: 0;
+        padding: 0 16px; min-width: 100px; min-height: 44px;
+        border-width: 0 1px 1px 0; border-radius: 5px 0 5px 0; }
+      body[data-uiclass="compact"] .tut-body { font-size: 11.5px; }
       body[data-uiclass="phone"] #show .hypebar { width: 200px; }
 
       /* Fat-finger insurance on the menus that are not full panels. */
@@ -1814,7 +1910,16 @@
       #recap .rabil .rk { margin-left: auto; color: #6f6757; font-size: 11px; }
       #recap .rabil.ultimate .ii { background: #c9a24b; }
       #recap .rach { color: #cbbfa4; font-size: 12px; line-height: 1.7; }
-      #recap .rfoot { display: flex; gap: 10px; align-items: center; margin-top: 16px; }
+      /* The action rail is TWO groups in markup (the phone pins one and flows
+         the other — wr-surf r1 MAJOR: a 3-row sticky rail buried the medal and
+         the ledger line behind translucency). On desktop `display: contents`
+         folds both into ONE flex row and `order` restores the shipped
+         arrangement, so a mouse sees exactly the rail it always had. */
+      #recap .racts { display: flex; gap: 10px; align-items: center; margin-top: 16px;
+        flex-wrap: wrap; }
+      #recap .rfoot { display: contents; }
+      #recap .racts #recap-again { order: -3; }
+      #recap .racts #recap-new { order: -2; }
 
       #recap .rfoot button { background: #2c241b; color: #6da356; border: 1px solid #6e5533;
         border-radius: 6px; padding: 8px 13px; font: inherit; font-weight: 700; letter-spacing: 0.5px;
@@ -1946,7 +2051,7 @@
       #recap .notranked b { font-family: var(--display); font-variant: small-caps;
         letter-spacing: 0.16em; color: #f0a99f; }
       /* The button row: RUN IT BACK is the whole point of the screen. */
-      #recap .rfoot { margin-top: 14px; flex-wrap: wrap; }
+      #recap .racts { margin-top: 14px; }
       #recap .rfoot button.primary { background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b);
         color: #241a08; border: 1px solid #5c4726; font-weight: 700;
         box-shadow: inset 0 1px 0 rgba(255,240,200,0.55); }
@@ -2026,14 +2131,22 @@
          strangers carried zero evidence of the only thing that makes it
          different. */
       #sharesheet { position: fixed; inset: 0; z-index: 28; display: none; align-items: center;
-        justify-content: center; background: rgba(2,2,4,0.78); padding: 18px; }
+        justify-content: center; background: rgba(2,2,4,0.78); padding: 10px; }
       #sharesheet.on { display: flex; animation: overlay-in 0.16s ease-out; }
-      #sharesheet .card { width: min(760px, 94vw); max-height: 92vh; overflow: auto;
+      /* THE CARD IS A FLEX COLUMN AND THE BUTTONS NEVER LEAVE THE GLASS.
+         Measured on an iPhone 13 landscape (342px tall): the old single
+         scroller put COPY/SAVE/CLOSE at y=558-587 with no reachable scroll and
+         no backdrop close — a phone player who tapped SHARE could neither
+         copy, save, nor leave (wr-surf r1 BLOCKER). The preview scrolls in
+         .sbody; the action rail is pinned; the backdrop and the ✕ close. */
+      #sharesheet .card { width: min(760px, 94vw); max-height: min(92vh, calc(100dvh - 16px));
+        display: flex; flex-direction: column; min-height: 0;
         background: var(--stone); background-image: var(--noise), linear-gradient(180deg, #221b15, #171310 140px);
         border: 1px solid var(--bronze); border-radius: 3px; padding: 16px 20px 18px;
-        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.75);
-        scrollbar-width: none; }
-      #sharesheet .card::-webkit-scrollbar { display: none; }
+        box-shadow: inset 0 0 0 1px rgba(0,0,0,0.55), 0 24px 70px rgba(0,0,0,0.75); }
+      #sharesheet .sbody { flex: 1 1 auto; min-height: 0; overflow-y: auto;
+        overscroll-behavior: contain; scrollbar-width: none; }
+      #sharesheet .sbody::-webkit-scrollbar { display: none; }
       #sharesheet .kicker { text-align: center; color: var(--gold); font-size: 10px;
         letter-spacing: 0.4em; font-family: var(--display); font-variant: small-caps; margin-bottom: 10px; }
       #sharesheet canvas { display: block; width: 100%; height: auto; border: 1px solid var(--bronze);
@@ -2047,10 +2160,12 @@
         word-break: break-all; font-family: ui-monospace, monospace; }
       #sharesheet .snote { margin-top: 8px; color: var(--ink-faint); font-size: 12px;
         line-height: 1.5; font-style: italic; }
-      #sharesheet .sbtns { display: flex; gap: 9px; margin-top: 13px; }
-      #sharesheet .sbtns button { flex: 1; padding: 9px 6px; border-radius: 3px; font: inherit;
+      #sharesheet .sbtns { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 13px; flex: none; }
+      #sharesheet .sbtns button { flex: 1 1 140px; padding: 9px 6px; border-radius: 3px; font: inherit;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em; cursor: pointer;
         background: var(--raised); border: 1px solid var(--bronze); color: var(--ink); }
+      /* Thumb floor on glass; desktop keeps its compact rail. */
+      @media (pointer: coarse) { #sharesheet .sbtns button { min-height: 46px; } }
       #sharesheet .sbtns button.primary { color: #241a08; border-color: #5c4726; font-weight: 700;
         background: linear-gradient(180deg, var(--gold-hi), var(--gold) 45%, #8a6d3b); }
       #sharesheet .sbtns button:hover { border-color: var(--bronze-hi); }
@@ -3499,6 +3614,19 @@
       #menu .m-foot { margin-top: 14px; text-align: center; color: var(--ink-faint);
         font-size: var(--t-fine); letter-spacing: 0.5px; flex: none;
         padding-top: 10px; border-top: 1px solid rgba(110,85,51,0.35); }
+      /* COMPACT (Pixel-5 class, 293px tall): the footer's fine print painted
+         OVER the RUSH tile — hit-test at #m-rush's centre returned .m-foot, so
+         the funnel's public-race entry was untappable (wr-surf r1 BLOCKER).
+         The footer is decoration; on a screen this short it costs a verb. */
+      body[data-uiclass="compact"] #menu .m-foot { display: none; }
+      /* ...and the board gets the height back: on a 293px viewport the mode
+         column had 111px — DESCEND alone was 97 (--pri-h = 1.62 x hero) and
+         THE RUSH sat half-clipped below the fold (wr-fix1 r5). The welcome
+         line is decoration; the banners shrink a tier; the funnel's two
+         public tiles land fully on the glass. */
+      body[data-uiclass="compact"] #menu .m-sub { display: none; }
+      body[data-uiclass="compact"] #menu .m-tiles { --hero-h: 44px; }
+      body[data-uiclass="compact"] #menu .m-name-row { margin-bottom: 4px; }
 
       /* The Show — audience bar + live hype meter (gold tick = frenzy line) */
       /* Tucked under the SYSTEM/CRAWLER buttons (play feedback 2026-07-09:
@@ -4093,6 +4221,37 @@
       #downed .dbtns button.primary { color: #241a08; font-weight: 700;
         background: linear-gradient(180deg, #e4b95c, #c9962f); }
       #downed .dhint { margin-top: 8px; color: #b09a6a; }
+      /* THE DEATH MOMENT ON GLASS (wr r2). Two measured wounds on an
+         iPhone 13: the high-priority banner (#headline, top max(19%,152px))
+         bled straight through the 0.9-alpha card into the countdown and
+         subtitle, and CONCEDE's bottom 14px sat below the home-indicator
+         inset (rect 313x46 at cy 333 on a 342px glass — hit-testable,
+         sloppy at the one surface everyone reads, NICHE.md 4.7).
+         Three decisions: the card goes OPAQUE on touch (a modal moment owns
+         its pixels; glass is for chrome over live play), it centres in the
+         inset-aware viewport instead of hanging from 38%, and while it is up
+         the headline banner STANDS DOWN (body.downed, same standdown grammar
+         as body.bossplate #banner) — the System's dispute line is narrating
+         the same death the card is presenting. The two doors go back to one
+         row: two 44px thumb targets side by side beat a stack that runs off
+         the glass. */
+      @media (pointer: coarse) {
+        #downed { top: calc((100dvh - var(--sa-b, 0px)) / 2);
+          transform: translate(-50%, -50%);
+          width: min(420px, 88vw); box-sizing: border-box; padding: 10px 18px 12px;
+          background: linear-gradient(180deg, rgb(38,14,12), rgb(19,8,7)); }
+        #downed .dtitle { font-size: 16px; }
+        #downed .dcount { font-size: 30px; }
+        #downed .dsub { font-size: 11px; }
+        #downed .dhint { margin-top: 6px; font-size: 10px; }
+        #downed .dbtns { flex-direction: row; margin-top: 10px; }
+        #downed .dbtns button { width: auto; flex: 1; min-height: 44px; }
+        body.downed #headline { visibility: hidden; }
+        /* The courtesy card stands down too — measured bleeding around the
+           death card's top edge on an iPhone 13. One surface at a time at
+           the moment everyone reads. */
+        body.downed #tutorial { visibility: hidden; }
+      }
 
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
          stats live here). Fixed, cursor-following, never intercepts clicks. */
@@ -6231,21 +6390,28 @@
          end; it is a fork in the road, and the fork was off-screen.
          The two decisions that matter are therefore PINNED to the foot of the
          scrollport — RUN IT BACK (the strongest urge a roguelike death
-         produces) and NEW CONTRACT — and the other five stay in the flow. */
-      body[data-uiclass="compact"] #recap .rfoot,
-      body[data-uiclass="phone"] #recap .rfoot { display: grid;
-        grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;
-        position: sticky; bottom: 0; z-index: 4; padding: 8px 0 4px;
-        background: linear-gradient(180deg, rgba(23,19,16,0.86), rgba(23,19,16,0.99) 24%);
+         produces) and NEW CONTRACT — and the other three stay in the flow.
+         r2: the WHOLE seven-button rail used to pin, a 3-row half-viewport
+         slab whose translucent top edge severed the medal, the death context
+         and the ledger line behind it (wr-surf). Only .rmain pins now: ONE
+         46px row plus the note, opaque, and the secondary actions scroll with
+         the copy they belong to. */
+      /* display:contents — the pinned row's sticky containing block must be
+         the PANEL scroller, not the wrapper, or it cannot rise into view
+         before the scroll reaches it. */
+      body[data-uiclass="compact"] #recap .racts,
+      body[data-uiclass="phone"] #recap .racts { display: contents; }
+      body[data-uiclass="compact"] #recap .rfoot.rmore,
+      body[data-uiclass="phone"] #recap .rfoot.rmore { display: grid;
+        grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 12px; }
+      body[data-uiclass="compact"] #recap .rfoot.rmore button,
+      body[data-uiclass="phone"] #recap .rfoot.rmore button { font-size: 11px; }
+      body[data-uiclass="compact"] #recap .rfoot.rmain,
+      body[data-uiclass="phone"] #recap .rfoot.rmain { display: grid;
+        grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 10px;
+        position: sticky; bottom: -1px; z-index: 4; padding: 8px 0 4px;
+        background: rgba(23,19,16,0.985);
         border-top: 1px solid var(--bronze); }
-      /* Five of the seven are not decisions you make in the first two seconds;
-         they scroll with the rest of the verdict and keep their 46px box. */
-      body[data-uiclass="compact"] #recap .rfoot #recap-share,
-      body[data-uiclass="compact"] #recap .rfoot #recap-standings,
-      body[data-uiclass="compact"] #recap .rfoot #recap-card,
-      body[data-uiclass="compact"] #recap .rfoot #recap-dismiss { order: 2; font-size: 11px; }
-      body[data-uiclass="compact"] #recap .rfoot #recap-again,
-      body[data-uiclass="compact"] #recap .rfoot #recap-new { order: 1; }
       body[data-uiclass="compact"] #recap .rfoot button,
       body[data-uiclass="phone"] #recap .rfoot button { min-height: 46px; width: 100%;
         white-space: normal; }
@@ -6359,6 +6525,15 @@
       /* Skin: ONE TAB LANGUAGE, above. Nothing local is left to say. */
       #keys .kb-page { display: none; }
       #keys .kb-page.on { display: block; }
+      /* LIVE PREVIEW: while a finger holds a layout stepper the panel drops to
+         a veil so the cluster is visible moving under it (WR's editor shows
+         the layout while you drag — wr_01/wr_06). Chips paint at full idle
+         strength for the duration; the modal dim would defeat the preview. */
+      body.touch.peek #keys .panel { opacity: 0.14; }
+      #keys .panel { transition: opacity 120ms linear; }
+      body.touch.peek #skills .skill, body.touch.peek #t-map {
+        opacity: var(--chip-op); filter: none; }
+      body.touch.peek #t-layer { display: block; }
       .ctl-row { display: flex; align-items: center; gap: 12px; padding: 9px 0;
         border-bottom: 1px solid #241d16; }
       .ctl-row .ctl-name { flex: 1; font-size: var(--t-body); color: var(--ink); }
@@ -6786,13 +6961,19 @@
           <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
-        <div class="rfoot">
-          <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
-          <button class="dismiss" id="recap-new">NEW CONTRACT</button>
-          <button class="dismiss" id="recap-share">SHARE</button>
-          <button class="dismiss" id="recap-standings">STANDINGS</button>
-          <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
-          <span class="note" id="recap-note"></span>
+        <!-- Two groups: the phone flows .rmore with the body copy and pins
+             only .rmain; the desktop folds both back into one flex row. -->
+        <div class="racts">
+          <div class="rfoot rmore">
+            <button class="dismiss" id="recap-share">SHARE</button>
+            <button class="dismiss" id="recap-standings">STANDINGS</button>
+            <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
+          </div>
+          <div class="rfoot rmain">
+            <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
+            <button class="dismiss" id="recap-new">NEW CONTRACT</button>
+            <span class="note" id="recap-note"></span>
+          </div>
         </div>
         <div class="rhint">HOLD <kbd>TAB</kbd> — SCOREBOARD, SPLITS AND THE BUILD</div>
       </div>
@@ -6804,6 +6985,9 @@
       <div id="sharesheet" data-overlay="modal">
         <div class="card">
           <div class="kicker">◆ WHAT THEY WILL SEE ◆</div>
+          <!-- .sbody scrolls; the kicker and the action rail are pinned so a
+               342px-tall phone always has COPY/SAVE/CLOSE on the glass. -->
+          <div class="sbody">
           <canvas id="share-preview" width="1200" height="630"></canvas>
           <!-- THE RESULT CARD (NICHE.md 4.2): the exact text COPY CARD pastes —
                a few System lines plus the door, sized for a group chat. Shown
@@ -6811,6 +6995,7 @@
           <pre id="share-text"></pre>
           <div class="slink" id="share-link"></div>
           <div class="snote" id="share-note"></div>
+          </div>
           <div class="sbtns">
             <button class="primary" id="share-card">COPY CARD</button>
             <button id="share-copy">COPY THE LINK ONLY</button>

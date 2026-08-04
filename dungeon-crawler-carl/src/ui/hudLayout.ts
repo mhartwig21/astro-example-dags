@@ -150,6 +150,9 @@ export class HudLayout {
     if (typeof document === "undefined") return;
     const root = document.documentElement.style;
     document.body.dataset.uiclass = z.cls;
+    // The economy the table was built with, for CSS that must agree with it
+    // (compact demotes the context pill's padding, the empty-slot treatment).
+    document.body.dataset.tpreset = z.preset;
     root.setProperty("--hud-scale", hudScale(Math.min(z.viewport.w, z.viewport.h), true).toFixed(3));
     // --band-h is the band's BOTTOM in viewport px, so a card can sit at
     // `top: var(--band-h)` and be guaranteed clear of the stick zone.
@@ -177,9 +180,26 @@ export class HudLayout {
       const el = chipEl(id);
       if (!el) continue;
       const c = z.controls[id];
-      el.style.width = `${Math.round(c.w)}px`;
-      el.style.height = `${Math.round(c.h)}px`;
-      el.style.transform = `translate3d(${Math.round(c.x)}px, ${Math.round(c.y)}px, 0)`;
+      // Paint the VISUAL disc, centred on the hit rect's own centre. The hit
+      // target is still >= 44px: the router pads every cached rect to 44
+      // (`controlAt`), so a smaller paint never shrinks what a thumb can hit.
+      //
+      // A LOCKED slot is a fact, not a control: a full-size circle advertising
+      // an absence is what put "two locked-slot circles" (one of them the
+      // biggest disc on the glass — the empty ultimate) in the owner's
+      // screenshot. Empty ability slots paint at a satellite-of-satellites
+      // 40%, floored at 22 px so the socket still reads as "earnable"; the
+      // flask keeps its size (a SPENT flask is a live control refilling), and
+      // slot0 is never empty. The width/height here are inline styles, so
+      // this is the one place the demotion can live — a stylesheet rule would
+      // lose to the very pixels this module writes.
+      const locked = id !== "slot0" && id !== "flask" && el.classList.contains("empty");
+      const v = Math.round(locked
+        ? Math.max(22, (c.vis ?? c.w) * 0.4)
+        : (c.vis ?? c.w));
+      el.style.width = `${v}px`;
+      el.style.height = `${v}px`;
+      el.style.transform = `translate3d(${Math.round(c.cx - v / 2)}px, ${Math.round(c.cy - v / 2)}px, 0)`;
     }
     // The context chip is a labelled pill, not a disc: centre it on the arc
     // point instead of sizing it, so "DESCEND" never gets clipped to a circle.
@@ -195,9 +215,10 @@ export class HudLayout {
     const z = this.zones, el = this.mapChip;
     if (!z || !el) return;
     const c = z.controls.map;
-    el.style.width = `${Math.round(c.w)}px`;
-    el.style.height = `${Math.round(c.h)}px`;
-    el.style.transform = `translate3d(${Math.round(c.x)}px, ${Math.round(c.y)}px, 0)`;
+    const v = Math.round(c.vis ?? c.w);
+    el.style.width = `${v}px`;
+    el.style.height = `${v}px`;
+    el.style.transform = `translate3d(${Math.round(c.cx - v / 2)}px, ${Math.round(c.cy - v / 2)}px, 0)`;
   }
 
   /**

@@ -33,6 +33,7 @@ import { ABILITY_TAGS, GLYPH_IDS } from "./sim/glyphs";
 import { InputController } from "./input/input";
 import { GamepadController, isoRotate } from "./input/gamepad";
 import { TouchController } from "./input/touch";
+import { TouchDebugOverlay } from "./input/touchDebug";
 import { TouchShell } from "./input/touchShell";
 import { HudLayout, parseSafeOverride } from "./ui/hudLayout";
 import {
@@ -40,7 +41,7 @@ import {
 } from "./ui/panelTouch";
 import { Haptics } from "./input/haptics";
 import { pickTarget, tapTarget } from "./input/targeting";
-import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
+import { aimAnchor, aimSpecFor, castRange, isPlacedShape } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
@@ -502,6 +503,12 @@ const tStairsEl = document.getElementById("t-stairs")!;
 // no element, so a per-element binding could never see a tap on the dungeon
 // floor. Mouse events are never claimed, so desktop play is untouched.
 touch.bind(document, document.body);
+// The owner's 30-second diagnostic (`?touchdebug=1`): live touch count, dots
+// at every delivered touch point, the FSM per zone and a rolling event tail.
+// Works on production; presentation-only; exists only when asked for.
+if (lookParams.get("touchdebug") === "1" || lookParams.has("touchdebug")) {
+  new TouchDebugOverlay(touch);
+}
 touch.castModes = [...touchPrefs.castMode];
 touch.flickDash = touchPrefs.flickDash;
 touch.twoFingerDash = touchPrefs.twoFingerDash;
@@ -3653,6 +3660,7 @@ function touchSettingRows(): { id: string; name: string; hint: string; value: st
   const pct = (v: number): string => `${Math.round(v * 100)}%`;
   const onOff = (v: boolean): string => (v ? "ON" : "OFF");
   const rows = [
+    { id: "preset", name: "Layout", hint: "COMPACT keeps the cluster tight in the corner; LARGE spreads it out", value: touchPrefs.preset.toUpperCase() },
     { id: "handed", name: "Handedness", hint: "mirrors the stick, the cluster and every HUD anchor", value: touchPrefs.handed.toUpperCase() },
     { id: "stickScale", name: "Stick size", hint: "floating stick radius", value: pct(touchPrefs.stickScale) },
     { id: "buttonScale", name: "Button size", hint: "ability chips and the cancel band", value: pct(touchPrefs.buttonScale) },
@@ -3769,6 +3777,7 @@ function renderTouchSettings(): void {
       applyTouchPrefs();
       renderTouchSettings();
     });
+    wireTouchPeek();
   }
   // Thumb length varies more than screen size does, so the layout is a
   // setting rather than a constant. Numeric prefs get a real -/+ stepper with
@@ -3778,6 +3787,7 @@ function renderTouchSettings(): void {
   // never where you can go.
   const NUMERIC = new Set(["stickScale", "buttonScale", "opacity", "hudInset", "thumbMm"]);
   const PICKS: Record<string, string[]> = {
+    preset: ["COMPACT", "LARGE"],
     handed: ["RIGHT", "LEFT"],
     haptics: ["OFF", "LIGHT", "FULL"],
     tapToMove: ["ON", "OFF"], stickRecenter: ["ON", "OFF"],
@@ -3800,9 +3810,35 @@ function renderTouchSettings(): void {
             `<button type="button" data-tp="${r.id}" data-set="${v}"` +
             `${v === r.value ? ' class="on"' : ""}>${v}</button>`).join("") + `</span>`
           : `<span class="ctl-pick"><button type="button" data-tp="${r.id}">${r.value}</button></span>`;
-      return `<div class="ctl-row"><span class="ctl-name">${r.name}<small>${r.hint}</small></span>` +
+      // `kb-row` TOO: the settings ledger is ONE row component everywhere in
+      // the K panel, and every probe/style that measures `.kb-row` must see
+      // these rows — they rendered as unmeasurable foreign markup before
+      // (wr-surf r1 MAJOR: zero .kb-row in #kb-page-controls, UNESTABLISHED).
+      return `<div class="kb-row ctl-row"><span class="kb-name ctl-name">${r.name}<small>${r.hint}</small></span>` +
         control + `</div>`;
     }).join("");
+}
+
+/**
+ * LIVE PREVIEW THROUGH THE PANEL (Wild Rift's layout editor shows the cluster
+ * while you drag its sliders — wr_01/wr_06). The K panel covers the cluster it
+ * is resizing, so while a finger HOLDS a layout stepper the panel drops to a
+ * veil and the glass shows the chips moving under it; release brings it back.
+ */
+function wireTouchPeek(): void {
+  const PEEK = new Set(["stickScale", "buttonScale", "opacity", "thumbMm", "hudInset", "handed", "preset"]);
+  const el = kbTouchCfg;
+  if (!el || el.dataset.peekWired === "1") return;
+  el.dataset.peekWired = "1";
+  const stop = (): void => document.body.classList.remove("peek");
+  el.addEventListener("pointerdown", (e) => {
+    if (!document.body.classList.contains("touch")) return;
+    const key = (e.target as HTMLElement).closest<HTMLElement>("[data-tp]");
+    if (key && PEEK.has(key.dataset.tp ?? "")) document.body.classList.add("peek");
+  });
+  el.addEventListener("pointerup", stop);
+  el.addEventListener("pointercancel", stop);
+  el.addEventListener("pointerleave", stop);
 }
 
 /** A named pick, straight from a button. The pref is the source of truth. */
@@ -3810,6 +3846,7 @@ function setTouchPref(id: string, raw: string | undefined): void {
   if (raw === undefined) return;
   const v = raw.toLowerCase();
   if (id === "handed") touchPrefs.handed = v === "left" ? "left" : "right";
+  else if (id === "preset") touchPrefs.preset = v === "large" ? "large" : "compact";
   else if (id === "haptics" && (v === "off" || v === "light" || v === "full")) {
     touchPrefs.haptics = v;
   } else if (id === "tapToMove") touchPrefs.tapToMove = v === "on";
@@ -3835,6 +3872,7 @@ function stepTouchPref(id: string, dir = 1): void {
     return Math.round(Math.min(hi, Math.max(lo, n)) * 100) / 100;
   };
   if (id === "handed") touchPrefs.handed = touchPrefs.handed === "right" ? "left" : "right";
+  else if (id === "preset") touchPrefs.preset = touchPrefs.preset === "compact" ? "large" : "compact";
   else if (id === "stickScale") touchPrefs.stickScale = step(touchPrefs.stickScale, 0.7, 1.4, 0.1);
   else if (id === "buttonScale") touchPrefs.buttonScale = step(touchPrefs.buttonScale, 0.7, 1.4, 0.1);
   else if (id === "opacity") touchPrefs.opacity = step(touchPrefs.opacity, 0.35, 1, 0.05);
@@ -5546,7 +5584,8 @@ function updateSkills(s: GameState): void {
           ? ` title="${esc(`${ABILITY_INFO[e.ability].name} — ${composedText(s, e.ability)}`)}"`
           : "";
         return `<div class="${cls}" data-i="${i}"${tip}><span class="key">${bind}</span>${gpips}${icon}` +
-          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span></div>`;
+          `<span class="label">${label}</span>${pips}<span class="sweep"></span><span class="flashfx"></span>` +
+          `<span class="cdnum"></span></div>`;
       })
       .join("") +
       // Flask chip (cockpit-style): charges on the pip row; the radial
@@ -5582,6 +5621,15 @@ function updateSkills(s: GameState): void {
       : Math.max(0, Math.min(1, remaining / base));
     chip.style.setProperty("--cd", String(frac));
     chip.classList.toggle("ready", ready);
+    // Numeric seconds on the cooling chip (wr_04's '42') — touch CSS shows it,
+    // the desktop hotbar keeps sweeps only. Write only on change: this runs
+    // per frame and a same-value textContent write still dirties layout.
+    const cdTxt = !ready && remaining > 0.05 ? String(Math.ceil(remaining)) : "";
+    if (chip.dataset.cdnum !== cdTxt) {
+      chip.dataset.cdnum = cdTxt;
+      const n = chip.querySelector(".cdnum");
+      if (n) n.textContent = cdTxt;
+    }
     // Ready-flash (audit #4): the moment a REAL cooldown completes, the chip
     // blooms once. "armed" only while a sweep is actually running, so loadout
     // rebuilds and already-ready chips never flash spuriously.
@@ -7425,7 +7473,7 @@ function showTutorialCard(a: Announcement): void {
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
-    `<div class="tut-head"><i class="dia"></i> SYSTEM — COURTESY EXPLANATION</div>` +
+    `<div class="tut-head"><i class="dia"></i> SYSTEM<span class="tut-hx"> — COURTESY EXPLANATION</span></div>` +
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -7447,8 +7495,13 @@ function showTutorialCard(a: Announcement): void {
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
   tutorialShownAt = performance.now();
-  // Auto-dismiss: a courtesy, not a squatter (r2: 6-8s, or any input).
-  tutorialAutoTimer = window.setTimeout(dismiss, 7000);
+  // Auto-dismiss: a courtesy, not a squatter (r2: or any input). The hold
+  // scales with the line — 7s flat gave the ONRAMP's 170-char teaching lines
+  // ~24 chars/s, faster than anyone reads a System clause on a phone.
+  tutorialAutoTimer = window.setTimeout(
+    dismiss,
+    Math.min(14000, Math.max(7000, 55 * body.length)),
+  );
 }
 
 // Any input clears the courtesy card (r2) — with a short grace so the key
@@ -10193,8 +10246,16 @@ function updateDowned(s: GameState): void {
   if (s.mode !== "rivals" || p.alive === true) {
     downedEl.style.display = "none";
     delete downedEl.dataset.mode;
+    document.body.classList.remove("downed");
     return;
   }
+  // While either death-moment card is up, the headline banner stands down on
+  // touch (body.downed — CSS, same grammar as body.bossplate): the System's
+  // dispute line was measured bleeding through the card into the countdown.
+  document.body.classList.toggle(
+    "downed",
+    p.conceded === true || (p.downedT ?? 0) > 0,
+  );
   if (p.conceded) {
     // The seat is freed; the doors lead back IN. QUEUE AGAIN arrives with the
     // public queue (4.5) — no door is rendered to a room that doesn't exist.
@@ -10492,6 +10553,9 @@ if (new URLSearchParams(location.search).has("debug")) {
         // Measured: 80 of 80, all verdicts `aimed`.
         verdicts: () => touch.verdicts(),
         clearVerdicts: () => touch.clearVerdicts(),
+        // The FSM snapshot the ?touchdebug=1 overlay paints, for batteries
+        // that assert "a synthetic gesturestart no longer suspends play".
+        fsm: () => touch.debugState(),
         lastWorldTap,
         clickMoveTarget: clickMove.target,
         lockedTargetId,
@@ -10653,17 +10717,34 @@ function pollTouch(): void {
 
 /** Thumb radius (CSS px) around a tap that still counts as "on that monster". */
 const TAP_BODY_RADIUS = 46;
+/**
+ * A MOVING TARGET EARNS A WIDER NET. The tap is judged against the monster's
+ * position at POLL time, but the finger aimed at where the body was drawn one
+ * or more frames earlier — under load (or a 3fps harness) that gap exceeded
+ * the fixed 46px and made real moving targets un-lockable (wr-surf r1
+ * BLOCKER: 75-266px of drift between projection and poll). The allowance is
+ * a quarter second of the monster's OWN speed in screen px: a stationary
+ * boss gains nothing, a sprinting hound gains exactly what its sprint costs
+ * the aim. Presentation-side leniency only — no sim rule.
+ */
+const TAP_LAG_S = 0.25;
 
 /** Nearest living monster whose body projects within a thumb of (x, y). */
 function screenTapTarget(x: number, y: number): { id: number } | null {
   let best: { id: number } | null = null;
-  let bestD = TAP_BODY_RADIUS * TAP_BODY_RADIUS;
+  let bestScore = Infinity;
+  // Screen px per world tile, from two projections of the crawler's own row.
+  const me0 = me(state);
+  const a = renderer.worldToScreen(me0.pos.x, 0, me0.pos.y);
+  const b = renderer.worldToScreen(me0.pos.x + 1, 0, me0.pos.y);
+  const pxPerTile = a.visible && b.visible ? Math.hypot(b.x - a.x, b.y - a.y) : 46;
   for (const m of state.monsters) {
     if (m.hp <= 0 || m.dormant) continue;
     const p = renderer.worldToScreen(m.pos.x, 0.8, m.pos.y);
     if (!p.visible) continue;
-    const d = (p.x - x) * (p.x - x) + (p.y - y) * (p.y - y);
-    if (d < bestD) { bestD = d; best = m; }
+    const reach = TAP_BODY_RADIUS + (m.speed > 0 ? m.speed * TAP_LAG_S * pxPerTile : 0);
+    const d = Math.hypot(p.x - x, p.y - y);
+    if (d < reach && d < bestScore) { bestScore = d; best = m; }
   }
   return best;
 }
@@ -10724,6 +10805,17 @@ attachPanel(keysEl, { close: () => { hideSheet(); if (kbOpen) toggleKeybinds(); 
 attachPanel(draftEl, {
   close: () => { if (draftEl.style.display === "flex") dismissDraftModal(); },
   done: "BANK IT FOR LATER",
+});
+// THE CRAWL LEDGER shipped after the last touch pass with ZERO touch closers —
+// only the L key / Escape (wr-surf r1 MAJOR: a one-way door on glass).
+attachPanel(ledgerEl, { close: () => { if (ledgerOpen) toggleLedger(); } });
+// THE RESULT CARD's sheet: ✕ + backdrop + swipe close, the pinned .sbtns rail
+// already carries CLOSE. `done: null` — a second full-width DONE bar under
+// four action buttons would bury the actions it duplicates.
+attachPanel(shareEl, {
+  close: () => shareEl.classList.remove("on"),
+  done: null,
+  scroller: () => shareEl.querySelector(".sbody"),
 });
 
 /**
@@ -11250,12 +11342,20 @@ async function main(): Promise<void> {
         // §1.6). Passing `range`/`radius`/`arc` is what makes the telegraph
         // teach itemisation: a glyph that grows the nova grows the circle.
         renderer.setAimIndicator(spec.shape, at, dir, spec.range, spec.radius, spec.arc);
+        // THE MAX-RANGE RING rides the CRAWLER while the shape rides the
+        // anchor (wr_04): the reach boundary is what a throw is judged
+        // against. For a placed shape the boundary is the furthest the
+        // centre can land; for a skillshot it is the flight reach.
+        renderer.setAimRange(p.pos, spec.range > 0
+          ? spec.range
+          : (isPlacedShape(spec.shape) ? spec.radius : 0));
         // ...and the camera LEADS the aim, because a 14.4-tile bolt does not
         // fit in the 8.5 tiles a phone shows above the crawler: measured, 8.1%
         // of the line's vertices were on the glass. Presentation only.
         renderer.setAimLead(dir, Math.max(spec.range, anchor.distance + spec.radius));
       } else {
         renderer.setAimIndicator(null);
+        renderer.setAimRange(null, 0);
         renderer.setAimLead(null, 0);
       }
       // TARGET SELECTION IS DRAWN. `lockedTargetId` steered `pickTarget` and

@@ -110,6 +110,18 @@ export const STICK_MM = 11;
 export const AIM_THROW_MM = 18;
 /** Middle of the 9-11 mm comfortable-target band. */
 export const CHIP_MM = 10.5;
+/**
+ * THE COMPACT PRESET'S CHIP — the low end of the same 9-11 mm band, never
+ * below it. Compact means less padding, spread and decoration, not a target a
+ * thumb misses: the OWNER, on a real iPhone in Safari landscape (shortest
+ * viewport in the matrix — browser chrome eats ~50 of 390 pt), reported the
+ * default cluster "spread out and taking up so much space", and the July
+ * layout it replaced held eight controls in a 320x256 box. 9.2 mm is 56 px on
+ * a phone (hit rects still floor at MIN_TARGET), and the compact arc tables
+ * below shrink the SPREAD — radial ladder, band share, satellite decoration —
+ * which is where the sprawl actually lived.
+ */
+export const CHIP_MM_COMPACT = 9.2;
 
 /**
  * Finger travel that promotes a chip press to AIMING. There is NO time term
@@ -159,6 +171,15 @@ export function crawlerKeepout(vw: number, vh: number): Rect {
   };
 }
 
+/**
+ * COMPACT vs LARGE (the owner's verdict, on real glass). `compact` is the
+ * DEFAULT: chips at the low end of the 9-11 mm band, a tighter radial ladder,
+ * a lower band share, satellites demoted harder. `large` keeps the previous
+ * spacious cluster for players who want it — it is a choice in the
+ * customisation surface, no longer the thing everyone gets.
+ */
+export type LayoutPreset = "compact" | "large";
+
 export interface LayoutPrefs {
   handed: "right" | "left";
   /** Movement stick radius multiplier (0.7 - 1.4). */
@@ -169,11 +190,13 @@ export interface LayoutPrefs {
   hudInset: number;
   /** Comfortable thumb sweep in MILLIMETRES (38 - 62; 5th-95th percentile). */
   thumbMm?: number;
+  /** Cluster economy. Default COMPACT; `large` is the pre-owner-verdict layout. */
+  preset?: LayoutPreset;
 }
 
 export const DEFAULT_LAYOUT_PREFS: LayoutPrefs = {
   handed: "right", stickScale: 1, buttonScale: 1, hudInset: 12,
-  thumbMm: THUMB_COMFORTABLE_MM,
+  thumbMm: THUMB_COMFORTABLE_MM, preset: "compact",
 };
 
 export interface ControlRect extends Rect {
@@ -182,10 +205,20 @@ export interface ControlRect extends Rect {
   cy: number;
   /** Distance of the centre from the class pivot (CSS px). */
   fromPivot: number;
+  /**
+   * VISUAL diameter, in CSS px — the disc the shell paints, centred on
+   * (cx, cy). `w`/`h` stay the HIT rect and never drop below `MIN_TARGET`;
+   * this may. The split is what buys Wild Rift's size hierarchy (wr_01/03:
+   * utilities visibly smaller than abilities) without shrinking a single
+   * touch target: a 38 px LOCK disc still owns a 44 px padded hit box.
+   */
+  vis: number;
 }
 
 export interface ZoneTable {
   cls: DeviceClass;
+  /** Which economy built this table — hosts stamp it on the body for CSS. */
+  preset: LayoutPreset;
   viewport: { w: number; h: number };
   insets: Insets;
   /** The box every control must live inside (hardware inset + player pad). */
@@ -313,9 +346,35 @@ const ARC_CORNER: ArcSpec[] = [
   // Wild Rift makes it the biggest and the most distinct button on the glass.
   { id: "slot4", ang: 82, rf: 0.63, size: 1.42 },
   { id: "slot3", ang: 51, rf: 0.81, size: 1.00 },
-  { id: "lock", ang: 36, rf: 1.06, size: 0.80 },
+  // SATELLITES PAINT A TIER DOWN (wr_01/03: WR's utilities are visibly
+  // smaller than its abilities; ours measured near ability-sized, which is
+  // what made the cluster read as nine similar coins). Hit stays >= 44.
+  { id: "lock", ang: 36, rf: 1.06, size: 0.64 },
   { id: "context", ang: 28, rf: 1.30, size: 0.86 },
-  { id: "map", ang: 23, rf: 1.56, size: 0.80 },
+  { id: "map", ang: 23, rf: 1.56, size: 0.64 },
+];
+
+/**
+ * CORNER GRIP, COMPACT (the default). Same fan, same two-rank shape, but the
+ * radial ladder is compressed (outermost combat chip at 1.32 instead of 1.42,
+ * map at 1.48 instead of 1.56), the hero chips are one step less theatrical
+ * (ultimate 1.28 vs 1.42, attack 1.16 vs 1.22) and the satellites drop a
+ * further tier (0.52 vs 0.64 — the LOCK and MAP discs paint small; the router
+ * still pads every hit rect to MIN_TARGET). Combined with CHIP_MM_COMPACT this
+ * is what turns "eight full-size coins across half the screen" back into the
+ * tight bottom-right cluster the July layout had, without giving up the arc
+ * geometry, the reach model or a single tap target.
+ */
+const ARC_CORNER_COMPACT: ArcSpec[] = [
+  { id: "slot0", ang: 25, rf: 0.34, size: 1.16 },
+  { id: "flask", ang: 10, rf: 0.72, size: 0.84 },
+  { id: "slot1", ang: 7, rf: 1.02, size: 1.00 },
+  { id: "slot2", ang: 5, rf: 1.32, size: 1.00 },
+  { id: "slot4", ang: 78, rf: 0.60, size: 1.28 },
+  { id: "slot3", ang: 48, rf: 0.78, size: 1.00 },
+  { id: "lock", ang: 36, rf: 1.00, size: 0.52 },
+  { id: "context", ang: 27, rf: 1.24, size: 0.74 },
+  { id: "map", ang: 21, rf: 1.48, size: 0.52 },
 ];
 
 /**
@@ -333,8 +392,22 @@ const ARC_SIDE: ArcSpec[] = [
   { id: "slot4", ang: 46, rf: 0.60, size: 1.42 }, // ultimate: top of the fan AND the biggest chip
   { id: "flask", ang: -46, rf: 0.58, size: 0.92 },
   { id: "context", ang: -22, rf: 0.34, size: 0.86 },
-  { id: "lock", ang: 24, rf: 0.36, size: 0.80 },
-  { id: "map", ang: -46, rf: 0.94, size: 0.80 },
+  { id: "lock", ang: 24, rf: 0.36, size: 0.64 },
+  { id: "map", ang: -46, rf: 0.94, size: 0.64 },
+];
+
+/** SIDE GRIP, COMPACT: same fan (tablets have the room), quieter hero and
+ * satellite tiers so the two presets read as one family. */
+const ARC_SIDE_COMPACT: ArcSpec[] = [
+  { id: "slot0", ang: 0, rf: 0.34, size: 1.16 },
+  { id: "slot1", ang: -30, rf: 0.86, size: 1.00 },
+  { id: "slot2", ang: 0, rf: 0.94, size: 1.00 },
+  { id: "slot3", ang: 30, rf: 0.86, size: 1.00 },
+  { id: "slot4", ang: 46, rf: 0.60, size: 1.28 },
+  { id: "flask", ang: -46, rf: 0.58, size: 0.84 },
+  { id: "context", ang: -22, rf: 0.34, size: 0.74 },
+  { id: "lock", ang: 24, rf: 0.36, size: 0.52 },
+  { id: "map", ang: -46, rf: 0.94, size: 0.52 },
 ];
 
 const RAD = Math.PI / 180;
@@ -359,6 +432,10 @@ export function computeZones(
   const shortEdge = Math.min(vw, vh);
   const cls = deviceClass(shortEdge, coarse);
   const mmPerPx = MM_PER_PX[cls];
+  // COMPACT is the default; `large` must be asked for. An absent preset (an
+  // old saved pref blob, a bare test call) gets the economy the owner chose.
+  const preset: LayoutPreset = prefs.preset === "large" ? "large" : "compact";
+  const compact = preset === "compact";
   const bs = clamp(prefs.buttonScale, 0.7, 1.4);
   const ss = clamp(prefs.stickScale, 0.7, 1.4);
   const { comfortable, stretch } =
@@ -371,7 +448,7 @@ export function computeZones(
   // quantity and the stick radius a STICK-hand one. Borrowing the stick's
   // radius for the aim throw is contradiction 2, and it made maximum range and
   // "never mind" the same gesture at the small end of the matrix.
-  const chipBase0 = clamp(CHIP_MM / mmPerPx, MIN_TARGET, 76) * bs;
+  const chipBase0 = clamp((compact ? CHIP_MM_COMPACT : CHIP_MM) / mmPerPx, MIN_TARGET, 76) * bs;
   const aimThrow = clamp(AIM_THROW_MM / mmPerPx, 88, 124) * bs;
   const stickRadius = clamp(STICK_MM / mmPerPx, 56, 76) * ss;
   // THE THRESHOLD ORDERING IS STRUCTURAL, not a coincidence of the defaults:
@@ -417,7 +494,9 @@ export function computeZones(
   // band never enters the read band (rule 1), the band is never taller than
   // the posture's share of the safe box (rule 2), and the inboard wall keeps
   // the cluster out of the movement thumb's zone.
-  const bandFrac = side ? 0.46 : 0.58;
+  // Compact gives the world back 6% of the safe height on a corner grip: the
+  // cluster band is the screen-scale half of the sprawl.
+  const bandFrac = side ? 0.46 : compact ? 0.52 : 0.58;
   const readFloor = safe.y + READ_BAND * safe.h;
   const box = {
     x0: mirror ? safe.x : Math.max(safe.x, stickZone.x + stickZone.w),
@@ -444,7 +523,9 @@ export function computeZones(
    * answer to the request.
    */
   const keepout = crawlerKeepout(vw, vh);
-  const arc = side ? ARC_SIDE : ARC_CORNER;
+  const arc = side
+    ? (compact ? ARC_SIDE_COMPACT : ARC_SIDE)
+    : (compact ? ARC_CORNER_COMPACT : ARC_CORNER);
   // The outermost COMBAT control sets the radial unit: `rf = 1` is normalised
   // so that chip lands exactly on `comfortable`. Without this the reach
   // invariant would hold only where `arcRadius` happens to be the binding cap
@@ -461,7 +542,7 @@ export function computeZones(
     arcRadius = Math.max(56, Math.min(
       comfortable - maxHalf - 6,
       (comfortable - 2) / maxCombatRf,
-      (side ? 0.62 : 0.58) * safe.h,
+      (side ? 0.62 : compact ? 0.52 : 0.58) * safe.h,
     ));
     controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout);
     if (attempt >= 12 || clusterFits(controls, comfortable, keepout)) break;
@@ -533,7 +614,12 @@ export function computeZones(
   const inboardGap = mirror
     ? (stickZone.x - 12) - (clusterRight + 12)
     : (clusterLeft - 12) - (stickZone.x + stickZone.w + 12);
-  const wantBand = side || inboardGap >= 96;
+  // POSTURE DECIDES, NOT THE GAP (§2.0 register + the §4.2a derivation): a
+  // corner grip ships `origin`, full stop. The old `|| inboardGap >= 96`
+  // escape hatch was dormant until the satellite chips slimmed down — then a
+  // Pixel 5 suddenly earned a band that sits one aimThrow inboard of the
+  // nearest chip, which is exactly the placement the derivation rejects.
+  const wantBand = side;
   const cancelMode: "band" | "origin" = wantBand ? "band" : "origin";
   const cancelW = side
     ? Math.min(safe.w * 0.42, Math.max(180, arcRadius * 1.4))
@@ -565,7 +651,7 @@ export function computeZones(
   };
 
   return {
-    cls, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
+    cls, preset, viewport: { w: vw, h: vh }, insets, safe, stickZone, worldZone, cancelBand,
     cancelMode, stickRadius, aimThrow, cancelRadius, mmPerPx, keepout, stickAnchor,
     pivot, arcRadius, comfortable, stretch, controls,
   };
@@ -581,13 +667,15 @@ function placeCluster(
   const controls = {} as Record<ControlId, ControlRect>;
   for (const spec of arc) {
     const size = Math.max(MIN_TARGET, chipBase * spec.size);
+    // The paint may be smaller than the target, never the other way round.
+    const vis = Math.min(size, Math.max(30, chipBase * spec.size));
     const dx = Math.cos(spec.ang * RAD) * arcRadius * spec.rf;
     const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf;
     const cx = mirror ? pivot.x + dx : pivot.x - dx;
     const cy = pivot.y - dy;
     controls[spec.id] = {
       id: spec.id, cx, cy, x: cx - size / 2, y: cy - size / 2, w: size, h: size,
-      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y),
+      fromPivot: Math.hypot(cx - pivot.x, cy - pivot.y), vis,
     };
   }
   separate(controls, box, pivot, keepout);

@@ -259,9 +259,16 @@ export function saveCamView(view: CamView): void {
 
 export type CastMode = "tap" | "tap-release" | "aim-only";
 export type HapticLevel = "off" | "light" | "full";
+export type LayoutPreset = "compact" | "large";
 
 export interface TouchPrefs {
   handed: "right" | "left";
+  /**
+   * Cluster economy. COMPACT is the default — the owner, on a real iPhone,
+   * judged the spacious cluster "spread out and taking up so much space";
+   * LARGE keeps that layout for players who prefer it.
+   */
+  preset: LayoutPreset;
   stickScale: number; // 0.7 - 1.4
   buttonScale: number; // 0.7 - 1.4
   opacity: number; // 0.35 - 1.0, idle only; full on press
@@ -288,6 +295,7 @@ export interface TouchPrefs {
 
 export const DEFAULT_TOUCH_PREFS: TouchPrefs = {
   handed: "right",
+  preset: "compact",
   stickScale: 1,
   buttonScale: 1,
   opacity: 1,
@@ -323,6 +331,8 @@ export function loadTouchPrefs(): TouchPrefs {
     if (!raw) return base;
     const s = JSON.parse(raw) as Partial<TouchPrefs>;
     if (s.handed === "left" || s.handed === "right") base.handed = s.handed;
+    // An old blob has no preset; it gets COMPACT, not whatever it looked like.
+    if (s.preset === "compact" || s.preset === "large") base.preset = s.preset;
     base.stickScale = clampNum(s.stickScale, 0.7, 1.4, base.stickScale);
     base.buttonScale = clampNum(s.buttonScale, 0.7, 1.4, base.buttonScale);
     base.opacity = clampNum(s.opacity, 0.35, 1, base.opacity);

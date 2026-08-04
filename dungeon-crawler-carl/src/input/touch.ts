@@ -546,7 +546,7 @@ export interface TouchSample {
   active: boolean;
 }
 
-type RoleKind = "stick" | "chip" | "world" | "two" | "dead" | "ignored";
+export type RoleKind = "stick" | "chip" | "world" | "two" | "dead" | "ignored";
 
 /**
  * WHY EVERY CHIP PRESS NOW WRITES ITS VERDICT DOWN.
@@ -753,6 +753,26 @@ export class TouchController {
     return { control: this.controlAt(x, y), zone: hitZone(this.zones, x, y) };
   }
 
+  /**
+   * The FSM at a glance — the `?touchdebug=1` overlay reads this once per
+   * frame so the OWNER's phone can answer "did iOS deliver the second touch
+   * at all, or did our machine drop it". Allocates; debug only.
+   */
+  debugState(): {
+    stickDown: boolean; btn: ButtonState; pressedSlot: number; aimingSlot: number;
+    roles: { id: number; kind: RoleKind }[]; reasons: SuspendReason[]; gated: boolean;
+  } {
+    return {
+      stickDown: this.stick.origin !== null,
+      btn: this.btn.state,
+      pressedSlot: this.pressedSlot,
+      aimingSlot: this.aimingSlot,
+      roles: [...this.roles].map(([id, r]) => ({ id, kind: r.kind })),
+      reasons: [...this.reasons],
+      gated: this.now() < this.gateUntil,
+    };
+  }
+
   // ---------------------------------------------------------------- gates
   /**
    * THE INPUT AUTHORITY (MOBILE.md 2.9a). Idempotent per reason; gameplay
@@ -849,6 +869,27 @@ export class TouchController {
     for (const type of ["pointerdown", "pointermove", "pointerup", "pointercancel"]) {
       root.addEventListener(type, (e) => this.handle(e as PointerEvent), opts);
     }
+    // THE iOS PREVENTDEFAULT DISCIPLINE. Pointer events cannot veto Safari's
+    // own gesture recognisers — only `touch-action` or a NON-PASSIVE touch
+    // listener's preventDefault can, and iOS makes document-level touch
+    // listeners passive BY DEFAULT, so a preventDefault inside one silently
+    // no-ops unless `passive: false` is spelled out. When Safari's recognisers
+    // stay live, the second finger's touchstart is what ENGAGES them
+    // (pinch-zoom arbitration), and Safari answers by firing touchcancel on
+    // the FIRST finger — which is precisely "you cannot move and press an
+    // action at the same time", on real glass only, invisible to CDP
+    // emulation. `touch-action: none` on every gameplay surface is the first
+    // line of defence; this is the belt for any surface a stylesheet misses,
+    // and it claims ONLY gameplay touches so panels keep native scrolling.
+    for (const type of ["touchstart", "touchmove"]) {
+      root.addEventListener(type, (e) => {
+        const te = e as TouchEvent;
+        if (!this.enabled || this.reasons.size > 0 || !te.cancelable) return;
+        const t0 = te.changedTouches?.[0];
+        if (!t0) return;
+        if (this.isGameplaySurface(te.target, t0.clientX, t0.clientY)) te.preventDefault();
+      }, opts);
+    }
   }
 
   /**
@@ -867,16 +908,28 @@ export class TouchController {
 
   /** True when this event belongs to gameplay rather than a panel or button. */
   private isGameplayTarget(e: PointerLike): boolean {
-    const t = e.target as (Element & { closest?: (s: string) => Element | null }) | null;
+    return this.isGameplaySurface(e.target ?? null, e.clientX, e.clientY);
+  }
+
+  /** The same verdict from a raw (target, point) — the touch-event path. */
+  private isGameplaySurface(target: EventTarget | null, x: number, y: number): boolean {
+    const t = target as (Element & { closest?: (s: string) => Element | null }) | null;
     if (!t || typeof t.closest !== "function") return true;
     if (t.closest("#skills, [data-tctl], #t-stickzone, #t-layer")) return true;
     if (t.closest("#game, #touch")) return true;
+    // AN OPEN TOP MENU IS UI, WHEREVER IT HANGS. The SYSTEM/CRAWLER dropdowns
+    // drape over the world zone, and a tap on 'Key Bindings & Options' ALSO
+    // registered as a world tap at the row's own centre — with tapToMove ON
+    // that is a move order, and near a monster a lock+attack, issued by a menu
+    // interaction (wr-surf r1 BLOCKER, MOBILE.md 2.0 row 6). Same for the
+    // buttons that open them: interactive chrome never doubles as gameplay.
+    if (t.closest(".topmenu, .topbtn")) return false;
     // Display-only chrome that PARKS INSIDE A THUMB ZONE — the minimap and the
     // transient System cards both sit in the left stick zone on a phone, and
     // both used to eat the movement thumb mid-fight. Inside a zone they are
     // gameplay surface; outside one they stay ordinary UI.
     if (t.closest("#minimap-frame, #tutorial, #toasts, #banner")) {
-      return hitZone(this.zones, e.clientX, e.clientY) !== null;
+      return hitZone(this.zones, x, y) !== null;
     }
     // Anything else is HUD or a panel: let it behave like a web page.
     return false;
@@ -903,12 +956,17 @@ export class TouchController {
       return;
     }
     if (this.roles.has(e.pointerId)) {
-      // A pointerId whose lift never arrived (an OS-level steal, a harness
-      // desync) makes every later press with that id vanish silently.
+      // A pointerdown for an id we still hold means the old lift NEVER CAME —
+      // an OS-level steal, an iOS backgrounding that emits nothing, a harness
+      // desync. The stream is telling us the old gesture is over, so the old
+      // record is stale BY DEFINITION and refusing the new press turns one
+      // dropped event into a control that is dead until its id happens to
+      // rotate. Record the reentry (it is still a diagnosis), refund whatever
+      // the stale role held, and route the new press normally.
       const ctl = this.controlAt(e.clientX, e.clientY);
       const slot = ctl ? SLOT_OF[ctl] : undefined;
       if (slot !== undefined) this.verdict(slot, "reentrant");
-      return;
+      this.dropRole(e.pointerId);
     }
     const role = this.routeDown(e, now);
     if (!role) return;
@@ -993,6 +1051,39 @@ export class TouchController {
   private liveWorldPointer(): number | null {
     for (const [id, r] of this.roles) if (r.kind === "world") return id;
     return null;
+  }
+
+  /**
+   * Refund ONE stale role and forget it, without touching any other pointer.
+   * `cancelAll` is the modal hammer; this is the tweezers for a single id
+   * whose lift was lost (see the reentrancy note in onDown).
+   */
+  private dropRole(id: number): void {
+    const role = this.roles.get(id);
+    if (!role) return;
+    this.roles.delete(id);
+    this.releaseCapture(id);
+    switch (role.kind) {
+      case "stick":
+        this.stick.up();
+        this.onStick?.(null, ZERO);
+        break;
+      case "chip":
+        if (role.slot === 0) { this.attackHeld = false; break; }
+        if (role.slot === undefined) break;
+        this.btn.interrupt();
+        if (this.aimingSlot === role.slot || this.pressedSlot === role.slot) {
+          this.onFeedback?.({ kind: "cancel", slot: role.slot });
+        }
+        this.aimingSlot = -1;
+        this.pressedSlot = -1;
+        break;
+      case "two":
+        this.twoCandidate = null;
+        break;
+      default:
+        break;
+    }
   }
 
   /** DOM chip first (it owns its CSS), then the cached-rect arithmetic. */
@@ -1170,8 +1261,16 @@ export class TouchController {
     // POINTER_TTL is reaped through the same cancelAll() path, because the
     // platform paths that strand a pointer (backgrounding, an incoming call,
     // the notification shade) emit no DOM event at all.
-    for (const role of this.roles.values()) {
-      if (role.kind === "dead" || role.kind === "ignored") continue;
+    for (const [id, role] of this.roles) {
+      if (role.kind === "dead" || role.kind === "ignored") {
+        // Dead roles are records, not gestures — but they must still EXPIRE.
+        // Left forever (the old behaviour), a dead id whose lift was swallowed
+        // by the platform blocked every future press with that id via the
+        // reentrancy guard: on a browser that reuses pointerIds, one lost
+        // pointerup made a spot on the glass permanently deaf.
+        if (nowMs - role.seen >= POINTER_TTL) this.roles.delete(id);
+        continue;
+      }
       if (nowMs - role.seen >= POINTER_TTL) { this.cancelAll(nowMs); break; }
     }
     for (const role of this.roles.values()) {
