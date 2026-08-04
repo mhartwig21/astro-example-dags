@@ -163,6 +163,20 @@ export const AUDIO_MANIFEST = {
   equip: { url: "/audio/sfx/equip.ogg", bus: "ui", volume: 0.6 },
 
   // Music beds — crossfaded by the director based on game state.
+  // The six band beds + the campfire bed (SOUNDPLAN §3, Music r1): generated
+  // in-repo by tools/audio/gen-music-beds.mjs (stereo, -23 LUFS-I, loop-fold
+  // seams — measured per bed in the generator's commit). The director routes
+  // ambience by floorBand(); `music_dungeon` stays the fallback for any band
+  // whose file is absent (the silent-fallback philosophy, per-band).
+  music_band_undercroft: { url: "/audio/music/band_undercroft.ogg", bus: "music", volume: 0.5, loop: true },
+  music_band_sewers: { url: "/audio/music/band_sewers.ogg", bus: "music", volume: 0.5, loop: true },
+  music_band_garden: { url: "/audio/music/band_garden.ogg", bus: "music", volume: 0.5, loop: true },
+  music_band_ruins: { url: "/audio/music/band_ruins.ogg", bus: "music", volume: 0.5, loop: true },
+  music_band_ironworks: { url: "/audio/music/band_ironworks.ogg", bus: "music", volume: 0.5, loop: true },
+  music_band_approach: { url: "/audio/music/band_approach.ogg", bus: "music", volume: 0.5, loop: true },
+  // The check-in: menu + campfire lineup — the only near-friendly cue in the
+  // game. Host-flagged via AudioDirector.setMenu (menus are not sim state).
+  music_menu: { url: "/audio/music/menu.ogg", bus: "music", volume: 0.5, loop: true },
   music_dungeon: { url: "/audio/music/dungeon.ogg", bus: "music", volume: 0.5, loop: true },
   // Both re-encoded to OGG (SOUNDPLAN §1.4 rows 19/20): format conversion
   // only, measured LUFS unchanged (-18.0 / -8.1), banked 8.4MB of payload.

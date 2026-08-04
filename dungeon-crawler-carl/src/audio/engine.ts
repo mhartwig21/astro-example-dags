@@ -33,6 +33,12 @@ export interface AudioSink {
   // moment in the run, and it only lands if the music gets out of the way.
   // 1 = normal, 0 = silent. Optional, like muffle.
   duck?(level: number): void;
+  // Music r1: is this clip decoded and playable? The director uses it to
+  // fall back per-band (a band bed that failed to load degrades to the
+  // generic dungeon ambience instead of silence). Optional — sinks without
+  // it are treated as having everything, which keeps the director's choice
+  // deterministic in tests.
+  has?(id: SoundId): boolean;
 }
 
 const STORE_KEY = "dcc:audio:v1";
@@ -159,6 +165,11 @@ export class AudioEngine implements AudioSink {
 
   get muted(): boolean {
     return this.prefs.muted;
+  }
+
+  /** True once the clip is decoded (missing/undecodable files never are). */
+  has(id: SoundId): boolean {
+    return this.buffers.has(id);
   }
 
   toggleMute(): boolean {

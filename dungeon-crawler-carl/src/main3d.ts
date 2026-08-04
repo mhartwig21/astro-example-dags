@@ -1154,6 +1154,7 @@ function renderCareer(): void {
 
 function openMenu(): void {
   menuOpen = true;
+  audioDirector.setMenu(true); // the campfire bed owns the room (Music r1)
   input.captureMode = true; // typing a name must not fire game binds
   menuEl.style.display = "flex";
   document.body.classList.add("checkin"); // hide the game HUD behind the campfire
@@ -1209,6 +1210,7 @@ function openMenu(): void {
 }
 function closeMenu(): void {
   menuOpen = false;
+  audioDirector.setMenu(false); // hand the soundtrack back to the run
   input.captureMode = false;
   menuEl.style.display = "none";
   menuEl.classList.remove("casting"); // next open starts back at the panel

@@ -11,11 +11,17 @@ import { AUDIO_MANIFEST } from "../src/audio/manifest";
 class FakeSink implements AudioSink {
   played: { id: SoundId; opts?: PlayOpts }[] = [];
   musicCalls: (SoundId | null)[] = [];
+  /** When set, has() reports only these ids as decoded (fallback tests);
+   *  unset = everything decoded, like a fully loaded engine. */
+  have: Set<SoundId> | null = null;
   play(id: SoundId, opts?: PlayOpts): void {
     this.played.push({ id, opts });
   }
   music(id: SoundId | null): void {
     this.musicCalls.push(id);
+  }
+  has(id: SoundId): boolean {
+    return this.have ? this.have.has(id) : true;
   }
   ids(): SoundId[] {
     return this.played.map((p) => p.id);
@@ -153,7 +159,7 @@ describe("audio director", () => {
   it("selects the music bed from run state", () => {
     const { sink, director, state } = setup();
     director.frame(state, [], [], 0);
-    expect(sink.lastMusic()).toBe("music_dungeon");
+    expect(sink.lastMusic()).toBe("music_band_undercroft"); // floor 1 ambience is the band's
 
     state.phase = "collapse";
     director.frame(state, [], [], 0);
@@ -230,7 +236,7 @@ describe("audio director", () => {
     const p = state.players[0];
     state.monsters = []; // no proximity trigger — isolate the hit trigger
     director.frame(state, [], [], p.id);
-    expect(sink.lastMusic()).toBe("music_dungeon");
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
 
     director.frame(state, [{ pos: { ...p.pos }, amount: 5, kind: "enemy" }], [], p.id);
     expect(sink.lastMusic()).toBe("music_battle_b"); // floor 1 → rotation slot 1
@@ -241,11 +247,11 @@ describe("audio director", () => {
 
     state.elapsed += 10; // linger expired — back to ambience
     director.frame(state, [], [], p.id);
-    expect(sink.lastMusic()).toBe("music_dungeon");
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
 
     // Pickups are not combat: gold alone must not restart the battle bed.
     director.frame(state, [{ pos: { ...p.pos }, amount: 5, kind: "gold" }], [], p.id);
-    expect(sink.lastMusic()).toBe("music_dungeon");
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
   });
 
   it("raises the battle bed when a pack closes in, before first blood", () => {
@@ -254,7 +260,7 @@ describe("audio director", () => {
     const near = (i: number) => ({ ...state.monsters[0], id: 9000 + i, kind: "grunt" as const, hp: 10, pos: { x: p.pos.x + 1 + i, y: p.pos.y } });
     state.monsters = [near(0), near(1)];
     director.frame(state, [], [], p.id);
-    expect(sink.lastMusic()).toBe("music_dungeon"); // two nearby ≠ a pack
+    expect(sink.lastMusic()).toBe("music_band_undercroft"); // two nearby ≠ a pack
 
     state.monsters = [near(0), near(1), near(2)];
     director.frame(state, [], [], p.id);
@@ -311,6 +317,78 @@ describe("audio director", () => {
       { text: "an unrelated line", kind: "flavor", priority: "normal" },
     ], 0);
     expect(sink.ids()).not.toContain("till");
+  });
+});
+
+describe("audio director: band beds + campfire (SOUNDPLAN §3, Music r1)", () => {
+  it("routes ambience by band: one bed per 3-floor act, clamped at the end", () => {
+    const { sink, director, state } = setup();
+    const beds: Record<number, SoundId> = {
+      1: "music_band_undercroft", 3: "music_band_undercroft",
+      4: "music_band_sewers", 8: "music_band_garden", 11: "music_band_ruins",
+      14: "music_band_ironworks", 16: "music_band_approach", 18: "music_band_approach",
+    };
+    for (const [floor, bed] of Object.entries(beds)) {
+      state.floor = Number(floor);
+      director.frame(state, [], [], 0);
+      expect(sink.lastMusic(), `floor ${floor}`).toBe(bed);
+    }
+  });
+
+  it("the 3→4 descent swaps UNDERCROFT for THE SEWERS (the band transition)", () => {
+    const { sink, director, state } = setup();
+    state.floor = 3;
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
+    state.floor = 4;
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_sewers");
+    expect(sink.ids()).toContain("band_sting"); // the act-change flourish still fires
+  });
+
+  it("degrades per band: a bed that didn't decode falls back to music_dungeon", () => {
+    const { sink, director, state } = setup();
+    sink.have = new Set<SoundId>(["music_dungeon", "music_band_sewers"]);
+    director.frame(state, [], [], 0); // floor 1: undercroft missing
+    expect(sink.lastMusic()).toBe("music_dungeon");
+    state.floor = 4; // sewers present
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_sewers");
+  });
+
+  it("the campfire owns the room while the check-in menu is up", () => {
+    const { sink, director, state } = setup();
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
+    director.setMenu(true);
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_menu");
+    // Even over a corpse: the menu means you are AT the campfire.
+    state.status = "dead";
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_menu");
+    state.status = "playing";
+    director.setMenu(false);
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
+  });
+
+  it("a menu bed that didn't decode stays silent-graceful (run bed continues)", () => {
+    const { sink, director, state } = setup();
+    sink.have = new Set<SoundId>(["music_band_undercroft"]);
+    director.setMenu(true);
+    director.frame(state, [], [], 0);
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
+  });
+
+  it("keeps every band bed + menu bed in the manifest on the music bus, looping", () => {
+    for (const id of [
+      "music_band_undercroft", "music_band_sewers", "music_band_garden",
+      "music_band_ruins", "music_band_ironworks", "music_band_approach", "music_menu",
+    ] as const) {
+      expect(AUDIO_MANIFEST[id].bus).toBe("music");
+      expect(AUDIO_MANIFEST[id].loop).toBe(true);
+    }
   });
 });
 
@@ -419,7 +497,7 @@ describe("audio director: status cues + band sting (launch polish #3)", () => {
     director.frame(state, [
       { pos: { x: p.pos.x + 1, y: p.pos.y }, amount: 3, kind: "enemy", effect: "burn" },
     ], [], p.id);
-    expect(sink.lastMusic()).toBe("music_dungeon");
+    expect(sink.lastMusic()).toBe("music_band_undercroft");
   });
 
   it("cues the element the frame a status LANDS, and only that frame", () => {

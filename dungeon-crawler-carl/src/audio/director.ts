@@ -85,6 +85,14 @@ const STEP_EARSHOT = 18;
 // Soundtrack pools. Regular fights rotate the battle bed per floor so runs
 // don't wear one track out; boss arenas get dedicated themes that escalate
 // toward the final floor.
+// Ambience is PER BAND (SOUNDPLAN §3, Music r1): the six generated beds,
+// indexed by floorBand() — same six bands the art direction reskins by.
+// `music_dungeon` is the graceful-degradation fallback for any band whose
+// bed didn't decode (sink.has), mirroring the model loader's stand-ins.
+const BAND_BEDS: SoundId[] = [
+  "music_band_undercroft", "music_band_sewers", "music_band_garden",
+  "music_band_ruins", "music_band_ironworks", "music_band_approach",
+];
 const BATTLE_TRACKS: SoundId[] = ["music_battle_a", "music_battle_b", "music_battle_c"];
 const CITY_BOSS_TRACKS: SoundId[] = ["music_boss_epic", "music_boss_tides"];
 // A pack inside aggro range is actively hunting you (sim rule), so it reads
@@ -149,6 +157,9 @@ interface Prev {
 
 export class AudioDirector {
   private prev: Prev | null = null;
+  // The check-in menu is host UI, not sim state, so the host flags it here.
+  // While it's up the campfire bed owns the room (SOUNDPLAN §3 row 7).
+  private menuOpen = false;
   // Monsters currently winding up an attack — a new id is a fresh "tell".
   private winding = new Set<number>();
   // Pings already chimed (same pattern as winding: a new id is a fresh mark).
@@ -169,6 +180,18 @@ export class AudioDirector {
   private mobs = new Map<number, { fam: BarkFamily; x: number; y: number; hp: number; flash: boolean; engaged: boolean; painAt: number }>();
 
   constructor(private sink: AudioSink) {}
+
+  /** Host hook: the RINGSIDE CHECK-IN (menu/campfire) opened or closed. */
+  setMenu(open: boolean): void {
+    this.menuOpen = open;
+  }
+
+  /** The band's ambient bed, degrading to the generic dungeon ambience when
+   *  the band's file didn't decode (per-band silent-fallback philosophy). */
+  private ambientBed(floor: number): SoundId {
+    const bed = BAND_BEDS[floorBand(floor)] ?? "music_dungeon";
+    return (this.sink.has?.(bed) ?? true) ? bed : "music_dungeon";
+  }
 
   /** One creature bark: family voice, variant + rate hashed from the monster
    *  id (a given creature keeps ITS voice; replays sound identical). */
@@ -563,9 +586,13 @@ export class AudioDirector {
     }
 
     // Music bed follows the run's mood; the engine crossfades on change and
-    // no-ops when the requested track isn't present.
+    // no-ops when the requested track isn't present. The campfire check-in
+    // outranks everything — while the menu is up (fresh season, mid-run
+    // resume screen, even over a corpse) the player is AT the campfire, and
+    // the bed says so; the run's mood takes back over the moment it closes.
     this.sink.music(
-      cur.status !== "playing" ? null
+      this.menuOpen && (this.sink.has?.("music_menu") ?? true) ? "music_menu"
+      : cur.status !== "playing" ? null
       : cur.inSafeRoom ? "music_safe"
       // §5.4 — the LOW-HP LAYER: on the final phase every boss escalates to
       // the colossal bed, whatever floor it is on. The finale's theme stops
@@ -573,7 +600,7 @@ export class AudioDirector {
       : bossNear ? (finalPhase ? "music_boss_colossal" : bossTrack(state.floor))
       : cur.phase === "collapse" ? "music_collapse"
       : state.elapsed < this.battleUntil ? BATTLE_TRACKS[state.floor % BATTLE_TRACKS.length]
-      : "music_dungeon",
+      : this.ambientBed(state.floor),
     );
   }
 }
