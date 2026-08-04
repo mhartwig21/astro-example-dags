@@ -257,6 +257,27 @@ export function declick(x, sec = 0.004) {
   return x;
 }
 
+/** 16-bit PCM stereo WAV from two equal-length channel buffers (beds are
+ * the one family wide enough to earn a second channel — SOUNDPLAN §3). */
+export function writeWavStereo(path, l, r, sr = SR) {
+  const n = Math.min(l.length, r.length);
+  const bytes = 44 + n * 4;
+  const b = Buffer.alloc(bytes);
+  b.write("RIFF", 0); b.writeUInt32LE(bytes - 8, 4); b.write("WAVE", 8);
+  b.write("fmt ", 12); b.writeUInt32LE(16, 16); b.writeUInt16LE(1, 20);
+  b.writeUInt16LE(2, 22); b.writeUInt32LE(sr, 24); b.writeUInt32LE(sr * 4, 28);
+  b.writeUInt16LE(4, 32); b.writeUInt16LE(16, 34);
+  b.write("data", 36); b.writeUInt32LE(n * 4, 40);
+  for (let i = 0; i < n; i++) {
+    const lv = Math.max(-1, Math.min(1, l[i]));
+    const rv = Math.max(-1, Math.min(1, r[i]));
+    b.writeInt16LE((lv * 32767) | 0, 44 + i * 4);
+    b.writeInt16LE((rv * 32767) | 0, 46 + i * 4);
+  }
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, b);
+}
+
 /** 16-bit PCM mono WAV. */
 export function writeWav(path, x, sr = SR) {
   const n = x.length;

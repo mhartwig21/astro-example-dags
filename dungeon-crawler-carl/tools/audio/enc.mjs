@@ -6,7 +6,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
-import { writeWav } from "./lib.mjs";
+import { writeWav, writeWavStereo } from "./lib.mjs";
 
 /** Encode `samples` (mono 48k) to an OGG at `outPath` (q defaults to 4). */
 export function renderOgg(outPath, samples, { q = 4 } = {}) {
@@ -19,4 +19,16 @@ export function renderOgg(outPath, samples, { q = 4 } = {}) {
     "-c:a", "libvorbis", "-q:a", String(q), "-fflags", "+bitexact", "-flags", "+bitexact", outPath]);
   rmSync(tmp, { force: true });
   console.log(`wrote ${outPath} (${samples.length} samples, ${(samples.length / 48000).toFixed(2)}s)`);
+}
+
+/** Stereo variant for the music beds (two channel buffers, q defaults 3 —
+ * the SOUNDPLAN §3 bed bitrate). Same bitexact muxing as the mono path. */
+export function renderOggStereo(outPath, left, right, { q = 3 } = {}) {
+  const tmp = join(tmpdir(), `dcc-gen-${process.pid}-${Math.random().toString(36).slice(2)}.wav`);
+  writeWavStereo(tmp, left, right);
+  mkdirSync(dirname(outPath), { recursive: true });
+  execFileSync("ffmpeg", ["-hide_banner", "-loglevel", "error", "-y", "-i", tmp,
+    "-c:a", "libvorbis", "-q:a", String(q), "-fflags", "+bitexact", "-flags", "+bitexact", outPath]);
+  rmSync(tmp, { force: true });
+  console.log(`wrote ${outPath} (${left.length} samples/ch, ${(left.length / 48000).toFixed(2)}s stereo)`);
 }
