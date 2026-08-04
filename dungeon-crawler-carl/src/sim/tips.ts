@@ -36,5 +36,5 @@ export const TIPS: Record<string, string> = {
   collapse:
     "COURTESY EXPLANATION: this floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the hazard. The stairs are down. Punctuality is survivable. Sentiment is not.",
   draftBanked:
-    "COURTESY EXPLANATION: your level-up minted a DRAFT — it's banked in the badge by your cockpit, it does not spoil. Cash it somewhere quiet.",
+    "COURTESY EXPLANATION: your level-up minted a DRAFT — banked on the DRAFT badge at the bottom of your HUD, and it does not spoil. Redeem it somewhere quiet.",
 };

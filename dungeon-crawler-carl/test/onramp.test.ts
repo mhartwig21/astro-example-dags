@@ -6,10 +6,14 @@
 import { describe, it, expect } from "vitest";
 import { Onramp, ONRAMP_MAX_LINES, type OnrampEvent } from "../src/ui/onramp";
 
-const desktop = (): Onramp =>
-  new Onramp(false, { move: "WASD", attack: "Left click", cast: "1–4", flask: "X" });
-const phone = (): Onramp =>
-  new Onramp(true, { move: "WASD", attack: "Left click", cast: "1–4", flask: "X" });
+// The host passes LIVE labels (r2 blocker: the shipped Five default to
+// Space/Shift/Q/C + F — hardcoded "1–4" named keys that do nothing).
+const LIVE = {
+  move: "WASD", attack: "Left click or Space", cast: "Shift, Q, C",
+  ult: "F", flask: "X", bag: "I",
+};
+const desktop = (): Onramp => new Onramp(false, { ...LIVE });
+const phone = (): Onramp => new Onramp(true, { ...LIVE });
 
 const ALL: OnrampEvent[] = ["start", "moved", "cast", "pickup", "lowhp", "linger"];
 
@@ -40,10 +44,19 @@ describe("the onramp budget is structural", () => {
 });
 
 describe("the lines name the actual controls (4.4.2)", () => {
-  it("desktop names the binds it was handed", () => {
-    const o = new Onramp(false, { move: "ESDF", attack: "Left click", cast: "1–4", flask: "H" });
+  it("desktop names the binds it was handed — every slot of the Five, live", () => {
+    const o = new Onramp(false, {
+      move: "ESDF", attack: "Left click or Space", cast: "Shift, Q, C", ult: "F", flask: "H", bag: "B",
+    });
     expect(o.note("start", 1)).toContain("ESDF");
-    expect(o.note("moved", 1)).toContain("1–4");
+    const moved = o.note("moved", 1)!;
+    expect(moved).toContain("Left click or Space");
+    expect(moved).toContain("Shift, Q, C");
+    expect(moved).toContain("F is the ultimate");
+    // NEVER the digits nobody bound (r2 blocker: the shipped defaults are
+    // Space/Shift/Q/C + F; "press 1–4" taught a key that does nothing).
+    expect(moved).not.toMatch(/1–4|1-4/);
+    expect(o.note("pickup", 1)).toContain("BAG (B)"); // gear has a key, named
     expect(o.note("lowhp", 1)).toContain("H drinks the flask");
   });
 
@@ -52,8 +65,10 @@ describe("the lines name the actual controls (4.4.2)", () => {
     expect(o.note("start", 1)).toMatch(/LEFT HALF of the glass/);
     expect(o.note("moved", 1)).toMatch(/STRIKE chip/);
     expect(o.note("lowhp", 1)).toMatch(/FLASK chip/);
+    // ...and the BAG line points at the glass's own menu, not a key.
+    expect(o.note("pickup", 1)).toMatch(/☰ menu/);
     // No stray desktop vocabulary on a phone.
-    for (const ev of ["cast", "pickup", "linger"] as OnrampEvent[]) {
+    for (const ev of ["cast", "linger"] as OnrampEvent[]) {
       const line = o.note(ev, 1)!;
       expect(line).not.toMatch(/WASD|click|mouse/i);
     }

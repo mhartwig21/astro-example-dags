@@ -44,7 +44,7 @@ import { aimAnchor, aimSpecFor, castRange } from "./input/aimSpec";
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, keyLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
   loadTouch, loadTouchPrefs, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
   saveTouchPrefs,
   type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref, type TouchPrefs,
@@ -67,7 +67,7 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import { Onramp, type OnrampEvent } from "./ui/onramp";
-import { Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
+import { GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -6285,12 +6285,22 @@ function maybeCampfireBeat(): void {
   if (beat) guideShow(beat);
 }
 
-/** B9 — the second organic check-in, panel stage, with a finished run. */
+/** B9 — the second organic check-in, panel stage, with a finished run.
+ *  A beat-sized delay (r2 minor): the returning player sees the menu they
+ *  came back to BEFORE Mordecai speaks — and if they've already moved on
+ *  (casting stage, a standings/career overlay, any surface change) the
+ *  check-in quietly stands down until the next organic menu. */
+let menuBeatTimer = 0;
 function maybeMenuBeat(): void {
   if (!guide || linkArrival) return;
   if (!menuOpen || menuEl.classList.contains("casting") || dlgOpen) return;
-  const beat = guide.menuReturn(loadHistory().length);
-  if (beat) guideShow(beat);
+  window.clearTimeout(menuBeatTimer);
+  menuBeatTimer = window.setTimeout(() => {
+    if (!menuOpen || menuEl.classList.contains("casting") || dlgOpen) return;
+    if (ladderEl.classList.contains("on") || careerEl.classList.contains("on")) return;
+    const beat = guide.menuReturn(loadHistory().length);
+    if (beat) guideShow(beat);
+  }, 1600);
 }
 
 // ---- Contract ledger (right rail, collapsible) ----
@@ -7482,6 +7492,25 @@ function showAnnouncement(a: Announcement): void {
   // boss's System line; a capture caught the same sentence printed twice in
   // one frame — once in the top SYSTEM toast, once as the card's kicker.
   if (state.encounter?.line && a.text === state.encounter.line) return;
+  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
+  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
+  // deserves an explicit acknowledgment rather than an auto-fade a player
+  // could easily miss. This branch sits ABOVE the headline routing on
+  // purpose: a tip is a tip whatever its priority — "high" only means it may
+  // jump the card pacing gap (the onramp's flask line), never that the
+  // System's teaching voice gets to shout from the center banner.
+  //
+  // ...unless the player took B0's "Skip the hand-holding" (r2 major): the
+  // skip silences BOTH voices, and the sim's COURTESY cards are the System's
+  // teaching voice. The sim still files the rule as explained (tipsSeen —
+  // shown-or-declined = consumed); the host just declines to lecture someone
+  // who asked it not to. Under net (guide is null) the persisted ledger flag
+  // carries the same choice.
+  if (a.kind === "tip") {
+    const skippedAll = guide ? guide.skipped : knownTips().includes(GUIDE_SKIP_KEY);
+    if (!cleanMode && !skippedAll) showTutorialCard(a);
+    return;
+  }
   if (a.priority === "high") {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
@@ -7493,11 +7522,6 @@ function showAnnouncement(a: Announcement): void {
   // lastLevelByPid diff loop) instead of a toast — the line still reaches
   // the archive log via the separate state.events drain, nothing is lost.
   if (a.kind === "levelup") return;
-  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
-  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
-  // deserves an explicit acknowledgment rather than an auto-fade a player
-  // could easily miss.
-  if (a.kind === "tip") { if (!cleanMode) showTutorialCard(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
   const el = document.createElement("div");
@@ -7556,9 +7580,38 @@ const tutorialQueue: Announcement[] = [];
 let tutorialActive = false;
 let tutorialDismissActive: (() => void) | null = null;
 let tutorialAutoTimer = 0;
+let tutorialLastDismiss = -Infinity; // frame-clock stamp of the last card leaving
+let tutorialGapTimer = 0;
+
+/**
+ * Breathing room between COURTESY cards (r2 major: the organic cold run put
+ * FIVE cards through ~13s of first combat — a corner lecture mid-fight, and
+ * the onramp's own ≤6 discipline defeated by the shared surface). Queued
+ * cards now wait out the gap; a "high"-priority card (the flask line while
+ * the player is leaking) waits only for the active card, never for
+ * politeness. Contextual still beats punctual: a card a few seconds late is
+ * a card the player can actually read.
+ */
+const TUT_CARD_GAP_MS = 9000;
+
+function pumpTutorialQueue(): void {
+  if (tutorialActive || tutorialQueue.length === 0) return;
+  const wait = tutorialLastDismiss + TUT_CARD_GAP_MS - performance.now();
+  if (tutorialQueue[0].priority !== "high" && wait > 0) {
+    window.clearTimeout(tutorialGapTimer);
+    tutorialGapTimer = window.setTimeout(pumpTutorialQueue, wait + 50);
+    return;
+  }
+  displayTutorialCard(tutorialQueue.shift()!);
+}
 
 function showTutorialCard(a: Announcement): void {
-  if (tutorialActive) { tutorialQueue.push(a); return; }
+  if (a.priority === "high") tutorialQueue.unshift(a);
+  else tutorialQueue.push(a);
+  pumpTutorialQueue();
+}
+
+function displayTutorialCard(a: Announcement): void {
   tutorialActive = true;
   // Strip the redundant lead-in (the ribbon header already says COURTESY
   // EXPLANATION) and re-capitalize so the body never reads as a truncated
@@ -7585,8 +7638,8 @@ function showTutorialCard(a: Announcement): void {
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
-    const next = tutorialQueue.shift();
-    if (next) showTutorialCard(next);
+    tutorialLastDismiss = performance.now();
+    pumpTutorialQueue(); // next card honors the pacing gap (urgent jumps it)
   };
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
@@ -7631,29 +7684,52 @@ const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
 // "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences BOTH voices: a
 // persisted skip suppresses the onramp on later boots too (the live-session
 // half of the same rule is the guide.skipped check inside onrampObserve).
-const onramp: Onramp | null = freshCrawler && !net && !testMode
-  && !knownTips().includes("tut.skipAll")
+//
+// LIVE LABELS (the module header's contract, r2 blocker): the host passes the
+// player's ACTUAL binds. The shipped Five default to Space/Shift/Q/C + F —
+// the old hardcoded "1–4" named keys that do nothing, so the first thing the
+// System taught a compliant fresh crawler was that the System lies.
+const onrampKey = (a: BindableAction): string =>
+  bindings[a][0] ? keyLabel(bindings[a][0]) : "—";
+const onrampMove = (["moveUp", "moveLeft", "moveDown", "moveRight"] as const).map(onrampKey);
+// The onramp RUNS UNDER NET too (r2 major): it is a pure observer — no sim
+// writes, no seed, no spawn — and the fresh browser whose first click is THE
+// RUSH deserves the same six lines. (Mordecai stays solo-only: the dialogue
+// seam has no wire messages — TUTORIAL.md open edges.)
+const onramp: Onramp | null = freshCrawler && !testMode
+  && !knownTips().includes(GUIDE_SKIP_KEY)
   ? new Onramp(touchMode, {
-      move: "WASD",
-      attack: "Left click",
-      cast: "1–4",
+      // Single-char labels read as one word ("WASD"); anything longer spaces out.
+      move: onrampMove.every((k) => k.length === 1) ? onrampMove.join("") : onrampMove.join(" "),
+      attack: `Left click or ${onrampKey("slot1")}`,
+      cast: (["slot2", "slot3", "slot4"] as const).map(onrampKey).join(", "),
+      ult: onrampKey("ultimate"),
       flask: bindingLabel(bindings, "flask"),
+      bag: onrampKey("inventory"),
     })
   : null;
 let onrampGold = 0;
 let onrampItems = -1;
-/** Called once per sim step (solo loop only): turns what just happened into
- *  at most one first-time System line on the tutorial-card surface. */
+/** Called once per sim step (solo) or intent pump (net): turns what just
+ *  happened into at most one first-time System line on the card surface. */
 function onrampObserve(intent: Intent): void {
   if (!onramp || state.floor !== 1 || state.status !== "playing") return;
   if (guide?.skipped) return; // B0's skip declined the hand-holding mid-session
-  const p = state.players[0];
+  // The world must actually be LIVE. Solo elapses immediately; a rush race
+  // counts down before the gun (elapsed holds at 0 while forming). Gating
+  // the WHOLE observe on it also keeps the script's order sane everywhere:
+  // "fresh meat detected" always precedes "locomotion confirmed", even for
+  // a player already holding W when the gun fires.
+  if (state.elapsed <= 1) return;
+  const p = me(state); // under net the local crawler is not players[0]
   if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
   const say = (ev: OnrampEvent): void => {
     const line = onramp.note(ev, state.floor);
-    if (line) showAnnouncement({ text: line, kind: "tip", priority: "normal" });
+    // The flask line races the wound that prompted it: "high" jumps the card
+    // pacing gap (never the active card) — everything else waits its turn.
+    if (line) showAnnouncement({ text: line, kind: "tip", priority: ev === "lowhp" ? "high" : "normal" });
   };
-  if (state.elapsed > 1) say("start");
+  say("start");
   if (Math.abs(intent.move.x) + Math.abs(intent.move.y) > 0.01) say("moved");
   // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
   if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
@@ -8465,9 +8541,12 @@ function maybeShowRecap(s: GameState): void {
   if (s.status === "playing") { recapFor = null; recapGuideLine = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
-  // B8 fires on the first ever run end, solo only (guide is null under net /
-  // test mode; a rush death is DEATH IS A DOOR's moment, not this one).
-  recapGuideLine = guide ? guide.verdictLine() : null;
+  // B8 fires on the first ever solo DEATH (guide is null under net / test
+  // mode; a rush death is DEATH IS A DOOR's moment, not this one). Wins are
+  // gated out WITHOUT consuming the beat (r2 minor: "run it back and collect
+  // what the tuition bought" on a first-run WIN read as a shrug) — the first
+  // death after a charmed first win still earns the aside.
+  recapGuideLine = guide && s.status === "dead" ? guide.verdictLine() : null;
   if (recapGuideLine) recordTips(["tut.runback"]);
   // (A ?c= run's one end-of-run claim comparison renders in renderRecap's
   // note slot — NICHE.md 4.2/§5: compared once, at the end, never live.)
@@ -11177,7 +11256,13 @@ async function main(): Promise<void> {
       netIntentAcc += dt;
       if (netIntentAcc >= 0.05) {
         netIntentAcc = 0;
-        net.sendIntent(sampleIntent(0.05));
+        const netIntent = sampleIntent(0.05);
+        net.sendIntent(netIntent);
+        // THE ONRAMP under net (r2 major): a fresh browser whose first click
+        // is THE RUSH gets the same six System lines — the module is a pure
+        // observer (no sim writes), so the doc's "the run is a normal run"
+        // constraint holds on the server's world exactly as on the local one.
+        if (onramp) onrampObserve(netIntent);
       }
       const disp = net.display(now);
       if (disp) state = disp;

@@ -33,12 +33,16 @@ export type OnrampEvent =
 export interface OnrampControls {
   /** Movement keys, as the player would say them: "WASD". */
   move: string;
-  /** The basic strike: "Left click". */
+  /** The basic strike: "Left click or Space". */
   attack: string;
-  /** Ability activation: "1–4". */
+  /** The ability slots past the strike, live labels: "Shift, Q, C". */
   cast: string;
+  /** The ultimate's bind: "F". */
+  ult: string;
   /** The flask bind: "X". Desktop only — touch lines name the chips. */
   flask: string;
+  /** The inventory bind: "I". Touch names the ☰ menu instead. */
+  bag: string;
 }
 
 export const ONRAMP_MAX_LINES = 6;
@@ -78,11 +82,13 @@ export class Onramp {
       case "moved":
         return `COURTESY EXPLANATION: locomotion confirmed. ${t
           ? "Hold the STRIKE chip to swing; the chips beside it are abilities — louder arguments."
-          : `${this.c.attack} swings at what the mouse points at; ${this.c.cast} are abilities — louder arguments.`} The dungeon will supply practice targets momentarily.`;
+          : `${this.c.attack} swings at what the mouse points at; ${this.c.cast} are abilities and ${this.c.ult} is the ultimate — louder arguments.`} The dungeon will supply practice targets momentarily.`;
       case "cast":
         return "COURTESY EXPLANATION: that was an ABILITY. It has a cooldown, not feelings. Floor 2 opens a GLYPH SOCKET — that is where builds begin, and builds are why crawlers come back.";
       case "pickup":
-        return "COURTESY EXPLANATION: loot is a raise, not a souvenir. Open your BAG between fights and wear the upgrade. Underdressed crawlers make excellent television, briefly.";
+        return `COURTESY EXPLANATION: loot is a raise, not a souvenir. ${t
+          ? "Your BAG is under the ☰ menu up top — wear the upgrade between fights."
+          : `Open your BAG (${this.c.bag}) between fights and wear the upgrade.`} Underdressed crawlers make excellent television, briefly.`;
       case "lowhp":
         return `COURTESY EXPLANATION: you are leaking. ${t
           ? "Tap the FLASK chip to drink"

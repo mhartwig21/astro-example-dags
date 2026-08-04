@@ -1,0 +1,5 @@
+PASS D: B9 fires for the returning player
+PASS D: ...but only after a beat (3.1s from load >= 1.5s)
+PASS D: it is Mordecai
+PASS d_b9_delay: #dialogue .dlg-stage painted (std 54.6, warm 7.8%)
+PASS D: zero page errors

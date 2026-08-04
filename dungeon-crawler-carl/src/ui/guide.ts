@@ -123,10 +123,13 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
   // B8 is an aside PLATE inside the verdict layout, not a dialogue modal —
   // THE VERDICT outranks everything and its layout is shipped. One line, no
   // choices, no input cost; the RUN IT BACK CTA below it teaches the input.
+  // The line must survive every death the verdict can show (r2 minor: "that
+  // floor's still standing" was a lie after a collapse) — streets stay known
+  // however the floor killed you.
   "tut.runback": {
     key: "tut.runback",
     lines: [
-      "That floor's still standing, and now you know its streets. Same seed, same doors — run it back and collect what the tuition bought.",
+      "You know that floor's streets now — that's what the tuition bought. Same seed, same doors. Run it back and collect.",
     ],
     choices: [],
   },
@@ -215,8 +218,11 @@ export class Guide {
     return null;
   }
 
-  /** B8 — the verdict aside line (solo runs only; the host caches it per run
-   *  end because the verdict re-renders as boards arrive). */
+  /** B8 — the verdict aside line (solo DEATHS only: the host gates wins out
+   *  — "run it back and collect" is death-tuition talk, not victory-lap talk
+   *  (r2 minor) — and a win does NOT consume the beat, so the first death
+   *  still gets it. Cached per run end: the verdict re-renders as boards
+   *  arrive). */
   verdictLine(): string | null {
     return this.take("tut.runback")?.lines[0] ?? null;
   }
