@@ -99,6 +99,9 @@ export interface EventView {
   season: string;
   frozen: boolean;
   rulesHash: string;
+  /** TODAY'S RULE pinned on the event row (NICHE.md §4.8); null = base game.
+   *  Absent on servers predating the pin. */
+  dailyRule?: string | null;
   entrants: number;
 }
 

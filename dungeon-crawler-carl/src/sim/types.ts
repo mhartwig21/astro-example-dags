@@ -1211,6 +1211,11 @@ export interface GameState {
   // settlement/tribe/quest, regenerating open-endedly instead of ending at
   // floor 18. See SETTLEMENTS.md.
   runKind: "race" | "roam";
+  // TODAY'S RULE (NICHE.md §4.8): the daily mutator this run was dealt, or
+  // null/absent for the base game. Set once at createGame from the day
+  // string (sim/dailyRules.ts) — never mid-run. Optional: older snapshots
+  // lack it and read as the base game, which is what they were.
+  dailyRule?: import("./dailyRules").DailyRuleId | null;
   // Roam only: the guide NPC (Mordecai, entrance settlement). Kept as the
   // legacy singular field so v1 snapshots and the current renderer path stay
   // valid; the full roster lives in `npcs` below.

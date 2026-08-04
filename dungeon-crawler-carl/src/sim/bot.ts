@@ -404,11 +404,24 @@ export function freshMemory(): BotMemory {
   };
 }
 
-const walkableTile = (state: GameState, x: number, y: number): boolean => {
+/** SIGHT: walls block, furniture does not (tables are knee-high — the sim
+ * lets projectiles and melee arcs pass over them, so targeting must too). */
+const openTile = (state: GameState, x: number, y: number): boolean => {
   const { map } = state;
   if (x < 0 || y < 0 || x >= map.w || y >= map.h) return false;
   const t = map.tiles[y * map.w + x];
   return t === Tile.Floor || t === Tile.StairsDown;
+};
+
+/** FEET: what the sim's isWalkable actually permits. PHYSICALITY §1 stamped
+ * blocking furniture into map.blocked and every mover inherits it through
+ * isWalkable — every mover except this bot's pathing, which kept planning
+ * routes through bookcases and then wedging on them (BACKLOG #29: the wedged
+ * bot is a surrounded bot). The mask is consulted here so the instrument
+ * walks the same floor the players do. */
+const walkableTile = (state: GameState, x: number, y: number): boolean => {
+  if (!openTile(state, x, y)) return false;
+  return !state.map.blocked?.[y * state.map.w + x];
 };
 
 /** BFS over tile centers from `from` to `to`. Returns waypoints (may be empty). */
@@ -461,6 +474,21 @@ function objective(state: GameState): { key: string; pos: Vec2 } {
 /** Straight-line visibility between two points (sampled every quarter tile).
  * Without this the bot deadlocks fighting monsters through walls. */
 function hasLos(state: GameState, a: Vec2, b: Vec2): boolean {
+  const d = dist(a, b);
+  const steps = Math.max(1, Math.ceil(d * 4));
+  for (let i = 1; i < steps; i++) {
+    const t = i / steps;
+    const x = a.x + (b.x - a.x) * t;
+    const y = a.y + (b.y - a.y) * t;
+    if (!openTile(state, Math.floor(x), Math.floor(y))) return false;
+  }
+  return true;
+}
+
+/** Can feet walk the straight line? Same sampling as hasLos but against the
+ * blocked mask too — the difference between "I can hit it" and "I can walk
+ * at it", which furniture made into two different questions. */
+function walkLineClear(state: GameState, a: Vec2, b: Vec2): boolean {
   const d = dist(a, b);
   const steps = Math.max(1, Math.ceil(d * 4));
   for (let i = 1; i < steps; i++) {
@@ -683,7 +711,24 @@ function decide(state: GameState, mem: BotMemory, p: GameState["players"][number
     if (inMelee) {
       intent.attack = true;
     } else {
-      intent.move = normalize({ x: threat.pos.x - p.pos.x, y: threat.pos.y - p.pos.y });
+      if (walkLineClear(state, p.pos, threat.pos)) {
+        intent.move = normalize({ x: threat.pos.x - p.pos.x, y: threat.pos.y - p.pos.y });
+      } else {
+        // Furniture in the lane (visible over it, not walkable through it):
+        // walk the route feet can take, repathed twice a second because the
+        // target moves. Walking the sight-line into a bookcase and waiting
+        // 45 steps for the wedge detector was the #29 death spiral.
+        const key = `m${threat.id}`;
+        mem.repathIn--;
+        if (key !== mem.targetKey || mem.repathIn <= 0 || mem.path.length === 0) {
+          mem.targetKey = key;
+          mem.path = findPath(state, p.pos, threat.pos);
+          mem.repathIn = 15;
+        }
+        while (mem.path.length > 0 && dist(p.pos, mem.path[0]) < 0.45) mem.path.shift();
+        const wp = mem.path[0] ?? threat.pos;
+        intent.move = normalize({ x: wp.x - p.pos.x, y: wp.y - p.pos.y });
+      }
       if (d > 2) intent.bolt = true; // soften it on the way in
     }
     return intent;

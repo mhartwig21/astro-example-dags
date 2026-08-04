@@ -12,7 +12,8 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
-import { dayFromMs } from "../sim/daily";
+import { dailySeed, dayFromMs, isValidDay } from "../sim/daily";
+import { DAILY_RULES, dailyRuleFor } from "../sim/dailyRules";
 import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
@@ -37,7 +38,11 @@ import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntent
 //       (saves key off it); public only matters the FIRST time a code is seen —
 //       it flags the new instance discoverable via GET /open-parties; tips is
 //       the browser's seen-tips ledger — merged into the account so
-//       first-contact tips never replay for a returning crawler
+//       first-contact tips never replay for a returning crawler.
+//       THE LIVE DAILY (NICHE.md §4.8): a rivals race code of the form
+//       DAILY-YYYY-MM-DD-* seeds from dailySeed(day) and is dealt that day's
+//       rule (see dayFromDailyCode) — everyone racing a daily code that day
+//       is in the same dungeon under the same rule.
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
@@ -51,6 +56,9 @@ import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntent
 //   server -> client:
 //     { t: "welcome", playerId, token, snapshot }      join accepted (full state;
 //       keep the token — it is the account id saves key off)
+//     { t: "gate", seats, msLeft, cap?, started? }     THE STARTING GUN
+//         (NICHE.md §4.1): while a fresh rivals race is held, seat list +
+//         countdown ~2/s; one final frame with started=true is the gun
 //     { t: "snap", tick, full?, snapshot }             state (interval below).
 //         full=true carries map + fog (join/floor change/doors unlocking);
 //         otherwise DYNAMIC — no map/fog, the client keeps its cached world
@@ -65,6 +73,14 @@ export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60
 // be cheap over a month-long idle Roam party, short enough to reasonably
 // bound a genuinely dead connection.
 export const HEARTBEAT_INTERVAL_MS = 20_000;
+// THE STARTING GUN (NICHE.md §4.1): a fresh rivals race holds its sim at a
+// READY gate — world built, seat list + countdown visible, nobody's clock
+// running — and fires when every seated crawler is ready or the countdown
+// expires. Everyone descends from second zero; a "race" without a common
+// start isn't one. Long enough to paste the invite at a slow friend, short
+// enough that an abandoned gate never squats a seat list for long.
+export const RUSH_GATE_MS = 60_000;
+const GATE_STATUS_EVERY = 15; // gate countdown broadcast cadence (ticks; 2/s)
 
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
@@ -148,6 +164,12 @@ interface Instance {
   // instance only exists in memory while it has players, so there's nothing
   // to restore after a restart) and never flippable by a later joiner.
   public: boolean;
+  // THE STARTING GUN (NICHE.md §4.1): while non-null, the sim is HELD — no
+  // step() runs, no clock advances — and the gate broadcasts seat/countdown
+  // state instead of snapshots. In-memory only, like the instance itself: a
+  // deploy mid-gate evaporates it and the regenerated instance resumes
+  // ungated (a resumed race is a pause, never a second gun).
+  gate: { deadline: number; ready: Set<number> } | null;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -178,6 +200,19 @@ function buildSummary(p: Player): Record<string, unknown> {
     sponsors: p.sponsors,
     alive: p.alive,
   };
+}
+
+/**
+ * THE LIVE DAILY (NICHE.md §4.8): a rivals race whose code carries the daily
+ * prefix (`DAILY-YYYY-MM-DD-anything`) runs THAT day's dungeon under that
+ * day's rule — the one moment everyone provably shares a dungeon becomes the
+ * moment they can race it. Derived from the CODE, not a join flag, so a
+ * regenerated instance after a restart lands in the same dungeon. Returns
+ * the day string, or null when the code is an ordinary party code.
+ */
+export function dayFromDailyCode(code: string): string | null {
+  const m = /^DAILY-(\d{4}-\d{2}-\d{2})(-|$)/.exec(code);
+  return m && isValidDay(m[1]) ? m[1] : null;
 }
 
 /** Deterministic seed from an invite code (djb2), so a party code IS the dungeon. */
@@ -247,6 +282,7 @@ export class GameServer {
   constructor(
     port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string,
     heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+    private rushGateMs = RUSH_GATE_MS,
   ) {
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
@@ -765,9 +801,28 @@ export class GameServer {
           t: "welcome", playerId: player.id, token,
           snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
         }));
+        // TODAY'S RULE was announced at world creation; a late joiner still
+        // deserves to hear it — sent to THIS seat only, never re-broadcast.
+        // (The creating join's flushTransients below delivers the original
+        // line, so skip the direct copy while it is still pending.)
+        if (inst.state.dailyRule
+          && !inst.state.announcements.some((a) => a.text === DAILY_RULES[inst.state.dailyRule!].line)) {
+          // The line rides BOTH channels, like the sim's announce() does: the
+          // banner for the moment, the event for the #hud-log — because the
+          // banner expires (and a held race's modal hides it), and a rule the
+          // joiner cannot find afterwards is a rule they never got.
+          ws.send(JSON.stringify({
+            t: "events", events: [DAILY_RULES[inst.state.dailyRule].line],
+            announcements: [{ text: DAILY_RULES[inst.state.dailyRule].line, kind: "show", priority: "high" }],
+            hits: [], bossEvents: [],
+          }));
+        }
         // Joining can announce too (drop-in lines, the restore-fallback
         // "renovated" notice) — flush before the next tick clears them.
         this.flushTransients(inst);
+        // A held race shows its new seat to everyone at once (the joiner
+        // included — their first gate frame should not wait half a second).
+        if (inst.gate) this.broadcastGate(inst);
         return;
       }
 
@@ -813,7 +868,14 @@ export class GameServer {
           claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
         case "ready":
-          setReady(inst.state, playerId);
+          // At the starting gate, READY is the gate's ready bit; everywhere
+          // else it is the safe-room ready-up the sim owns.
+          if (inst.gate) {
+            inst.gate.ready.add(playerId);
+            this.pumpGate(inst);
+          } else {
+            setReady(inst.state, playerId);
+          }
           break;
         case "equip":
           equipFromInventory(inst.state, playerId, Number(msg.idx));
@@ -860,6 +922,13 @@ export class GameServer {
       }
       inst.clients = inst.clients.filter((c) => c.ws !== ws);
       inst.intents[playerId] = NO_INTENT; // seat stays; character idles until rejoin
+      // A held race re-checks the gun: the leaver may have been the one seat
+      // everyone else was waiting on.
+      if (inst.gate && inst.clients.length > 0) {
+        inst.gate.ready.delete(playerId);
+        this.pumpGate(inst);
+        if (inst.gate) this.broadcastGate(inst);
+      }
       if (inst.clients.length === 0) {
         // Empty instance: stop ticking and drop it from memory. Characters
         // (and the party's floor) are checkpointed above; the world itself is
@@ -905,7 +974,14 @@ export class GameServer {
     // rejoiners must reclaim them as-is rather than re-applying save_json.
     const seated = new Set<number>(state ? state.players.map((p) => p.id) : []);
     if (!state) {
-      state = createGame(seedFromCode(code), mode, runKind);
+      // THE LIVE DAILY: a DAILY-coded rivals race is seeded from the day in
+      // its code and dealt that day's rule; everything else seeds from the
+      // code as always. Co-op/roam codes never take the daily path — the
+      // rush is a race.
+      const dailyDay = mode === "rivals" && runKind === "race" ? dayFromDailyCode(code) : null;
+      state = dailyDay
+        ? createGame(dailySeed(dailyDay), mode, runKind, dailyRuleFor(dailyDay))
+        : createGame(seedFromCode(code), mode, runKind);
       // Fallback (PERSISTENCE.md): regenerate the party's floor from seed;
       // characters reload from their saves as members rejoin. Rivals track
       // per-player floors, so only shared-world parties fast-forward.
@@ -919,6 +995,13 @@ export class GameServer {
         });
       }
     }
+    // THE STARTING GUN: a rivals race gets the gate unless it is genuinely
+    // UNDERWAY — some member has saved real progress (deploy/crash mid-race:
+    // re-firing a gun into floor 7 would be absurd). A stored party whose
+    // members never left the gate re-gates honestly: joining a code, standing
+    // at the READY screen and leaving must not burn the code's only gun.
+    const gated = mode === "rivals" && runKind === "race"
+      && !(stored && this.db?.partyUnderway(code));
     inst = {
       code,
       state,
@@ -932,7 +1015,15 @@ export class GameServer {
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
       public: isPublic,
+      gate: gated ? { deadline: Date.now() + this.rushGateMs, ready: new Set() } : null,
     };
+    if (gated) {
+      state.announcements.push({
+        text: "RINGSIDE. The dungeon is built and the gate is holding. Ready up — "
+          + "the System starts every rush at second zero, out of fairness. And spite.",
+        kind: "progress", priority: "normal",
+      });
+    }
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
     return inst;
@@ -993,6 +1084,16 @@ export class GameServer {
   }
 
   private tickInstanceBody(inst: Instance): void {
+    // THE STARTING GUN: while the gate holds, the sim does not step — the
+    // race clock is 0 for every seat until the gun. The gate broadcasts its
+    // own countdown state; the welcome already carried the FULL snapshot, so
+    // clients have a world to stand in front of.
+    if (inst.gate) {
+      inst.tick++;
+      this.pumpGate(inst);
+      if (inst.gate && inst.tick % GATE_STATUS_EVERY === 0) this.broadcastGate(inst);
+      return;
+    }
     const t0 = performance.now();
     inst.tick++;
     // Fixed dt: sim time advances by exactly one tick regardless of wall clock.
@@ -1031,6 +1132,11 @@ export class GameServer {
           floor: inst.state.floor,
           mode: inst.state.mode,
           runKind: inst.state.runKind,
+          // PER-RULE PARTICIPATION AND WIN RATE (NICHE.md §7): the rule the
+          // sim actually ran (state, never a recompute) and the day whose
+          // draw dealt it — the two keys the pull-a-bad-rule query needs.
+          dailyRule: inst.state.dailyRule ?? null,
+          day: dayFromDailyCode(inst.code),
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
@@ -1118,6 +1224,49 @@ export class GameServer {
     if (ms > this.tickMsMax) this.tickMsMax = ms;
     this.metrics.count("dcc_ticks_total");
     this.metrics.count("dcc_tick_ms_total", ms);
+  }
+
+  /** THE STARTING GUN: fire when every connected seat is ready or the
+   *  countdown expires. Firing clears the gate, wipes any intents that were
+   *  buffered while held (second zero means nobody pre-loaded a sprint), and
+   *  lets the System call the start. */
+  private pumpGate(inst: Instance): void {
+    const gate = inst.gate;
+    if (!gate) return;
+    const live = inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN);
+    const allReady = live.length > 0 && live.every((c) => gate.ready.has(c.playerId));
+    if (!allReady && Date.now() < gate.deadline) return;
+    inst.gate = null;
+    inst.intents = {};
+    inst.state.announcements.push({
+      text: "THE GUN. The gate is open — descend. The System reminds all "
+        + "parties that the floor collapses at its own pace, not yours.",
+      kind: "boss", priority: "high",
+    });
+    this.broadcast(inst, { t: "gate", started: true, seats: [], msLeft: 0 });
+    this.flushTransients(inst);
+  }
+
+  /** Seat list + countdown for the held race — the READY screen's data. */
+  private broadcastGate(inst: Instance): void {
+    const gate = inst.gate;
+    if (!gate) return;
+    const seats = inst.clients
+      .filter((c) => c.ws.readyState === WebSocket.OPEN)
+      .map((c) => ({
+        name: inst.state.players.find((p) => p.id === c.playerId)?.name ?? "?",
+        ready: gate.ready.has(c.playerId),
+      }));
+    this.broadcast(inst, {
+      t: "gate", seats,
+      msLeft: Math.max(0, gate.deadline - Date.now()),
+      cap: capFor(inst.state),
+      // TODAY'S RULE ON THE READY CARD (NICHE.md §4.8): the gate is a modal,
+      // modals hide the banner rail, and the hold outlives the banner anyway
+      // — so the one surface every racer reads at second zero carries the
+      // rule itself. "Today's rule is today's meta."
+      rule: inst.state.dailyRule ?? null,
+    });
   }
 
   /** Ship pending transients (events/announcements/hits) to the party and

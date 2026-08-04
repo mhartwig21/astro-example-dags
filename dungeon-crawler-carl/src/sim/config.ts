@@ -45,7 +45,10 @@ export const CONFIG = {
   // Collapse timer (seconds). Floor 1 is generous; deeper floors tighten.
   // Budgets account for the larger floors (longer traversal to the stairs).
   timerBaseSeconds: 120,
-  timerPerFloorFalloff: 2.5, // seconds shaved per floor descended
+  // 2.5 -> 2.0 (2026-08-04, step 0): retreat-and-regroup packs + heavy-pack
+  // rings made deep floors take honestly longer to fight through; a third of
+  // measured full-run deaths were collapse/warning-phase clock-outs.
+  timerPerFloorFalloff: 1.6, // seconds shaved per floor descended
   timerMinSeconds: 60,
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
@@ -180,7 +183,7 @@ export const CONFIG = {
   // half leans on DENSITY (more mobs) + COMPOUNDING stats (below).
   monsterBaseCountFloor1: 25,
   monsterCountPerFloor: 11,
-  monsterMaxCount: 130,
+  monsterMaxCount: 115, // 130 -> 115 (step 0): density was double-charging — swarm pressure AND the collapse clock
   // Diablo-style PACK spawning: monsters cluster into encounters (a pack turns
   // on you together), with a few lone wanderers between them. Bigger packs
   // matter beyond raw count: the balance bot (and a real player's attention)
@@ -199,7 +202,7 @@ export const CONFIG = {
   packLoneFraction: 0.2, // share of the budget spawned as singles
   packEscortFromFloor: 4, // packs may include a shaman healer escort from here
   monsterBaseHp: 24,
-  monsterHpPerFloor: 6,
+  monsterHpPerFloor: 5.2, // 6 -> 5.2 (step 0): faster kills pay the collapse clock back at depth
   // Compounding scaling: linear per-floor growth loses to a farming player by
   // midgame (the maximalist power curve is ~quadratic). Past this floor, HP and
   // damage additionally multiply by monsterScaleCompound each floor, so the deep
@@ -209,15 +212,20 @@ export const CONFIG = {
   // ~40% win-rate difficulty pass. Backed off after merging the band-boss
   // rework (bosses every 3 floors, not 6) + monster TEMPO scaling (below) â€”
   // those stack with this, so this alone doesn't need to carry as much.
+  // Backed off again 2026-08-04 (NICHE.md step 0): pack AI tiers 1-4, heavy
+  // packs, veteran anchors and the bosses-v2 signatures all landed after the
+  // 1.08 tune, each making the same monsters collectively more effective.
+  // The stacked result measured 2-4% full-run win rate (48-seed sweeps) with
+  // deaths spread across floors 3-17, half of them to raw combat pressure.
   monsterScaleCompoundFrom: 3,
-  monsterScaleCompound: 1.08, // ~3.2x by floor 18 on top of the linear curve
+  monsterScaleCompound: 1.048, // ~2.0x by floor 18 on top of the linear curve
   // The BUILD CHECK (owner-approved 2026-07-26): the last two bands ramp
   // again on top of the base compound. Floors 13+ demand a coherent build â€”
   // "anyone reaches the Garden, thoughtful builds reach the Ironworks,
   // optimized builds win." The inverse balance-contract test pins this:
   // a junk-drawer build must FAIL deep floors that a coherent one clears.
   deepScaleCompoundFrom: 12, // first ramped floor is 13 (Ironworks)
-  deepScaleCompound: 1.06, // extra ~1.42x by floor 18
+  deepScaleCompound: 1.035, // extra ~1.23x by floor 18
   // Deep elites lean into resist affixes (armored/warded): mono-school soup
   // without an answer gets checked, not just outstatted.
   deepResistBias: 0.35,
@@ -235,7 +243,7 @@ export const CONFIG = {
   // XP pace and can swarm even a stationary player near spawn, which collided
   // with the leveling-curve and hype-economy test fixtures.
   monsterBaseDamage: 21,
-  monsterDamagePerFloor: 4.2,
+  monsterDamagePerFloor: 2.9, // 4.2 -> 2.9 with the 2026-08-04 compound back-off (step 0)
   monsterSpeed: 2.6, // tiles/sec
   monsterAttackRange: 1.0,
   monsterAttackCooldown: 0.9,
@@ -292,7 +300,7 @@ export const CONFIG = {
   regroupCorpseRadius: 5, // ...within this radius...
   regroupSeconds: 4, // ...bolts for this long looking for friends
   monsterXp: 10,
-  monsterXpPerFloor: 4,
+  monsterXpPerFloor: 5, // 4 -> 5 (step 0): the 130->115 density cut also cut kill-driven XP at depth; the curve pays it back per kill
   // Depth TEMPO (play feedback: stats alone don't scare a geared crawler).
   // Past the ramp floor, monsters get quicker on every axis â€” faster chase,
   // faster swings, shorter tells. Floors 1-3 keep the training-wheel pace;
@@ -1366,7 +1374,13 @@ export const CONFIG = {
   // Boss (floor 18)
   bossHp: 34000,
   bossHpPerFloorOver: 0, // (kept for future scaling)
-  bossDamage: 52,
+  // 52 -> 44 (2026-08-04, step 0): bossDamage was 38 when the last healthy
+  // full-run rate (35.4%) was measured; bosses-v2 raised it to 52 and tuned
+  // fight HP with receipts but never re-ran the FULL-RUN sweep. Probed at 52:
+  // band-boss fights were killing healthy, full-clock runs at every depth
+  // (4 of 15 deaths on seeds 49-64). Still +16% over the pre-V2 value —
+  // a clean boss hit keeps hurting; it stops two-shotting the on-curve bot.
+  bossDamage: 44,
   bossSpeed: 2.2,
   bossXp: 500,
   bossVolleyCooldown: 2.4,

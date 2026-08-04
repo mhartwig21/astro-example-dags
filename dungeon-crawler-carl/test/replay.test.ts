@@ -184,7 +184,12 @@ describe("the rules hash (COMPETITIVE.md 2.6a)", () => {
     const file = join(SIM, "config.ts");
     const original = readFileSync(file, "utf8");
     try {
-      writeFileSync(file, original.replace("monsterScaleCompound: 1.08", "monsterScaleCompound: 1.09"));
+      // Regex, not a literal: the knob's VALUE moves with balance passes and
+      // this test must not silently no-op when it does (it did once — the
+      // step-0 retune moved 1.08 to 1.048 and the replace found nothing).
+      const bumped = original.replace(/monsterScaleCompound: [\d.]+/, "monsterScaleCompound: 9.99");
+      expect(bumped).not.toBe(original); // the needle must have matched
+      writeFileSync(file, bumped);
       expect(computeRulesHash()).not.toBe(RULES_HASH);
     } finally {
       writeFileSync(file, original);

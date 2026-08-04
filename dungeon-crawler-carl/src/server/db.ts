@@ -168,6 +168,28 @@ export class PersistDb {
     return rows.map((r) => ({ accountId: r.account_id, playerId: r.player_id }));
   }
 
+  /** THE STARTING GUN's restart honesty: has any member of this party saved
+   *  progress past floor 1? False = the race never really started (or only
+   *  ever stood at the gate), so a regenerated instance may hold it again.
+   *  True = mid-race restart; re-firing a gun into floor 7 would be absurd. */
+  partyUnderway(code: string): boolean {
+    const rows = this.db.prepare(
+      "SELECT save_json FROM party_members WHERE party_code = ?",
+    ).all(code) as { save_json: string }[];
+    for (const r of rows) {
+      try {
+        const save = JSON.parse(r.save_json) as { floor?: number; player?: { level?: number } };
+        // Depth is the clean signal; level covers rivals states whose classic
+        // floor slot lags the racers' personal floors.
+        if ((save.floor ?? 1) > 1 || (save.player?.level ?? 1) > 2) return true;
+      } catch {
+        // Unreadable save: treat as underway — never re-gate what we can't read.
+        return true;
+      }
+    }
+    return false;
+  }
+
   upsertMember(code: string, accountId: string, playerId: number, saveJson: string, now: number): void {
     this.db.prepare(
       `INSERT INTO party_members (party_code, account_id, player_id, save_json, updated_at)

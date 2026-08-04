@@ -40,6 +40,10 @@ import { REVISIONS, revisionPool } from "./revisions";
 import { PURPOSE_RESIDENTS, RESIDENT_LINES, STORY_LINES, assignRoomPurposes } from "./roomPurposes";
 // (service verbs ride the same plan: plan.service marks the open room)
 import { TIPS } from "./tips";
+import {
+  DAILY_RULES, ruleBossDamageMult, ruleCollapseMult, ruleEliteSeverance,
+  ruleGoldMult, ruleSecondElite, type DailyRuleId,
+} from "./dailyRules";
 import { defsFor } from "../content/mobs";
 import { applyStatus, statusTimeMult, tickStatuses } from "./status";
 import type {
@@ -462,7 +466,8 @@ function spawnMonsters(state: GameState): void {
     const bossPos = { x: map.stairs.x, y: map.stairs.y };
     const boss = makeMonster(state, "boss", bossPos);
     boss.hp = boss.maxHp = Math.round(CONFIG.bossHp * (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer));
-    boss.damage = CONFIG.bossDamage * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
+    boss.damage = CONFIG.bossDamage * (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer)
+      * ruleBossDamageMult(state.dailyRule); // TODAY'S RULE — HAIR TRIGGER
     boss.speed = CONFIG.bossSpeed;
     boss.xp = CONFIG.bossXp;
     boss.bossTier = 3; // Ground Slam + Call for Backup + Dark Ritual — the full kit
@@ -490,7 +495,8 @@ function spawnMonsters(state: GameState): void {
       (1 + extraPlayers(state) * CONFIG.mpBossHpPerExtraPlayer);
     boss.hp = boss.maxHp = Math.round(hp);
     boss.damage = CONFIG.bossDamage * CONFIG.bandBossDmgMult[arena - 1] *
-      (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer);
+      (1 + extraPlayers(state) * CONFIG.mpDamagePerExtraPlayer)
+      * ruleBossDamageMult(state.dailyRule); // TODAY'S RULE — HAIR TRIGGER
     boss.speed = CONFIG.bossSpeed;
     boss.xp = Math.round(CONFIG.bossXp * CONFIG.bandBossXpMult[arena - 1]);
     // Tier ladder: floor 3 has no slam (early-game), 6/9 slam, 12/15 slam faster.
@@ -860,6 +866,26 @@ function spawnMonsters(state: GameState): void {
     }
     const tag = m.affix ? ` [${m.affix.toUpperCase()}]` : "";
     announce(state, "boss", `NEIGHBORHOOD BOSS: ${m.eliteName}${tag} holds the great hall. Introduce yourselves.`);
+
+    // TODAY'S RULE — OVERSTAFFED (§4.8): management fields a SECOND named
+    // menace, drawn from the rest of the floor (never re-crowning the hall's).
+    if (ruleSecondElite(state.dailyRule)) {
+      const rest = state.monsters.filter((x) => x !== m && !x.elite && canBoss(x));
+      if (rest.length > 0) {
+        const e = rest[nextInt(rng, 0, rest.length - 1)];
+        e.elite = true;
+        e.eliteName = pick(rng, ELITE_NAMES);
+        e.hp = e.maxHp = Math.round(e.maxHp * (CONFIG.eliteHpMult + CONFIG.eliteHpMultPerFloor * floor));
+        e.damage *= CONFIG.eliteDmgMult;
+        e.xp = Math.round(e.xp * CONFIG.eliteXpMult);
+        if (floor >= CONFIG.eliteAffixFromFloor) {
+          e.affix = rollEliteAffix(rng, floor);
+          if (e.affix === "swift") e.speed *= CONFIG.swiftSpeedMult;
+          if (e.affix === "juggernaut") e.speed *= CONFIG.juggernautSpeedMult;
+        }
+        announce(state, "boss", `MANAGEMENT ADDENDUM: ${e.eliteName} is also on shift today. The dungeon apologizes for the staffing.`);
+      }
+    }
   }
 }
 
@@ -1512,7 +1538,12 @@ export function buildFloor(state: GameState, floor: number): void {
   state.roamSmashed = []; // fresh floor, fresh hoards (#25: saves overlay this)
   state.dialogue = null; // nobody talks through a floor transition
   state.players.forEach((p, i) => resetForFloor(p, state.map.spawn, i));
-  state.timeBudget = state.runKind === "roam" ? CONFIG.roamTimeBudget : floorTimeBudget(floor);
+  // TODAY'S RULE — RUSH HOUR shortens every race clock (roam has no clock).
+  // No rounding: base budgets are legitimately fractional (timer falloff),
+  // and the multiplier must be an exact identity when no rule is dealt.
+  state.timeBudget = state.runKind === "roam"
+    ? CONFIG.roamTimeBudget
+    : floorTimeBudget(floor) * ruleCollapseMult(state.dailyRule);
   // SERIES REGULAR's debt: the network trims every remaining floor's runtime.
   if (state.players.some((p) => hasRevision(p, "regular"))) {
     state.timeBudget = Math.round(state.timeBudget * CONFIG.revisionRegularTimeMult);
@@ -1898,10 +1929,15 @@ export function createGame(
   seed: number,
   mode: GameState["mode"] = "coop",
   runKind: GameState["runKind"] = "race",
+  // TODAY'S RULE (NICHE.md §4.8): the daily mutator, dealt by the HOST from
+  // the day string (dailyRuleFor) — the sim never touches a calendar. Null =
+  // base game; every rule seam collapses to a no-op.
+  dailyRule: DailyRuleId | null = null,
 ): GameState {
   const state: GameState = {
     mode,
     runKind,
+    dailyRule,
     npc: null,
     quests: [],
     strongholdLeaderId: -1,
@@ -1945,6 +1981,11 @@ export function createGame(
     elapsed: 0,
   };
   buildFloor(state, 1);
+  // TODAY'S RULE announces itself at second zero, in the System's voice —
+  // after the floor build so it lands on top of the band introduction.
+  if (dailyRule) {
+    announce(state, "show", DAILY_RULES[dailyRule].line, "high");
+  }
   // Rivals: floor 1 becomes the first concurrent world (others build lazily
   // as the race spreads out). The mounted slots stay live references to it.
   if (mode === "rivals") state.worlds = { 1: captureWorld(state) };
@@ -4567,6 +4608,12 @@ function reapDead(state: GameState): void {
         const comp = rollCatalogDrop(state.rng, state.floor, "basic", () => state.nextEntityId++);
         state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "item", amount: 0, item: comp, rarity: comp.rarity });
       }
+      // TODAY'S RULE — OVERSTAFFED: named menaces carry severance — one
+      // guaranteed catalog component on top of the usual roll.
+      if (ruleEliteSeverance(state.dailyRule)) {
+        const sev = rollCatalogDrop(state.rng, state.floor, "basic", () => state.nextEntityId++);
+        state.loot.push({ id: state.nextEntityId++, pos: { x: m.pos.x, y: m.pos.y }, kind: "item", amount: 0, item: sev, rarity: sev.rarity });
+      }
       addHype(state, killer, CONFIG.show.hypeBrute);
       announce(state, "boss", `${m.eliteName} is DOWN. The neighborhood breathes easier. ${killer.name} takes the credit.`);
     }
@@ -4633,10 +4680,12 @@ function collectLoot(state: GameState): void {
     }
     switch (l.kind) {
       case "gold": {
-        // CORPORATE SELLOUT: the network deducts its cut at pickup.
+        // TODAY'S RULE — RUSH HOUR raises appearance fees at the source;
+        // CORPORATE SELLOUT still deducts the network's cut at pickup.
+        const paid = Math.round(l.amount * ruleGoldMult(state.dailyRule));
         const take = hasRevision(p, "sellout")
-          ? Math.max(1, Math.round(l.amount * CONFIG.revisionSelloutGoldMult))
-          : l.amount;
+          ? Math.max(1, Math.round(paid * CONFIG.revisionSelloutGoldMult))
+          : paid;
         p.gold += take;
         hit(state, p.pos, take, "gold");
         break;

@@ -463,6 +463,9 @@
            modals (z 20-28):    #inv/#abil/#sheet 20 · #dialogue 22 (Roam NPC
                                   conversation — letterboxed cut, portrait left)
                                 · #saferoom 24 · #draft 25 · #keys 26
+                                · #rushgate 26 (THE STARTING GUN — rivals pre-run
+                                  hold; never coexists with #keys: it exists only
+                                  before the race's first sim tick)
 
                                 · #recap 27 (THE VERDICT — end-of-run; nothing in-run
                                   outranks it. #recap-tab is its held-TAB drill-down,
@@ -604,6 +607,38 @@
         filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
 
       /* Keybinds panel */
+      /* THE STARTING GUN (#rushgate, z 26 — zone map): the rivals pre-run
+         hold. The dungeon is already built behind it; the server holds the
+         sim, so this card is the only surface that matters until the gun. */
+      #rushgate { position: fixed; inset: 0; z-index: 26; display: none;
+        align-items: center; justify-content: center; background: rgba(8,6,14,0.55); }
+      #rushgate.on { display: flex; }
+      #rushgate .card { width: min(480px, 92vw); background: rgba(18,14,26,0.96);
+        border: 1px solid #c9a24b; border-radius: 8px; padding: 20px 26px 24px;
+        text-align: center; box-shadow: 0 0 40px rgba(201,162,75,0.25), 0 10px 40px rgba(0,0,0,0.6); }
+      #rushgate .kicker { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 6px; }
+      #rushgate h3 { margin: 0 0 4px; color: #f5e6bf; font-size: 20px; letter-spacing: 1px; }
+      #rushgate .gsub { color: #a99f8c; font-size: 12px; margin-bottom: 12px; }
+      /* TODAY'S RULE on the READY card: System-voiced, boxed apart from the
+         seat list so it reads as the day's contract term, not chrome. */
+      #rushgate .grule { margin: 0 auto 12px; width: min(400px, 84vw);
+        padding: 8px 12px; border: 1px solid rgba(201,162,75,0.45); border-radius: 4px;
+        background: rgba(201,162,75,0.08); color: #f5e6bf; font-size: 12px;
+        line-height: 1.45; text-align: left; }
+      #rushgate .grule b { color: #c9a24b; letter-spacing: 1.5px; }
+      #rushgate .gcount { font-size: 40px; color: #f5e6bf; font-variant-numeric: tabular-nums;
+        letter-spacing: 2px; margin: 6px 0 12px; }
+      #rushgate .gseats { display: flex; flex-direction: column; gap: 5px; margin: 0 auto 16px;
+        width: min(340px, 80vw); }
+      #rushgate .gseat { display: flex; justify-content: space-between; padding: 5px 12px;
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(201,162,75,0.25);
+        border-radius: 4px; color: #e8dcc0; font-size: 13px; }
+      #rushgate .gseat .gready { color: #7dc17d; letter-spacing: 1px; }
+      #rushgate .gseat .gwait { color: #a99f8c; letter-spacing: 1px; }
+      #rushgate button { pointer-events: auto; background: #c9a24b; color: #17111f;
+        border: 0; border-radius: 4px; padding: 10px 34px; font-weight: 700;
+        font-size: 14px; letter-spacing: 1.5px; cursor: pointer; }
+      #rushgate button[disabled] { background: rgba(201,162,75,0.35); color: #3a3145; cursor: default; }
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 26; }
       /* r1 BLOCKER: 1,237px of content in a 681px window at 1366 and a 792px
@@ -6295,6 +6330,23 @@
         <div class="topmenu" id="tm-system"></div></div>
       <div class="tb"><button class="topbtn" id="tb-crawler">Crawler</button>
         <div class="topmenu" id="tm-crawler"></div></div>
+    </div>
+    <!-- THE STARTING GUN (NICHE.md §4.1): rivals races hold here until every
+         seat is ready or the countdown expires. Server-driven; the card only
+         renders what the gate frames say. -->
+    <div id="rushgate" data-overlay="modal">
+      <div class="card">
+        <div class="kicker">◆ RINGSIDE ◆</div>
+        <h3>THE STARTING GUN</h3>
+        <div class="gsub">Every crawler descends at second zero. The System insists.</div>
+        <!-- TODAY'S RULE (NICHE.md §4.8): printed on the one surface every
+             racer reads at second zero. The gate modal hides the banner rail
+             and outlives the banner, so the card carries the rule itself. -->
+        <div class="grule" id="rushgate-rule" style="display:none"></div>
+        <div class="gcount" id="rushgate-count">—</div>
+        <div class="gseats" id="rushgate-seats"></div>
+        <button id="rushgate-ready">READY</button>
+      </div>
     </div>
     <div id="keys" data-overlay="modal">
       <div class="panel">

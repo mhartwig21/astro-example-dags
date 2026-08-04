@@ -79,8 +79,15 @@ function newGame(seed: number): GameState {
 
 export interface Recorded { proof: RunProof; finalWorld: string; recMs: number; }
 
-export function recordBotRun(seed: number, maxFloors = 18, maxSteps = 400000): Recorded {
-  const state = newGame(seed);
+export function recordBotRun(
+  seed: number, maxFloors = 18, maxSteps = 400000,
+  // TODAY'S RULE (NICHE.md §4.8): a daily-contract run is played UNDER the
+  // event's pinned rule, so a test that submits to a ruled event has to
+  // record the ruled game — the header decides which game the verifier
+  // replays, and the submit path refuses a header off the event's pin.
+  dailyRule: import("../src/sim/dailyRules").DailyRuleId | null = null,
+): Recorded {
+  const state = GEARED > 0 ? newGame(seed) : createGame(seed, "coop", "race", dailyRule);
   const pid = state.players[0].id;
   const mem = freshMemory();
   const testOpts = GEARED > 0
@@ -89,6 +96,7 @@ export function recordBotRun(seed: number, maxFloors = 18, maxSteps = 400000): R
   const rec = new RunRecorder({
     seed, mode: state.mode, runKind: state.runKind, clientBuild: "replaycheck",
     startKind: testOpts ? "test" : "fresh", test: testOpts,
+    dailyRule: testOpts ? null : dailyRule,
   });
   const t0 = performance.now();
   while (rec.ticks < maxSteps && state.status === "playing" && state.floor < 1 + maxFloors) {

@@ -20,6 +20,7 @@
  */
 import { createHash } from "node:crypto";
 import type Database from "better-sqlite3";
+import { DAILY_RULES, dailyRuleFor, type DailyRuleId } from "../sim/dailyRules";
 
 /**
  * THE PUBLIC NAME OF AN ACCOUNT. `account_id` is the bearer token itself -
@@ -221,6 +222,11 @@ CREATE TABLE IF NOT EXISTS events (
   kind       TEXT NOT NULL,
   day        TEXT NOT NULL,
   seed       INTEGER NOT NULL,
+  -- TODAY'S RULE, PINNED AT CREATION (NICHE.md §4.8, season.ts EventSpec).
+  -- NULL = base game. Submissions are checked against THIS value, never a
+  -- live dailyRuleFor() recompute — the pin is what makes the daily board
+  -- one game under one rule even across a rotation-growing deploy.
+  daily_rule TEXT,
   rules_hash TEXT NOT NULL,
   opens_at   INTEGER NOT NULL,
   closes_at  INTEGER NOT NULL,
@@ -501,6 +507,20 @@ export class CompetitiveStore {
       this.db.exec("DELETE FROM run_bands WHERE complete = 0");
     }
     this.db.exec("CREATE INDEX IF NOT EXISTS idx_run_bands_c ON run_bands (band, complete, ticks ASC)");
+    // TODAY'S RULE PIN (NICHE.md §4.8). A volume from before the column gets
+    // it, and existing DAILY rows are backfilled from dailyRuleFor — safe
+    // precisely because a rotation change is a src/sim change, which changes
+    // RULES_HASH, which freezeStaleEvents uses to close the event anyway: an
+    // UNFROZEN pre-column event was necessarily created under this build's
+    // rotation, so the recompute IS the value it would have pinned.
+    if (!cols("events").has("daily_rule")) {
+      this.db.exec("ALTER TABLE events ADD COLUMN daily_rule TEXT");
+      const dailies = this.db.prepare(
+        "SELECT id, day FROM events WHERE kind = 'daily'",
+      ).all() as { id: string; day: string }[];
+      const set = this.db.prepare("UPDATE events SET daily_rule = ? WHERE id = ?");
+      for (const e of dailies) set.run(dailyRuleFor(e.day), e.id);
+    }
     // Backfill the public-id map for every account already holding a row, so a
     // volume that predates the derived id resolves a profile link on boot
     // rather than on the account's next submission.
@@ -883,30 +903,38 @@ export class CompetitiveStore {
 
   // ---- events + tickets --------------------------------------------------
 
-  /** An event PINS ITS ERA at creation (COMPETITIVE.md 2.6e): deploying a sim
-   *  change mid-event freezes it rather than invalidating honest entries. */
+  /** An event PINS ITS ERA — and its DAILY RULE — at creation (COMPETITIVE.md
+   *  2.6e, NICHE.md §4.8): deploying a sim change mid-event freezes it rather
+   *  than invalidating honest entries, and ON CONFLICT DO NOTHING is what
+   *  makes both pins durable — a later ensureEvents under a grown rotation
+   *  cannot re-deal a day already dealt. */
   upsertEvent(e: {
     id: string; kind: string; day: string; seed: number; rulesHash: string;
-    opensAt: number; closesAt: number; season: string;
+    opensAt: number; closesAt: number; season: string; dailyRule?: DailyRuleId | null;
   }): void {
     this.db.prepare(
-      `INSERT INTO events (id, kind, day, seed, rules_hash, opens_at, closes_at, frozen, season)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)
+      `INSERT INTO events (id, kind, day, seed, daily_rule, rules_hash, opens_at, closes_at, frozen, season)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?)
        ON CONFLICT(id) DO NOTHING`,
-    ).run(e.id, e.kind, e.day, e.seed, e.rulesHash, e.opensAt, e.closesAt, e.season);
+    ).run(e.id, e.kind, e.day, e.seed, e.dailyRule ?? null, e.rulesHash, e.opensAt, e.closesAt, e.season);
   }
 
   getEvent(id: string): {
     id: string; kind: string; day: string; seed: number; rulesHash: string;
     opensAt: number; closesAt: number; frozen: boolean; season: string;
+    dailyRule: DailyRuleId | null;
   } | null {
     const r = this.db.prepare("SELECT * FROM events WHERE id = ?").get(id) as {
       id: string; kind: string; day: string; seed: number; rules_hash: string;
       opens_at: number; closes_at: number; frozen: number; season: string;
+      daily_rule: string | null;
     } | undefined;
     return r ? {
       id: r.id, kind: r.kind, day: r.day, seed: r.seed, rulesHash: r.rules_hash,
       opensAt: r.opens_at, closesAt: r.closes_at, frozen: !!r.frozen, season: r.season,
+      // Validated on read: a rule id the running build does not know collapses
+      // to base game rather than crashing a lookup (same posture as snapshots).
+      dailyRule: r.daily_rule && r.daily_rule in DAILY_RULES ? r.daily_rule as DailyRuleId : null,
     } : null;
   }
 

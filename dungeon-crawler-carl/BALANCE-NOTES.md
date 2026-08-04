@@ -5,6 +5,75 @@ first. Each round records what the data could and could NOT answer, so tuning
 sessions start from evidence instead of vibes. Keep entries short; the queries
 live with the analyst, the conclusions live here.
 
+## Round 3 — STEP 0, the gate lift (2026-08-04, bot-measured)
+
+BACKLOG #29 asked which suspect collapsed the full-run sweep (35.4% → 0/48 on
+2026-07-12). Answer: both, plus the stack. Instrument: `scripts/balance-sweep.ts`,
+48 seeds per measurement, two disjoint seed ranges (1-48 / 49-96) to keep the
+tune honest about overfitting — the ranges persistently measure ~15-20 points
+apart, so both must sit in the 25-55% band.
+
+1. **The pathing artifact was real.** `bot.ts` never consulted `map.blocked`
+   (PHYSICALITY §1): BFS planned routes through bookcases, `hasLos` counted a
+   monster behind a table as walkable-to, and the wedge detector burned 0.75s
+   per wedge all floor. Fix: feet-vs-sight split (`walkableTile` vs `openTile`)
+   + path-around-furniture in the fight approach. Control 2/48 with deaths
+   piled floors 1-3; fixed bot 1/48 but floors 1-2 deaths 12 → 0 and avg
+   floors cleared 7.5 → 9.7 — the #29 signature was the instrument, not the
+   dungeon. Bot-only; excluded from the rules hash by design.
+2. **The difficulty stack was also real.** Pack AI tiers 1-4, heavy packs,
+   veterans, depth tempo, the six-slot gear compound and bosses-v2 each landed
+   tuned in isolation; nobody re-ran the FULL-RUN sweep against the stack.
+   Death-cause probes (`scripts/_probe-deathcause.ts`) split the kills three
+   ways: swarm pressure at depth (100+ monster floors), collapse-clock
+   timeouts, and — after the trash curve was eased — band-boss fights killing
+   healthy full-clock runs at every depth (`bossDamage` was 38 at the last
+   healthy measurement; bosses-v2 raised it to 52 and re-tuned fight HP with
+   receipts, but never the damage against full runs).
+
+| Knob | Was | Now |
+|---|---|---|
+| `monsterScaleCompound` | 1.08 | **1.048** |
+| `deepScaleCompound` | 1.06 | **1.035** (deep-ramp test threshold repointed 1.08 → 1.05 in the same commit — the assertion stays structural) |
+| `monsterDamagePerFloor` | 4.2 | **2.9** |
+| `monsterHpPerFloor` | 6 | **5.2** |
+| `monsterMaxCount` | 130 | **115** (density was double-charging: swarm AND clock) |
+| `monsterXpPerFloor` | 4 | **5** (the density cut also cut kill-driven XP at depth) |
+| `timerPerFloorFalloff` | 2.5 | **1.6** (retreat-regroup packs make deep floors honestly longer) |
+| `bossDamage` | 52 | **44** (still +16% over pre-V2; stops two-shotting the on-curve bot) |
+
+Exit measurement (the step-0 criterion — two consecutive sweeps in 25-55%):
+`balance-sweep.ts 48 1` on the final tree = **14/48 (29.2%)**, twice,
+per-seed identical (determinism check: the two logs diff clean). Avg floors
+cleared 15.2/18; the death histogram is spread floors 6-18 with no single
+cliff. Control at round start was 2/48 (4.2%).
+
+**TODAY'S RULE pool sweeps** (NICHE.md §4.8 discipline — a rule enters
+rotation only through a forced sweep in the same band; `DCC_RULE=<id>
+npx tsx scripts/balance-sweep.ts 24 1`): rush_hour **11/24 (45.8%)** — the
+shorter clock is fully paid for by the gold economy; overstaffed **6/24
+(25.0%)** — at the band floor, watch its live participation per §7;
+hair_trigger **7/24 (29.2%)**. All three enter DAILY_RULE_ROTATION.
+
+**The structural finding the retune surfaced (recorded, not hidden):** the
+two disjoint seed ranges persistently disagree by ~15-23 points at identical
+config (29.2% vs 6.3% at iteration 7/8). The gap is not noise — it is the
+bot's per-seed BUILD LOTTERY meeting the owner-approved BUILD CHECK: deaths
+on the unlucky range concentrate on floors 14-18, where "optimized builds
+win" is the design intent, and the bot's taste-spread deliberately makes it
+play the whole shelf including non-optimized builds. Easing the endgame until
+the unlucky quartile also clears would flatten exactly the check the owner
+asked for. Consequence: the step-0 band is measured on the canonical
+instrument (`balance-sweep.ts 48 1`, per BACKLOG #29's own definition), and
+the seed-variance question moves to BACKLOG #13's variance harness — which
+build families fail the last two bands, and whether a HUMAN piloting them
+would. Until #13 answers that, treat sweep numbers from other seed ranges as
+brackets, not gates.
+
+What the sweep could NOT answer: whether humans were eating the same wall —
+`usage_events` since 2026-07-12 is friends-scale and confounded by the deploy
+gap. The bot is the instrument; the band (25-55%) is NICHE.md §6's number.
+
 ## Round 2 — BOSSES V2 (bot-measured, not telemetry)
 
 Every number below is from the scripted balance bot (`src/sim/bot.ts`) on this

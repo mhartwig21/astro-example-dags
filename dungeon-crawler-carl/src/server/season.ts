@@ -16,6 +16,7 @@
  *    displace early ones on their own.
  */
 import { dailySeed, dayFromMs } from "../sim/daily";
+import { dailyRuleFor, type DailyRuleId } from "../sim/dailyRules";
 
 /** 6-8 weeks - one cour of the show. Anchored so seasons are computable
  *  offline and identically on the client. */
@@ -122,6 +123,20 @@ export interface EventSpec {
   opensAt: number;
   closesAt: number;
   season: string;
+  /**
+   * TODAY'S RULE, PINNED (NICHE.md §4.8). The rule is part of the event's
+   * identity exactly like the seed: it is computed once from the day, stored
+   * on the event row at creation, and every submission is checked against the
+   * STORED value — never against a live recompute. Two reasons, both learned:
+   * (1) provability — the header's `dailyRule` is a claim, and a claim the
+   * server never checks is a difficulty the submitter picks for themselves;
+   * (2) deploys — `dailyRuleFor` is modulo the rotation length, so growing
+   * DAILY_RULE_ROTATION would re-deal the CURRENT day's rule mid-day and
+   * split the board across two rules. The pin makes the row the truth.
+   * Weekly contracts are always the base game: the rule rotates daily and a
+   * 7-day window cannot honestly hold one.
+   */
+  dailyRule: DailyRuleId | null;
 }
 
 /** THE DAILY CONTRACT. dailySeed already exists and the board already runs;
@@ -137,6 +152,7 @@ export function dailyEvent(nowMs: number): EventSpec {
     opensAt: opens,
     closesAt: opens + 86400_000,
     season: seasonIdFor(nowMs),
+    dailyRule: dailyRuleFor(day),
   };
 }
 
@@ -155,5 +171,6 @@ export function weeklyEvent(nowMs: number): EventSpec {
     opensAt: mondayMs,
     closesAt: mondayMs + 7 * 86400_000,
     season: seasonIdFor(nowMs),
+    dailyRule: null, // the rule is a DAILY texture; the weekly is base game
   };
 }
