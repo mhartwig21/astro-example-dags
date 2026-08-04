@@ -392,6 +392,93 @@ describe("audio director: status cues + band sting (launch polish #3)", () => {
   });
 });
 
+describe("audio director: creature barks (SOUNDPLAN row 9)", () => {
+  const mob = (id: number, kind: string, x: number, y: number) => ({
+    id, kind: kind as never, pos: { x, y },
+    hp: 10, maxHp: 10, damage: 5, speed: 0, attackRange: 1, attackCooldown: 0,
+    shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0,
+    windup: 0, windupTotal: 0, stagger: 0, poiseDmg: 0,
+  });
+
+  it("a grunt rattles once when it starts hunting — skeletal family, per-id variant", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    const m = mob(50, "grunt", p.pos.x + 40, p.pos.y); // far: not hunting yet
+    state.monsters.push(m);
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => i.startsWith("bark_"))).toHaveLength(0);
+    m.pos.x = p.pos.x + 3; // closed to aggro range
+    director.frame(state, [], [], p.id);
+    director.frame(state, [], [], p.id); // still hunting — no re-bark
+    const barks = sink.ids().filter((i) => i.startsWith("bark_"));
+    expect(barks).toHaveLength(1);
+    expect(barks[0]).toMatch(/^bark_skel_aggro_[ab]$/);
+  });
+
+  it("pain barks ride the hitFlash edge, gated to one per monster per 4s", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    const m = mob(51, "brute", p.pos.x + 2, p.pos.y);
+    state.monsters.push(m);
+    director.frame(state, [], [], p.id);
+    sink.played = [];
+    m.hitFlash = 0.2;
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => /^bark_org_pain_[ab]$/.test(i))).toHaveLength(1);
+    m.hitFlash = 0; // flash fades...
+    director.frame(state, [], [], p.id);
+    m.hitFlash = 0.2; // ...and a second blow lands inside the 4s gate
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => /^bark_org_pain_[ab]$/.test(i))).toHaveLength(1);
+    m.hitFlash = 0;
+    state.elapsed += 5; // the gate expires
+    director.frame(state, [], [], p.id);
+    m.hitFlash = 0.2;
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => /^bark_org_pain_[ab]$/.test(i))).toHaveLength(2);
+  });
+
+  it("a reaped machine powers down: death bark when the id leaves the list", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    state.monsters.push(mob(52, "sentinel", p.pos.x + 2, p.pos.y));
+    director.frame(state, [], [], p.id);
+    state.monsters.length = 0; // reaped
+    director.frame(state, [], [], p.id);
+    const deaths = sink.ids().filter((i) => i.startsWith("bark_") && i.includes("death"));
+    expect(deaths).toHaveLength(1);
+    expect(deaths[0]).toMatch(/^bark_mech_death_[ab]$/);
+  });
+
+  it("bosses do not bark (the boss-beat channel owns their voice)", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    state.monsters.push(mob(53, "boss", p.pos.x + 2, p.pos.y));
+    director.frame(state, [], [], p.id);
+    director.frame(state, [], [], p.id);
+    state.monsters.length = 0;
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => i.startsWith("bark_"))).toHaveLength(0);
+  });
+
+  it("a descent empties the roster without a massacre of death barks", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    state.monsters.push(mob(54, "grunt", p.pos.x + 2, p.pos.y), mob(55, "phantom", p.pos.x + 3, p.pos.y));
+    director.frame(state, [], [], p.id);
+    sink.played = [];
+    state.floor = 2;
+    state.monsters.length = 0;
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => i.includes("death"))).toHaveLength(0);
+  });
+});
+
 describe("audio director: breakable smashes (SOUNDPLAN row 5)", () => {
   it("pops wood when a crate leaves the list, rate-spread deterministically", () => {
     const { sink, director, state } = setup();

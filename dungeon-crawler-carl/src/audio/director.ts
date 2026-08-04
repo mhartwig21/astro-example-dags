@@ -3,7 +3,7 @@ import { CONFIG, floorBand } from "../sim/config";
 // the audio director must not drag three.js into the 2D host's bundle to
 // find out how a boss's tell is pitched.
 import { signatureFor } from "../render3d/bossSignatures";
-import type { Announcement, BossEvent, GameState, HitEvent, HitKind, StatusKind } from "../sim/types";
+import type { Announcement, BossEvent, GameState, HitEvent, HitKind, MonsterKind, StatusKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
 
@@ -47,6 +47,26 @@ const EARSHOT = 24;
 
 /** Breakable prop keys that shatter (ceramic/glass) rather than splinter. */
 const CLAY_KEY = /pot|plate|dish|bottle|goblet|mug|vase|jar|potion|glass|gem/;
+
+// Creature bark FAMILIES (SOUNDPLAN §1.4 row 9): every archetype speaks as
+// one of five species — skeletal rattle, organic beast/plant, humanoid
+// show-cast, machine servo, airy phantom/witch. Bosses are deliberately
+// absent: the boss-beat channel owns their voice. Unmapped kinds (crafted
+// defs, future mobs) stay silent rather than guessing wrong.
+type BarkFamily = "skel" | "org" | "hum" | "mech" | "air";
+const BARK_FAMILY: Partial<Record<MonsterKind, BarkFamily>> = {
+  grunt: "skel", swarmer: "skel", ranged: "skel", cutpurse: "skel", warden: "skel",
+  brute: "org", charger: "org", spitter: "org", broodmother: "org", lasher: "org",
+  understudy: "org", filcher: "org", suitactor: "org",
+  bomber: "hum", drummer: "hum", digger: "hum", shieldbearer: "hum", cleric: "hum",
+  duelist: "hum", sniper: "hum", stagehand: "hum", darling: "hum", canceled: "hum",
+  suitguy: "hum", archivist: "hum", colossus: "hum",
+  lineworker: "mech", sentinel: "mech", slagbreaker: "mech", toysoldier: "mech",
+  greeter: "mech", foreman: "mech",
+  phantom: "air", shaman: "air", necromancer: "air", hexer: "air",
+};
+/** One pain bark per monster per this many seconds (§2.4). */
+const BARK_PAIN_GAP = 4;
 
 // Footsteps (appearance r1: the world reacts to being walked through).
 // Every player in earshot strides: distance walked accumulates and each
@@ -144,8 +164,24 @@ export class AudioDirector {
   private afflicted = new Set<string>();
   // Breakables last seen, by id: gone = smashed (pop), hp dropped = cracked.
   private crockery = new Map<number, { x: number; y: number; hp: number; clay: boolean }>();
+  // Creature bark bookkeeping: last seen state per monster id.
+  private mobs = new Map<number, { fam: BarkFamily; x: number; y: number; hp: number; flash: boolean; engaged: boolean; painAt: number }>();
 
   constructor(private sink: AudioSink) {}
+
+  /** One creature bark: family voice, variant + rate hashed from the monster
+   *  id (a given creature keeps ITS voice; replays sound identical). */
+  private bark(p: { pos: { x: number; y: number } }, id: number, fam: BarkFamily, ev: "aggro" | "pain" | "death", x: number, y: number): void {
+    const dx = x - p.pos.x, dy = y - p.pos.y;
+    const d = Math.hypot(dx, dy);
+    if (d > EARSHOT) return;
+    const h = Math.imul(id + 1, 0x9e3779b1) >>> 0;
+    this.sink.play(`bark_${fam}_${ev}_${(h & 1) === 0 ? "a" : "b"}` as SoundId, {
+      gain: 0.85 / (1 + d / 5),
+      pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+      rate: 0.94 + (((h >> 8) & 0xff) / 255) * 0.12,
+    });
+  }
 
   /** One breakable voicing: material clip, positioned, hash-jittered rate
    *  (deterministic per id — replays sound identical). Cracks (hp chipped,
@@ -302,6 +338,50 @@ export class AudioDirector {
         if (seen.has(id)) continue;
         this.crockery.delete(id);
         if (!floorChanged) this.smashAt(p, id, c.x, c.y, c.clay, false); // the pop
+      }
+    }
+
+    // Creature barks (row 9): the roster finally has voices. Aggro = the
+    // moment a monster first comes hunting (once per lifetime), pain = the
+    // hitFlash edge gated per-monster (§2.4: one per 4s), death = the id
+    // leaving the list (layers under the `kill` thump). Same floor-change
+    // guard as smashes: a descent is not a massacre.
+    {
+      const floorChanged = !this.prev || this.prev.floor !== state.floor;
+      const seen = new Set<number>();
+      for (const m of state.monsters) {
+        seen.add(m.id);
+        const fam = BARK_FAMILY[m.kind];
+        if (!fam) continue;
+        const known = this.mobs.get(m.id);
+        const dNear = state.players.reduce((best, pl) => {
+          if (!pl.alive) return best;
+          return Math.min(best, Math.hypot(m.pos.x - pl.pos.x, m.pos.y - pl.pos.y));
+        }, Infinity);
+        const flash = m.hitFlash > 0;
+        if (!known || floorChanged) {
+          this.mobs.set(m.id, { fam, x: m.pos.x, y: m.pos.y, hp: m.hp, flash, engaged: false, painAt: -Infinity });
+          continue;
+        }
+        if (!known.engaged && !m.dormant && m.hp > 0 && dNear <= PACK_RADIUS) {
+          known.engaged = true;
+          this.bark(p, m.id, fam, "aggro", m.pos.x, m.pos.y);
+        }
+        if (flash && !known.flash && m.hp > 0 && state.elapsed - known.painAt >= BARK_PAIN_GAP) {
+          known.painAt = state.elapsed;
+          this.bark(p, m.id, fam, "pain", m.pos.x, m.pos.y);
+        }
+        if (m.hp <= 0 && known.hp > 0) this.bark(p, m.id, fam, "death", m.pos.x, m.pos.y);
+        known.x = m.pos.x;
+        known.y = m.pos.y;
+        known.hp = m.hp;
+        known.flash = flash;
+      }
+      for (const [id, k] of this.mobs) {
+        if (seen.has(id)) continue;
+        this.mobs.delete(id);
+        // Reaped between frames without a seen hp<=0 edge: still a death.
+        if (!floorChanged && k.hp > 0) this.bark(p, id, k.fam, "death", k.x, k.y);
       }
     }
 
