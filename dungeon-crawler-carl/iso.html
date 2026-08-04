@@ -1291,6 +1291,25 @@
       body.touch #skills .skill.empty::after { width: 42%; height: 42%;
         margin: 0; transform: translate(-50%, -50%); }
 
+      /* ---- the fan track (wr_01/wr_03) ----
+         A faint annular band under the ability ring so the corner cluster
+         reads as ONE quarter-circle organism. Painted by ui/hudLayout from
+         the zone table (geometry inline); this rule keeps display authority
+         with the stylesheet so modal/cine/checkin standdowns win. It sits in
+         the z-auto layer BEFORE #cockpit in the DOM, i.e. under the chips. */
+      #t-fanarc { display: none; position: fixed; left: 0; top: 0;
+        pointer-events: none; will-change: transform;
+        opacity: calc(var(--chip-op) * 0.9); }
+      body.touch #t-fanarc.on { display: block; }
+      body.modal #t-fanarc, body.checkin #t-fanarc { display: none; }
+      body.touch.cine #t-fanarc { opacity: 0; transition: opacity 0.3s ease; }
+      /* THE PRIMARY (slot 0, melee) is the corner anchor — WR's basic attack.
+         Same glass, a heavier rim and a bigger glyph, so the largest disc also
+         reads as the root of the organism rather than a scaled-up sibling. */
+      body.touch #skills .skill[data-i="0"] { border-width: 3px;
+        background: radial-gradient(circle at 50% 32%, rgba(40,31,18,0.6), rgba(9,7,4,0.78) 76%); }
+      body.touch #skills .skill[data-i="0"] .icon { width: 56%; height: 56%; }
+
       /* ---- chips this layer owns: MAP, and the context pill ---- */
       #hud-chips { display: none; }
       body.touch #hud-chips { display: block; position: fixed; inset: 0;

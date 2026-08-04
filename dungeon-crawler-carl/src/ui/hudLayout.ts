@@ -111,11 +111,26 @@ export interface HudLayoutOpts {
 export class HudLayout {
   private zones: ZoneTable | null = null;
   private mapChip: HTMLElement | null = null;
+  private fanArc: HTMLElement | null = null;
   private opacity = 1;
 
   constructor(private readonly o: HudLayoutOpts) {
     this.opacity = o.opacity;
     if (typeof document === "undefined") return;
+    // THE FAN TRACK (wr_01/wr_03): a faint annular band under the ability
+    // ring, clipped to the fan's span, so the corner cluster reads as ONE
+    // quarter-circle organism instead of loose coins. It must paint UNDER the
+    // chips: the chips are z-auto fixed elements, so the track is inserted
+    // EARLIER in the DOM (before #cockpit) rather than given a z-index that
+    // would lift it above them. Pointer-transparent; geometry inline from the
+    // zone table; visibility via class so a stylesheet keeps authority over
+    // modal/cine/checkin standdowns (never inline display — the shop lesson).
+    const fan = document.createElement("div");
+    fan.id = "t-fanarc";
+    const cockpit = document.getElementById("cockpit");
+    if (cockpit?.parentElement) cockpit.parentElement.insertBefore(fan, cockpit);
+    else document.body.appendChild(fan);
+    this.fanArc = fan;
     const layer = document.createElement("div");
     layer.id = "hud-chips";
     const map = document.createElement("button");
@@ -162,7 +177,50 @@ export class HudLayout {
     root.setProperty("--stick-w", `${Math.round(z.stickZone.w)}px`);
     this.placeCluster();
     this.placeMap();
+    this.placeFanArc();
     this.measureChrome();
+  }
+
+  /**
+   * THE FAN TRACK — the one paint that makes the corner cluster read as a
+   * single quarter-circle unit (wr_01/wr_03 both draw a faint band under the
+   * ability ring). A translucent annulus centred on the PRIMARY, clipped to
+   * the fan's angular span with a conic mask, squeezed vertically by the same
+   * ellipse the layout applied to the ring. Corner grips only; the side-grip
+   * fan is symmetric and needs no unifying band.
+   */
+  private placeFanArc(): void {
+    const z = this.zones, el = this.fanArc;
+    if (!z || !el || typeof document === "undefined") return;
+    const corner = z.cls === "compact" || z.cls === "phone";
+    el.classList.toggle("on", corner && document.body.classList.contains("touch"));
+    if (!corner) return;
+    const s1 = z.controls.slot1, ult = z.controls.slot4;
+    const fanVis = s1.vis ?? s1.w;
+    const R = z.arcRadius;
+    // The layout may have squeezed the fan vertically (short glass); read the
+    // actual ellipse off the ultimate's landed position rather than guessing.
+    const sy = Math.max(0.5, Math.min(1, (z.pivot.y - ult.cy) / (R * 1.05 * 0.999)));
+    const Ro = R * 1.05 + fanVis / 2 + 8;
+    const Ri = Math.max(24, R - fanVis / 2 - 8);
+    const size = Math.ceil(Ro * 2);
+    el.style.width = `${size}px`;
+    el.style.height = `${size}px`;
+    el.style.transform =
+      `translate3d(${Math.round(z.pivot.x - Ro)}px, ${Math.round(z.pivot.y - Ro * sy)}px, 0) scaleY(${sy.toFixed(3)})`;
+    el.style.transformOrigin = "50% 0%";
+    el.style.background =
+      `radial-gradient(circle, rgba(0,0,0,0) ${Math.round(Ri - 1)}px, rgba(201,162,75,0.14) ${Math.round(Ri)}px, ` +
+      `rgba(10,12,16,0.30) ${Math.round(Ri + 5)}px, rgba(10,12,16,0.30) ${Math.round(Ro - 6)}px, ` +
+      `rgba(201,162,75,0.14) ${Math.round(Ro - 1)}px, rgba(0,0,0,0) ${Math.round(Ro)}px)`;
+    // The fan sweeps -10..92 deg about the inboard horizontal; in conic terms
+    // (0 = up, clockwise) that is 260..362 for a right hand, -2..100 mirrored.
+    const mirror = document.body.classList.contains("handed-left");
+    const from = mirror ? -16 : 246;
+    const mask =
+      `conic-gradient(from ${from}deg, rgba(0,0,0,0) 0deg 2deg, #000 18deg, #000 112deg, rgba(0,0,0,0) 128deg 360deg)`;
+    el.style.webkitMask = mask;
+    el.style.mask = mask;
   }
 
   /**
