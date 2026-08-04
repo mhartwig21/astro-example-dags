@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
 import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, concedeRival, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
 import { raceSuperlatives, headlineLine, type SeatSummary } from "./superlatives";
+import { ledgerRunFrom } from "./ledger";
 import { GLYPH_INFO, type GlyphId } from "../sim/glyphs";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
@@ -191,6 +192,11 @@ function buildSummary(p: Player): Record<string, unknown> {
     level: p.level,
     slots: p.abilities.slots,
     ultimate: p.abilities.ultimate,
+    // Socketed glyph ids — the ledger's mastery stamps (NICHE.md 4.3) read
+    // these; the bench deliberately stays home (owning is not fielding).
+    glyphs: p.glyphs
+      ? [...p.glyphs.slots.flat(), ...p.glyphs.ultimate].filter((g): g is NonNullable<typeof g> => g != null)
+      : [],
     ranks: Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0),
     weapon: p.equipment.weapon?.name ?? null,
     maxHp: p.maxHp,
@@ -391,6 +397,10 @@ export class GameServer {
       this.onHeadlines(req, res);
       return;
     }
+    if (url.split("?")[0] === "/ledger") {
+      this.onLedger(req, res);
+      return;
+    }
     if (this.competitive) {
       // The competitive surface owns /runs, /boards, /bands, /crawler,
       // /events, /rivals and /auth/anon; it returns false for anything else.
@@ -546,13 +556,59 @@ export class GameServer {
           return;
         }
         const token = validToken(msg.token);
-        this.db.logEvent(msg.kind, "SOLO", token, msg.data ?? {}, Date.now());
+        const now = Date.now();
+        this.db.logEvent(msg.kind, "SOLO", token, msg.data ?? {}, now);
+        // THE CRAWL LEDGER (NICHE.md 4.3): a solo run end IS a deposit. The
+        // response carries the System's deposit lines so the client can say
+        // them — the one round trip the post-run moment already makes.
+        let deposits: string[] = [];
+        if (msg.kind === "run_end" && token) {
+          const d = (msg.data ?? {}) as { status?: unknown; floor?: unknown; day?: unknown; players?: unknown };
+          const player = Array.isArray(d.players) ? (d.players[0] as Record<string, unknown> | undefined) : undefined;
+          const run = ledgerRunFrom({ status: d.status, floor: d.floor, day: d.day, player: player ?? null });
+          if (run) {
+            deposits = this.db.ledger.applyRun(token, run, now);
+            for (const line of deposits) {
+              if (/CONTRACT COMPLETE|MILESTONE/.test(line)) {
+                this.db.logEvent("ledger_deposit", "SOLO", token, { line }, now);
+              }
+            }
+          }
+        }
         res.writeHead(200, { "content-type": "application/json", ...cors });
-        res.end('{"ok":true}');
+        res.end(JSON.stringify({ ok: true, deposits }));
       } catch {
         res.writeHead(400, cors).end();
       }
     });
+  }
+
+  /**
+   * THE CRAWL LEDGER (NICHE.md 4.3): GET /ledger?token=… — the L-panel's
+   * data: three active contracts, the mastery-stamp collection, titles, and
+   * the forgiving streak. Same bearer-token trust model as /headlines.
+   */
+  private onLedger(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "GET") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    const token = validToken(new URL(req.url ?? "/", "http://x").searchParams.get("token"));
+    if (!token || !this.db) {
+      res.writeHead(200, { "content-type": "application/json", ...cors });
+      res.end(JSON.stringify({ ok: false, reason: "no account" }));
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({ ok: true, ...this.db.ledger.view(token, Date.now()) }));
   }
 
   /**
@@ -1215,6 +1271,36 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
+        // THE CRAWL LEDGER (4.3): every seat's run end is a deposit, keyed to
+        // its account. The lines go back to THAT seat only (a party hearing
+        // one player's paperwork is noise), on the same events channel the
+        // sim's announcements ride.
+        if (this.db) {
+          const now = Date.now();
+          for (const c of inst.clients) {
+            if (!c.bound || c.ws.readyState !== WebSocket.OPEN) continue;
+            const p = inst.state.players.find((pl) => pl.id === c.playerId);
+            if (!p) continue;
+            const run = ledgerRunFrom({
+              status: inst.state.status, floor: p.floorNo ?? inst.state.floor,
+              day: dayFromDailyCode(inst.code),
+              player: buildSummary(p) as Parameters<typeof ledgerRunFrom>[0]["player"],
+            });
+            if (!run) continue;
+            const deposits = this.db.ledger.applyRun(c.accountId, run, now);
+            if (deposits.length === 0) continue;
+            for (const line of deposits) {
+              if (/CONTRACT COMPLETE|MILESTONE/.test(line)) {
+                this.db.logEvent("ledger_deposit", inst.code, c.accountId, { line }, now);
+              }
+            }
+            c.ws.send(JSON.stringify({
+              t: "events", events: deposits,
+              announcements: deposits.map((text) => ({ text, kind: "progress", priority: "normal" })),
+              hits: [], bossEvents: [],
+            }));
+          }
+        }
         // DEATH IS A DOOR (4.7): a guaranteed superlative per seat at race
         // end — four seats, four different headlines. Present clients hear
         // them on the announcement rail; a seat with no live connection

@@ -5,7 +5,8 @@
 export type BindableAction =
   | "moveUp" | "moveDown" | "moveLeft" | "moveRight"
   | "slot1" | "slot2" | "slot3" | "slot4" | "ultimate" | "flask"
-  | "stairs" | "ping" | "draft" | "inventory" | "abilities" | "character" | "keybinds" | "newRun" | "mute";
+  | "stairs" | "ping" | "draft" | "inventory" | "abilities" | "character" | "keybinds" | "newRun" | "mute"
+  | "ledger";
 
 export type Bindings = Record<BindableAction, string[]>;
 
@@ -26,6 +27,7 @@ export const ACTION_INFO: Record<BindableAction, { name: string; hint?: string }
   inventory: { name: "Inventory" },
   abilities: { name: "Abilities & achievements" },
   character: { name: "Crawler profile", hint: "stats, damage, defense" },
+  ledger: { name: "The Crawl Ledger", hint: "contracts, stamps, streak" },
   keybinds: { name: "Key bindings" },
   newRun: { name: "New run (solo)" },
   mute: { name: "Mute sound" },
@@ -48,6 +50,7 @@ export const DEFAULT_BINDINGS: Bindings = {
   inventory: ["i"],
   abilities: ["t"],
   character: ["p"],
+  ledger: ["l"],
   keybinds: ["k"],
   newRun: ["r"],
   mute: ["m"],

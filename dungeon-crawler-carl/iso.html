@@ -460,7 +460,10 @@
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
                                   System chatter)
-           modals (z 20-28):    #inv/#abil/#sheet 20 · #dialogue 22 (Roam NPC
+           modals (z 20-28):    #inv/#abil/#sheet/#ledger 20 (#ledger = THE CRAWL
+                                  LEDGER, NICHE.md 4.3: contracts/stamps/streak,
+                                  toggled by the "ledger" binding, default L)
+                                · #dialogue 22 (Roam NPC
                                   conversation — letterboxed cut, portrait left)
                                 · #saferoom 24 · #draft 25 · #keys 26
                                 · #rushgate 26 (THE STARTING GUN — rivals pre-run
@@ -4282,6 +4285,27 @@
          document family as inventory/abilities (z 20; it pauses the game). */
       #sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 20; }
+      /* THE CRAWL LEDGER (NICHE.md 4.3) — same modal contract as #sheet:
+         fixed frame, capped height, NEVER scrolls (three contracts + a streak
+         line + a stamp tally fit by construction). */
+      #ledger { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 20; }
+      #ledger .panel { box-sizing: border-box; width: min(660px, 94vw); max-height: var(--set-h, 88vh);
+        display: flex; flex-direction: column; overflow: hidden; background: var(--stone, #17120d);
+        border: 1px solid var(--bronze, #6e5533); border-radius: 6px; padding: 18px 22px;
+        box-shadow: 0 12px 48px rgba(0,0,0,0.7); }
+      #ledger h2 { margin: 0 0 2px; font-family: var(--display, Cinzel, serif); color: var(--gold, #c9a24b);
+        font-size: 19px; letter-spacing: 1.5px; }
+      #ledger .hint { color: var(--ink-faint, #6f6757); font-size: 11.5px; margin-bottom: 12px; }
+      #ledger .lg-sec { color: var(--gold, #c9a24b); font-size: 11px; letter-spacing: 2px;
+        margin: 12px 0 6px; border-bottom: 1px solid #3a2f22; padding-bottom: 3px; }
+      #ledger .lg-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+        padding: 5px 0; border-bottom: 1px dotted rgba(110,85,51,0.35); }
+      #ledger .lg-row b { color: var(--ink, #e8ddc8); font-size: 13px; letter-spacing: 0.5px; }
+      #ledger .lg-row .lg-desc { color: var(--ink-dim, #a99f8c); font-size: 12px; flex: 1; }
+      #ledger .lg-row .lg-prog { color: var(--gold, #c9a24b); font-size: 12px; white-space: nowrap; }
+      #ledger .lg-note { color: var(--ink-dim, #a99f8c); font-size: 12.5px; padding: 6px 0; }
+      #ledger .lg-titles { color: #9a6bd0; font-size: 12px; }
       /* Same frame contract as every other set: the masthead is fixed, the
          body is the one region that may give, and the PANEL can never overflow
          (it measured +24px at 1366 once the empty gear slots started holding
@@ -6422,6 +6446,17 @@
             <div class="show-grid" id="sheet-show"></div>
           </div>
         </div>
+      </div>
+    </div>
+    <!-- THE CRAWL LEDGER (NICHE.md 4.3): losing banks something. Account-level
+         and server-side — contracts, mastery stamps, the forgiving streak.
+         One zone (modal 20, see the zone map), toggled by the "ledger" bind. -->
+    <div id="ledger" data-overlay="modal">
+      <div class="panel">
+        <h2>THE CRAWL LEDGER <span class="sub" id="ledger-sub"></span></h2>
+        <div class="hint">Every run deposits something — dead runs included. Identity, never stats.<span class="kbdhint"> ·
+          <kbd id="ledger-close-key">L</kbd> or <kbd>Esc</kbd> to close</span></div>
+        <div id="ledger-body"><div class="lg-note">Reaching the System's records office…</div></div>
       </div>
     </div>
     <div id="draft-badge"></div>

@@ -864,7 +864,7 @@ function submitTelemetry(s: GameState): void {
   if (net || testMode || telemetrySubmitted) return;
   telemetrySubmitted = true;
   const p = me(s);
-  void fetch(`${API_BASE}/telemetry`, {
+  const fetching = fetch(`${API_BASE}/telemetry`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -891,10 +891,26 @@ function submitTelemetry(s: GameState): void {
           damageDealt: Math.round(p.damageDealt),
           damageTaken: Math.round(p.damageTaken),
           gold: p.gold, sponsors: p.sponsors, alive: p.alive,
+          // Socketed glyphs — THE CRAWL LEDGER's mastery stamps read these.
+          glyphs: p.glyphs
+            ? [...p.glyphs.slots.flat(), ...p.glyphs.ultimate].filter((g): g is NonNullable<typeof g> => g != null)
+            : [],
         }],
       },
     }),
-  }).catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
+  });
+  // THE CRAWL LEDGER (NICHE.md 4.3): the run end IS the deposit, and the
+  // response carries the System's deposit lines — losing banked something,
+  // and the post-run moment says what.
+  void fetching
+    .then((r) => (r.ok ? (r.json() as Promise<{ deposits?: string[] }>) : { deposits: [] as string[] }))
+    .then((j) => {
+      const deposits = (j.deposits ?? []).slice(0, 4);
+      for (const line of deposits) pushLogLine(line);
+      const headline = deposits.find((l) => /CONTRACT COMPLETE|MILESTONE/.test(l)) ?? deposits[0];
+      if (headline) showAnnouncement({ text: headline, kind: "progress", priority: "normal" });
+    })
+    .catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
 }
 
 /**
@@ -3255,6 +3271,70 @@ function toggleSheet(): void {
   else hideOverlay(sheetEl);
 }
 
+// ---- THE CRAWL LEDGER (NICHE.md 4.3) ----
+// Account-level and server-side: the panel is a WINDOW onto the server's
+// records, not a local cache pretending to be one. Offline says so plainly.
+const ledgerEl = document.getElementById("ledger")!;
+let ledgerOpen = false;
+
+function toggleLedger(): void {
+  ledgerOpen = !ledgerOpen;
+  if (ledgerOpen) {
+    showOverlay(ledgerEl);
+    void renderLedger();
+  } else {
+    hideOverlay(ledgerEl);
+  }
+}
+
+async function renderLedger(): Promise<void> {
+  const body = document.getElementById("ledger-body")!;
+  const tok = loadToken();
+  if (!tok) {
+    body.innerHTML = `<div class="lg-note">The ledger lives on the server, and this browser has never `
+      + `spoken to it. Finish one run online and the paperwork starts itself.</div>`;
+    return;
+  }
+  body.innerHTML = `<div class="lg-note">Reaching the System's records office…</div>`;
+  try {
+    const r = await fetch(`${API_BASE}/ledger?token=${encodeURIComponent(tok)}`);
+    const j = (await r.json()) as {
+      ok: boolean;
+      contracts?: { name: string; desc: string; title: string; progress: number; target: number }[];
+      stamps?: string[]; titles?: string[];
+      streak?: { count: number; best: number; shieldAvailable: boolean };
+    };
+    if (!j.ok) {
+      body.innerHTML = `<div class="lg-note">No account on file yet — the ledger opens with your first online run.</div>`;
+      return;
+    }
+    if (!ledgerOpen) return; // closed while we were fetching
+    const contracts = (j.contracts ?? []).map((c) =>
+      `<div class="lg-row"><b>${esc(c.name)}</b><span class="lg-desc">${esc(c.desc)}</span>` +
+      `<span class="lg-prog">${c.progress}/${c.target} · pays ${esc(c.title)}</span></div>`).join("")
+      || `<div class="lg-note">The System is drafting new paperwork.</div>`;
+    const stamps = j.stamps ?? [];
+    const abilityStamps = stamps.filter((s) => s.startsWith("ability:")).length;
+    const glyphStamps = stamps.filter((s) => s.startsWith("glyph:")).length;
+    const st = j.streak ?? { count: 0, best: 0, shieldAvailable: true };
+    body.innerHTML =
+      `<div class="lg-sec">SYSTEM CONTRACTS <span class="note">rerolled on completion — dead runs count</span></div>${contracts}` +
+      `<div class="lg-sec">MASTERY STAMPS</div>` +
+      `<div class="lg-note">${abilityStamps}/16 abilities fielded · ${glyphStamps}/25 glyphs run · ` +
+      `the collection only grows.</div>` +
+      `<div class="lg-sec">THE DAILY STREAK</div>` +
+      `<div class="lg-note">${st.count} day${st.count === 1 ? "" : "s"} running · best ${st.best} · ` +
+      `${st.shieldAvailable ? "one missed day is shielded this week" : "this week's shield is spent"}. ` +
+      `A run counts; a clear is not required.</div>` +
+      ((j.titles ?? []).length
+        ? `<div class="lg-sec">TITLES</div><div class="lg-titles">${(j.titles ?? []).map(esc).join(" · ")}</div>`
+        : "");
+  } catch {
+    body.innerHTML = `<div class="lg-note">The records office is unreachable (offline?). ` +
+      `Deposits still land server-side the next time a run reports.</div>`;
+  }
+}
+
 // ---- Key bindings (rebindable; persisted per browser) ----
 let bindings: Bindings = loadBindings();
 const keysEl = document.getElementById("keys")!;
@@ -3281,11 +3361,13 @@ function applyBindings(): void {
     row("abilities", "Loadout & Achievements") +
 
     row("character", "Crawler Profile") +
+    row("ledger", "The Crawl Ledger") +
     row("draft", "Claim Banked Drafts") +
     `<div class="tm-row" data-act="standings"><span>The Standings</span></div>` +
     `<div class="tm-row" data-act="careerset"><span>Career &amp; Mastery</span></div>`;
   document.getElementById("kb-close-key")!.textContent = first("keybinds");
   document.getElementById("sheet-close-key")!.textContent = first("character");
+  document.getElementById("ledger-close-key")!.textContent = first("ledger");
 }
 
 /** Presentation-only grouping for the bindings ledger (r1 major: movement,
@@ -3297,7 +3379,7 @@ const KB_GROUPS: { title: string; actions: BindableAction[] }[] = [
   { title: "MOVEMENT", actions: ["moveUp", "moveDown", "moveLeft", "moveRight"] },
   { title: "THE FIVE", actions: ["slot1", "slot2", "slot3", "slot4", "ultimate"] },
   { title: "IN THE DUNGEON", actions: ["flask", "stairs", "ping", "draft"] },
-  { title: "PANELS", actions: ["inventory", "abilities", "character", "keybinds"] },
+  { title: "PANELS", actions: ["inventory", "abilities", "character", "ledger", "keybinds"] },
   { title: "THE SESSION", actions: ["newRun", "mute"] },
 ];
 
@@ -3759,6 +3841,7 @@ window.addEventListener("keydown", (e) => {
     else if (invOpen) toggleInventory();
     else if (abilOpen) toggleAbilities();
     else if (sheetOpen) toggleSheet();
+    else if (ledgerOpen) toggleLedger();
     else if (kbOpen) toggleKeybinds();
   }
 });
@@ -3769,6 +3852,7 @@ function fireAction(a: BindableAction): void {
   if (a === "inventory") toggleInventory();
   else if (a === "abilities") toggleAbilities();
   else if (a === "character") toggleSheet();
+  else if (a === "ledger") toggleLedger();
   else if (a === "keybinds") toggleKeybinds();
   else if (a === "draft") {
     if (draftEl.style.display === "flex") dismissDraftModal(); // toggle off = dismiss

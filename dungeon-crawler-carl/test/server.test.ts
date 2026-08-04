@@ -757,6 +757,41 @@ describe("POST /telemetry: the funnel's rungs land in usage_events (NICHE.md 4.2
     expect((await post({ kind: "evil", token: "t", data: {} })).status).toBe(400);
     expect((await post({ kind: 42, token: "t", data: {} })).status).toBe(400);
   });
+
+  it("THE CRAWL LEDGER (4.3): a solo run_end deposits, the response says so, /ledger shows it", async () => {
+    const token = "ledger-test-token-1234";
+    // A DEATH on floor 4 — the median outcome — completes SEE THE SEWERS.
+    const r = await post({
+      kind: "run_end", token,
+      data: {
+        status: "dead", floor: 4, mode: "solo", runKind: "race", day: null,
+        players: [{
+          name: "Carl", level: 5, slots: ["melee", "bolt", null, null], ultimate: null,
+          kills: 12, damageTaken: 300, gold: 40, glyphs: ["swiftness"],
+        }],
+      },
+    });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { ok: boolean; deposits: string[] };
+    expect(j.deposits.some((l) => /CONTRACT COMPLETE — SEE THE SEWERS/.test(l))).toBe(true);
+    expect(j.deposits.some((l) => /MASTERY STAMPS?/.test(l))).toBe(true);
+    // The L-panel's window onto the same rows.
+    const view = (await (await fetch(`http://127.0.0.1:${port}/ledger?token=${token}`)).json()) as {
+      ok: boolean; titles: string[]; stamps: string[];
+      contracts: { id: string }[];
+    };
+    expect(view.ok).toBe(true);
+    expect(view.titles).toContain("TOURIST");
+    expect(view.stamps).toContain("ability:melee");
+    expect(view.stamps).toContain("glyph:swiftness");
+    expect(view.contracts.length).toBe(3);
+    expect(view.contracts.map((c) => c.id)).not.toContain("sewers_tourist");
+    // Completions land in usage_events for the §7 D8-cohort query.
+    expect(server.db!.listEvents("ledger_deposit").length).toBeGreaterThan(0);
+    // No token = no account: the endpoint says so instead of inventing one.
+    const anon = (await (await fetch(`http://127.0.0.1:${port}/ledger`)).json()) as { ok: boolean };
+    expect(anon.ok).toBe(false);
+  });
 });
 
 describe("DEATH IS A DOOR over the wire (NICHE.md 4.7)", () => {

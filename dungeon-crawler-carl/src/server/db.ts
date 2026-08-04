@@ -1,6 +1,7 @@
 import { createRequire } from "node:module";
 import type Database from "better-sqlite3";
 import { CompetitiveStore } from "./competitive";
+import { LedgerStore } from "./ledger";
 
 // PERSISTENCE.md P1: SQLite on the Fly volume. One file (DB_FILE, prod:
 // /data/dcc.sqlite) holds accounts, party membership, and per-character saves,
@@ -123,6 +124,8 @@ export class PersistDb {
   /** Runs, proofs, ladders, events, CP (COMPETITIVE.md MUST-4). Same file,
    *  same transaction scope, so FORGET ME can erase a career atomically. */
   readonly competitive: CompetitiveStore;
+  /** THE CRAWL LEDGER (NICHE.md 4.3): contracts, mastery stamps, the streak. */
+  readonly ledger: LedgerStore;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -135,6 +138,7 @@ export class PersistDb {
     // with no downtime and no data movement.
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')").run();
     this.competitive = new CompetitiveStore(db);
+    this.ledger = new LedgerStore(db);
     db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
   }
 
@@ -369,6 +373,7 @@ export class PersistDb {
     const names = [...new Set([...this.competitive.displayNamesOf(accountId), ...alsoNames])];
     this.db.transaction(() => {
       this.competitive.deleteAccount(accountId);
+      this.ledger.deleteAccount(accountId);
       this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_tips WHERE account_id = ?").run(accountId);
