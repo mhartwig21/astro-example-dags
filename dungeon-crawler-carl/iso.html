@@ -3314,6 +3314,23 @@
       .m-tile.gold { --tc: #c9a24b; }
       .m-tile.gold b { color: #f5e6bf; }
       .m-tile.gold:hover { border-color: #c9a24b; }
+      /* THE FRONT DOOR (NICHE.md 4.5): the featured band splits into two
+         doors — DAILY (solo, gold) and THE RUSH (live, red) — at the SAME
+         total mass, so the mode board keeps its one-featured-row shape.
+         .solo (a ?c= card re-dressed the DAILY door) collapses the band. */
+      .m-hero-row { grid-column: 1 / -1; display: grid;
+        grid-template-columns: 1fr 1fr; gap: var(--g-tight); }
+      .m-hero-row .m-tile.hero { grid-column: auto; }
+      /* Half-width banners earn a second sub line — a clamp that eats the
+         GUN clock (measured: "RACE FORMING — 1/4 —…") is a lying surface. */
+      .m-hero-row .m-tile.hero small { -webkit-line-clamp: 2; }
+      .m-hero-row.solo { grid-template-columns: 1fr; }
+      .m-hero-row.solo .m-tile.rush { display: none; }
+      .m-tile.hero.rush { --tc: #c0392f; }
+      .m-tile.hero.rush b { color: #e8b3a6; }
+      .m-tile.hero.rush:hover { border-color: #8a3038; }
+      .m-tile.hero.rush.forming { border-color: rgba(192,57,47,0.65);
+        background: linear-gradient(180deg, #2b1c19, #221b15 70%); }
       .m-tile.red { --tc: #c0392f; }
       .m-tile.red:hover { border-color: #8a3038; }
       .m-tile.green { --tc: #6da356; }
@@ -6915,10 +6932,21 @@
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
                 <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
               </button>
-              <button class="m-tile hero gold" id="m-daily">
-                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
-                <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
-              </button>
+              <!-- THE FEATURED BAND: still ONE banner of mass (the r2
+                   composition rule), now holding the two doors into today's
+                   dungeon — solo (DAILY) and live (THE RUSH, NICHE.md 4.5).
+                   A ?c= card re-dresses DAILY into ACCEPT CHALLENGE and the
+                   band collapses to that single door (.solo). -->
+              <div class="m-hero-row" id="m-hero-row">
+                <button class="m-tile hero gold" id="m-daily">
+                  <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
+                  <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler · resets at midnight UTC</small>
+                </button>
+                <button class="m-tile hero rush" id="m-rush">
+                  <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/skull.svg);-webkit-mask-image:url(/icons/ui/skull.svg)"></i></span>
+                  <b>THE RUSH</b><small id="m-rush-sub">today's dungeon, live rivals — one tap claims a seat</small>
+                </button>
+              </div>
               <div class="m-modes">
                 <button class="m-tile" id="m-party">
                   <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>

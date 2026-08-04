@@ -17,7 +17,7 @@ import {
 } from "./sim/glyphs";
 import {
   EQUIP_SLOTS, Tile,
-  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Item, type ItemSlot, type Monster, type Player,
+  type Affixes, type Announcement, type AnnouncementKind, type GameState, type HitEvent, type Intent, type Item, type ItemSlot, type Monster, type Player,
   type BossEvent, type DialogueSession, type Quest, type Rarity, type SafeRoom, type Vec2,
 } from "./sim/types";
 import { bossMutatorInfo } from "./sim/bosses";
@@ -66,6 +66,7 @@ import { RunRecorder, REPLAY_DT, canonicalIntent, type RunProof } from "./sim/re
 import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
+import { Onramp, type OnrampEvent } from "./ui/onramp";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -1225,8 +1226,13 @@ document.getElementById("m-daily")!.addEventListener("click", () => {
     sub.textContent = `${by} ${feat} on ${challengeDay} — same dungeon, beat it`;
     document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
   } else {
+    // Half-width banner, two sub lines (see .m-hero-row): a streak holder
+    // already knows what the daily is, so the streak takes the lead slot
+    // instead of overflowing the clamp as a third line.
     const streak = currentStreak();
-    if (streak > 0) sub.textContent = `${sub.textContent} · your streak: ${streak} day${streak === 1 ? "" : "s"}`;
+    if (streak > 0) {
+      sub.textContent = `your streak: ${streak} day${streak === 1 ? "" : "s"} · resets at midnight UTC`;
+    }
   }
 }
 document.getElementById("m-solo")!.addEventListener("click", () =>
@@ -1364,7 +1370,12 @@ async function refreshOpenParties(): Promise<void> {
   try {
     const r = await fetch(`${API_BASE}/open-parties`);
     if (!r.ok) throw new Error(String(r.status));
-    const parties = (await r.json()) as { code: string; players: number; cap: number; floor: number }[];
+    // THE FRONT DOOR (NICHE.md 4.5): the list now also carries public RIVALS
+    // races while they are FORMING (gate held) — joinable at second zero.
+    const parties = (await r.json()) as {
+      code: string; players: number; cap: number; floor: number;
+      mode?: "coop" | "rivals"; msLeft?: number;
+    }[];
     list.innerHTML = parties.length
       ? parties.map(() => `<li><span class="cd"></span><span class="meta"></span></li>`).join("")
       : '<li class="none">no open parties right now — be the first</li>';
@@ -1373,10 +1384,15 @@ async function refreshOpenParties(): Promise<void> {
     // interpolated guard refreshBoard() uses for player names, just for codes.
     list.querySelectorAll("li").forEach((li, i) => {
       const p = parties[i];
+      const race = p.mode === "rivals";
       li.querySelector(".cd")!.textContent = p.code;
-      li.querySelector(".meta")!.textContent = `${p.players}/${p.cap} · floor ${p.floor}`;
-      li.addEventListener("click", () => enterCasting(`PARTY ${p.code}`, () => {
-        location.href = `${location.pathname}?join=${encodeURIComponent(p.code)}&name=${encodeURIComponent(crawlerName())}`;
+      li.querySelector(".meta")!.textContent = race
+        ? `RACE FORMING — ${p.players}/${p.cap} — GUN IN ${social.mmss((p.msLeft ?? 0) / 1000)}`
+        : `${p.players}/${p.cap} · floor ${p.floor}`;
+      li.addEventListener("click", () => enterCasting(`${race ? "RIVALS" : "PARTY"} ${p.code}`, () => {
+        const q = new URLSearchParams({ join: p.code, name: crawlerName() });
+        if (race) { q.set("rivals", "1"); q.set("public", "1"); }
+        location.href = `${location.pathname}?${q}`;
       }));
     });
   } catch {
@@ -1409,6 +1425,104 @@ document.getElementById("m-rivals")!.addEventListener("click", () => {
     location.href = `${location.pathname}?rivals=1&join=${encodeURIComponent(code)}&name=${encodeURIComponent(crawlerName())}`;
   });
 });
+
+// ---- THE RUSH (NICHE.md 4.5): the public race queue, on the population's
+// clock. GET /rush is the whole protocol: the code to join (a forming public
+// race if one has a seat, else a fresh DAILY-coded race so open rushes run
+// TODAY'S dungeon under today's rule), the flip countdown, and the honest
+// between-windows data. The surface never fakes a scene: a forming race
+// shows its real seat count and gun clock; an empty queue shows the next
+// rotation and any scheduled crew window. The presence line renders at ≥5
+// live or not at all (§2: no population-dependent number rendered small).
+interface RushView {
+  ok: boolean; day: string; code: string; msToFlip: number; flipHourUtc: number;
+  forming: { code: string; players: number; cap: number; msLeft?: number }[];
+  crawlers: number;
+  windows: { crew: string; at: number }[];
+}
+let rushView: RushView | null = null;
+let rushFetchedAt = 0;
+const rushTileEl = document.getElementById("m-rush")!;
+const rushSubEl = document.getElementById("m-rush-sub")!;
+
+/** The flip instant, restated in the viewer's own clock ("20:00 YOUR TIME"). */
+function localFlipClock(view: RushView): string {
+  const d = new Date(Date.now() + view.msToFlip - (rushFetchedAt ? Date.now() - rushFetchedAt : 0));
+  return d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function renderRush(): void {
+  // A ?c= card owns the featured band: ACCEPT CHALLENGE, full width, alone.
+  const heroRow = document.getElementById("m-hero-row")!;
+  const cardOwnsBand = !!cardChallenge || !!challengeDay;
+  heroRow.classList.toggle("solo", cardOwnsBand);
+  if (cardOwnsBand) return;
+  if (!rushView) {
+    rushSubEl.textContent = "today's dungeon, live rivals — one tap claims a seat";
+    rushTileEl.classList.remove("forming");
+    return;
+  }
+  const elapsed = Date.now() - rushFetchedAt;
+  const f = rushView.forming[0];
+  const gunMs = f ? Math.max(0, (f.msLeft ?? 0) - elapsed) : 0;
+  if (f) {
+    rushTileEl.classList.add("forming");
+    rushSubEl.textContent =
+      `RACE FORMING — ${f.players}/${f.cap} — GUN IN ${social.mmss(gunMs / 1000)}`;
+  } else {
+    rushTileEl.classList.remove("forming");
+    // Two sub lines, ONE lead fact (measured at half-width: three facts clip
+    // the clock): live presence at ≥5 (§2's floor — absent below), else a
+    // crew window inside six hours, else the seat promise.
+    const w = rushView.windows[0];
+    const lead = rushView.crawlers >= 5
+      ? `${rushView.crawlers} crawlers are in`
+      : w && w.at - Date.now() < 6 * 3600_000
+        ? `crew window — ${w.crew} ${new Date(w.at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+        : "four seats, second zero";
+    rushSubEl.textContent = `${lead} · rotates ${localFlipClock(rushView)} your time`;
+  }
+  // The DAILY door tells the same clock (its static copy says midnight UTC,
+  // which stops being true the moment the flip hour is configured).
+  const ds = document.getElementById("m-daily-sub")!;
+  ds.textContent = (ds.textContent ?? "").replace(
+    /resets at midnight UTC|rotates .+? your time/,
+    `rotates ${localFlipClock(rushView)} your time`,
+  );
+}
+
+async function refreshRush(): Promise<void> {
+  try {
+    const r = await fetch(`${API_BASE}/rush`);
+    if (!r.ok) throw new Error(String(r.status));
+    rushView = (await r.json()) as RushView;
+    rushFetchedAt = Date.now();
+  } catch {
+    rushView = null; // unreachable server: the tile keeps its static promise
+  }
+  renderRush();
+}
+
+rushTileEl.addEventListener("click", () => {
+  const code = rushView?.forming[0]?.code ?? rushView?.code;
+  if (!code) {
+    rushSubEl.textContent = "the rush queue is unreachable — the dungeon, regrettably, survives";
+    void refreshRush();
+    return;
+  }
+  enterCasting("THE RUSH", () => {
+    const q = new URLSearchParams({ rivals: "1", public: "1", join: code, name: crawlerName() });
+    location.href = `${location.pathname}?${q}`;
+  });
+});
+
+if (!net && !testMode) {
+  void refreshRush();
+  // Fetch on a lazy cadence while the menu is up; tick the gun clock locally
+  // between fetches so a forming race counts down instead of stuttering.
+  setInterval(() => { if (menuOpen) void refreshRush(); }, 10_000);
+  setInterval(() => { if (menuOpen && rushView?.forming.length) renderRush(); }, 1_000);
+}
 
 // Test chamber: builds the existing ?test deep link (createTestGame does the rest).
 document.getElementById("m-test")!.addEventListener("click", (e) => {
@@ -7292,6 +7406,46 @@ window.addEventListener("keyup", (e) => {
 document.getElementById("m-standings")!.addEventListener("click", () => { void openLadder(); });
 document.getElementById("m-careerset")!.addEventListener("click", () => { void openCareerSet(); });
 
+// ---- THE ONRAMP (NICHE.md 4.4): the first five minutes for someone a card
+// dragged in. First-contact detection is exactly the doc's: no account token
+// and no local history = fresh crawler — sampled HERE, before any telemetry
+// call can mint a token and fake a veteran. The run stays a normal run (the
+// module never touches the sim); the System just addresses the fresh meat,
+// ≤6 lines, floor 1 only, naming the ACTUAL controls for the device.
+const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
+const onramp: Onramp | null = freshCrawler && !net && !testMode
+  ? new Onramp(touchMode, {
+      move: "WASD",
+      attack: "Left click",
+      cast: "1–4",
+      flask: bindingLabel(bindings, "flask"),
+    })
+  : null;
+let onrampGold = 0;
+let onrampItems = -1;
+/** Called once per sim step (solo loop only): turns what just happened into
+ *  at most one first-time System line on the tutorial-card surface. */
+function onrampObserve(intent: Intent): void {
+  if (!onramp || state.floor !== 1 || state.status !== "playing") return;
+  const p = state.players[0];
+  if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
+  const say = (ev: OnrampEvent): void => {
+    const line = onramp.note(ev, state.floor);
+    if (line) showAnnouncement({ text: line, kind: "tip", priority: "normal" });
+  };
+  if (state.elapsed > 1) say("start");
+  if (Math.abs(intent.move.x) + Math.abs(intent.move.y) > 0.01) say("moved");
+  // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
+  if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
+  if (p.gold > onrampGold || p.inventory.length > onrampItems) {
+    onrampGold = p.gold;
+    onrampItems = p.inventory.length;
+    say("pickup");
+  }
+  if (p.alive && p.hp > 0 && p.hp < p.maxHp * 0.4) say("lowhp");
+  if (state.elapsed > 75) say("linger");
+}
+
 // ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
 // characters. It re-dresses the DAILY tile into the challenge that was sent,
 // and the seed it pins is the same dungeon the challenger actually crawled.
@@ -7726,7 +7880,17 @@ function renderRecap(s: GameState): void {
           timeSec: Math.round(s.elapsed), kills: me(s).kills,
         })
       : "";
-  document.getElementById("recap-again")!.style.display = net ? "none" : "";
+  {
+    // THE ONRAMP's death rule (NICHE.md 4.4.4): a fresh crawler's whole
+    // context is one seed and one claim, so their first death screen leads
+    // back to the CARD — same button, same seed, the label says so. The
+    // verdict's layout is owner-reverted baseline; only the words move.
+    const again = document.getElementById("recap-again")!;
+    again.style.display = net ? "none" : "";
+    again.innerHTML = freshCrawler && cardChallenge && s.seed === cardChallenge.seed
+      ? "TRY THIS DUNGEON AGAIN <kbd>R</kbd>"
+      : "RUN IT BACK <kbd>R</kbd>";
+  }
 
   // ---- Beat 1: THE GRADE ------------------------------------------------
   // A test-chamber start is HANDED its depth; it did not earn it, and the
@@ -10819,6 +10983,9 @@ async function main(): Promise<void> {
         const intent = rec ? rec.record(rawIntent) : canonicalIntent(rawIntent);
         if (rawIntent.ping) intent.ping = rawIntent.ping;
         step(state, intent, REPLAY_DT);
+        // THE ONRAMP (NICHE.md 4.4): the fresh crawler's ≤6 first-time lines,
+        // observed off the same canonical intent the sim just consumed.
+        if (onramp) onrampObserve(intent);
         runTicks++;
         for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);
