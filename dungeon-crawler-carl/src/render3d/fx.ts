@@ -167,9 +167,16 @@ const LANE_FRAG = /* glsl */ `
     float coreA = smoothstep(0.35, 0.0, vUv.x) * (1.0 - cross) * (0.1 + 0.25 * uProg);
     // Soft caps so the strip never ends on a hard raw edge.
     float cap = smoothstep(0.0, 0.05, vUv.x) * (1.0 - smoothstep(0.95, 1.0, vUv.x));
-    float glowA = (rimA + fillGrad + chevA + coreA) * cap;
+    // GROUND READ (FX r2 #4 finding): a lane pointing along the camera axis
+    // projects as a vertical card in iso, and at uniform brightness its HDR
+    // rails+chevrons photographed as a "glitched gold UI rectangle" (it was
+    // misread as detonation FX in G-fault-0). A gentle along-lane decay —
+    // hottest at the launcher, cooler toward the reach cap — plus a heavier
+    // backing plate keeps it reading as paint ON the floor at every angle.
+    float ground = 0.72 + 0.28 * (1.0 - vUv.x);
+    float glowA = (rimA + fillGrad + chevA + coreA) * cap * ground;
     // Dark backing plate pins local contrast under the glow (disc dialect).
-    float darkA = 0.22 * cap * (0.6 + 0.4 * uProg);
+    float darkA = 0.3 * cap * (0.6 + 0.4 * uProg);
     float alpha = clamp(glowA + darkA, 0.0, 0.9);
     // HDR rails feed bloom at commit — same emissive standard as the disc rim.
     vec3 col = (uColor * (1.25 + rim * (1.5 + 1.2 * uProg) + chevA * 1.4) * glowA + uColor * 0.05 * darkA) / max(alpha, 1e-4);
@@ -253,6 +260,136 @@ const POOL_FRAG = /* glsl */ `
     if (a < 0.004) discard;
     gl_FragColor = vec4(col, a);
   }`;
+
+// FAULT LINE FISSURE (FX r2). The sustain used to render through the generic
+// pool shader, whose soft radial gradient photographed as "a shapeless red
+// airbrush wash" (G-fault-1/3) — the floor-15 ENVIRONMENT seams had sharper
+// crack language than the player's ultimate. This is authored broken ground:
+// five jagged radial cracks (angular centerlines wiggled by radius-marching
+// noise, arc-length width so they stay thin), each with its own reach, a
+// molten core at the epicenter, hot ember flecks in the charred field, and
+// the crack glow flickering like a live vent. Same uniform contract as the
+// pool shader (uTime/uDry/uArm) so the hazard loop drives it unchanged.
+const FISSURE_FRAG = /* glsl */ `
+  uniform vec3 uColor; // deep rim hue (charred field)
+  uniform vec3 uHot;   // molten crack hue
+  uniform float uTime;
+  uniform float uDry;  // 0 fresh -> 1 expiring
+  uniform float uArm;
+  uniform float uSeed; // per-cast crack layout
+  varying vec2 vUv;
+  float fsH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
+  float fsN(vec2 q) {
+    vec2 f = fract(q);
+    f = f * f * (3.0 - 2.0 * f);
+    float a = fsH(q), b = fsH(q + vec2(1.0, 0.0));
+    float c = fsH(q + vec2(0.0, 1.0)), d = fsH(q + vec2(1.0, 1.0));
+    return mix(mix(a, b, f.x), mix(c, d, f.x), f.y);
+  }
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    float ang = atan(p.y, p.x);
+    // Wobbled boundary so the scar never ends on a compass circle.
+    float a01 = fract(ang / 6.2831853 + 0.5);
+    float en = fsN(vec2(a01 * 8.0 + uSeed, uSeed * 1.7)) * 0.18;
+    float edge = 1.0 - smoothstep(0.72 - en, 0.98 - en, r);
+    // FISSURE LINES: 5 radial cracks, each wiggling as it marches outward.
+    float crack = 0.0;
+    for (int i = 0; i < 5; i++) {
+      float fi = float(i);
+      float ca = uSeed + fi * 1.2566371; // 2pi/5 spokes
+      // Centerline wiggle: noise sampled along the radius, per crack.
+      float wig = (fsN(vec2(r * 4.5 + fi * 7.31, uSeed + fi * 3.7)) - 0.5) * 1.1;
+      float dAng = abs(mod(ang - ca - wig * r + 3.14159265, 6.2831853) - 3.14159265);
+      float d = dAng * max(r, 0.07); // arc length: constant world width
+      float w = 0.055 * (1.0 - 0.5 * r); // cracks thin toward their tips
+      float line = smoothstep(w, w * 0.2, d);
+      // Per-crack reach: some cracks stop early — a hand-broken look.
+      float reach = 0.62 + 0.36 * fsH(vec2(fi, uSeed * 11.0));
+      line *= smoothstep(reach, reach - 0.16, r);
+      crack = max(crack, line);
+    }
+    // Molten epicenter: the wound the cracks radiate from.
+    float core = smoothstep(0.34, 0.0, r);
+    // Ember flecks smoldering in the charred field between cracks.
+    float fleck = smoothstep(0.82, 0.98, fsN(p * 7.0 + vec2(uSeed, -uSeed) + vec2(0.0, uTime * 0.15)));
+    // Live-vent flicker on everything hot.
+    float flick = 0.82 + 0.18 * sin(uTime * 7.0 + r * 9.0 + uSeed);
+    // CHARRED FIELD: a dark plate that pins contrast under the glow — the
+    // ground reads BROKEN, not tinted.
+    float darkA = edge * 0.5;
+    float hotA = (crack * 0.95 + core * 0.6 + fleck * 0.3 * edge) * flick;
+    float alpha = clamp(darkA + hotA, 0.0, 0.94) * (1.0 - 0.75 * uDry);
+    alpha *= mix(1.0, 0.35 + 0.15 * sin(uTime * 9.0), uArm);
+    if (alpha < 0.004) discard;
+    // Crack glow runs HDR (feeds bloom) exactly where the fissure line is;
+    // the field stays near-black char with a deep-hue cast.
+    vec3 col = uColor * 0.10 * darkA
+             + uHot * (crack * (1.7 + 0.7 * core) + core * 0.9 + fleck * 0.45) * flick;
+    gl_FragColor = vec4(col / max(alpha, 1e-4) * alpha, alpha);
+  }`;
+
+export function makeFissureMat(bodyHex: number, hotHex: number, seed: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: {
+      uColor: { value: new THREE.Color(bodyHex) },
+      uHot: { value: new THREE.Color(hotHex) },
+      uTime: { value: 0 },
+      uDry: { value: 0 },
+      uArm: { value: 0 },
+      uSeed: { value: (seed % 97) * 0.61 },
+    },
+    vertexShader: TEL_VERT,
+    fragmentShader: FISSURE_FRAG,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
+
+// PLAYER ANCHOR RING (FX r2). In every dense floor-15 frame the crawler was
+// unfindable — no rim, no outline, no kit-color mark survives a 12-body mob.
+// This is the genre's answer (LoL's player circle): a persistent kit-colored
+// ground ring under YOUR crawler only. A dark under-plate pins contrast on
+// molten floors, the bright ring breathes gently, and a hot notch orbits so
+// the eye can re-acquire the anchor even when half the ring is under bodies.
+const ANCHOR_FRAG = /* glsl */ `
+  uniform vec3 uColor;
+  uniform float uTime;
+  varying vec2 vUv;
+  void main() {
+    vec2 p = vUv * 2.0 - 1.0;
+    float r = length(p);
+    if (r > 1.0) discard;
+    float ang = atan(p.y, p.x);
+    float pulse = 0.86 + 0.14 * sin(uTime * 2.4);
+    // Bright kit-color ring.
+    float ring = smoothstep(0.72, 0.84, r) * (1.0 - smoothstep(0.9, 0.99, r));
+    // Orbiting hot notch: motion the eye locks onto in a static crowd.
+    float notch = smoothstep(0.35, 0.0, abs(mod(ang - uTime * 1.6 + 3.14159265, 6.2831853) - 3.14159265));
+    // Soft inner wash keeps the disc from reading as a bare wireframe.
+    float inner = (1.0 - smoothstep(0.1, 0.75, r)) * 0.05;
+    // Dark under-plate: contrast insurance against bright/molten floors.
+    float darkA = smoothstep(0.6, 0.8, r) * (1.0 - smoothstep(0.95, 1.0, r)) * 0.30;
+    float glowA = ring * (0.5 + 0.4 * notch) * pulse + inner;
+    float alpha = clamp(glowA + darkA, 0.0, 0.85);
+    if (alpha < 0.004) discard;
+    vec3 col = uColor * (1.25 + ring * (0.6 + 1.1 * notch)) * glowA + uColor * 0.05 * darkA;
+    gl_FragColor = vec4(col / max(alpha, 1e-4) * alpha, alpha);
+  }`;
+
+export function makeAnchorMat(hex: number): THREE.ShaderMaterial {
+  return new THREE.ShaderMaterial({
+    uniforms: { uColor: { value: new THREE.Color(hex) }, uTime: { value: 0 } },
+    vertexShader: TEL_VERT,
+    fragmentShader: ANCHOR_FRAG,
+    transparent: true,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+}
 
 export function makePoolMat(bodyHex: number): THREE.ShaderMaterial {
   const body = new THREE.Color(bodyHex);

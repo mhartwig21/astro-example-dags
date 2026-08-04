@@ -57,6 +57,7 @@ const ARC_FRAG = /* glsl */ `
   uniform vec3 uColor;
   uniform float uProg; // sweep position 0..1 along the arc
   uniform float uTime;
+  uniform float uGhost; // 1 = x-ray pass (depth test off, dimmed)
   varying vec2 vUv;
   float swH(vec2 q) { return fract(sin(dot(floor(q), vec2(127.1, 311.7))) * 43758.5453); }
   float swN(vec2 q) {
@@ -84,6 +85,10 @@ const ARC_FRAG = /* glsl */ `
     wake *= 0.3 + 0.95 * smoothstep(0.32, 0.8, nz);
     float dampen = 1.0 - uProg * uProg * 0.62; // arc dies as the swing lands
     float a = (lead * 1.35 + midB * 0.6 + wake * 0.3) * rad * tipBias * dampen;
+    // X-RAY PASS (FX r2): the ghost copy renders with depth test OFF at ~1/3
+    // strength, so the crescent still reads when the swing is buried in a
+    // crowd (every real-fight frame occluded it; the staged frames did not).
+    a *= mix(1.0, 0.34, uGhost);
     if (a < 0.004) discard;
     // Color hand-off: white-hot core -> saturated mid -> deep cooled tail.
     vec3 hot = mix(uColor, vec3(1.0), 0.78);
@@ -95,6 +100,8 @@ const ARC_FRAG = /* glsl */ `
 interface ArcSlot {
   mesh: THREE.Mesh;
   mat: THREE.ShaderMaterial;
+  ghost: THREE.Mesh; // depth-test-off copy: the arc survives crowd occlusion
+  gmat: THREE.ShaderMaterial;
   life: number;
   max: number;
 }
@@ -130,20 +137,33 @@ export class SwingArcs {
         slot = this.slots[0];
         for (const s of this.slots) if (s.life > slot.life) slot = s;
       } else {
-        const mat = new THREE.ShaderMaterial({
-          uniforms: { uColor: { value: new THREE.Color() }, uProg: { value: 0 }, uTime: { value: 0 } },
-          vertexShader: ARC_VERT,
-          fragmentShader: ARC_FRAG,
-          transparent: true,
-          depthWrite: false,
-          side: THREE.DoubleSide,
-          blending: THREE.AdditiveBlending,
-        });
+        const mkMat = (ghost: number): THREE.ShaderMaterial =>
+          new THREE.ShaderMaterial({
+            uniforms: {
+              uColor: { value: new THREE.Color() }, uProg: { value: 0 },
+              uTime: { value: 0 }, uGhost: { value: ghost },
+            },
+            vertexShader: ARC_VERT,
+            fragmentShader: ARC_FRAG,
+            transparent: true,
+            depthWrite: false,
+            depthTest: ghost === 0,
+            side: THREE.DoubleSide,
+            blending: THREE.AdditiveBlending,
+          });
+        const mat = mkMat(0);
         const mesh = new THREE.Mesh(this.geo, mat);
         mesh.renderOrder = 12;
         mesh.userData.noAO = true;
-        this.group.add(mesh);
-        slot = { mesh, mat, life: 1, max: 1 };
+        // X-RAY GHOST (FX r2): same geometry, depth test off, ~1/3 strength.
+        // In every real-crowd capture the crescent was fully occluded by the
+        // bodies being hit; the ghost keeps the swing legible through them.
+        const gmat = mkMat(1);
+        const ghost = new THREE.Mesh(this.geo, gmat);
+        ghost.renderOrder = 13;
+        ghost.userData.noAO = true;
+        this.group.add(mesh, ghost);
+        slot = { mesh, mat, ghost, gmat, life: 1, max: 1 };
         this.slots.push(slot);
       }
     }
@@ -152,22 +172,31 @@ export class SwingArcs {
     // stretch-and-dissipate tail — the wake visibly decays instead of blinking.
     slot.max = 0.19;
     (slot.mat.uniforms.uColor.value as THREE.Color).setHex(hex);
+    (slot.gmat.uniforms.uColor.value as THREE.Color).setHex(hex);
     slot.mat.uniforms.uProg.value = 0;
+    slot.gmat.uniforms.uProg.value = 0;
     slot.mesh.visible = true;
+    slot.ghost.visible = true;
     slot.mesh.position.set(x + this.biasX, 0.74 + this.biasY, z + this.biasZ);
     slot.mesh.rotation.y = yaw;
     slot.mesh.scale.set(mirror ? -scale : scale, scale, scale);
+    slot.ghost.position.copy(slot.mesh.position);
+    slot.ghost.rotation.y = yaw;
+    slot.ghost.scale.copy(slot.mesh.scale);
   }
 
   update(dt: number): void {
     for (const s of this.slots) {
-      if (s.life >= s.max) { s.mesh.visible = false; continue; }
+      if (s.life >= s.max) { s.mesh.visible = false; s.ghost.visible = false; continue; }
       s.life += dt;
       const t = Math.min(1, s.life / s.max);
       // Ease-out sweep: fastest at launch, landing soft.
-      s.mat.uniforms.uProg.value = 1 - (1 - t) * (1 - t);
+      const prog = 1 - (1 - t) * (1 - t);
+      s.mat.uniforms.uProg.value = prog;
+      s.gmat.uniforms.uProg.value = prog;
       s.mat.uniforms.uTime.value += dt; // streams the wake's erode noise
-      if (s.life >= s.max) s.mesh.visible = false;
+      s.gmat.uniforms.uTime.value = s.mat.uniforms.uTime.value;
+      if (s.life >= s.max) { s.mesh.visible = false; s.ghost.visible = false; }
     }
   }
 }

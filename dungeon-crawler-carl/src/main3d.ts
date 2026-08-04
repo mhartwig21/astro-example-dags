@@ -6124,6 +6124,13 @@ interface DmgLive {
   crit: boolean;
   color: string; // numeral face hex — merges repaint with the same palette
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
+  // Type-size multiplier. Incoming (kind "player") numbers run 0.78: they
+  // were photographed DOMINATING dense fights (1862/2160/1885 in every
+  // floor-15 frame) while the attacks causing them had almost no FX — the
+  // number was playing the enemy's attack, which is backwards. The HP bar,
+  // the crimson body flash and the new incoming-slash streaks carry the
+  // threat read; the numeral is bookkeeping.
+  scale: number;
 }
 const dmgLive: DmgLive[] = [];
 // ONE NUMBER PER TARGET PER BEAT. The window was 520 ms and the merge radius
@@ -6325,7 +6332,7 @@ function dmgShade(hex: string, k: number): string {
 }
 /** Paints the numeral and RETURNS its box at peak pop — the de-overlap test
  *  needs the drawn size, and only this function knows it. */
-function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0): { pop: number; cw: number; ch: number } {
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0, scale = 1): { pop: number; cw: number; ch: number } {
   let canvas = el.firstElementChild as HTMLCanvasElement | null;
   if (!canvas || canvas.tagName !== "CANVAS") {
     canvas = document.createElement("canvas");
@@ -6338,7 +6345,7 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   // crit read as a crit at arm's length and still leave the monster under it
   // visible — the hierarchy (crit ~1.5x the body) is preserved exactly, the
   // absolute scale is not.
-  const px = crit ? 26 : 21;
+  const px = Math.round((crit ? 26 : 21) * scale);
   const pad = crit ? 8 : 7;
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return { pop: dmgPop(crit, merges), cw: text.length * px * 0.62, ch: px }; }
@@ -6501,7 +6508,7 @@ function spawnDamageNumber(h: HitEvent): void {
         rec.el.style.color = rec.color;
       }
       rec.el.getAnimations().forEach((a) => a.cancel());
-      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges);
+      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges, rec.scale);
       const box = dmgMeasure(rec.el, pn.pop, pn.cw, pn.ch, rec.crit ? "c" : "n");
       // RE-ANCHOR AND RE-PLACE ON MERGE. A rolling counter grows a digit at a
       // time (83 -> 854 -> 3872), so the box that was clear when it was two
@@ -6567,8 +6574,10 @@ function spawnDamageNumber(h: HitEvent): void {
     el, key, wx: h.pos.x, wz: h.pos.y, sx: s.x, sy: s.y, bw: 0, bh: 0, row: 0,
     total: h.amount, merges: 0, born: now, crit, color,
     stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
+    scale: h.kind === "player" ? 0.78 : 1, // see DmgLive.scale
   };
-  const pn = paintNumeral(el, dmgText(rec, sign), color, crit);
+  if (h.kind === "player") el.style.opacity = "0.92";
+  const pn = paintNumeral(el, dmgText(rec, sign), color, crit, 0, rec.scale);
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip. This runs BEFORE the
   // measure — the shield opens a second line box and the reservation has to

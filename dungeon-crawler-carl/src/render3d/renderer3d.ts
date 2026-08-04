@@ -31,7 +31,7 @@ import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
 import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight, type BakeStain } from "./lightGrid";
-import { FxParticles, TEX_FLICKER } from "./fxParticles";
+import { FxParticles, TEX_FLICKER, type FxPalette } from "./fxParticles";
 import { SwingArcs, TrailRibbons } from "./fxTrails";
 import {
   QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, autoTuneFrozen, guessQuality,
@@ -54,7 +54,7 @@ export interface QualityNotice {
   /** Mean frame time of the window that triggered it — the evidence. */
   readonly meanMs: number;
 }
-import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeFissureMat, makeAnchorMat, makeDissolving } from "./fx";
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
@@ -1557,6 +1557,11 @@ export class Renderer3D {
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
+  // PLAYER ANCHOR RING (FX r2): the LoL player circle — a persistent
+  // kit-colored ground ring under the LOCAL crawler only, so "find yourself
+  // in the brawl" survives a 12-body floor-15 mob. One mesh, one draw call.
+  private anchorRing: THREE.Mesh | null = null;
+  private anchorHex = 0;
   private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
   /**
    * THE RIVAL GHOST (COMPETITIVE.md 4.1). A rival's proof replayed beside you
@@ -1683,6 +1688,7 @@ export class Renderer3D {
   private fadeProps: {
     obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
     spin: number; grow: number; s0: number; pop: boolean;
+    yMul: number; // footprint height cap (see spawnFadeProp): 1 = uncapped
   }[] = [];
   // Level-up ring (D4-style halo): fire-and-forget, host-local — not tied to
   // sim state, unlike the persistent pingRings/reviveRings pools. One ring
@@ -2116,11 +2122,57 @@ export class Renderer3D {
     this.fxp.embers(fx, fz, hex, 2, 0.45);
   }
 
-  /** CAST ANTICIPATION (round 2): a ~140ms converge-then-flash on the caster —
-   * motes gather into the hands, then a delayed hand-flash pops right as the
-   * ability's own FX fire. Pure staging over the cast edge; no timing change. */
-  private castGather(anchor: THREE.Object3D, hex: number): void {
-    this.fxp.gatherBurst(anchor.position.x, 1.0, anchor.position.z, hex);
+  // CAST COMMIT (FX r2). The old castGather (converge-then-flash) staged its
+  // peak ~110ms AFTER the instant-cast ability had already fired, and only on
+  // four of the fourteen ability edges — verified through the real input path
+  // as "no cast read on any ability at gameplay zoom". Every cast edge now
+  // fires ONE loud commit kit at the hands (brightest frame at t=0, aimed
+  // muzzle streaks, recoil motes, a real light pop and a recoil trauma tick).
+  // Palettes are the abilities' own school hues (FX_PAL) so the commit and
+  // its consequence speak one color.
+  private static CAST_FX: [string, keyof typeof FX_PAL, boolean][] = [
+    // [ability, palette, big]
+    ["nova", "nova", false],
+    ["overcharge", "crit", false],
+    ["stance", "brace", false],
+    ["orbit", "gold", false],
+    ["crowdsurf", "pin", false],
+    ["stuntdouble", "gold", false],
+    ["bulwark", "brace", false],
+    ["cables", "pin", false],
+    ["injunction", "stay", false],
+    ["airstrike", "airstrike", true],
+    ["cataclysm", "cataclysm", true],
+    ["bullettime", "gold", true],
+  ];
+  private fxPrevCast = new Map<number, Record<string, number>>();
+  /** Fire commit kits for every ability whose cooldown ROSE this frame.
+   * Runs for rigged and procedural bodies alike (the read must not depend on
+   * which animation path won). Bolt is handled here too — its palette
+   * depends on the weapon class (arcane conjures violet, everything else
+   * throws ember). */
+  private castCommitEdges(pl: Player, mesh: THREE.Object3D): void {
+    const prev = this.fxPrevCast.get(pl.id) ?? {};
+    const cds = pl.cd as Partial<Record<string, number>>;
+    if (pl.alive) {
+      const commit = (pal: FxPalette, big: boolean): void => {
+        const hx = mesh.position.x + pl.facing.x * 0.45;
+        const hz = mesh.position.z + pl.facing.y * 0.45;
+        this.fxp.castCommit(hx, 1.0, hz, pal, pl.facing);
+        this.spawnFxLight(hx, hz, pal.mid, big ? 2.0 : 1.3, big ? 0.22 : 0.15, 1.05);
+        this.addTrauma(big ? 0.1 : 0.05); // the recoil read
+      };
+      for (const [ab, palKey, big] of Renderer3D.CAST_FX) {
+        if ((cds[ab] ?? 0) > (prev[ab] ?? 0) + 1e-6) commit(FX_PAL[palKey], big);
+      }
+      if ((cds.bolt ?? 0) > (prev.bolt ?? 0) + 1e-6) {
+        const wc = weaponClassOf(pl.equipment.weapon);
+        commit(wc === "arcane" ? FX_PAL.magic : FX_PAL.strike, false);
+      }
+    }
+    const snap: Record<string, number> = {};
+    for (const k in cds) snap[k] = cds[k as keyof typeof cds] ?? 0;
+    this.fxPrevCast.set(pl.id, snap);
   }
 
   // LOOK EXPERIMENT (iso.html?look=lived&view=close): "lived" densifies the
@@ -3477,16 +3529,15 @@ export class Renderer3D {
       } else if (cdRose("bolt")) {
         // The cast matches the weapon: casters conjure, melee crawlers THROW.
         const wc = weaponClassOf(pl.equipment.weapon);
-        if (wc === "arcane") { playFirst("spellshoot", "shoot", "attack"); this.castGather(mesh, 0xa06bff); }
+        if (wc === "arcane") playFirst("spellshoot", "shoot", "attack");
         else if (wc === "ballistic" || wc === null) playFirst("shoot", "attack");
         else playFirst("throw", "shoot", "attack");
       }
-      else if (cdRose("nova")) { playFirst("cast_raise", "attack"); this.castGather(mesh, 0x8fd8ff); }
-      else if (cdRose("overcharge")) { playFirst("cast_long", "cast_raise"); this.castGather(mesh, 0xd98e4a); }
+      else if (cdRose("nova")) playFirst("cast_raise", "attack");
+      else if (cdRose("overcharge")) playFirst("cast_long", "cast_raise");
       else if (cdRose("stance")) playFirst("block");
       else if (cdRose("airstrike") || cdRose("cataclysm") || cdRose("bullettime")) {
         playFirst("cast_summon", "cast_raise");
-        this.castGather(mesh, cdRose("cataclysm") ? 0xff8a3c : 0xffc860);
       }
       else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
     }
@@ -4698,6 +4749,7 @@ export class Renderer3D {
     // via floorBand (same as Race) — and now that Roam's tribe identity also
     // tracks floorBand (roamTribeId), visuals and tribe always agree.
     const theme: FloorTheme = themeForFloor(state.floor);
+    this.dangerCrimson = theme.dangerCrimson === true;
     // Impact dust inherits the floor's ambient color (audit r3): kicked-up
     // grit on an ice floor reads cold, on an ember floor reads ashen.
     this.dustTint = new THREE.Color(theme.floorTint)
@@ -7248,7 +7300,11 @@ export class Renderer3D {
         const ringS = ((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * eased);
         // Generated ring meshes can be TALL — clamp world height so the
         // shockwave hugs the ground instead of ballooning over the fight.
-        if (ring!.userData.model) ring!.scale.set(ringS, Math.min(ringS * 0.3, 1.3), ringS);
+        // r2 tightened 0.3x/1.3 -> 0.1x/0.42 while chasing G-fault-0's "tall
+        // gold rectangle" (which turned out to be a camera-aligned charge
+        // LANE — see makeLaneMat's ground note); the tighter clamp stays, a
+        // ground shock is a ground shape at every radius.
+        if (ring!.userData.model) ring!.scale.set(ringS, Math.min(ringS * 0.1, 0.42), ringS);
         else ring!.scale.setScalar(ringS);
         if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
         for (const mat of ring!.userData.mats as THREE.Material[]) {
@@ -7439,13 +7495,39 @@ export class Renderer3D {
         if (dirG) dirG.rotation.y = -mesh.rotation.y;
       }
       mesh.visible = true;
+      // The local crawler's anchor ring rides the smoothed mesh position.
+      if (pl === p) { // p = the camera-owner (localPlayerId, else first)
+        const hex = Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff;
+        if (!this.anchorRing || this.anchorHex !== hex) {
+          if (this.anchorRing) this.scene.remove(this.anchorRing);
+          this.anchorRing = new THREE.Mesh(TELEGRAPH_GEO, makeAnchorMat(hex));
+          this.anchorRing.renderOrder = 5; // above decals/pools, under telegraphs
+          this.anchorRing.userData.noAO = true;
+          this.anchorRing.scale.setScalar(0.85);
+          this.scene.add(this.anchorRing);
+          this.anchorHex = hex;
+        }
+        this.anchorRing.visible = pl.alive;
+        this.anchorRing.position.set(mesh.position.x, 0.045, mesh.position.z);
+        (this.anchorRing.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
+      }
       this.applyLoadout(mesh, pl);
-      // Weapon trail on the melee swing edge (attackSwing jumps up).
+      // Weapon trail on the melee swing edge (attackSwing jumps up), plus a
+      // compact commit glint at the hands — the swing's t=0 evidence must be
+      // ON THE ACTOR even when the crescent is buried in the crowd.
       {
         const prevSw = this.meleePrevSwing.get(pl.id) ?? 0;
-        if (pl.alive && pl.attackSwing > prevSw + 1e-6) this.spawnMeleeTrail(mesh, pl.id);
+        if (pl.alive && pl.attackSwing > prevSw + 1e-6) {
+          this.spawnMeleeTrail(mesh, pl.id);
+          this.fxp.castCommit(
+            mesh.position.x + pl.facing.x * 0.5, 0.95,
+            mesh.position.z + pl.facing.y * 0.5,
+            FX_PAL.strike, pl.facing, 0.62);
+        }
         this.meleePrevSwing.set(pl.id, pl.attackSwing);
       }
+      // Cast commit kits: every ability edge reads AT the caster (FX r2).
+      this.castCommitEdges(pl, mesh);
       // Animation velocity comes from the SMOOTHED mesh (which moves every
       // frame), EMA'd over ~100ms. Raw sim deltas are ZERO on render frames
       // between 60Hz sim steps (and between 15Hz net snapshots), so speed read
@@ -8185,9 +8267,9 @@ export class Renderer3D {
         strip.scale.set(len, width, 1);
         strip.rotation.y = -Math.atan2(laneDir.y, laneDir.x);
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
-        const laneHex =
+        const laneHex = this.dangerHex(
           mon.windupKind === "hook" ? 0x7cc95a :
-          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e;
+          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e);
         const mat = strip.material as THREE.ShaderMaterial;
         (mat.uniforms.uColor.value as THREE.Color).setHex(laneHex);
         mat.uniforms.uProg.value = prog;
@@ -8272,7 +8354,7 @@ export class Renderer3D {
           mon.windupKind === "pull" ? ASK_PAL.arena.mid :
           mon.kind === "boss" ? ASK_PAL[bossFamily(mon.bossId)].mid : 0xff5030;
         const tm = tel.userData.telMat as THREE.ShaderMaterial;
-        (tm.uniforms.uColor.value as THREE.Color).setHex(telColor);
+        (tm.uniforms.uColor.value as THREE.Color).setHex(this.dangerHex(telColor));
         tm.uniforms.uProg.value = prog;
         tm.uniforms.uTime.value = time + mon.id * 0.7; // desync neighboring tells
         tm.uniforms.uBoss.value = mon.kind === "boss" || mon.elite ? 1 : 0;
@@ -8639,11 +8721,22 @@ export class Renderer3D {
               ? (hz.ability === "nova" ? FX_PAL.pull.rim : FX_PAL.cataclysm.rim) // yours: void rift vs magma
               :
             0x7fb832; // acid
-          ring = new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(bodyHex));
+          if (hz.kind === "fissure") {
+            // FAULT LINE r2: the ultimate's sustain gets AUTHORED broken
+            // ground (jagged crack lines + molten core), not the generic
+            // pool wash — see makeFissureMat's note.
+            const fpal = hz.ability === "nova" ? FX_PAL.pull : FX_PAL.cataclysm;
+            ring = new THREE.Mesh(TELEGRAPH_GEO, makeFissureMat(fpal.rim, fpal.mid, hz.id));
+            ring.userData.fissure = true;
+            ring.userData.emberHex = fpal.mid;
+          } else {
+            ring = new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(bodyHex));
+          }
           ring.userData.pool = true;
         } else {
           const mat = makeTelegraphMat();
-          (mat.uniforms.uColor.value as THREE.Color).setHex(hz.flavor === "flame" ? 0xff7733 : 0xff4628);
+          (mat.uniforms.uColor.value as THREE.Color).setHex(
+            this.dangerHex(hz.flavor === "flame" ? 0xff7733 : 0xff4628));
           ring = new THREE.Mesh(TELEGRAPH_GEO, mat);
         }
         ring.renderOrder = 4;
@@ -8667,6 +8760,14 @@ export class Renderer3D {
         }
       }
       ring.visible = inVision(hz.pos);
+      // The fissure smolders: sparse embers rise off the crack lines for as
+      // long as the ground is broken — molten, not painted.
+      if (ring.userData.fissure && ring.visible && Math.random() < dt * 6) {
+        this.fxp.embers(
+          hz.pos.x + (Math.random() - 0.5) * hz.radius * 1.1,
+          hz.pos.y + (Math.random() - 0.5) * hz.radius * 1.1,
+          ring.userData.emberHex as number, 1, 0.5);
+      }
       // Fire-flavored blasts shed a few live embers while they arm — the
       // patch reads as burning ground, not painted ground.
       if (!pool && hz.flavor === "flame" && ring.visible && Math.random() < dt * 7) {
@@ -9490,6 +9591,23 @@ export class Renderer3D {
     }
   }
 
+  // HUE-COMPETITION GUARD (FX r2 #6): on bands whose dressing owns the warm
+  // slice (theme.dangerCrimson — the IRONWORKS' molten seams and red crates),
+  // the GENERIC warm telegraph hexes remap to crimson-magenta, a slice the
+  // environment never uses. Literal-keyed so boss ASK golds and the cool
+  // tells (heal green, hex violet, frost) can never drift through a hue test.
+  private dangerCrimson = false;
+  private static DANGER_REMAP = new Map<number, number>([
+    [0xff5030, 0xff2456], // generic strike disc
+    [0xff2020, 0xff1f50], // slam
+    [0xff7733, 0xff3d6a], // fuse / flame blast
+    [0xff9a2e, 0xff4f7a], // charge lane
+    [0xff4628, 0xff2456], // hazard blast disc
+  ]);
+  private dangerHex(hex: number): number {
+    return this.dangerCrimson ? Renderer3D.DANGER_REMAP.get(hex) ?? hex : hex;
+  }
+
   /** Claim the right to spawn a FULL impact flash at (x,z): returns false if
    * another flash landed within ~1.1u in the last 140ms — the caller drops to
    * a sparks-only accent so simultaneous hits never stack to clipped white. */
@@ -9604,6 +9722,25 @@ export class Renderer3D {
         this.fxp.sparks(h.pos.x, 0.7, h.pos.y, 0xe2574c, 7, h.dir);
         this.fxp.dust(h.pos.x, 0.2, h.pos.y, 2, this.dustTint);
       }
+      // THE ATTACK READS, NOT JUST ITS NUMBER (FX r2 #5): incoming hits used
+      // to be carried entirely by the red numeral. A short crimson slash —
+      // 3 stretched streaks sweeping ALONG the attack direction through the
+      // crawler — gives the enemy swing a visible stroke of its own.
+      if (h.kind === "player" && h.dir) {
+        const dl = Math.hypot(h.dir.x, h.dir.y) || 1;
+        const dx = h.dir.x / dl, dz = h.dir.y / dl;
+        for (let i = 0; i < 3; i++) {
+          const off = (i - 1) * 0.22;
+          this.fxp.spawn({
+            x: h.pos.x - dx * 0.8 - dz * off, y: 0.85 + (Math.random() - 0.5) * 0.25,
+            z: h.pos.y - dz * 0.8 + dx * off,
+            vx: dx * (11 + Math.random() * 3), vz: dz * (11 + Math.random() * 3),
+            life: 0.13, size0: 0.2, size1: 0.06,
+            col0: 0xff8a70, col1: 0xc22818,
+            stretch: 3.0, fadeIn: 0.01, dim: 0.9,
+          });
+        }
+      }
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
       const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0) + (h.overkill ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
@@ -9634,6 +9771,9 @@ export class Renderer3D {
           });
         }
         if (h.overkill) this.shocks.spawn(h.pos.x, h.pos.y, hot, 1.8, 0.4);
+        // Every kill stamps a ground shock (FX r2 #3): the contact frame of
+        // a killing blow reads at t=0 even when the flash card is occluded.
+        else if (h.kind !== "crit") this.shocks.spawn(h.pos.x, h.pos.y, hot, 1.15, 0.24);
       }
       if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
       if (h.kind === "crit") this.addTrauma(0.3);
@@ -9717,11 +9857,19 @@ export class Renderer3D {
     const obj = this.modelInstance(key);
     if (!obj) return; // asset absent: the glow puffs carry the moment alone
     let base = 1;
+    let yCap = Infinity;
     if (opts?.footprint) {
       const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
       base = 2 / Math.max(size.x, size.z, 1e-3);
+      // GROUND SHAPES STAY GROUND SHAPES (FX r2 #4). footprint normalizes
+      // x/z only, so a generated mesh that is TALLER than wide (the Meshy
+      // detonation/blast stars) kept its full height and photographed as a
+      // tall gold RECTANGLE at the Fault Line detonation (G-fault-0 — read
+      // as a glitched UI card). Cap the world height at ~0.6u.
+      yCap = 0.6 / Math.max(size.y, 1e-3);
     }
     obj.scale.setScalar(base * scale);
+    if (obj.scale.y > yCap) obj.scale.y = yCap;
     obj.position.set(x, y, z);
     const mats: THREE.Material[] = [];
     obj.traverse((o) => {
@@ -9741,6 +9889,7 @@ export class Renderer3D {
     this.fadeProps.push({
       obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0,
       s0: base * scale, pop: opts?.pop ?? false,
+      yMul: Math.min(1, yCap / Math.max(base * scale, 1e-6)),
     });
   }
 
@@ -9998,6 +10147,7 @@ export class Renderer3D {
         s *= 0.6 + 0.4 * k + 0.28 * Math.sin(k * Math.PI); // punch past, settle back
       }
       fp.obj.scale.setScalar(s);
+      fp.obj.scale.y = s * fp.yMul; // footprint props stay ground shapes
       const t = fp.life / fp.max;
       for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
       this.fadeProps[w++] = fp;
