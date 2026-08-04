@@ -3,7 +3,7 @@
  *
  *   POST /auth/anon            server-issued anonymous token (2.7.2)
  *   POST /runs                 submit a proof
- *   GET  /runs/:id             metadata + artifact, for ghosts and replay
+ *   GET  /runs/:id             metadata (the artifact is no longer distributed)
  *   POST /runs/:id/private     owner-only distribution toggle (8.1)
  *   GET  /boards/:kind         all-time and per-event ladders
  *   GET  /bands/:n             per-band splits board (3.3)
@@ -15,7 +15,7 @@
  * Everything here is bare Node: no framework, no router library, no session
  * store. The trust model is stated once, at the top of the submit path, and
  * enforced there rather than sprinkled: an ANONYMOUS crawler can play, keep a
- * local career, read every board, race every ghost and submit a CLAIMED row;
+ * local career, read every board and submit a CLAIMED row;
  * only a LINKED identity can spend the box CPU on verification or earn CP.
  * The ask lands at the one moment it is obviously worth paying - the first time
  * a run is good enough to be worth sealing.
@@ -113,8 +113,8 @@ export class CompetitiveApi {
     // KEYED TO MODULES, NOT TO STRINGS (2.6f). Whatever the deployment asks
     // for, an era with no sim behind it can only ever produce a silent desync,
     // so it is dropped here as well as in the worker - and the same narrowed
-    // list is what the wire's `playable` flag is computed from, so the client
-    // is never offered a ghost the box cannot replay.
+    // list is what the wire's `playable` flag is computed from, so a row never
+    // claims an executability the box does not have.
     this.eras = executableEras(o.eras);
     this.now = o.now ?? Date.now;
     // The queue is built HERE, with this API as its hooks, so there is exactly
@@ -778,7 +778,7 @@ export class CompetitiveApi {
       return true;
     }
 
-    // GET /runs/:id - metadata, and the artifact for ghosts and replay.
+    // GET /runs/:id - metadata for the verdict poll and the boards.
     const one = MATCH_RUN.exec(path);
     if (one && req.method === "GET") {
       if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
@@ -787,41 +787,18 @@ export class CompetitiveApi {
       const token = q.get("token") ?? "";
       const owner = this.tokens.isUsable(token) && token === run.accountId;
       // A private run RANKS but is never distributed: 404 to everyone but its
-      // owner, never served as a ghost, never offered as RACE THE LEADER.
+      // owner.
       if (run.private && !owner) { this.json(res, 404, { error: "not found" }); return true; }
       if (q.get("proof") === "1") {
-        // A RUN THE SERVER REFUSED IS NOT A GHOST. The proof was served with
-        // no state check at all, so a challenge link built from a `claimed` or
-        // `rejected` run handed a stranger a raceable rival the server had
-        // explicitly declined to certify - and 2.6f's whole point is that the
-        // refusal is STATED. The owner can still pull their own artifact back.
-        if (run.state !== "verified" && !owner) {
-          this.json(res, 409, {
-            error: run.state === "rejected"
-              ? "REFUSED ON VERIFICATION - the replay did not produce the claimed run, so it is not raceable"
-              : "UNPROVEN - only runs the server re-executed are handed out as ghosts",
-            rulesHash: run.rulesHash, playable: false,
-          });
-          return true;
-        }
-        const proof = run.proofId ? this.store.getProof(run.proofId) : null;
-        if (!proof) {
-          this.json(res, 410, {
-            error: "the proof has aged out of retention",
-            rulesHash: run.rulesHash, playable: false,
-          });
-          return true;
-        }
-        const playable = this.eras.includes(proof.rulesHash);
-        res.writeHead(200, {
-          "content-type": "application/octet-stream",
-          "content-encoding": "gzip",
-          "cache-control": "public, max-age=86400",
-          "x-dcc-rules-hash": proof.rulesHash,
-          "x-dcc-playable": playable ? "1" : "0",
-          ...CORS,
+        // COMPATIBILITY SHIM. Proof download existed to hand out ghost rivals,
+        // and the ghost layer is removed (NICHE.md §5: replays are
+        // verification plumbing, never presentation). Old clients may still
+        // ask; they get a polite 410 and a sentence, never a 500. The proof
+        // itself is retained server-side - it is the evidence a seal rests on.
+        this.json(res, 410, {
+          error: "GHOST RACING WAS RETIRED - proofs stay on the server as verification evidence and are no longer distributed",
+          rulesHash: run.rulesHash, playable: false,
         });
-        res.end(proof.bytes);
         return true;
       }
       // WHAT THIS ROW ACTUALLY HOLDS. The verdict screen weights its seal on
@@ -992,8 +969,8 @@ export class CompetitiveApi {
       playable: !!r.rulesHash && this.eras.includes(r.rulesHash) && !!r.proofId && !r.private,
       // WHY THERE IS NO FILM, TOLD APART FROM "IT AGED OUT" (blocker 18). A
       // RIVALS row is inserted verified with `proofId = null` - the film never
-      // existed, because nobody records a party run - and `playability()` fell
-      // through to "the proof has aged out of retention", which is a false
+      // existed, because nobody records a party run - and the client used to
+      // fall through to "the proof has aged out of retention", a false
       // statement to the player in the one product whose pitch is that it does
       // not make them. `proof_id` is never cleared by retention (sweepProofs
       // only drops the bytes), so a null id means the row NEVER had a film.

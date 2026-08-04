@@ -1,22 +1,17 @@
 /**
- * CLIENT SIDE OF THE COMPETITIVE LAYER (COMPETITIVE.md MUST-5 / 4.1 / 8).
+ * CLIENT SIDE OF THE COMPETITIVE LAYER (COMPETITIVE.md MUST-5 / 8).
  *
  * The host (main3d.ts) owns the SCREENS; this module owns the wire. It is the
- * only place that knows the endpoint shapes, the gzip step, the era gate on an
- * incoming proof, and where the ghost worker lives.
+ * only place that knows the endpoint shapes and the gzip step.
  *
- * Three rules encoded here rather than left to a caller to remember:
+ * Two rules encoded here rather than left to a caller to remember:
  *  - A proof is submitted COMPRESSED. The container is already tiny (a whole
  *    13-minute run is ~20-30 KB gzipped); the server gunzips behind a bound.
- *  - A downloaded proof is gated on its rules era BEFORE anything executes it.
- *    A silent desync on the client has no referee (2.6f).
  *  - Submission is a CHOICE. submitRun takes an explicit visibility, because a
  *    proof is a 60 Hz recording of everything the player did and publishing it
  *    is not something to default silently (8.1).
  */
 import { encodeProof, type RunProof } from "../sim/replay";
-import { RULES_HASH } from "../sim/rulesHash";
-import { buildGhostTrack, type GhostReply, type GhostRequest } from "./ghostWorker";
 
 const ANON_KEY = "dcc:anon:v1";
 
@@ -154,57 +149,4 @@ export class CompetitiveClient {
     return json(this.base + "/runs/" + encodeURIComponent(runId) + "/private?token="
       + encodeURIComponent(token) + "&on=" + (on ? "1" : "0"), { method: "POST" });
   }
-
-  /**
-   * Download a proof for WATCH or RACE. Returns the era verdict alongside the
-   * bytes so the caller can render the explicit refusal state
-   * ("RECORDED UNDER RULES ERA 5 - NOT PLAYABLE ON ERA 8") rather than a
-   * silently disabled button.
-   */
-  async proof(runId: string, token?: string): Promise<{
-    bytes: Uint8Array | null; rulesEra: string | null; playable: boolean; reason?: string;
-  }> {
-    const q = new URLSearchParams({ proof: "1" });
-    if (token) q.set("token", token);
-    const r = await fetch(this.base + "/runs/" + encodeURIComponent(runId) + "?" + q);
-    if (!r.ok) {
-      const body = (await r.json().catch(() => ({}))) as { error?: string; rulesHash?: string };
-      return {
-        bytes: null,
-        rulesEra: body.rulesHash ? body.rulesHash.slice(0, 7) : null,
-        playable: false,
-        reason: body.error ?? ("HTTP " + r.status),
-      };
-    }
-    const hash = r.headers.get("x-dcc-rules-hash") ?? "";
-    const bytes = new Uint8Array(await r.arrayBuffer());
-    const playable = hash === RULES_HASH;
-    return {
-      bytes, rulesEra: hash.slice(0, 7) || null, playable,
-      reason: playable ? undefined
-        : "RECORDED UNDER RULES ERA " + hash.slice(0, 7) + " - NOT PLAYABLE ON ERA " + RULES_HASH.slice(0, 7),
-    };
-  }
-}
-
-/**
- * Precompute a ghost track in a worker. Falls back to the main thread only if
- * the platform has no module workers - the fallback is a stall, not a desync,
- * which is the right way round.
- */
-export function precomputeGhost(req: GhostRequest): Promise<GhostReply> {
-  const W = (globalThis as { Worker?: typeof Worker }).Worker;
-  if (!W) return Promise.resolve(buildGhostTrack(req));
-  return new Promise<GhostReply>((resolve) => {
-    let w: Worker;
-    try {
-      w = new W(new URL("./ghostWorker.ts", import.meta.url), { type: "module" });
-    } catch {
-      resolve(buildGhostTrack(req));
-      return;
-    }
-    w.onmessage = (e: MessageEvent<GhostReply>): void => { resolve(e.data); w.terminate(); };
-    w.onerror = (): void => { resolve(buildGhostTrack(req)); w.terminate(); };
-    w.postMessage({ ...req, eras: req.eras ?? [RULES_HASH] });
-  });
 }

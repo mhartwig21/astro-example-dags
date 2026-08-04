@@ -470,7 +470,7 @@ describe("privacy (COMPETITIVE.md 8.1) and FORGET ME", () => {
     // It takes its rightful place on the board...
     const board = H.api.store.board({ kind: "deepest", verifiedOnly: true });
     expect(board.some((r) => r.id === out.runId)).toBe(true);
-    // ...and is never offered as a ghost.
+    // ...and the wire's `playable` flag stays honest about distribution.
     expect(H.api.publicRun(row).playable).toBe(false);
     // The toggle is owner-only.
     expect(H.api.store.setPrivate(out.runId, "someone-else", false)).toBe(false);
@@ -486,7 +486,7 @@ describe("privacy (COMPETITIVE.md 8.1) and FORGET ME", () => {
     proof.header.eventId = evt.id;
     proof.header.ticket = H.tokens.issueTicket(
       evt.id, "acct-del", 1, H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
-    const out = await H.api.submit(encodeProof(proof), "acct-del", "Ghost", "1.2.3.10");
+    const out = await H.api.submit(encodeProof(proof), "acct-del", "Wraith", "1.2.3.10");
     if ("error" in out) throw new Error(out.error);
     await H.api.queue.drain();
 
@@ -847,24 +847,23 @@ describe("the wire path the browser actually uses", () => {
     const row = H.api.store.getRun(out.runId)!;
     expect(row.rejectReason).toBeNull();
     expect(row.state).toBe("verified");
-    // And the stored proof is a single-gzip artifact the ghost path can read.
+    // And the stored proof is a single-gzip artifact the verifier can read.
     const proof = H.db.competitive.getProof(row.proofId!)!;
     expect(proof.bytes[0]).toBe(0x1f);
   }, 60_000);
 
-  it("a run the server did NOT certify is never handed out as a ghost", async () => {
-    // COMPETITIVE.md 2.6f: a refusal is STATED, never silent. GET /runs/:id
-    // ?proof=1 served the artifact with no state check at all, so a challenge
-    // code built from a `claimed` or `rejected` run handed a stranger a
-    // raceable rival the server had explicitly declined to certify.
+  it("the retired proof-download endpoint answers 410, politely, never a 500", async () => {
+    // Ghost racing is removed (NICHE.md §5): proofs are verification evidence,
+    // not a distribution surface. Old clients may still ask - the compat shim
+    // states the retirement instead of erroring, and the artifact stays on the
+    // server because the seal rests on it.
     H.link("acct-gate");
-    const { proof } = run(101, 3);
-    proof.claim.kills += 999; // a lie the replay will not reproduce
-    const out = await H.api.submit(reseal(proof), "acct-gate", "Liar", "1.2.3.40");
+    const { bytes } = run(101, 3);
+    const out = await H.api.submit(bytes, "acct-gate", "Sealed", "1.2.3.40");
     if ("error" in out) throw new Error(out.error);
     await H.api.queue.drain();
     const row = H.api.store.getRun(out.runId)!;
-    expect(row.state).toBe("rejected");
+    expect(row.state).toBe("verified");
     expect(H.db.competitive.getProof(row.proofId!)).not.toBeNull(); // the film still exists
 
     const ask = async (token?: string): Promise<{ status: number; body: string }> => {
@@ -881,11 +880,26 @@ describe("the wire path the browser actually uses", () => {
       return { status, body: chunks.join("") };
     };
 
+    // A sealed public run, its owner, a stranger: nobody is served the film.
     const stranger = await ask();
-    expect(stranger.status).toBe(409);
-    expect(stranger.body).toContain("REFUSED ON VERIFICATION");
-    // The owner can still pull their own artifact back.
-    expect((await ask("acct-gate")).status).toBe(200);
+    expect(stranger.status).toBe(410);
+    expect(stranger.body).toContain("RETIRED");
+    expect((await ask("acct-gate")).status).toBe(410);
+    // The metadata route is untouched - the verdict poll still works.
+    const meta = await (async () => {
+      const chunks: string[] = [];
+      let status = 0;
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        setHeader() { /* no-op */ },
+        end(b?: unknown) { if (b) chunks.push(String(b)); },
+      } as unknown as import("node:http").ServerResponse;
+      await H.api.handle({ method: "GET", url: `/runs/${out.runId}`, headers: {}, socket: {} } as
+        unknown as import("node:http").IncomingMessage, res);
+      return { status, body: chunks.join("") };
+    })();
+    expect(meta.status).toBe(200);
+    expect(meta.body).toContain(out.runId);
   }, 60_000);
 
   it("the worker executor and the inline one produce the same verdict", async () => {
@@ -1077,13 +1091,13 @@ describe("FORGET ME reaches the rows that have no account", () => {
     // gap", re-opened by the migration that was supposed to close it.
     const store = H.db.competitive;
     const n = store.importLegacyBoard([
-      { name: "Ghosted", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
+      { name: "Departed", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
       { name: "Kept", floor: 5, won: false, timeSec: 200, kills: 20, at: H.now },
     ], 60);
     expect(n).toBe(2);
-    expect(store.deleteByDisplayNames(["ghosted"])).toBe(1); // case-insensitive
+    expect(store.deleteByDisplayNames(["departed"])).toBe(1); // case-insensitive
     const left = store.board({ kind: "deepest", limit: 50 });
-    expect(left.some((r) => r.displayName === "Ghosted")).toBe(false);
+    expect(left.some((r) => r.displayName === "Departed")).toBe(false);
     expect(left.some((r) => r.displayName === "Kept")).toBe(true);
   });
 });

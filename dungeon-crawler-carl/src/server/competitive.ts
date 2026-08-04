@@ -1233,8 +1233,8 @@ export class CompetitiveStore {
    * for forgeries.
    *
    * It lands here instead, VERIFIED, era-stamped, with no proof id: the film
-   * does not exist (nobody recorded a party run), so WATCH and RACE stay inert
-   * with a stated reason, exactly as they do for a proof that aged out.
+   * does not exist (nobody recorded a party run), and the row's chip says so
+   * plainly instead of pretending a proof aged out.
    *
    * WHAT IT MAY NOT DO IS LIE ABOUT WHICH GAME IT WAS (blocker 12). It stamps
    * `mode` and `runKind` from the AUTHORITATIVE INSTANCE, and `NewRun` now

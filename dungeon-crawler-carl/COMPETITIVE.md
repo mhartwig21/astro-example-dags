@@ -1,9 +1,20 @@
 # COMPETITIVE.md — the social/competitive layer
 
-The design for ranked play, verified leaderboards, ghosts, career identity and
+The design for ranked play, verified leaderboards, career identity and
 the post-run screen. Read `CLAUDE.md` first (architecture), then `PERSISTENCE.md`
 (what the DB already does) and `DEPLOY.md` (the one-machine constraint that
 bounds everything here).
+
+> **STATUS (2026-08-04): THE GHOST LAYER IS REMOVED, BY OWNER ORDER.**
+> NICHE.md §5 bans async ghost-racing by name: no recordings-as-opponents, no
+> split-delta chases, no live pace-deltas, under any name. Everywhere this
+> document says *ghost*, *RACE*, *WATCH*, or *split delta vs a recording*, read
+> it as history, not spec — §4.1 and §4.3 items 1-2 are dead, proof download
+> (`?proof=1`) answers 410, and RUN IT BACK is pure seed-replay (pin the seed,
+> fresh run). Replays survive in exactly one role: the server-side
+> **verification spine** (§2), which is what makes every board row provable.
+> The competitive scene is live humans in the same dungeon (NICHE.md), never a
+> recording.
 
 ## 0. The thesis
 
@@ -799,70 +810,24 @@ correct behaviour, and the reason the gate exists rather than a hope.
 
 ## 4. GHOSTS AND RIVALS
 
-### 4.1 The ghost
+### 4.1 The ghost — REMOVED (2026-08-04)
 
-A stored proof plus the same seed is a rival playing beside you, live, offline,
-for as long as the proof is retained and its era is executable (§2.4, §2.6f).
+This section specced racing a stored recording beside a live run: the ghost
+worker, the keyframe track, the in-world translucent crawler, the rail chip and
+its live split delta, RACE THE LEADER, and challenge links that carried a
+sealed run id. All of it shipped, and all of it was then removed by owner
+order — NICHE.md's premise is *"multiple players all inhabiting the same
+dungeon and rushing live together"*, and §5 of that document bans
+recordings-as-opponents under any name. What survives from this section's
+engineering:
 
-**Load the proof through the era gate first** (§2.6f). A ghost whose `rulesHash`
-is not executable is not a dimmer ghost, it is no ghost, with a reason on the
-button.
-
-**Cost, priced against the real budget.** The naive implementation — run a second
-`GameState` on the main thread, one ghost tick per local sim tick — costs
-20-675 us/tick depending on depth (§2.3). An earlier draft called that "0.1-4% of
-a frame" against a 16,667 us frame. That is the *ideal* frame, not this project's.
-The measured reality on the target device (Intel iGPU via ANGLE D3D11, default
-quality preset, from the perf round): **combat frames land at 16.65 ms against a
-16.67 ms vsync deadline** — 60.1 fps with essentially zero headroom, achieved by
-dropping to pixel ratio 1.2. There is no spare 4% of a frame. Adding 0.675 ms of
-main-thread sim at floor 16 does not cost 4% of slack; it costs the frame, on the
-one constraint the whole perf round was fought over.
-
-**So the ghost does not run on the main thread — and it does not need to.** A
-ghost has no render state and no interaction with your world; the only thing the
-frame needs from it is *the ghost crawler's transform this tick*, plus its
-floor-entry ticks. That is fully precomputable, and §2.3 already measured the rate:
-replay runs at **70-230x realtime**.
-
-- On RACE, a `Worker` loads the proof (in its era's sim module) and replays it,
-  streaming back a **ghost track**: 12 B/tick of transform + floor, or 10 Hz
-  keyframes at ~2 B/tick with the main thread lerping between them.
-- At 70x it is minutes ahead of the player within the first seconds of the run,
-  and a 48,265-tick run's full track is ~580 KB raw / ~96 KB at 10 Hz — memory,
-  not a stream.
-- The main thread's per-frame cost becomes **an array index and a lerp**. Not 4%
-  of a frame; not measurable.
-- The worker is also exactly what §8's REPLAY scrubber needs (seek = index), so it
-  is one piece of machinery serving both.
-
-Render the ghost crawler as a translucent, desaturated pass; the renderer already
-draws remote players for co-op. No netcode, no server, works offline. It is still
-the cheapest multiplayer we will ever ship — just not for the arithmetic the first
-draft used.
-
-Rules that make it good rather than noise:
-
-- Show the ghost only while it is on **your current floor**; otherwise it collapses
-  into a HUD chip: `RIVAL — floor 7, 1:12 ahead`.
-- The **split delta** is the drama: a live +/- against the ghost's floor-entry
-  times, styled like a speedrun split, red when you lose time.
-- Ghosts race, they do not interact — no damage, no collision, no shared loot.
-  Interaction would require the ghost's world to be your world, and it isn't.
-- Ghost sources: your own PB on this seed (default), yesterday's daily champion,
-  a crawler you follow, or whoever sent you a challenge link.
-
-**THE GHOST IS A BODY, NOT A WIDGET.** It renders in the world from the
-worker's keyframe track: the crawler's own mesh, desaturated to its luminance,
-pulled cold, 34% opacity, `depthWrite: false`, no shadows and no lighting
-contribution. It is drawn only while it shares your floor and collapses to the
-rail chip otherwise. A race you cannot see is a number.
-
-The rail chip is titled with the RIVAL'S NAME, not "YOUR LAST RUN", and it stays
-dark until there is a split to show — on floor 1, before either of you has left
-it, there is no prior split on either side, so the chip shows the tick your
-rival leaves this floor instead. Once there is a delta it is signed and coloured
-in both directions: red for time lost, green for time taken.
+- The replay-verification spine (§2) is untouched — it was never racing
+  infrastructure; it is how a board row becomes provable.
+- Challenge codes (`?c=`) survive as **seed + claim only** (§8.2): opening one
+  pins the seed and states the claim as a static target. The comparison
+  happens once, at the end of your run. No run id, no recording, no live
+  delta.
+- RUN IT BACK survives as **pure seed-replay**: the same seed, a fresh run.
 
 ### 4.2 Rival contracts
 
@@ -882,13 +847,14 @@ the **asynchronous** form, which is what a 20-minute session actually wants:
 ### 4.3 Making a short session feel contested
 
 The goal: in a 20-minute run you should be racing *something* at all times.
+(Items 1-2 of the original list — the on-screen ghost and a live pace delta —
+are removed with §4.1; NICHE.md §5 bans live pace-deltas by name. What remains
+is population-honest and static-per-moment:)
 
-1. The ghost on screen (§4.1).
-2. A live board delta in the HUD corner: `40s ahead of #3 pace`.
-3. Floor-entry callouts in the System voice, drawn from real board data:
+1. Floor-entry callouts in the System voice, drawn from real board data:
    *"ENTERING THE IRONWORKS. Nine crawlers reached this floor today. Two left it."*
-4. Post-run, the contested thing is **named**: *"you lost the daily by 11 seconds,
-   on floor 12"* — with that exact ghost offered as an instant RETRY.
+2. Post-run, the contested thing is **named**: *"you lost the daily by 11 seconds,
+   on floor 12"* — with RUN IT BACK (same seed, fresh run) offered as the RETRY.
 
 ---
 
@@ -1014,9 +980,10 @@ grade *meaningful* rather than flattering, which is the only version worth havin
 
 **Beat 2 — THE SCOREBOARD.** LoL's post-game scoreboard is the model: rows you can
 argue about.
-- **Solo**: three columns — YOU / THE GHOST YOU RACED / TODAY'S #1 — sharing the
-  same rows (floor, time, kills, damage taken, gold spent, best split). Comparison
-  is what makes a number mean anything, and today's recap has none.
+- **Solo**: two columns — YOU / TODAY'S #1 — sharing the same rows (floor,
+  time, kills, damage taken, gold spent, best split). Comparison is what makes
+  a number mean anything, and today's recap has none. (The GHOST YOU RACED
+  middle column left with the ghost layer.)
 - **Co-op**: a row per party member (damage dealt/taken, kills, revives, gold
   spent, drafts claimed) plus one auto-awarded superlative each — MOST WANTED /
   BEST DRESSED / THE TANK / CROWD FAVOURITE — so nobody reads the screen and
@@ -1091,13 +1058,13 @@ Two states this beat must handle without lying:
   how honest players conclude the ladder is rigged.
 
 **Beat 6 — THE BUTTONS**, in this order and this prominence:
-1. **RUN IT BACK** — same seed, this run's ghost enabled. The biggest retry driver
-   in the design, because "I know this dungeon now" is the strongest urge a
-   roguelike death produces. Bound to the key the player already reflex-presses (R).
+1. **RUN IT BACK** — same seed, fresh run (pure seed-replay). The biggest retry
+   driver in the design, because "I know this dungeon now" is the strongest urge
+   a roguelike death produces. Bound to the key the player already
+   reflex-presses (R).
 2. **NEW CONTRACT** — fresh seed.
-3. **RACE THE LEADER** — today's #1 as your ghost.
-4. SHARE (run card + proof link).
-5. Dismiss.
+3. SHARE (run card + seed/claim link).
+4. Dismiss.
 
 **THE LADDER LINE IS PERMANENT.** Tier (or UNRANKED), season CP,
 rank-of-entrants and the delta this run produced sit in the default state beside
@@ -1201,10 +1168,11 @@ afterwards from your own profile. A private run:
 - **is still verified and still ranks.** The server keeps the proof, replays it,
   seals it, and the row takes its rightful place on the board with a small lock
   chip beside the seal. Competitive integrity does not depend on distribution.
-- **is not distributed.** `/run/<id>` returns 404 to everyone but the owner; the
-  proof is never served as a ghost, never appears on a build page, and is not
-  offered as RACE THE LEADER. The board row shows the verifier-derived summary
-  only.
+- **is not distributed.** `/run/<id>` returns 404 to everyone but the owner and
+  the proof never appears on a build page. (Post ghost-removal, no proof is
+  distributed to anyone — `?proof=1` answers 410 for every row; this flag now
+  governs the metadata row's visibility.) The board row shows the
+  verifier-derived summary only.
 - **is the reason §0 says "every entry that ranks is a proof" and not "every
   ranked run is watchable"** — those are different promises and only the first is
   unconditional.
@@ -1215,10 +1183,10 @@ the most in-voice thing this game could possibly say.
 
 ### 8.2 The surfaces
 
-- **Share a run**: `/run/<id>` — the run card, the scoreboard, the splits, plus
-  WATCH (in-browser replay) and RACE THIS (ghost). 27 KB of payload behind a
-  40-character link. Private runs 404 here (§8.1); runs whose era is no longer
-  executable render the summary with WATCH and RACE inert and labelled (§2.6f).
+- **Share a run**: `/run/<id>` — the run card, the scoreboard, the splits.
+  (WATCH and RACE THIS left with the ghost layer; the summary is
+  verifier-derived data on the row, so it outlives the proof anyway.) Private
+  runs 404 here (§8.1).
 - **Share a build**: derived from the proof's final state — ultimate, slots, ranks,
   glyphs, gear. A build page is a read-only view of a *verified run*, so a build is
   permanently attached to evidence that it worked. LoL's build sites are aggregate
@@ -1234,7 +1202,7 @@ the most in-voice thing this game could possibly say.
 - **Friends / rivals**: a one-directional follow list of account ids, capped at
   100. No requests, no accept flow, no DMs — following needs no consent surface,
   which deletes an entire class of moderation work. Followed crawlers highlight on
-  boards and are one click from being your ghost.
+  boards and light up as RIVAL on every row they hold.
 - **The complete moderation surface**: display names (already `sanitizeName`,
   extended to snapshot-at-submit) and one REPORT NAME button on a profile. On
   action, the name is replaced with `Crawler #1234` everywhere by account id — one
@@ -1265,9 +1233,9 @@ surface. What remains is the SHOULD list below.
 | **5. Endpoints** | `src/server/competitiveApi.ts` + `src/server/tokens.ts`. `POST /auth/anon`, `POST /runs`, `GET /runs/:id`, `POST /runs/:id/private`, `GET /boards/:kind`, `GET /bands/:n`, `GET /crawler/:id`, `GET /events/current`, `POST /events/:id/start`, `GET /rivals/contract`. `POST /auth/delete` hardened (provider re-auth, confirm nonce, Origin check, per-IP bucket) |
 | **6. The worker** | `src/server/verifyWorker.ts` (replay + slice/sleep duty cycle), `src/server/verify.ts` (queue, priorities, shedding, budgets), `src/server/verifyExecutor.ts` (worker with an inline fallback). `verify_queue_depth`, `verify_ms_total`, `verify_backlog_seconds` are on `/health` and `/metrics` |
 
-| Ghost data path | `src/net/ghostWorker.ts` precomputes the track off-thread; `src/net/competitiveClient.ts` is the wire (submit, boards, tickets, proof download with the era verdict attached) |
+| Client wire | `src/net/competitiveClient.ts` (submit, boards, tickets). The ghost data path (`ghostWorker.ts`, proof download) was removed with the ghost layer |
 | **3. Host recording** | `src/main3d.ts` — the sub-step feeds `step()` the intent AFTER the wire round trip *whether or not a recorder is armed* (`rec.record()` when it is, `canonicalIntent()` when it is not), so recording cannot change sim behaviour by construction rather than by care. A ping is re-attached to the decoded intent exactly the way `ReplaySession` re-attaches it. All 15 out-of-band calls emit a `rec.action(...)` beside the real call. A run that did not start at floor 1 in this browser (CONTINUE, test chamber, party) is deliberately NOT recorded, and the post-run screen prints the reason |
-| **7. The screens** | `src/main3d.ts` + `iso.html` + `src/ui/social.ts`. THE VERDICT (`#recap`, grade + named death + earned line + live seal + buttons, with the scoreboard and splits behind a held TAB), THE STANDINGS (`#ladder`: contracts / all-time / bands / rivals), THE CRAWLER (`#career`: the 18-bar death histogram, mastery, PB splits, milestones), the ghost rail chip + chart marker, the consent card (`#consent`), and the challenge codec |
+| **7. The screens** | `src/main3d.ts` + `iso.html` + `src/ui/social.ts`. THE VERDICT (`#recap`, grade + named death + earned line + live seal + buttons, with the scoreboard and splits behind a held TAB), THE STANDINGS (`#ladder`: contracts / all-time / bands / rivals), THE CRAWLER (`#career`: the 18-bar death histogram, mastery, PB splits, milestones), the consent card (`#consent`), and the challenge codec (seed + claim only) |
 
 **Re-measured after MUST-0** (`npx tsx tools/replaycheck.ts`, same dev box, same
 bot, dt=1/60). The numbers improved, because `dhypot` is `sqrt(a*a+b*b)` and
@@ -1406,7 +1374,7 @@ NULL `rules_hash` for every row.
 `POST /auth/anon` (server-issued signed anonymous token, §2.7.2) ·
 `POST /runs` (proof submit, <= 128 KB, per-IP + per-account buckets, verify-CPU
 budget, linked identity required to enter the queue) ·
-`GET /runs/:id` (metadata + proof, for ghosts and replay; 404 when private) ·
+`GET /runs/:id` (metadata; `?proof=1` answers 410 since the ghost removal; 404 when private) ·
 `GET /boards/:kind?event=&band=&archetype=&size=` (replaces `/leaderboard`, which
 stays as an alias through the migration; split boards collapse to the parent below
 the entrant gate, §3.4) · `GET /crawler/:id` · `GET /events/current` ·

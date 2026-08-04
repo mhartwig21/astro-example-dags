@@ -1043,8 +1043,7 @@ export class GameServer {
         // genuinely authoritative row in the product was wearing the label
         // reserved for forgeries. It goes to CompetitiveStore as a VERIFIED,
         // era-stamped row with no proof id: nobody recorded a party run, so
-        // WATCH and RACE stay inert with a reason, the way an aged-out proof
-        // does — but the row is sealed, because the server ran it.
+        // there is no film — but the row is sealed, because the server ran it.
         if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
           const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
           const seat = inst.clients.find((c) => c.playerId === inst.state.winnerId);
