@@ -23,6 +23,18 @@ session has a reason not to. Numbers reference the entries below.
 9. Touch tuning on real glass (#5) — blocked on owner hardware
 (2D-host status parity is explicitly deprioritized: debug view, invisible polish.)
 
+1b. **DESKTOP: slot-1 (melee) by SPACE and slot-4 (stuntdouble) by C cast
+   nothing.** Verified on the mobile-wr round with a monster staged 0.9 tiles
+   along facing and keys held 1.4 s: no damage, no cooldown, no decoy —
+   and verified identically on baseline `focus` (the mobile branch touches no
+   keyboard/sim files), so this is a pre-existing desktop-track defect, not a
+   touch regression. LMB melee works; the key path for those two slots is
+   dead. Repro: `tools/_mobile/ac_wr_desk2.mjs` (also the persistent 2/4 in
+   `tools/_mobile/deskdeep.mjs` "ability keys 1-4 each cast"). Likely home:
+   the keyboard cast path in `src/main3d.ts` / `src/input/` slot mapping —
+   note melee wants a target/facing and stuntdouble is a no-aim utility, so
+   the aim-spec branch for `kind: none` slots is the first suspect.
+
 2. **Status effects in the 2D host + character sheet.** The 5.13 status layer
    ships with 3D-host presentation only (tinted numbers, HUD/boss-bar pips,
    monster ring). The 2D canvas host (`src/render/`, `src/main.ts`) renders

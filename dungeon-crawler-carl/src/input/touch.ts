@@ -871,6 +871,13 @@ export class TouchController {
     if (!t || typeof t.closest !== "function") return true;
     if (t.closest("#skills, [data-tctl], #t-stickzone, #t-layer")) return true;
     if (t.closest("#game, #touch")) return true;
+    // AN OPEN TOP MENU IS UI, WHEREVER IT HANGS. The SYSTEM/CRAWLER dropdowns
+    // drape over the world zone, and a tap on 'Key Bindings & Options' ALSO
+    // registered as a world tap at the row's own centre — with tapToMove ON
+    // that is a move order, and near a monster a lock+attack, issued by a menu
+    // interaction (wr-surf r1 BLOCKER, MOBILE.md 2.0 row 6). Same for the
+    // buttons that open them: interactive chrome never doubles as gameplay.
+    if (t.closest(".topmenu, .topbtn")) return false;
     // Display-only chrome that PARKS INSIDE A THUMB ZONE — the minimap and the
     // transient System cards both sit in the left stick zone on a phone, and
     // both used to eat the movement thumb mid-fight. Inside a zone they are
