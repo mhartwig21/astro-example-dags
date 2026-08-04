@@ -16,7 +16,11 @@ export interface SoundDef {
 
 export const AUDIO_MANIFEST = {
   // Combat feedback (driven by the sim's HitEvent channel).
-  hit: { url: "/audio/sfx/hit.ogg", bus: "sfx", volume: 0.8 },
+  // SFX r2: hit/crit/player_hurt/nova re-leveled -5.2..-5.4dB in-file (they
+  // decoded at +1.9..+2.1 dBFS and drove the compressor input to 1.218 in a
+  // 20-hit brawl — the §2.2 headroom contract breach). hit's bus volume goes
+  // 0.8 -> 1.0 so the net trim on the game's most-heard clip is -3.2dB.
+  hit: { url: "/audio/sfx/hit.ogg", bus: "sfx", volume: 1.0 },
   crit: { url: "/audio/sfx/crit.ogg", bus: "sfx" },
   player_hurt: { url: "/audio/sfx/player_hurt.ogg", bus: "sfx" },
   heal: { url: "/audio/sfx/heal.ogg", bus: "sfx" },
