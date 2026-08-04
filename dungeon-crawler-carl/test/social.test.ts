@@ -13,6 +13,7 @@ import {
   verdictSeal, worstBand,
   boardLeader, count, provenanceOf, rulesetLabel,
   sealHoldMs, SEAL_CASCADE_MS, SEAL_MIN_PENDING_MS,
+  resultCardText, raceCardText, claimBanner, claimVerdict,
   type BoardRun, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
@@ -568,5 +569,72 @@ describe("the seal moment happens on screen (round-4 blocker 6)", () => {
     // verdictVisibleAt 0 means the card has not been displayed yet; the first
     // paint happens during the Beat 0 freeze and must not be deferred.
     expect(sealHoldMs(CARD + 10, 0, 0, true, true)).toBe(0);
+  });
+});
+
+describe("THE RESULT CARD (NICHE.md 4.2): a link a stranger can read", () => {
+  // The two legibility rules, held as tests: every number carries its scale,
+  // and the System grades the claim in exactly one line.
+  const card = (o: Partial<Parameters<typeof resultCardText>[0]> = {}) => resultCardText({
+    name: "Meatshield", won: false, floor: 7, timeSec: 372, kills: 41,
+    letter: "B", url: "https://dungeon-crawler-claude.fly.dev/iso.html?c=XYZ", ...o,
+  });
+
+  it("every number carries its scale: FLOOR 7 alone is an in-joke, OF 18 is a story", () => {
+    const c = card();
+    expect(c).toContain("FLOOR 7 OF 18");
+    expect(c).toContain("6:12");
+    expect(c).toContain("41 KILLS");
+    expect(c).toContain("MEATSHIELD");
+    // A clear states the whole scale too — "ALL 18 FLOORS", never a bare 18.
+    expect(card({ won: true, timeSec: 702 })).toContain("ALL 18 FLOORS");
+  });
+
+  it("the System grades the claim — one line, from the audited letter", () => {
+    expect(card()).toContain("THE SYSTEM RATES THIS CLAIM: RESPECTABLE. BARELY.");
+    expect(card({ letter: "S" })).toMatch(/RATES THIS CLAIM/);
+    // An ungraded run (no grade yet) carries no rating line rather than a fake one.
+    expect(card({ letter: null })).not.toMatch(/RATES THIS CLAIM/);
+  });
+
+  it("ends in the door, and the door is a ?c= seed link — not a recording", () => {
+    const c = card();
+    const last = c.split("\n").slice(-1)[0];
+    expect(last).toMatch(/^beat it → .*\?c=/);
+    // §5: the card must never carry pace-delta furniture.
+    expect(c).not.toMatch(/BEHIND|AHEAD OF/);
+  });
+
+  it("a daily card names the day — the claim is against everyone on that dungeon", () => {
+    expect(card({ day: "2026-08-04" })).toContain("THE DAILY 2026-08-04");
+  });
+
+  it("the race card is crew-flavored and its door is a live rematch, not a chase", () => {
+    const c = raceCardText({
+      winner: "Meatshield", seats: 4, timeSec: 702,
+      joinUrl: "https://dungeon-crawler-claude.fly.dev/iso.html?join=AB2CD&rivals=1",
+    });
+    expect(c).toContain("MEATSHIELD TOOK THE DUNGEON — 3 CRAWLERS ATE FLOOR");
+    expect(c.split("\n").slice(-1)[0]).toMatch(/^rematch → .*\?join=/);
+    expect(c).not.toContain("?c="); // the race door is the party, never a solo chase
+    // Two-seat race reads correctly in the singular.
+    expect(raceCardText({ winner: "A", seats: 2, timeSec: 100, joinUrl: "u" }))
+      .toContain("1 CRAWLER ATE FLOOR");
+  });
+
+  it("the inbound claim is a static goal at the start and one comparison at the end", () => {
+    const ch = { seed: 1, by: "Meatshield", floor: 7, won: false, timeSec: 372, kills: 41, level: 12, ult: null };
+    expect(claimBanner(ch)).toBe("MEATSHIELD CLAIMS FLOOR 7 OF 18 IN 6:12. OUTLIVE THEM.");
+    // Deeper beats shallower; a clear beats any death; two clears settle on the clock.
+    const you = { name: "You", won: false, floor: 9, timeSec: 500, kills: 10 };
+    expect(claimVerdict(ch, you)).toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict(ch, { ...you, floor: 5 })).toMatch(/^CLAIM STANDS/);
+    expect(claimVerdict({ ...ch, won: true, timeSec: 700 }, { ...you, won: true, timeSec: 650 }))
+      .toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict({ ...ch, won: true, timeSec: 600 }, { ...you, won: true, timeSec: 650 }))
+      .toMatch(/^CLAIM STANDS/);
+    // Same-floor deaths settle on kills — and the sentence never carries a live delta.
+    expect(claimVerdict(ch, { ...you, floor: 7, kills: 50 })).toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict(ch, { ...you, floor: 7, kills: 30 })).toMatch(/^CLAIM STANDS/);
   });
 });

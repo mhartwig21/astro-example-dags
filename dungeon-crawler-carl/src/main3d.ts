@@ -280,6 +280,13 @@ let runContractNote: string | null = null;
 let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
 /** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
 let forcedSeed: number | null = null;
+/** THE RESULT CARD's inbound half (NICHE.md 4.2): the ?c= claim this page was
+ *  opened with. The claim is STATIC — announced once at the start, compared
+ *  once at the end, never a live delta (§5 bans the pace chase by name). */
+let cardChallenge: social.Challenge | null = null;
+/** True when the card's seed IS today's daily — the accept path then signs
+ *  today's contract (same seed, and the daily board is where the scene is). */
+let cardChallengeIsToday = false;
 /**
  * TODAY'S RULE for the next run, when someone other than the local calendar
  * decides it (NICHE.md §4.8). `undefined` = derive from the run mode as
@@ -425,6 +432,13 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
   beginRecording(seed, runKind, state.mode, rule);
   saveRun(state, runMode);
+  // FUNNEL RUNG 4 (NICHE.md §7): "second run started within 24h" is a query
+  // over run_start rows keyed by account — so every solo run start is one row.
+  logUsage("run_start", {
+    seed, kind: mode.kind, runKind,
+    day: mode.kind === "daily" ? mode.day ?? null : null,
+    fromCard: !!(cardChallenge && seed === cardChallenge.seed),
+  });
   log.length = 0;
   clearLogFeed();
   pushLogLine(runKind === "roam"
@@ -434,6 +448,15 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
       + (rule ? ` Today's rule: ${DAILY_RULES[rule].name}.` : "")
       + " Only the board remembers."
     : `New run. Descend to floor ${CONFIG.finalFloor}.`);
+  // THE CLAIM, RESTATED AS A GOAL (NICHE.md 4.2): announced once at the
+  // start (after the log reset above, or the line would not survive it). It
+  // never updates against your progress — the comparison happens once, at
+  // the end (claimVerdict). A live delta is the banned ghost chase.
+  if (cardChallenge && seed === cardChallenge.seed) {
+    const line = social.claimBanner(cardChallenge);
+    pushLogLine(line);
+    showAnnouncement({ text: line, kind: "show", priority: "high" });
+  }
 }
 
 const input = new InputController(canvas);
@@ -874,6 +897,22 @@ function submitTelemetry(s: GameState): void {
   }).catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
 }
 
+/**
+ * FUNNEL INSTRUMENTATION (NICHE.md 4.2 — "ships inside this feature, not
+ * after it"). One fire-and-forget POST per notable growth-loop moment, into
+ * the same usage_events the balance record lives in. §7's numbers — cold
+ * ?c= opens → first run completed → second run within 24h, and cards copied
+ * per 100 run-ends — are queries over exactly these rows.
+ */
+function logUsage(kind: string, data: Record<string, unknown>): void {
+  if (testMode) return; // the test chamber is not a funnel
+  void fetch(`${API_BASE}/telemetry`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ kind, token: ensureToken(), data }),
+  }).catch(() => { /* offline is fine — the record is a bonus, never a blocker */ });
+}
+
 // ---- Account (release infra): anonymous token + optional OAuth identity ----
 // The token is the account. Solo players may never have joined a server, so
 // mint one locally when needed — the server accepts any well-formed id.
@@ -1080,10 +1119,26 @@ function closeMenu(): void {
 // CONTINUE resumes an existing character — no casting call, they already are
 // somebody. Every NEW run routes through the campfire pick first.
 document.getElementById("m-continue")!.addEventListener("click", () => closeMenu());
-document.getElementById("m-daily")!.addEventListener("click", () =>
+document.getElementById("m-daily")!.addEventListener("click", () => {
+  // A ?c= CARD FOR A DUNGEON THAT IS NOT TODAY'S (NICHE.md 4.2): rerun the
+  // card's exact seed as the base game. It must NOT sign today's contract —
+  // enterDailyContract would pin the server's seed over the card's, so the
+  // claim on the tile and the dungeon behind it would silently disagree.
+  if (cardChallenge && !cardChallengeIsToday) {
+    const ch = cardChallenge;
+    enterCasting("ACCEPT CHALLENGE", () => {
+      forcedSeed = ch.seed;
+      forcedRule = null; // the claim is measured against the base game
+      startRun({ kind: "random" });
+    });
+    return;
+  }
   // ONE DOOR, AND IT SIGNS FOR THE CONTRACT. This is the same run the
   // STANDINGS' ENTER THE CONTRACT starts, so it takes the same ticket.
-  enterCasting("DAILY CRAWL", () => { void enterDailyContract(challengeDay); }));
+  // (A card whose seed IS today's daily lands here on purpose: the daily
+  // board is where the scene is, and the contract seed is the card's seed.)
+  enterCasting("DAILY CRAWL", () => { void enterDailyContract(challengeDay); });
+});
 // Challenge links re-dress the card; a live streak decorates the subtitle.
 {
   const sub = document.getElementById("m-daily-sub")!;
@@ -7060,13 +7115,38 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
   const code = params.get("c");
   const ch = code ? social.decodeChallenge(code) : null;
   if (ch) {
-    const tile = document.getElementById("m-daily")!;
+    cardChallenge = ch;
+    cardChallengeIsToday = ch.seed === dailySeed(dayFromMs(Date.now()));
     const feat = ch.won ? `cleared it in ${social.mmss(ch.timeSec)}`
-      : ch.floor > 0 ? `reached floor ${ch.floor}` : "laid down a run";
+      : ch.floor > 0 ? `reached floor ${ch.floor} of ${CONFIG.finalFloor}` : "laid down a run";
     document.querySelector("#m-daily b")!.textContent = "ACCEPT CHALLENGE";
     document.getElementById("m-daily-sub")!.textContent =
-      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`;
-    tile.addEventListener("click", () => { forcedSeed = ch.seed; }, { capture: true });
+      `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`
+      + (cardChallengeIsToday ? " (It's today's daily — the board is watching.)" : "");
+    // The seed pin itself lives on the m-daily click handler: today's-daily
+    // cards sign the contract (same seed), any other card reruns ITS seed.
+
+    // FUNNEL RUNG 1 (§7): the ?c= open, with the cold flag read BEFORE any
+    // telemetry call can mint a token — "no prior account" is the cohort the
+    // whole growth thesis is measured on.
+    const cold = !loadToken();
+    const mobile = matchMedia("(pointer: coarse)").matches;
+    const openedAt = Date.now();
+    logUsage("card_open", {
+      seed: ch.seed, ev: ch.ev ?? null, daily: cardChallengeIsToday, cold, mobile,
+    });
+    // FUNNEL RUNG 2: the first real input after a card open — the difference
+    // between "the page loaded" and "a person is at the controls".
+    const once = { fired: false };
+    const firstInput = (): void => {
+      if (once.fired) return;
+      once.fired = true;
+      window.removeEventListener("keydown", firstInput, true);
+      window.removeEventListener("pointerdown", firstInput, true);
+      logUsage("first_input", { msSinceOpen: Date.now() - openedAt, cold, mobile });
+    };
+    window.addEventListener("keydown", firstInput, true);
+    window.addEventListener("pointerdown", firstInput, true);
   }
 }
 window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
@@ -7413,9 +7493,16 @@ function renderRecap(s: GameState): void {
       }).join("")
     : `<div class="rabil">bare hands and bad intentions</div>`;
 
+  // A ?c= run's ONE comparison (NICHE.md 4.2/§5) rides the existing note
+  // slot — stated once, at the end, never a live delta during the run.
   document.getElementById("recap-note")!.textContent = net
     ? "the server hosts the next season"
-    : "";
+    : cardChallenge && s.seed === cardChallenge.seed
+      ? social.claimVerdict(cardChallenge, {
+          name: me(s).name, won: s.status === "won", floor: s.floor,
+          timeSec: Math.round(s.elapsed), kills: me(s).kills,
+        })
+      : "";
   document.getElementById("recap-again")!.style.display = net ? "none" : "";
 
   // ---- Beat 1: THE GRADE ------------------------------------------------
@@ -7483,7 +7570,11 @@ function renderRecap(s: GameState): void {
   renderLadderLine(s);
   renderEarned(s);
   // ---- Beat 6: the buttons that make sense for THIS run -----------------
-  document.getElementById("recap-share")!.style.display = net ? "none" : "";
+  // SHARE lives on solo runs AND rivals races (NICHE.md 4.2: race recaps
+  // emit the crew-flavored card with the rematch door); co-op party runs
+  // still have no personal claim to state, so no card.
+  document.getElementById("recap-share")!.style.display =
+    net && s.mode !== "rivals" ? "none" : "";
 }
 
 /**
@@ -7732,6 +7823,8 @@ function maybeShowRecap(s: GameState): void {
   if (s.status === "playing") { recapFor = null; return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
+  // (A ?c= run's one end-of-run claim comparison renders in renderRecap's
+  // note slot — NICHE.md 4.2/§5: compared once, at the end, never live.)
 
   recapPrevBests = loadBandBests();
   // A REHEARSAL DOES NOT BANK A RECORD. `bandCleared` returns true for the
@@ -7953,41 +8046,94 @@ document.getElementById("recap-buildcode")!.addEventListener("click", async () =
  */
 const shareEl = document.getElementById("sharesheet")!;
 let shareUrl = "";
+/** THE RESULT CARD (NICHE.md 4.2): the exact text COPY CARD writes — a few
+ *  System lines plus the door, previewed in the sheet before it is copied. */
+let shareCardText = "";
 
 function openShareSheet(): void {
   const p = me(state);
-  // THE LINK CARRIES THE SEED AND THE CLAIM, NEVER A RECORDING. Whoever opens
-  // it gets this exact dungeon and your stated result to beat; the comparison
-  // happens once, at the end of their run (NICHE.md 4.2).
-  shareUrl = `${location.origin}${location.pathname}?c=${social.encodeChallenge({
-    seed: state.seed,
-    ev: runEvent?.eventId,
-    by: p.name,
-    floor: state.floor,
-    won: state.status === "won",
-    timeSec: Math.round(state.elapsed),
-    kills: p.kills,
-    level: p.level,
-    ult: p.abilities.ultimate,
-  })}`;
-  // Draw the real card into the preview, at whatever size the sheet is.
-  const cv = composeRunCard(state);
+  const race = net && state.mode === "rivals";
+  if (race) {
+    // THE RACE CARD: crew-flavored, and the door is a REMATCH (?join=, same
+    // code) — a live race, never a recording and never a solo chase.
+    shareUrl = inviteUrl(joinCode!, true);
+    const winner = state.rivals?.find((r) => r.id === state.winnerId)?.name
+      ?? state.players.find((pl) => pl.id === state.winnerId)?.name ?? null;
+    shareCardText = social.raceCardText({
+      winner,
+      seats: state.rivals?.length ?? state.players.length,
+      timeSec: Math.round(state.elapsed),
+      joinUrl: shareUrl,
+    });
+  } else {
+    // THE LINK CARRIES THE SEED AND THE CLAIM, NEVER A RECORDING. Whoever opens
+    // it gets this exact dungeon and your stated result to beat; the comparison
+    // happens once, at the end of their run (NICHE.md 4.2).
+    shareUrl = `${location.origin}${location.pathname}?c=${social.encodeChallenge({
+      seed: state.seed,
+      ev: runEvent?.eventId,
+      by: p.name,
+      floor: state.floor,
+      won: state.status === "won",
+      timeSec: Math.round(state.elapsed),
+      kills: p.kills,
+      level: p.level,
+      ult: p.abilities.ultimate,
+    })}`;
+    shareCardText = social.resultCardText({
+      name: p.name,
+      won: state.status === "won",
+      floor: state.floor,
+      timeSec: Math.round(state.elapsed),
+      kills: p.kills,
+      letter: runGrade?.letter ?? null,
+      url: shareUrl,
+      day: runMode.kind === "daily" ? runMode.day ?? null : null,
+    });
+  }
+  document.getElementById("share-text")!.textContent = shareCardText;
+  // The 1200x630 image is the SOLO artifact; a race's card is its text (the
+  // canvas narrates one crawler's run, which is the wrong story for a race).
   const dst = document.getElementById("share-preview") as HTMLCanvasElement;
-  dst.getContext("2d")!.drawImage(cv, 0, 0);
+  dst.style.display = race ? "none" : "";
+  (document.getElementById("share-save") as HTMLElement).style.display = race ? "none" : "";
+  if (!race) {
+    const cv = composeRunCard(state);
+    dst.getContext("2d")!.drawImage(cv, 0, 0);
+  }
   document.getElementById("share-link")!.textContent = shareUrl;
-  document.getElementById("share-note")!.textContent =
-    "The link carries the seed and your claim. Whoever opens it crawls this exact dungeon "
-    + "and hears about your run once theirs is over.";
+  document.getElementById("share-note")!.textContent = race
+    ? "The card is the race's story; the link re-opens the same party code for the rematch."
+    : "The link carries the seed and your claim. Whoever opens it crawls this exact dungeon "
+      + "and hears about your run once theirs is over.";
   shareEl.classList.add("on");
 }
 
 document.getElementById("recap-share")!.addEventListener("click", openShareSheet);
 document.getElementById("share-close")!.addEventListener("click", () => shareEl.classList.remove("on"));
 document.getElementById("share-save")!.addEventListener("click", saveRunCard);
+// COPY CARD — the one-tap the whole feature exists for: System lines + URL,
+// sized for a group chat. Copies are counted (§7: copy rate <2%/month kills
+// the card's content, not the thesis — iterate the card).
+document.getElementById("share-card")!.addEventListener("click", async () => {
+  const btn = document.getElementById("share-card")!;
+  const label = btn.textContent;
+  const ok = await copyText(shareCardText);
+  btn.textContent = ok ? "CARD COPIED" : "COPY FAILED";
+  if (ok) {
+    logUsage("card_copy", {
+      mode: net ? state.mode : "solo",
+      seed: state.seed,
+      day: !net && runMode.kind === "daily" ? runMode.day ?? null : null,
+      won: state.status === "won",
+    });
+  }
+  setTimeout(() => { btn.textContent = label; }, 1600);
+});
 document.getElementById("share-copy")!.addEventListener("click", async () => {
   const btn = document.getElementById("share-copy")!;
   const label = btn.textContent;
-  btn.textContent = (await copyText(shareUrl)) ? "CHALLENGE COPIED" : "COPY FAILED";
+  btn.textContent = (await copyText(shareUrl)) ? "LINK COPIED" : "COPY FAILED";
   setTimeout(() => { btn.textContent = label; }, 1600);
 });
 

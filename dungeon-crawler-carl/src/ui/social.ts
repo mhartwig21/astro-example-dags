@@ -649,6 +649,122 @@ export function encodeBuild(b: RunBuild): string {
   return b64urlEncode(JSON.stringify(tuple));
 }
 
+// ---------------------------------------------------------------------------
+// THE RESULT CARD (NICHE.md 4.2) — every run ends in a link a stranger can read
+// ---------------------------------------------------------------------------
+// A few System-voiced lines plus a URL, sized for a group chat. Two legibility
+// rules decide whether this is an invitation or an in-joke:
+//   1. EVERY NUMBER CARRIES ITS SCALE — "FLOOR 7" means nothing to someone who
+//      has never played; "FLOOR 7 OF 18" is a story.
+//   2. THE SYSTEM GRADES THE CLAIM — gradeRun's letter is the auditable
+//      arithmetic that tells a stranger whether 6:12 is good; the card spends
+//      exactly one line saying so, in the System's voice.
+// The URL is the existing challenge code (seed + claim): a playable door into
+// the exact same dungeon, never a recording (§5 bans the ghost by name).
+
+/** One grade line per card. Keyed on the letter alone — the card is read by
+ *  people who cannot see the four parts, so nuance would be noise. */
+export function rateClaim(letter: Letter): string {
+  const phrase: Record<Letter, string> = {
+    S: "APPALLINGLY GOOD. The sponsors are circling.",
+    A: "GENUINELY IMPRESSIVE. The System checked the math twice.",
+    B: "RESPECTABLE. BARELY.",
+    C: "A RESULT TECHNICALLY OCCURRED.",
+    D: "THE AUDIENCE HAS SEEN CORPSES WITH MORE MOMENTUM.",
+  };
+  return `THE SYSTEM RATES THIS CLAIM: ${phrase[letter]}`;
+}
+
+export interface ResultCardFacts {
+  name: string;
+  won: boolean;
+  floor: number;
+  timeSec: number;
+  kills: number;
+  /** Grade letter when the run was graded; null renders no rating line. */
+  letter: Letter | null;
+  /** The ?c= door. The caller builds it — the card only frames it. */
+  url: string;
+  /** Daily day (YYYY-MM-DD) when the run was a daily — the scale for TIME:
+   *  a daily claim is against everyone on that dungeon today. */
+  day?: string | null;
+}
+
+/** The solo/daily card: three-ish lines + the door. Plain text, clipboard-
+ *  ready — the artifact that actually lands in the chat. */
+export function resultCardText(c: ResultCardFacts): string {
+  const depth = c.won
+    ? `ALL ${CONFIG.finalFloor} FLOORS`
+    : `FLOOR ${Math.max(1, c.floor)} OF ${CONFIG.finalFloor}`;
+  const head = c.won
+    ? `THE SYSTEM CONFIRMS, RELUCTANTLY: ${c.name.toUpperCase()} — ${depth}, ${mmss(c.timeSec)}, ${c.kills} KILLS`
+    : `THE SYSTEM REGRETS TO ANNOUNCE: ${c.name.toUpperCase()} — ${depth}, ${mmss(c.timeSec)}, ${c.kills} KILLS`;
+  const lines = [c.day ? `${head} · THE DAILY ${c.day}` : head];
+  if (c.letter) lines.push(rateClaim(c.letter));
+  lines.push(`beat it → ${c.url}`);
+  return lines.join("\n");
+}
+
+export interface RaceCardFacts {
+  /** The winner's name, or null when the dungeon won (everyone conceded). */
+  winner: string | null;
+  seats: number;
+  timeSec: number;
+  /** One-tap rematch: the ?join= invite, same code. */
+  joinUrl: string;
+  /** Optional personal second line ("placement is the race's story,
+   *  improvement is yours") — the caller decides whether it has one. */
+  yourLine?: string | null;
+}
+
+/** The crew-flavored race card (4.2): the recap as a chat message, with the
+ *  rematch door. The link is a LIVE door (?join=), never a recording. */
+export function raceCardText(c: RaceCardFacts): string {
+  const ate = Math.max(0, c.seats - 1);
+  const head = c.winner
+    ? `${c.winner.toUpperCase()} TOOK THE DUNGEON — ${ate === 0 ? "UNOPPOSED" : `${ate} CRAWLER${ate === 1 ? "" : "S"} ATE FLOOR`}. ${mmss(c.timeSec)}.`
+    : `THE DUNGEON TOOK THE RACE — ${c.seats} CRAWLER${c.seats === 1 ? "" : "S"} ATE FLOOR.`;
+  const lines = [head];
+  if (c.yourLine) lines.push(c.yourLine);
+  lines.push(`rematch → ${c.joinUrl}`);
+  return lines.join("\n");
+}
+
+/** The claim, restated as a goal when a ?c= run starts. STATIC by design:
+ *  this sentence is announced once and never updates against your progress —
+ *  a live delta is the rejected ghost chase wearing a number (§5). */
+export function claimBanner(ch: Challenge): string {
+  const feat = ch.won
+    ? `CLEARED ALL ${CONFIG.finalFloor} FLOORS IN ${mmss(ch.timeSec)}`
+    : `CLAIMS FLOOR ${Math.max(1, ch.floor)} OF ${CONFIG.finalFloor} IN ${mmss(ch.timeSec)}`;
+  return `${ch.by.toUpperCase()} ${feat}. OUTLIVE THEM.`;
+}
+
+/** The comparison, made ONCE, at the end (NICHE.md 4.2/§5): deeper beats
+ *  shallower; two clears settle on the clock; two deaths on the same floor
+ *  settle on kills. Returns the one sentence the end of a ?c= run earns. */
+export function claimVerdict(
+  ch: Challenge,
+  you: { name: string; won: boolean; floor: number; timeSec: number; kills: number },
+): string {
+  const theirDepth = ch.won ? CONFIG.finalFloor + 1 : ch.floor;
+  const yourDepth = you.won ? CONFIG.finalFloor + 1 : you.floor;
+  const beat = yourDepth !== theirDepth
+    ? yourDepth > theirDepth
+    : you.won && ch.won
+      ? you.timeSec < ch.timeSec
+      : you.kills > ch.kills;
+  const theirs = ch.won
+    ? `${ch.by} cleared in ${mmss(ch.timeSec)}`
+    : `${ch.by} reached floor ${ch.floor} of ${CONFIG.finalFloor}`;
+  const yours = you.won
+    ? `you cleared in ${mmss(you.timeSec)}`
+    : `you reached floor ${you.floor}`;
+  return beat
+    ? `CLAIM SETTLED: ${theirs}; ${yours}. The System will notify them. Loudly.`
+    : `CLAIM STANDS: ${theirs}; ${yours}. The dungeon is still theirs. R says otherwise.`;
+}
+
 function b64urlEncode(s: string): string {
   const bytes = new TextEncoder().encode(s);
   let bin = "";

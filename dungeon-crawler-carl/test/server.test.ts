@@ -702,3 +702,56 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
     expect(new URL(cb.headers.get("location")!).hash).toContain("autherr");
   });
 });
+
+describe("POST /telemetry: the funnel's rungs land in usage_events (NICHE.md 4.2 + §7)", () => {
+  let server: GameServer;
+  let port: number;
+  let dbFile: string;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dbFile = join(mkdtempSync(join(tmpdir(), "dcc-telemetry-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => server.close());
+
+  const post = (body: unknown) => fetch(`http://127.0.0.1:${port}/telemetry`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+
+  it("accepts every funnel kind and keys it to the account", async () => {
+    const token = "funnel-test-token-1234";
+    for (const [kind, data] of [
+      ["card_open", { seed: 42, cold: true, mobile: false, daily: false }],
+      ["first_input", { msSinceOpen: 812 }],
+      ["run_start", { seed: 42, kind: "random", fromCard: true }],
+      ["run_end", { status: "dead", floor: 3 }],
+      ["card_copy", { mode: "solo", seed: 42 }],
+      ["door", { act: "runback", seed: 42 }],
+    ] as const) {
+      const r = await post({ kind, token, data });
+      expect(r.status, kind).toBe(200);
+    }
+    const events = server.db!.listEvents();
+    const kinds = events.map((e) => e.kind);
+    for (const k of ["card_open", "first_input", "run_start", "run_end", "card_copy", "door"]) {
+      expect(kinds).toContain(k);
+    }
+    // Keyed by account: the §7 funnel (cold open → first run → second run
+    // within 24h) is a per-account query, so the token must survive the trip.
+    expect(events.every((e) => e.accountId === token)).toBe(true);
+    // The cold flag — the cohort the growth thesis is measured on — survives too.
+    const open = events.find((e) => e.kind === "card_open")!;
+    expect((open.data as { cold: boolean }).cold).toBe(true);
+  });
+
+  it("rejects kinds outside the allowlist — telemetry is not a free logging API", async () => {
+    expect((await post({ kind: "evil", token: "t", data: {} })).status).toBe(400);
+    expect((await post({ kind: 42, token: "t", data: {} })).status).toBe(400);
+  });
+});

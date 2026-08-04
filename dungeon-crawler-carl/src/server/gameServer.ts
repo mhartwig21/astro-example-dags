@@ -230,6 +230,11 @@ function capFor(state: GameState): number {
     : MAX_PARTY_SIZE;
 }
 
+/** Client-reported usage kinds POST /telemetry accepts (see onTelemetry). */
+export const TELEMETRY_KINDS: ReadonlySet<string> = new Set([
+  "run_end", "run_start", "card_open", "first_input", "card_copy", "door",
+]);
+
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -523,10 +528,16 @@ export class GameServer {
       try {
         const msg = JSON.parse(body) as Record<string, unknown>;
         // Only the shapes we mine; everything client-sent is size-capped and
-        // stored as data, never interpreted by the server.
-        if (msg.kind !== "run_end") { res.writeHead(400, cors).end(); return; }
+        // stored as data, never interpreted by the server. The allowlist IS
+        // the funnel (NICHE.md 4.2 + §7): card_open → first_input →
+        // run_start/run_end are the growth loop's rungs, card_copy is the
+        // outbound half, door is DEATH IS A DOOR's requeue-or-run-back rate.
+        if (typeof msg.kind !== "string" || !TELEMETRY_KINDS.has(msg.kind)) {
+          res.writeHead(400, cors).end();
+          return;
+        }
         const token = validToken(msg.token);
-        this.db.logEvent("run_end", "SOLO", token, msg.data ?? {}, Date.now());
+        this.db.logEvent(msg.kind, "SOLO", token, msg.data ?? {}, Date.now());
         res.writeHead(200, { "content-type": "application/json", ...cors });
         res.end('{"ok":true}');
       } catch {
