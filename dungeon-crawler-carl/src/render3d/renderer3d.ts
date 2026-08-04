@@ -1658,6 +1658,30 @@ export class Renderer3D {
   }[] = [];
   /** One InstancedMesh per (geometry, material, shadow flags) — see PropBatch. */
   private propBatches: PropBatch[] = [];
+  // ---- FOLIAGE BRUSH (appearance r1: the world reacts to being walked
+  // through). Walkable-tile grass/bush/mushroom props register here at
+  // place() time; a body moving within reach kicks a damped spring and the
+  // piece tilts away, oscillates once, and settles. Writes ride the exact
+  // machinery the fog reveal already pays for (updateMatrix + propLeafWrite),
+  // and only SPRUNG pieces pay anything — an idle meadow costs zero.
+  private static BRUSH_KEY = /grass|bush|mushroom|fern|flower/i;
+  private brushProps: {
+    e: Renderer3D["propEntries"][number]; x: number; z: number;
+    baseQ: THREE.Quaternion;
+    ax: number; az: number; // unit push direction (world xz)
+    a: number; v: number; // spring angle (rad) + angular velocity
+  }[] = [];
+  private brushGrid = new Map<number, number[]>(); // tile -> brushProps indices
+  private brushGridW = 0;
+  private brushActive = new Set<number>();
+  // Last seen position per mover ("p:" ids >= 0, monsters bitwise-NOT) so a
+  // brush impulse scales with the distance actually covered this frame.
+  private brushMovers = new Map<number, { x: number; z: number }>();
+  private brushQ = new THREE.Quaternion();
+  private brushAxis = new THREE.Vector3();
+  // Stride dust cadence per player id — mirrors the audio director's STRIDE
+  // so the puff and the footfall land together (AV cohesion).
+  private strideFx = new Map<number, { acc: number; n: number }>();
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
@@ -1724,6 +1748,12 @@ export class Renderer3D {
   // airstrikes kick — and trauma decays linearly so shakes settle fast.
   private trauma = 0;
   private static SHAKE_MAX = 0.5; // world-unit amplitude at full trauma
+  // THE ARRIVAL SETTLE (appearance r1: transitions flow, not cut). Seconds
+  // left of the floor-arrival beat: the frame opens ~9% wide and eases home,
+  // so a descent LANDS — with the shock ring, dust, shake and the descend
+  // thunk all on the arrival frame — instead of hard-swapping worlds.
+  private arrival = 0;
+  private static ARRIVAL_T = 0.9;
   private addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
   }
@@ -3967,8 +3997,13 @@ export class Renderer3D {
     // the far end of the skillshot for the crawler's own feet, and on a 342 px
     // phone you need both in one picture to aim at all.
     const aimWide = 1 + Math.min(0.22, this.aimLead * 0.052);
+    // THE ARRIVAL SETTLE: a fresh floor opens ~9% wide and eases home over
+    // ~0.9s (quadratic, so the last half is nearly still) — the descent
+    // reads as a landing instead of a hard cut between worlds.
+    const at = this.arrival / Renderer3D.ARRIVAL_T;
+    const arrive = 1 + 0.09 * at * at;
     return THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
-      this.bossFx.zoom * aimWide;
+      this.bossFx.zoom * aimWide * arrive;
   }
 
   private applyProjection(): void {
@@ -5452,6 +5487,12 @@ export class Renderer3D {
     this.stairsObj = gate;
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
     this.propEntries = []; // reset BEFORE the stamps below register into it
+    // Foliage brush state belongs to the old floor's props.
+    this.brushProps = [];
+    this.brushGrid.clear();
+    this.brushGridW = map.w;
+    this.brushActive.clear();
+    this.brushMovers.clear();
     // CRAFTED ROOM props: each stamp the mapgen recorded places its
     // template's cosmetic dressing (the WALLS are already real tiles; these
     // are the barrels and clutter that make the design read). Footprint-
@@ -5558,7 +5599,22 @@ export class Renderer3D {
       );
       if (!tipped) obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
       this.floorGroup.add(obj);
-      this.propEntries.push({ obj, tile: Math.floor(y) * map.w + Math.floor(x) });
+      const entry = { obj, tile: Math.floor(y) * map.w + Math.floor(x) };
+      this.propEntries.push(entry);
+      // FOLIAGE BRUSH: undergrowth on walkable tiles reacts to being walked
+      // through. Keyed on the prop KEY, so every band that grows anything —
+      // the Garden's meadows, the Sewers' overgrown weeds, a Ruins fern —
+      // joins the system for free.
+      if (Renderer3D.BRUSH_KEY.test(key)) {
+        const bi = this.brushProps.length;
+        this.brushProps.push({
+          e: entry, x: obj.position.x, z: obj.position.z,
+          baseQ: obj.quaternion.clone(), ax: 1, az: 0, a: 0, v: 0,
+        });
+        const bt = Math.floor(obj.position.z) * map.w + Math.floor(obj.position.x);
+        const cell = this.brushGrid.get(bt);
+        if (cell) cell.push(bi); else this.brushGrid.set(bt, [bi]);
+      }
       return true;
     };
 
@@ -7453,6 +7509,15 @@ export class Renderer3D {
         this.spawnGlow(p.pos.x, 0.4 + i * 0.35, p.pos.y, 0xf5e6bf, 0.65, 0.5);
       }
       this.spawnFxLight(p.pos.x, p.pos.y, 0xc9a24b, 9, 0.7, 1.1);
+      // THE ARRIVAL SETTLE: the party LANDS on the new floor. The frame
+      // starts a notch wide and eases home (projHalfHeight), the ground
+      // answers with a shock ring + kicked dust, and the trauma tick puts
+      // the thud of the descent on the same frame as its `descend` sound.
+      this.arrival = Renderer3D.ARRIVAL_T;
+      this.shocks.spawn(p.pos.x, p.pos.y, 0xc9a24b, 2.6, 0.5);
+      this.fxp.dust(p.pos.x, 0.15, p.pos.y, 10, this.dustTint);
+      this.addTrauma(0.3);
+      this.bloomKick = Math.min(1.4, this.bloomKick + 0.28);
     }
 
     // Players: reconcile mesh pool + animate each.
@@ -7542,6 +7607,31 @@ export class Renderer3D {
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
       }
+      // THE GROUND ANSWERS THE STRIDE (appearance r1): each footfall kicks a
+      // pinch of the floor's own dust at the trailing foot, alternating
+      // sides, on the same distance cadence the audio director walks — so
+      // the puff, the footstep clip and the actual footplant read as one
+      // event. Two pooled particles per step: ~7/s at full sprint, nothing.
+      {
+        let st = this.strideFx.get(pl.id);
+        if (!st) { st = { acc: 0, n: pl.id % 2 }; this.strideFx.set(pl.id, st); }
+        if (!pl.alive || plSpeed < 0.6) {
+          st.acc = 0;
+        } else {
+          st.acc += plSpeed * dt;
+          if (st.acc >= 1.15) {
+            st.acc %= 1.15;
+            st.n++;
+            const inv = 1 / plSpeed;
+            const fx = move.x * inv, fz = move.y * inv; // unit travel direction
+            const side = st.n % 2 === 0 ? 0.13 : -0.13;
+            this.fxp.dust(
+              mesh.position.x - fx * 0.2 - fz * side, 0.05,
+              mesh.position.z - fz * 0.2 + fx * side,
+              2, this.dustTint);
+          }
+        }
+      }
       // Extradition/Slurp stow timer: hide the held weapon while the hands
       // work the chain or the bottle, restore it the moment the act is done.
       const stow = this.weaponStow.get(pl.id);
@@ -7623,6 +7713,7 @@ export class Renderer3D {
         this.weaponStow.delete(id);
         this.potionShow.delete(id);
         this.playerFxTick.delete(id);
+        this.strideFx.delete(id);
         const hexm = this.hexMarks.get(id);
         if (hexm) { this.scene.remove(hexm); this.hexMarks.delete(id); }
       }
@@ -9248,6 +9339,7 @@ export class Renderer3D {
     if (this.bloomBase < 0) this.bloomBase = this.bloom.strength;
     if (this.bloomBaseRadius < 0) this.bloomBaseRadius = this.bloom.radius;
     this.bloomKick = Math.max(0, this.bloomKick - dt * 4.2);
+    this.arrival = Math.max(0, this.arrival - dt); // the landing settles
     // GLARE GOVERNOR. The kick comment below used to say "a big kick used to
     // fog the whole quadrant" — acceptance then photographed the whole FRAME
     // fogged, because the kick was never the only thing feeding the pass. What
@@ -9481,6 +9573,7 @@ export class Renderer3D {
 
     // Camera courtesy: shrink foliage that hides the action (open-air only).
     this.updateCanopy(state, ax, az, dt);
+    this.updateFoliageBrush(state, ax, az, dt);
 
     // LAST, because it must see everything this frame added. Anything carrying
     // a material the game has never drawn is parked off-camera and compiled
@@ -9554,6 +9647,86 @@ export class Renderer3D {
       }
     }
     for (const mesh of dirty) mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  /**
+   * FOLIAGE BRUSH (appearance r1). Bodies moving through registered
+   * undergrowth kick a damped spring: the piece tilts away along the push
+   * direction, swings back once, settles. All presentation: the write path is
+   * the same updateMatrix + propLeafWrite the fog reveal uses, and only
+   * pieces with a live spring (brushActive) pay per-frame cost.
+   */
+  private updateFoliageBrush(state: GameState, ax: number, az: number, dt: number): void {
+    if (this.brushProps.length === 0) return;
+    // 1) Impulses from movers: living players, plus monsters near the frame.
+    const kick = (id: number, x: number, z: number): void => {
+      const prev = this.brushMovers.get(id);
+      this.brushMovers.set(id, { x, z });
+      if (!prev) return;
+      const mx = x - prev.x, mz = z - prev.z;
+      const moved = Math.hypot(mx, mz);
+      if (moved < 0.02 || moved > 1.2) return; // idle or teleport
+      const bx = Math.floor(x), bz = Math.floor(z);
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dxx = -1; dxx <= 1; dxx++) {
+          const cell = this.brushGrid.get((bz + dz) * this.brushGridW + (bx + dxx));
+          if (!cell) continue;
+          for (const bi of cell) {
+            const b = this.brushProps[bi];
+            const rx = b.x - x, rz = b.z - z;
+            const d = Math.hypot(rx, rz);
+            if (d > 0.55) continue;
+            // Push away from the body; a piece dead-underfoot inherits the
+            // travel direction instead of dividing by zero.
+            const inv = d > 1e-3 ? 1 / d : 0;
+            b.ax = inv ? rx * inv : mx / moved;
+            b.az = inv ? rz * inv : mz / moved;
+            // Speed-scaled, capped: a sprint parts the grass, a shuffle stirs it.
+            b.v = Math.min(6, b.v + 3 + (moved / dt) * 0.35);
+            this.brushActive.add(bi);
+          }
+        }
+      }
+    };
+    for (const pl of state.players) if (pl.alive) kick(pl.id, pl.pos.x, pl.pos.y);
+    for (const mo of state.monsters) {
+      if (mo.hp <= 0 || mo.dormant) continue;
+      if (Math.abs(mo.pos.x - ax) > 14 || Math.abs(mo.pos.y - az) > 10) continue;
+      kick(~mo.id, mo.pos.x, mo.pos.y);
+    }
+    // 2) Integrate live springs; settle back to the exact base pose.
+    if (this.brushActive.size === 0) return;
+    const STIFF = 170, DAMP = 6.5, MAXA = 0.42;
+    let wroteBatch = false;
+    for (const bi of this.brushActive) {
+      const b = this.brushProps[bi];
+      b.v += (-STIFF * b.a - DAMP * b.v) * dt;
+      b.a += b.v * dt;
+      if (Math.abs(b.a) < 0.008 && Math.abs(b.v) < 0.05) {
+        b.a = 0; b.v = 0;
+        this.brushActive.delete(bi);
+      }
+      const ang = Math.max(-MAXA, Math.min(MAXA, b.a));
+      const o = b.e.obj;
+      // Tilt about the ground anchor: rotation axis is horizontal,
+      // perpendicular to the push direction (about (az, 0, -ax) tips +y
+      // toward +push). Base pose restored exactly at settle (a == 0).
+      o.quaternion.copy(b.baseQ).premultiply(
+        this.brushQ.setFromAxisAngle(this.brushAxis.set(b.az, 0, -b.ax), ang));
+      o.updateMatrix();
+      o.updateMatrixWorld(true);
+      if (b.e.leaves && b.e.shown) {
+        for (const leaf of b.e.leaves) this.propLeafWrite(leaf);
+        wroteBatch = true;
+      }
+    }
+    // updateFogTint's dirty flush already ran this frame — flush our own
+    // writes now so the sway shows this frame, not next.
+    if (wroteBatch) {
+      for (const bt of this.propBatches) {
+        if (bt.dirty) { bt.dirty = false; bt.mesh.instanceMatrix.needsUpdate = true; }
+      }
+    }
   }
 
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */

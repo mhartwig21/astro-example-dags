@@ -40,6 +40,24 @@ export const AUDIO_MANIFEST = {
   // jingle pack the progression sounds already come from.
   band_sting: { url: "/audio/sfx/band_sting.ogg", bus: "sfx", volume: 0.75, throttleMs: 4000 },
 
+  // Footsteps (appearance r1: the world reacts to being walked through).
+  // Procedurally synthesized in-repo (scripts/gen-footsteps.mjs — own work,
+  // CC0; see ASSETS.md). Three variants per surface, cycled by the director
+  // with per-step rate jitter, so no two strides read identical. Surfaces map
+  // to bands in director.ts: stone / wet stone / grass / metal.
+  step_stone_a: { url: "/audio/sfx/steps/step_stone_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  step_stone_b: { url: "/audio/sfx/steps/step_stone_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  step_stone_c: { url: "/audio/sfx/steps/step_stone_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  step_grass_a: { url: "/audio/sfx/steps/step_grass_a.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
+  step_grass_b: { url: "/audio/sfx/steps/step_grass_b.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
+  step_grass_c: { url: "/audio/sfx/steps/step_grass_c.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
+  step_metal_a: { url: "/audio/sfx/steps/step_metal_a.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
+  step_metal_b: { url: "/audio/sfx/steps/step_metal_b.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
+  step_metal_c: { url: "/audio/sfx/steps/step_metal_c.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
+  step_wet_a: { url: "/audio/sfx/steps/step_wet_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  step_wet_b: { url: "/audio/sfx/steps/step_wet_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  step_wet_c: { url: "/audio/sfx/steps/step_wet_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+
   // Skills (state-edge triggered).
   dash: { url: "/audio/sfx/dash.ogg", bus: "sfx" },
   bolt: { url: "/audio/sfx/bolt.ogg", bus: "sfx", volume: 0.7, throttleMs: 120 },
