@@ -5,7 +5,7 @@
 import { chromium, devices } from "playwright";
 import { mkdirSync, writeFileSync } from "fs";
 
-const BASE = "http://localhost:5286";
+const BASE = process.argv[2] ?? "http://localhost:5286";
 const OUT = "tools/_mobile/ac-wr-r2-surf";
 mkdirSync(OUT, { recursive: true });
 const results = [];
