@@ -15,6 +15,14 @@
  * A beat is ledgered the moment it is SHOWN (shown = consumed, the tips
  * convention): it never replays, even after a skip.
  *
+ * "Shown" means SHOWN (r5). The sequencer OFFERS a beat and waits: `commit`
+ * spends it when the panel (or, for B8, the aside plate) is actually on the
+ * glass, `release` hands it back when the host declined to paint. r4 spent the
+ * beat at the ask, and a cold profile that pressed R 15ms after dying had B8
+ * ledgered with the plate never rendered — the beat deleted from that profile
+ * forever, in Mordecai's voice, by exactly the defect the ONRAMP had just
+ * closed in the System's.
+ *
  * Voice rules, binding (TUTORIAL.md §4): short declaratives; wry, never
  * breathless; protective under the gruffness; no exclamation marks; he says
  * "you" and means the person. No Mordecai line may contain "COURTESY
@@ -190,6 +198,19 @@ export interface SafeRoomFacts {
  */
 export class Guide {
   private seen: Set<string>;
+  /**
+   * OFFERED, NOT YET SPENT (r5 blocker 1). A beat leaves this module when the
+   * host asks for one; it reaches the GLASS some time later, and sometimes
+   * never — `guideShow` refuses while another beat or a Roam conversation owns
+   * the panel, and B8's aside plate is revealed by a 620ms timer that a fast R
+   * cancels outright. r4 wrote the ledger at the ask, so one impatient R
+   * deleted B8 from that profile forever with the plate never once painted.
+   *
+   * So `take` only OFFERS. `commit` (the paint) spends it; `release` (the
+   * refusal, the cancelled reveal) hands it back untouched. Nothing here is a
+   * "seen" claim until presentation says it saw the light.
+   */
+  private offered = new Set<GuideBeatKey>();
 
   constructor(seen: Iterable<string> = []) {
     this.seen = new Set(seen);
@@ -207,9 +228,22 @@ export class Guide {
   }
 
   private take(key: GuideBeatKey): GuideBeat | null {
-    if (this.seen.has(key) || this.skipped) return null;
-    this.seen.add(key);
+    if (this.seen.has(key) || this.offered.has(key) || this.skipped) return null;
+    this.offered.add(key);
     return GUIDE_BEATS[key];
+  }
+
+  /** THE PAINT. The beat reached the glass, so it is spent forever; the host
+   *  writes the same key to the browser ledger in the same breath. */
+  commit(key: GuideBeatKey): void {
+    this.offered.delete(key);
+    this.seen.add(key);
+  }
+
+  /** THE REFUSAL. The beat never reached the glass — hand it back, unspent, so
+   *  the next honest moment can offer it again (r5 blocker 1). */
+  release(key: GuideBeatKey): void {
+    this.offered.delete(key);
   }
 
   /** B0 — the campfire intro. The host gates on the organic fresh-crawler
@@ -272,6 +306,7 @@ export class Guide {
   skipAll(): string[] {
     const keys: string[] = [...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY];
     for (const k of keys) this.seen.add(k);
+    this.offered.clear(); // an explicit refusal outranks every pending offer
     return keys;
   }
 }

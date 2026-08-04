@@ -1,0 +1,18 @@
+DEATH 1 @ {"floor":1,"elapsed":61,"lvl":1,"hp":0,"near":0.3,"status":"dead","sr":false,"modal":false,"hype":0,"viewers":270,"fav":0,"flask":3,"slots":"melee|dash|bolt|","ult":null,"latch":["tut.campfire"],"ledger":["tut.campfire"]}
+AFTER FAST R: aside={"frames":0,"first":0,"text":""} ledger@R=["tut.campfire"]
+LEDGER after fast R = ["tut.campfire"]
+DEATH 2 @ {"floor":1,"elapsed":61,"lvl":1,"hp":0,"near":0.2,"status":"dead","sr":false,"modal":false,"hype":0,"viewers":270,"fav":0,"flask":3,"slots":"melee|dash|bolt|","ult":null,"latch":["tut.campfire"],"ledger":["tut.campfire"]}
+SECOND DEATH aside={"frames":61,"first":133697.5,"text":"You know that floor's streets now — that's what the tuition bought. Same seed, same doors. Run it back and collect."} box={"x":243,"y":397,"width":880,"height":58}
+LEDGER after honest death = ["tut.campfire","tut.runback"]
+errors [] | 404s []
+
+
+PASS R5P1: profile is genuinely COLD (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS R5P1: death 1 actually happened — dead
+PASS R5P1 BLOCKER 1: the aside plate never painted — frames=0
+PASS R5P1 BLOCKER 1: ...so tut.runback was NOT spent — ["tut.campfire"]
+PASS R5P1: the fast R really started run 2 — {"status":"playing","floor":1,"elapsed":2}
+PASS R5P1: the aside plate PAINTED on the next honest death — frames=61 text="You know that floor's streets now — that's what the tuition bought. Same seed, s"
+PASS R5P1 RASTER: the plate is really on the glass (std 33.3, warm 8.5%) — {"x":243,"y":397,"width":880,"height":58}
+PASS R5P1: only NOW is tut.runback on the ledger — ["tut.campfire","tut.runback"]
+PASS R5P1: zero page errors

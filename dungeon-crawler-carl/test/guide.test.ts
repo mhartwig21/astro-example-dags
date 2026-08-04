@@ -111,6 +111,47 @@ describe("guide: once-ever beats on the shipped ledger pattern", () => {
   });
 });
 
+describe("a beat is spent when it PAINTS (r5 blocker 1)", () => {
+  // maybeShowRecap took B8 and wrote the ledger, THEN scheduled the 620ms
+  // reveal whose own first line stands down if a fast R already started the
+  // next run. Measured from a cold profile: ledger=[tut.campfire,tut.runback],
+  // verdict frames 0, aside frames 0 — B8 deleted from that profile forever by
+  // one impatient keypress, with the plate never once on the glass.
+  it("an offered beat that is RELEASED is offerable again", () => {
+    const g = new Guide();
+    expect(g.verdictLine()).toBe(GUIDE_BEATS["tut.runback"].lines[0]);
+    expect(g.verdictLine()).toBeNull(); // in flight — never offered twice
+    g.release("tut.runback");
+    expect(g.verdictLine()).toBe(GUIDE_BEATS["tut.runback"].lines[0]);
+  });
+
+  it("an offered beat that is COMMITTED never comes back", () => {
+    const g = new Guide();
+    expect(g.campfire()?.key).toBe("tut.campfire");
+    g.commit("tut.campfire");
+    expect(g.campfire()).toBeNull();
+    g.release("tut.campfire"); // a late refusal must not un-show a shown beat
+    expect(g.campfire()).toBeNull();
+  });
+
+  it("the panel refusing a beat costs nothing: the next rest moment gets it", () => {
+    // guideShow declines while another beat or a Roam conversation owns the
+    // panel; every one of those paths hands the beat back.
+    const g = new Guide();
+    expect(g.safeRoomBeat({ showMet: true, glyphReady: false })?.key).toBe("tut.saferoom");
+    g.release("tut.saferoom");
+    expect(g.safeRoomBeat({ showMet: true, glyphReady: false })?.key).toBe("tut.saferoom");
+  });
+
+  it("the global skip outranks every offer still in flight", () => {
+    const g = new Guide();
+    expect(g.draftOpen()?.key).toBe("tut.draft");
+    g.skipAll();
+    g.release("tut.draft"); // the offer comes back mid-skip...
+    expect(g.draftOpen()).toBeNull(); // ...and stays silenced anyway
+  });
+});
+
 describe("guide: the two voices never sound like each other (TUTORIAL.md B2)", () => {
   const beatText = Object.values(GUIDE_BEATS).flatMap((b) => [
     ...b.lines,

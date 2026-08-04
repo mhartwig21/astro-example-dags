@@ -20,7 +20,9 @@ const phone = (): Onramp => new Onramp(true, { ...LIVE });
 /** Unsolicited lectures: floor 1, budgeted. */
 const PROMPTS: OnrampEvent[] = ["start", "contact", "pickup", "lowhp", "linger"];
 /** Earned by an act: any floor, unbudgeted. */
-const CONFIRMS: OnrampEvent[] = ["ability", "cast", "slotted", "ult", "equipped", "drink"];
+const CONFIRMS: OnrampEvent[] = [
+  "ability", "cast", "slotted", "ult", "equipped", "autoequip", "drink",
+];
 /** The three whose text is a KEY NAME, so they must be handed a live label. */
 const KEYED: OnrampEvent[] = ["ability", "slotted", "ult"];
 
@@ -29,9 +31,21 @@ describe("the prompt budget is structural", () => {
     const o = desktop();
     const lines = PROMPTS.map((ev) => o.note(ev, 1));
     expect(lines.every((l) => typeof l === "string" && l.length > 0)).toBe(true);
+    for (const ev of PROMPTS) o.commit(ev); // the paint is the spend (r5)
     expect(o.promptsSpent).toBe(PROMPTS.length);
     expect(o.promptsSpent).toBeLessThanOrEqual(ONRAMP_MAX_PROMPTS);
     for (const ev of PROMPTS) expect(o.note(ev, 1)).toBeNull();
+  });
+
+  it("the budget counts lines still in flight, not just painted ones", () => {
+    // Six offers outstanding must block a seventh, or the cap is only a cap
+    // for a player whose cards happen to have painted already.
+    const o = desktop();
+    const all: OnrampEvent[] = ["start", "contact", "pickup", "lowhp", "linger"];
+    for (const ev of all) expect(o.note(ev, 1)).toBeTruthy();
+    expect(o.promptsSpent).toBe(0); // nothing has reached the glass yet
+    for (const ev of all) o.commit(ev);
+    expect(o.promptsSpent).toBe(all.length);
   });
 
   it("prompts retire at depth; a floor-2 refusal does not burn the line", () => {
@@ -151,6 +165,52 @@ describe("the lines name the actual controls (4.4.2)", () => {
   });
 });
 
+describe("a line is spent when it PAINTS (r5 blocker 1)", () => {
+  // The measured failure: a cold profile drank the flask inside the 9s card
+  // pacing gap, died before the confirmation painted, pressed R — and BOTH
+  // halves of the flask lesson were gone for the session with neither card
+  // ever on the glass. These eleven lines carry no tipId, so r4's
+  // ledger-on-paint rule never covered them; `note` was the spend.
+  it("an offered line that is RELEASED is offerable again", () => {
+    const o = desktop();
+    expect(o.note("drink", 1)).toMatch(/flask consumed/i);
+    expect(o.note("drink", 1)).toBeNull(); // in flight — not offered twice
+    o.release("drink");
+    expect(o.spent).toBe(0); // nothing painted, nothing spent
+    expect(o.note("drink", 1)).toMatch(/flask consumed/i);
+  });
+
+  it("an offered line that is COMMITTED never comes back", () => {
+    const o = desktop();
+    expect(o.note("contact", 1)).toBeTruthy();
+    o.commit("contact");
+    expect(o.spent).toBe(1);
+    expect(o.promptsSpent).toBe(1);
+    expect(o.note("contact", 1)).toBeNull();
+    o.release("contact"); // a late drop must not un-teach a painted card
+    expect(o.note("contact", 1)).toBeNull();
+  });
+
+  it("a released prompt gives its budget back", () => {
+    const o = desktop();
+    for (const ev of PROMPTS) o.note(ev, 1);
+    for (const ev of PROMPTS) o.release(ev);
+    expect(o.spent).toBe(0);
+    expect(o.promptsSpent).toBe(0);
+    expect(PROMPTS.every((ev) => typeof o.note(ev, 1) === "string")).toBe(true);
+  });
+
+  it("commit is idempotent and only counts a line that was actually offered", () => {
+    const o = desktop();
+    o.commit("linger"); // never offered — nothing to spend
+    expect(o.spent).toBe(0);
+    o.note("linger", 1);
+    o.commit("linger");
+    o.commit("linger");
+    expect(o.spent).toBe(1);
+  });
+});
+
 describe("the teach-by-doing pairs (r4)", () => {
   it("the flask lesson has a second half that only a PRESS can reach", () => {
     // "You died holding 3 flasks" was the critic's verdict on r3.
@@ -165,5 +225,18 @@ describe("the teach-by-doing pairs (r4)", () => {
     const eq = o.note("equipped", 1)!;
     expect(eq).toMatch(/MOVED/);
     expect(eq).toMatch(/compared, never collected/);
+  });
+
+  it("...and a REACHABLE half, because floor-1 loot dresses itself (r5)", () => {
+    // `equipped` never fired in four cold runs: the sim auto-equips strict
+    // upgrades, so the bag the pickup card points at is empty and there is
+    // nothing to put on by hand. The auto-equip is the moment gear
+    // demonstrably went on, and it explains why the trip was not needed.
+    const auto = desktop().note("autoequip", 1)!;
+    expect(auto).toMatch(/dressed itself/);
+    expect(auto).toMatch(/judgement call/);
+    expect(auto).toMatch(/BAG/);
+    // The two halves must not be the same paragraph twice.
+    expect(auto).not.toMatch(/compared, never collected/);
   });
 });
