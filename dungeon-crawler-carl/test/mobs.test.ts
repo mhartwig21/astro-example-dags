@@ -1008,7 +1008,11 @@ describe("boss layers", () => {
       seen++;
       expect(champ.elite).toBe(true);
       expect(champ.eliteName).toBe("The Foreman");
-      expect(champ.maxHp).toBeGreaterThan(1500); // a checkpoint fight, not a pack
+      // Repointed 1500 -> 1300 with the step-0 difficulty back-off
+      // (2026-08-04, BALANCE-NOTES round 3): the champion rides the same
+      // per-floor HP curve the whole stack does. The assertion's intent is
+      // unchanged — a checkpoint fight, an order of magnitude over a pack mob.
+      expect(champ.maxHp).toBeGreaterThan(1300);
     }
     expect(seen).toBe(8); // every floor 14 has its champion
   });
