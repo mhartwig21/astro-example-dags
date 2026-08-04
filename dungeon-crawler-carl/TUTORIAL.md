@@ -4,7 +4,7 @@ Owner ask: "an initial tutorial of AAA quality to onboard players to the game
 — thinking Mordecai as the game guide using the Roam NPC chat experience —
 helping to introduce all of the key concepts."
 
-**SHIPPED (r1 + r2 fix round, branch `tutorial`).** The design sections that
+**SHIPPED (r1 + r2 + r3 fix rounds, branch `tutorial`).** The design sections that
 became code are deleted (BACKLOG.md convention); what remains is the enduring
 canon (the two-voice rule, the register bible), the implementation map, and
 the open edges for later rounds.
@@ -88,6 +88,50 @@ the dialogue surface).
 - **Acceptance probe** — `tools/_tut_r1.mjs`: cold-profile (fresh context)
   battery, raster-verified (box non-uniformity + warm-key fraction), one
   Chromium; frames in `tools/_tut_shots/`. 61 checks green at r1.
+  `tools/_tut_r2.mjs` and `tools/_tut_r3.mjs` are the same shape per round
+  (r3: 37 checks, frames in `tools/_tut_r3_shots/`).
+
+### The card surface's visibility contract (r3)
+
+A once-EVER card is spent the moment it is SHOWN, so it may only be shown
+where a player can see it. Three rules, all in main3d's `THE GUIDE`/card
+block:
+
+1. **Nothing displays behind a modal.** `tutorialBlocked()` = `dlgOpen ||
+   body.modal`; the pump waits on it (400ms poll), because `body.modal` sets
+   `#tutorial` to `opacity: 0 !important` (iso.html's modal-focus rule).
+   Observed pre-fix: the collapse card displayed behind the safe-room shop
+   and was consumed unseen, permanently.
+2. **The auto-dismiss clock counts VISIBLE time only.** The 7s courtesy timer
+   is an interval that accrues only while unblocked, so a modal opening
+   mid-card pauses it instead of clipping the tail.
+3. **Any-input dismiss stands down while blocked** — that input belongs to
+   the modal, not to a card nobody can read.
+
+The pacing gap (9s) is unchanged; what changed is which lines may JUMP it.
+"high" on a tip means exactly "this card's moment expires" — the onramp's
+flask line and, since r3, the sim's `collapse` tip (queued behind the gap it
+drifted 15-25s from the Warning tick and once landed inside the safe room).
+It jumps the gap, never the active card.
+
+### Two lectures, one wound (r3)
+
+The sim's `lowhp` tip ("EXCELLENT television") now waits for the SECOND
+distinct brush with death: the FIRST one already carries THE ONRAMP's flask
+line, and two lectures 12s apart on the same wound read as nagging. A brush
+is an EDGE — `Player.lowHpNow` latches on the dip, clears in the step loop
+when the crawler climbs back over `show.lowHpFraction`, and `lowHpBrushes`
+counts them. Once-EVER is untouched: `tipsSeen` still owns the ledger, so a
+run that ends on its first brush simply leaves the tip for a later one.
+
+### THE ONRAMP's one floor-2 exception (r3)
+
+`Onramp.note()` retires on floor 2 — except `"cast"`. A level-1 crawler can
+reach the stairs with slot 4 and the ultimate still locked, and the organic
+cold run banked its draft and descended without ever casting, which made the
+one ability confirmation unreachable FOREVER. The line survives to floor 2
+and re-words itself there (the socket is named present tense, not as a
+future event). The host mirrors the same window in `onrampObserve`.
 
 ## Open edges (later rounds)
 

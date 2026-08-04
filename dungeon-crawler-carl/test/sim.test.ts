@@ -5481,6 +5481,19 @@ describe("first-contact System tips", () => {
     const p = g.players[0];
     damagePlayerHit(g, p, 1, { effect: "poison", roll: false });
     expect(p.tipsSeen).toContain("afflicted");
+    // Near-death waits for the SECOND distinct brush (r3): the first one
+    // already carries the host's flask lecture (THE ONRAMP) — two lectures
+    // on the same wound read as nagging.
+    p.hp = Math.max(2, Math.floor(p.maxHp * 0.2));
+    damagePlayerHit(g, p, 1, { roll: false });
+    expect(p.tipsSeen).not.toContain("lowhp");
+    // More hits inside the SAME brush stay silent — a brush is an edge.
+    damagePlayerHit(g, p, 1, { roll: false });
+    expect(p.tipsSeen).not.toContain("lowhp");
+    // Recover over the line (the step loop clears the latch)...
+    p.hp = p.maxHp;
+    step(g, idle(), 1 / 60);
+    // ...and the second dip files the explanation.
     p.hp = Math.max(2, Math.floor(p.maxHp * 0.2));
     damagePlayerHit(g, p, 1, { roll: false });
     expect(p.tipsSeen).toContain("lowhp");

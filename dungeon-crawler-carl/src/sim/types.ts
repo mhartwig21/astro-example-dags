@@ -160,6 +160,13 @@ export interface Player {
   // First-contact System tips already delivered (tips.ts ids) — each rule is
   // explained exactly once, the first time it touches this crawler.
   tipsSeen?: string[];
+  // Near-death brush tracking for the lowhp tip (r3): the first brush with
+  // death already carries the flask lecture (THE ONRAMP), so the Show's take
+  // waits for the second distinct dip under the line. Transient — absent in
+  // old saves/snapshots; a fresh session's first brush re-arms, never re-fires
+  // (tipsSeen still owns once-ever).
+  lowHpNow?: boolean;
+  lowHpBrushes?: number;
   // The System's boredom bookkeeping (interference): seconds of hype flatline,
   // and how many times it has intervened without a hype recovery between.
   boredT?: number;

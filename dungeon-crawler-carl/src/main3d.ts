@@ -7594,11 +7594,29 @@ let tutorialGapTimer = 0;
  */
 const TUT_CARD_GAP_MS = 9000;
 
+/**
+ * A card must never spend its once-EVER showing where nobody can see it
+ * (r3 major): body.modal sets #tutorial to opacity 0 !important (the
+ * modal-focus rule in iso.html), and dlgOpen means Mordecai owns the frame —
+ * yet the pump and the 7s auto-timer used to run regardless, so the collapse
+ * card burned invisibly behind the safe-room shop (shown = consumed,
+ * permanently). While either holds: the pump waits, the auto-dismiss clock
+ * counts only VISIBLE time, and any-input dismiss stands down (the input
+ * belongs to the modal).
+ */
+function tutorialBlocked(): boolean {
+  return dlgOpen || document.body.classList.contains("modal");
+}
+
 function pumpTutorialQueue(): void {
   if (tutorialActive || tutorialQueue.length === 0) return;
+  window.clearTimeout(tutorialGapTimer);
+  if (tutorialBlocked()) {
+    tutorialGapTimer = window.setTimeout(pumpTutorialQueue, 400);
+    return;
+  }
   const wait = tutorialLastDismiss + TUT_CARD_GAP_MS - performance.now();
   if (tutorialQueue[0].priority !== "high" && wait > 0) {
-    window.clearTimeout(tutorialGapTimer);
     tutorialGapTimer = window.setTimeout(pumpTutorialQueue, wait + 50);
     return;
   }
@@ -7633,7 +7651,7 @@ function displayTutorialCard(a: Announcement): void {
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
-    window.clearTimeout(tutorialAutoTimer);
+    window.clearInterval(tutorialAutoTimer);
     tutorialDismissActive = null;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
@@ -7644,14 +7662,25 @@ function displayTutorialCard(a: Announcement): void {
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
   tutorialShownAt = performance.now();
-  // Auto-dismiss: a courtesy, not a squatter (r2: 6-8s, or any input).
-  tutorialAutoTimer = window.setTimeout(dismiss, 7000);
+  // Auto-dismiss: a courtesy, not a squatter (r2: ~7s, or any input) — but
+  // the clock counts only time the card is actually VISIBLE (r3: a modal
+  // opening mid-card pauses it, so a tail is never clipped unseen — observed
+  // with the lowhp card under the B3 draft modal).
+  let visibleMs = 0;
+  let lastTick = performance.now();
+  tutorialAutoTimer = window.setInterval(() => {
+    const now = performance.now();
+    if (!tutorialBlocked()) visibleMs += now - lastTick;
+    lastTick = now;
+    if (visibleMs >= 7000) dismiss();
+  }, 200);
 }
 
 // Any input clears the courtesy card (r2) — with a short grace so the key
 // the player was already holding when it appeared can't insta-kill it.
 let tutorialShownAt = 0;
 function dismissTutorialOnInput(): void {
+  if (tutorialBlocked()) return; // the input belongs to the modal; the card is hidden (r3)
   if (tutorialDismissActive && performance.now() - tutorialShownAt > 1200) {
     tutorialDismissActive();
   }
@@ -7713,7 +7742,7 @@ let onrampItems = -1;
 /** Called once per sim step (solo) or intent pump (net): turns what just
  *  happened into at most one first-time System line on the card surface. */
 function onrampObserve(intent: Intent): void {
-  if (!onramp || state.floor !== 1 || state.status !== "playing") return;
+  if (!onramp || state.status !== "playing") return;
   if (guide?.skipped) return; // B0's skip declined the hand-holding mid-session
   // The world must actually be LIVE. Solo elapses immediately; a rush race
   // counts down before the gun (elapsed holds at 0 while forming). Gating
@@ -7722,13 +7751,22 @@ function onrampObserve(intent: Intent): void {
   // a player already holding W when the gun fires.
   if (state.elapsed <= 1) return;
   const p = me(state); // under net the local crawler is not players[0]
-  if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
   const say = (ev: OnrampEvent): void => {
     const line = onramp.note(ev, state.floor);
     // The flask line races the wound that prompted it: "high" jumps the card
     // pacing gap (never the active card) — everything else waits its turn.
     if (line) showAnnouncement({ text: line, kind: "tip", priority: ev === "lowhp" ? "high" : "normal" });
   };
+  // The cast confirmation ALONE survives to floor 2 (r3 major: a level-1
+  // crawler's ability slots can all be locked — the organic cold run banked
+  // the draft, descended, and the line became unreachable forever). Onramp
+  // .note() enforces the same window, so this is belt and braces.
+  if (state.floor === 2) {
+    if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
+    return;
+  }
+  if (state.floor !== 1) return;
+  if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
   say("start");
   if (Math.abs(intent.move.x) + Math.abs(intent.move.y) > 0.01) say("moved");
   // "cast" means an ABILITY: slots past the basic strike, or the ultimate.

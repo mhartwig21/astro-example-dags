@@ -11,8 +11,11 @@
  *    touches the sim, the seed, or the spawn. Zero sim changes.
  *  - TEACH BY DOING, FLOOR 1 ONLY: lines are keyed to first-time events —
  *    first move, first strike, first cast, first pickup, low health — and
- *    the whole script retires the moment floor 2 begins (where the glyph
- *    socket opens and the real game starts teaching itself).
+ *    the script retires the moment floor 2 begins (where the glyph socket
+ *    opens and the real game starts teaching itself). ONE exception (r3):
+ *    the "cast" confirmation survives to floor 2, because a level-1 crawler
+ *    can reach the stairs with every ability slot still locked — the first
+ *    real cast often happens only after the first draft claim.
  *  - BUDGET ≤ 6 LINES, each at most once, in the System's voice.
  *  - ON TOUCH THE LINES NAME THE ACTUAL CONTROLS (the glass, the chips),
  *    on desktop the actual binds — a tutorial that names a key you rebound
@@ -62,17 +65,22 @@ export class Onramp {
    * Report an event. Returns the System's line the FIRST time each event
    * arrives on floor 1, null otherwise. Six events, six possible lines,
    * once each — the ≤6 budget is the structure, not a counter to trust.
+   * Exception (r3 major): "cast" alone also fires on floor 2 — a level-1
+   * crawler's Shift/Q/C slots can all be locked until the first draft claim,
+   * so a player who banked the draft and descended found the one cast
+   * confirmation unreachable forever.
    */
   note(ev: OnrampEvent, floor: number): string | null {
-    if (floor !== 1) return null; // floor 2 is where the game teaches itself
+    const inWindow = floor === 1 || (ev === "cast" && floor === 2);
+    if (!inWindow) return null; // depth is where the game teaches itself
     if (this.fired.has(ev) || this.lines >= ONRAMP_MAX_LINES) return null;
     this.fired.add(ev);
-    const line = this.script(ev);
+    const line = this.script(ev, floor);
     if (line) this.lines++;
     return line;
   }
 
-  private script(ev: OnrampEvent): string | null {
+  private script(ev: OnrampEvent, floor: number): string | null {
     const t = this.touch;
     switch (ev) {
       case "start":
@@ -84,7 +92,11 @@ export class Onramp {
           ? "Hold the STRIKE chip to swing; the chips beside it are abilities — louder arguments."
           : `${this.c.attack} swings at what the mouse points at; ${this.c.cast} are abilities and ${this.c.ult} is the ultimate — louder arguments.`} The dungeon will supply practice targets momentarily.`;
       case "cast":
-        return "COURTESY EXPLANATION: that was an ABILITY. It has a cooldown, not feelings. Floor 2 opens a GLYPH SOCKET — that is where builds begin, and builds are why crawlers come back.";
+        // On floor 2 the socket the line points at is already open — the
+        // same lesson must not name it as a future event.
+        return floor >= 2
+          ? "COURTESY EXPLANATION: that was an ABILITY. It has a cooldown, not feelings. This floor's GLYPH SOCKET is where builds begin — and builds are why crawlers come back."
+          : "COURTESY EXPLANATION: that was an ABILITY. It has a cooldown, not feelings. Floor 2 opens a GLYPH SOCKET — that is where builds begin, and builds are why crawlers come back.";
       case "pickup":
         return `COURTESY EXPLANATION: loot is a raise, not a souvenir. ${t
           ? "Your BAG is under the ☰ menu up top — wear the upgrade between fights."

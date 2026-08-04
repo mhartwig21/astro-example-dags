@@ -7,6 +7,11 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Dungeon Crawler Claude — 3D isometric</title>
+    <!-- Inline favicon (tutorial r3 fold-in c): without one, every headed
+         browser requests /favicon.ico on boot and logs a 404 — the one
+         console error on an otherwise clean first run. The System's ember
+         diamond (--bronze on the void ground), zero extra requests. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230c0a14'/%3E%3Cpath d='M16 5.5 26.5 16 16 26.5 5.5 16Z' fill='%23c98a3b' stroke='%23f0c273' stroke-width='1.6'/%3E%3C/svg%3E" />
     <style>
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
          Dungeon stone lit by torchfire, framed in bronze, announced in gold.

@@ -27,12 +27,28 @@ describe("the onramp budget is structural", () => {
     for (const ev of ALL) expect(o.note(ev, 1)).toBeNull();
   });
 
-  it("floor 1 only: the script never speaks at depth", () => {
+  it("floor 1 only — except the cast confirmation, which survives to floor 2 (r3)", () => {
     const o = desktop();
-    for (const ev of ALL) expect(o.note(ev, 2)).toBeNull();
+    // A level-1 crawler can reach the stairs with every ability slot locked,
+    // so "cast" alone stays live on floor 2; everything else is floor 1 only.
+    for (const ev of ALL) {
+      if (ev === "cast") continue;
+      expect(o.note(ev, 2)).toBeNull();
+    }
     expect(o.spent).toBe(0);
     // ...and a floor-2 refusal does not burn the line: back on floor 1 it fires.
     expect(o.note("start", 1)).toMatch(/fresh meat/i);
+    // The floor-2 cast line names the socket as PRESENT, not future...
+    const cast2 = o.note("cast", 2)!;
+    expect(cast2).toMatch(/^COURTESY EXPLANATION:/);
+    expect(cast2).toMatch(/This floor's GLYPH SOCKET/);
+    // ...fires once (a floor-1 replay stays silent), and retires at depth.
+    expect(o.note("cast", 1)).toBeNull();
+    expect(desktop().note("cast", 3)).toBeNull();
+    // Fired on floor 1, it does not re-fire on floor 2.
+    const o2 = desktop();
+    expect(o2.note("cast", 1)).toMatch(/Floor 2 opens a GLYPH SOCKET/);
+    expect(o2.note("cast", 2)).toBeNull();
   });
 
   it("every line is the System's voice: COURTESY EXPLANATION, rule + snark", () => {

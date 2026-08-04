@@ -1362,14 +1362,20 @@ export function hasRevision(p: Player, id: string): boolean {
 }
 
 /** First-contact rule explainer (tips.ts): fires ONCE per crawler, the first
- * time the rule touches them. The System files a courtesy explanation. */
-function systemTip(state: GameState, p: Player, id: string): void {
+ * time the rule touches them. The System files a courtesy explanation.
+ * `priority` is presentation pacing, not headline routing: the host's card
+ * surface holds a "high" tip only for the active card, never for the 9s
+ * politeness gap — reserved for tips whose moment expires (collapse). */
+function systemTip(
+  state: GameState, p: Player, id: string,
+  priority: Announcement["priority"] = "normal",
+): void {
   const line = TIPS[id];
   if (!line || (p.tipsSeen ?? []).includes(id)) return;
   (p.tipsSeen ??= []).push(id);
   // Addressed: the System explains the rule to the crawler it touched, not
   // to party veterans who dismissed this explanation runs ago.
-  announce(state, "tip", line, "normal", p.id);
+  announce(state, "tip", line, priority, p.id);
 }
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
@@ -3346,7 +3352,15 @@ export function damagePlayerHit(
   if (opts.effect) systemTip(state, p, "afflicted");
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
-    systemTip(state, p, "lowhp");
+    // The Show's take waits for the SECOND distinct brush with death (r3
+    // fold-in): the first one already carries the host's flask lecture (THE
+    // ONRAMP's lowhp line) — two lectures on the same wound read as nagging.
+    // A brush is an EDGE (crossing under the line); the latch clears in the
+    // per-player step loop once the crawler climbs back over it. Once-ever
+    // is untouched — tipsSeen still owns the ledger, so a run that ends on
+    // its first brush simply leaves the tip for a later near-death.
+    if (!p.lowHpNow) { p.lowHpNow = true; p.lowHpBrushes = (p.lowHpBrushes ?? 0) + 1; }
+    if ((p.lowHpBrushes ?? 0) >= 2) systemTip(state, p, "lowhp");
   }
   return p.hp <= 0;
 }
@@ -4828,7 +4842,10 @@ function updateTimer(state: GameState, dt: number): void {
       announce(state, "progress", "The floor is destabilizing. The clock is your enemy now.");
       // First-ever Safe→Warning (TUTORIAL.md B4): the collapse rule explained
       // the moment it first bites, once per crawler, in the System's voice.
-      for (const p of state.players) systemTip(state, p, "collapse");
+      // "high" (r3 fold-in): the moment IS the lesson — queued behind a 9s
+      // pacing gap the card drifted 15-25s from the first Warning tick and
+      // once landed inside the safe room. It jumps the gap, never a card.
+      for (const p of state.players) systemTip(state, p, "collapse", "high");
     }
   }
 }
@@ -7724,6 +7741,12 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       }
     }
     const ptime = statusTimeMult(p);
+
+    // Near-death brush bookkeeping (r3): the "currently low" latch opens
+    // again once the crawler climbs back over the line, so the next dip
+    // counts as a NEW brush (damagePlayerHit sets it; the lowhp tip waits
+    // for the second).
+    if (p.lowHpNow && p.hp >= p.maxHp * CONFIG.show.lowHpFraction) p.lowHpNow = false;
 
     // Adrenaline (Bullet Time fork) races cooldowns inside the slow; a chill
     // stretches them — both scale the same recovery clock.
