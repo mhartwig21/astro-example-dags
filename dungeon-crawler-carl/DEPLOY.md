@@ -100,6 +100,29 @@ Two live surfaces, one durable record:
   do parties die", "how long is a session". Query with any sqlite client via
   `fly ssh console` + `sqlite3 /data/dcc.sqlite`, or `PersistDb.listEvents`.
 
+## The front door + the crew wire (NICHE.md 4.5 / 4.6) — env knobs
+
+- `DAILY_FLIP_HOUR_UTC` (0–23, default 0): which UTC hour rotates the daily —
+  the dungeon, the rule, AND the daily contract event flip together. NICHE.md
+  §2: set it to the actual population's measured evening; graduate back to 0
+  when <60% of weekly session starts come from one 4-hour local window.
+- `CREW_WIRE_OFF=1`: server-side kill switch for every Discord webhook post.
+- `PUBLIC_BASE_URL` (default the prod origin): the origin wire pings link to.
+- Crew registration is an HTTP call by whoever owns the Discord channel
+  (webhook URL never leaves the server; only Discord webhook URLs accepted):
+
+  ```
+  curl -X POST https://dungeon-crawler-claude.fly.dev/crew \
+    -H 'content-type: application/json' \
+    -d '{"name":"The Regulars","webhook":"https://discord.com/api/webhooks/…",
+         "windowDow":2,"windowHour":21}'   # optional standing window, UTC
+  ```
+
+  The response carries the one-click revoke link and the `CREW-<id>-` race
+  code prefix whose recaps post back to that channel. Five events only:
+  race forming, crew window (15-out + open), daily flip (+rule +named
+  winner), race recap. Rate-limited per crew; no DMs, no member tracking.
+
 ## OAuth (Discord + Google sign-in)
 
 Sign-in is code-complete and env-gated (`src/server/auth.ts`): providers whose

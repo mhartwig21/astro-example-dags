@@ -2,6 +2,7 @@ import { createRequire } from "node:module";
 import type Database from "better-sqlite3";
 import { CompetitiveStore } from "./competitive";
 import { LedgerStore } from "./ledger";
+import { CrewStore } from "./crewWire";
 
 // PERSISTENCE.md P1: SQLite on the Fly volume. One file (DB_FILE, prod:
 // /data/dcc.sqlite) holds accounts, party membership, and per-character saves,
@@ -126,6 +127,9 @@ export class PersistDb {
   readonly competitive: CompetitiveStore;
   /** THE CRAWL LEDGER (NICHE.md 4.3): contracts, mastery stamps, the streak. */
   readonly ledger: LedgerStore;
+  /** THE CREW WIRE (NICHE.md 4.6): named crews — webhook + optional standing
+   *  window. A channel, never a member list (no individual tracking). */
+  readonly crews: CrewStore;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -139,6 +143,7 @@ export class PersistDb {
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')").run();
     this.competitive = new CompetitiveStore(db);
     this.ledger = new LedgerStore(db);
+    this.crews = new CrewStore(db);
     db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
   }
 

@@ -140,10 +140,16 @@ export interface EventSpec {
 }
 
 /** THE DAILY CONTRACT. dailySeed already exists and the board already runs;
- *  what is new is that every entry is verification-mandatory. */
-export function dailyEvent(nowMs: number): EventSpec {
-  const day = dayFromMs(nowMs);
-  const opens = Date.parse(day + "T00:00:00Z");
+ *  what is new is that every entry is verification-mandatory.
+ *
+ *  `flipHourUtc` (NICHE.md §4.5): the day boundary is a server CONFIG — at
+ *  one-timezone scale the dungeon rotates in the population's evening, not
+ *  at a principled UTC midnight. The day STRING stays a UTC calendar date
+ *  (it keys seeds, rules, codes and rows exactly as before); only which
+ *  wall-clock instant begins it moves. Default 0 = the old behavior. */
+export function dailyEvent(nowMs: number, flipHourUtc = 0): EventSpec {
+  const day = dayFromMs(nowMs - flipHourUtc * 3600_000);
+  const opens = Date.parse(day + "T00:00:00Z") + flipHourUtc * 3600_000;
   return {
     id: "daily-" + day,
     kind: "daily",

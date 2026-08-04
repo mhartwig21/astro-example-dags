@@ -16,6 +16,9 @@ import {
 import { toSaveData } from "../persist/save";
 import { dailySeed, dayFromMs, isValidDay } from "../sim/daily";
 import { DAILY_RULES, dailyRuleFor } from "../sim/dailyRules";
+import { CONFIG } from "../sim/config";
+import { flipDayFromMs, msUntilFlip, parseFlipHour } from "./flip";
+import { CrewWire, crewIdFromCode, sanitizeCrewName, validWebhook, MAX_CREWS, type CrewRow } from "./crewWire";
 import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
@@ -176,6 +179,9 @@ interface Instance {
   // deploy mid-gate evaporates it and the regenerated instance resumes
   // ungated (a resumed race is a pause, never a second gun).
   gate: { deadline: number; ready: Set<number> } | null;
+  // THE CREW WIRE's "race forming" ping (NICHE.md 4.6): fired at most once
+  // per instance, the moment a PUBLIC gated race finds its second human.
+  formingWired?: boolean;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -289,6 +295,12 @@ export class GameServer {
   // onConnection — see HEARTBEAT_INTERVAL_MS). Configurable so tests don't
   // wait 20 real seconds for a zombie connection to get reaped.
   private heartbeatTimer: NodeJS.Timeout;
+  /** THE FLIP HOUR (NICHE.md 4.5): which UTC hour rotates the daily. Config,
+   *  not constant — one timezone deserves one honest evening. */
+  readonly flipHourUtc: number;
+  /** THE CREW WIRE (NICHE.md 4.6). Null without a DB (nowhere to keep crews). */
+  readonly crewWire: CrewWire | null = null;
+  private wireTimer: NodeJS.Timeout | null = null;
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
@@ -299,7 +311,17 @@ export class GameServer {
     port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string,
     heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
     private rushGateMs = RUSH_GATE_MS,
+    opts: {
+      /** NICHE.md 4.5: the daily flip hour (UTC). Default: env, then 0. */
+      flipHourUtc?: number;
+      /** NICHE.md 4.6 kill switch + injected transport/clock for tests. */
+      wireEnabled?: boolean;
+      wirePost?: (webhookUrl: string, content: string) => Promise<void>;
+      wireSweepMs?: number;
+      baseUrl?: string;
+    } = {},
   ) {
+    this.flipHourUtc = opts.flipHourUtc ?? parseFlipHour(process.env.DAILY_FLIP_HOUR_UTC);
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
     // Account + save persistence (PERSISTENCE.md P1). No dbFile (tests, bare
@@ -334,6 +356,7 @@ export class GameServer {
         tokens: this.tokens,
         executor: new InlineExecutor(),
         eras: [RULES_HASH],
+        flipHourUtc: this.flipHourUtc,
       });
       void makeExecutor().then((exec) => this.competitive?.queue.setExecutor(exec));
       // One-time import of the retired JSON boards, as CLAIMED rows with no
@@ -346,6 +369,22 @@ export class GameServer {
       ];
       const n = this.db.competitive.importLegacyBoard(legacy, 60);
       if (n > 0) console.log(`imported ${n} legacy board rows as claimed`);
+    }
+    // THE CREW WIRE (NICHE.md 4.6): outbound-only, opt-in, rate-limited.
+    // Needs the DB (crew rows live beside accounts/saves); without one the
+    // wire simply doesn't exist, like the rest of persistence.
+    if (this.db) {
+      this.crewWire = new CrewWire(this.db.crews, {
+        enabled: opts.wireEnabled ?? process.env.CREW_WIRE_OFF !== "1",
+        baseUrl: opts.baseUrl ?? process.env.PUBLIC_BASE_URL ?? "https://dungeon-crawler-claude.fly.dev",
+        post: opts.wirePost,
+      });
+      this.wireTimer = setInterval(
+        () => this.crewWire?.sweep(Date.now(), this.flipHourUtc, () => this.yesterdayWinnerLine()),
+        opts.wireSweepMs ?? 30_000,
+      );
+      // Prime the flip-day edge at boot so a restart never re-announces today.
+      this.crewWire.sweep(Date.now(), this.flipHourUtc, () => null);
     }
     this.http = createServer((req, res) => this.onRequest(req, res));
     // permessage-deflate: snapshot JSON is highly repetitive frame-to-frame,
@@ -377,6 +416,8 @@ export class GameServer {
     this.metrics.gauge("dcc_tick_ms_max", () => +this.tickMsMax.toFixed(1));
     this.metrics.gauge("dcc_rss_bytes", () => process.memoryUsage().rss);
     this.metrics.gauge("dcc_uptime_seconds", () => Math.round((Date.now() - this.startedAt) / 1000));
+    // §7's crew-wire falsification number needs the dispatch count on a graph.
+    this.metrics.gauge("dcc_wire_posts", () => this.crewWire?.posts ?? 0);
   }
 
   private onRequest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
@@ -399,6 +440,18 @@ export class GameServer {
     }
     if (url.split("?")[0] === "/ledger") {
       this.onLedger(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/rush") {
+      this.onRush(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/crew") {
+      this.onCrewRegister(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/crew/revoke") {
+      this.onCrewRevoke(req, res);
       return;
     }
     if (this.competitive) {
@@ -700,10 +753,16 @@ export class GameServer {
   }
 
   /**
-   * Quick Join: GET /open-parties lists live co-op instances that opted into
-   * discovery (see Instance.public) and still have a free seat — a stranger's
-   * only path into the game besides a shared code. No names, no auth, same
-   * open-CORS trust model as /leaderboard.
+   * Quick Join: GET /open-parties lists live PUBLIC instances that still have
+   * a free seat — a stranger's only path into the game besides a shared code.
+   * No names, no auth, same open-CORS trust model as /leaderboard.
+   *
+   * THE FRONT DOOR (NICHE.md 4.5): the co-op-only filter is gone. Public
+   * RIVALS races are listed while they are still FORMING (gate held) — a
+   * race someone could actually join at second zero. A race whose gun has
+   * fired is not listed: seating a stranger on floor 1 of a race three
+   * floors deep is the dishonesty the starting gun exists to end. Private
+   * code races (public=false, the default) are untouched.
    */
   private onOpenParties(req: IncomingMessage, res: import("node:http").ServerResponse): void {
     const cors = {
@@ -714,17 +773,184 @@ export class GameServer {
       res.writeHead(204, cors).end();
       return;
     }
-    const parties = [...this.instances.values()]
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+    res.end(JSON.stringify(this.openParties()));
+  }
+
+  /** The joinable-instance list /open-parties and /rush share. */
+  private openParties(): {
+    code: string; players: number; cap: number; floor: number;
+    mode: "coop" | "rivals"; msLeft?: number;
+  }[] {
+    const now = Date.now();
+    return [...this.instances.values()]
       .filter((inst) =>
-        inst.public && inst.state.mode === "coop" && inst.state.runKind === "race"
-        && inst.state.status === "playing" && inst.clients.length < capFor(inst.state))
-      .sort((a, b) => b.clients.length - a.clients.length) // busiest parties first
+        inst.public && inst.state.runKind === "race"
+        && inst.clients.some((c) => c.ws.readyState === WebSocket.OPEN)
+        && inst.clients.length < capFor(inst.state)
+        && (inst.state.mode === "coop"
+          ? inst.state.status === "playing"
+          : inst.gate !== null)) // rivals: only while the race is still forming
+      .sort((a, b) => b.clients.length - a.clients.length) // busiest first
       .slice(0, 50)
       .map((inst) => ({
-        code: inst.code, players: inst.clients.length, cap: capFor(inst.state), floor: inst.state.floor,
+        code: inst.code, players: inst.clients.length, cap: capFor(inst.state),
+        floor: inst.state.floor,
+        mode: inst.state.mode as "coop" | "rivals",
+        ...(inst.gate ? { msLeft: Math.max(0, inst.gate.deadline - now) } : {}),
       }));
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
-    res.end(JSON.stringify(parties));
+  }
+
+  /**
+   * THE FRONT DOOR (NICHE.md 4.5): GET /rush is the public race queue's data
+   * and its door. One response carries: the code RUSH should join (a forming
+   * public race if one has a seat, else a fresh DAILY-coded one so open
+   * rushes default to TODAY'S dungeon under today's rule — §4.8), the
+   * population's clock (day, countdown to the flip, the configured hour),
+   * the races actually forming right now, and the next scheduled crew
+   * windows. Everything population-dependent is data here; the CLIENT owns
+   * the ≥5 render floor (§2: no number rendered small).
+   */
+  private onRush(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    const now = Date.now();
+    const day = flipDayFromMs(now, this.flipHourUtc);
+    const forming = this.openParties().filter((p) => p.mode === "rivals");
+    // Fullest forming race first — the queue coalesces instead of fragmenting.
+    const code = forming[0]?.code
+      ?? `DAILY-${day}-RUSH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    let live = 0;
+    for (const inst of this.instances.values()) {
+      live += inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).length;
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({
+      ok: true,
+      day,
+      code,
+      msToFlip: msUntilFlip(now, this.flipHourUtc),
+      flipHourUtc: this.flipHourUtc,
+      forming,
+      crawlers: live, // client renders only at ≥5 (NICHE.md §2/§5)
+      windows: this.crewWire?.upcomingWindows(now) ?? [],
+    }));
+  }
+
+  /**
+   * THE CREW WIRE registration (NICHE.md 4.6): POST /crew
+   * { name, webhook, windowDow?, windowHour? } → { crewId, revokeToken,
+   * revokeUrl, codePrefix }. The webhook must be a Discord webhook URL (the
+   * server refuses to POST anywhere else); the response carries the one-click
+   * revoke link and the code prefix whose races recap to this channel.
+   */
+  private onCrewRegister(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    let body = "";
+    let overflow = false;
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 4096) { overflow = true; req.destroy(); }
+    });
+    req.on("end", () => {
+      const fail = (code: number, error: string): void => {
+        res.writeHead(code, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify({ ok: false, error }));
+      };
+      if (overflow) return;
+      if (!this.db || !this.crewWire) { fail(503, "no persistence — the wire needs a database"); return; }
+      try {
+        const msg = JSON.parse(body) as Record<string, unknown>;
+        if (!validWebhook(msg.webhook)) {
+          fail(400, "webhook must be a Discord webhook URL (https://discord.com/api/webhooks/…)");
+          return;
+        }
+        if (this.db.crews.count() >= MAX_CREWS) { fail(429, "crew registry full"); return; }
+        const dow = Number(msg.windowDow);
+        const hour = Number(msg.windowHour);
+        const hasWindow = Number.isInteger(dow) && dow >= 0 && dow <= 6
+          && Number.isInteger(hour) && hour >= 0 && hour <= 23;
+        const crew: CrewRow = {
+          id: randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase(),
+          name: sanitizeCrewName(msg.name),
+          webhookUrl: msg.webhook,
+          revokeToken: randomUUID().replace(/-/g, ""),
+          windowDow: hasWindow ? dow : null,
+          windowHour: hasWindow ? hour : null,
+          createdAt: Date.now(),
+        };
+        this.db.crews.register(crew);
+        this.db.logEvent("crew_register", "WIRE", null, { crewId: crew.id, window: hasWindow }, Date.now());
+        res.writeHead(200, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify({
+          ok: true,
+          crewId: crew.id,
+          revokeToken: crew.revokeToken,
+          revokeUrl: `/crew/revoke?k=${crew.revokeToken}`,
+          codePrefix: `CREW-${crew.id}-`,
+          note: "race codes starting with the prefix recap to your channel; keep the revoke link — one click cuts the wire",
+        }));
+      } catch {
+        fail(400, "bad request");
+      }
+    });
+  }
+
+  /** One-click revoke: GET (a link Discord users can click) or POST both
+   *  delete the crew row. Token-bearer trust — the token IS the capability. */
+  private onCrewRevoke(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const q = new URL(req.url ?? "/", "http://x").searchParams;
+    const token = q.get("k") ?? "";
+    const ok = !!this.db && /^[a-f0-9]{32}$/.test(token) && this.db.crews.revoke(token);
+    if ((req.headers.accept ?? "").includes("text/html")) {
+      res.writeHead(ok ? 200 : 404, { "content-type": "text/html; charset=utf-8" });
+      res.end(ok
+        ? "<h1>THE WIRE IS CUT.</h1><p>The System will no longer address this channel. It pretends not to be hurt.</p>"
+        : "<h1>NO SUCH WIRE.</h1><p>Already cut, or never registered.</p>");
+      return;
+    }
+    res.writeHead(ok ? 200 : 404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+  }
+
+  /** Yesterday's daily, top verified row, as a System line — the named-winner
+   *  line the daily-flip wire post carries (NICHE.md 4.8's precedence rule:
+   *  a named human with a beatable time is a scene; absent rows say nothing). */
+  private yesterdayWinnerLine(): string | null {
+    if (!this.db?.competitive) return null;
+    const yday = flipDayFromMs(Date.now() - 86_400_000, this.flipHourUtc);
+    try {
+      const rows = this.db.competitive.board({
+        kind: "deepest", eventId: "daily-" + yday, verifiedOnly: true, limit: 1,
+      });
+      const top = rows[0];
+      if (!top) return null;
+      const t = Math.round(top.timeTicks / 60);
+      const feat = top.won
+        ? `CLEARED IT IN ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
+        : `FLOOR ${top.floor} OF ${CONFIG.finalFloor}`;
+      return `THE SYSTEM CONGRATULATES: ${top.displayName.toUpperCase()} — YESTERDAY'S DUNGEON, ${feat}.`;
+    } catch {
+      return null;
+    }
   }
 
   // The per-IP submit bucket and recordRunStats are DELETED, not disabled.
@@ -772,6 +998,7 @@ export class GameServer {
     // BEFORE terminating sockets: each terminate fires a close handler that
     // must not re-checkpoint an already-flushed instance against a closed DB.
     clearInterval(this.heartbeatTimer);
+    if (this.wireTimer) clearInterval(this.wireTimer);
     for (const inst of this.instances.values()) {
       this.checkpoint(inst);
       clearInterval(inst.timer);
@@ -925,6 +1152,19 @@ export class GameServer {
         // A held race shows its new seat to everyone at once (the joiner
         // included — their first gate frame should not wait half a second).
         if (inst.gate) this.broadcastGate(inst);
+        // THE CREW WIRE, event 1 (NICHE.md 4.6): a PUBLIC race found its
+        // second human while still forming — the one moment "race forming
+        // 2/4" is true, warm, and worth a channel's attention. Once per
+        // instance; private code races never ping anyone.
+        if (inst.gate && inst.public && inst.state.mode === "rivals" && !inst.formingWired) {
+          const live = inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).length;
+          if (live >= 2) {
+            inst.formingWired = true;
+            this.crewWire?.raceForming(
+              inst.code, live, capFor(inst.state), Math.max(0, inst.gate.deadline - Date.now()),
+            );
+          }
+        }
         return;
       }
 
@@ -1339,6 +1579,26 @@ export class GameServer {
                 this.db.addHeadline(acct, headlineLine(seat.name, line), now);
               }
             }
+          }
+          // THE CREW WIRE, event 5 (NICHE.md 4.6): a race run under a crew's
+          // code prefix recaps to that crew's channel — winner headline plus
+          // every seat's superlative, CONCEDED SEATS INCLUDED, which is how a
+          // racer who walked at floor 3 still gets their line an hour later
+          // (4.7: the race refuses to forget you).
+          const crewId = crewIdFromCode(inst.code);
+          if (crewId && this.crewWire) {
+            const winner = seats.find((s) => s.won);
+            const t = Math.round(inst.state.elapsed);
+            const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+            const ate = seats.length - (winner ? 1 : 0);
+            const headline = winner
+              ? `${winner.name.toUpperCase()} TOOK THE DUNGEON — ${ate} CRAWLER${ate === 1 ? "" : "S"} ATE FLOOR. ${clock}.`
+              : `THE DUNGEON TOOK THE RACE — ${seats.length} CRAWLER${seats.length === 1 ? "" : "S"} ATE FLOOR. ${clock}.`;
+            this.crewWire.raceRecap(
+              crewId, headline,
+              seats.map((s) => `${s.name}: ${supers.get(s.id) ?? "PRESENT"}${s.conceded ? " (CONCEDED)" : ""}`),
+              inst.code,
+            );
           }
         }
         // A secured RIVALS contract goes on the CONTRACTS board SERVER-SIDE —

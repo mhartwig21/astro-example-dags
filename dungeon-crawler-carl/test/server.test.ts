@@ -369,7 +369,9 @@ describe("authoritative server", () => {
     const host = await connect(port, "OPEN-1", "Hostella", false, true);
 
     const entry = await waitForOpenParty(port, "OPEN-1", true);
-    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1 });
+    // `mode` arrived with THE FRONT DOOR (NICHE.md 4.5): the list now also
+    // carries forming rivals races, so rows say which door they are.
+    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1, mode: "coop" });
     expect((await openParties(port)).some((p) => p.code === "PRIV-1")).toBe(false);
 
     // A stranger joins straight off the listed code and lands in the same party.

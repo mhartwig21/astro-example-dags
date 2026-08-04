@@ -72,6 +72,10 @@ export interface CompetitiveApiOptions {
   /** Rules eras this build can execute. One today; four once sim-eras ships. */
   eras?: string[];
   now?: () => number;
+  /** THE FLIP HOUR (NICHE.md §4.5): which UTC hour begins the daily. A lobby
+   *  config, threaded here so the daily EVENT flips with the rush surface —
+   *  two "todays" on one server is the dishonesty the config exists to end. */
+  flipHourUtc?: number;
 }
 
 interface SubmitOutcome {
@@ -100,6 +104,8 @@ export class CompetitiveApi {
   readonly queue: VerifyQueue;
   private eras: string[];
   private now: () => number;
+  /** Daily flip hour (NICHE.md §4.5) — see CompetitiveApiOptions. */
+  readonly flipHourUtc: number;
   private buckets = new Map<string, { tokens: number; at: number }>();
   /** Accounts cooling down after a rejection - a false claim costs time. */
   private cooldown = new Map<string, number>();
@@ -117,6 +123,7 @@ export class CompetitiveApi {
     // claims an executability the box does not have.
     this.eras = executableEras(o.eras);
     this.now = o.now ?? Date.now;
+    this.flipHourUtc = o.flipHourUtc ?? 0;
     // The queue is built HERE, with this API as its hooks, so there is exactly
     // one object that knows how a verdict becomes a row.
     this.queue = new VerifyQueue({
@@ -284,7 +291,7 @@ export class CompetitiveApi {
 
   /** Make sure today contracts exist, pinned to the era that created them. */
   private ensureEvents(nowMs: number): { daily: EventSpec; weekly: EventSpec } {
-    const daily = dailyEvent(nowMs);
+    const daily = dailyEvent(nowMs, this.flipHourUtc);
     const weekly = weeklyEvent(nowMs);
     for (const e of [daily, weekly]) {
       this.store.upsertEvent({ ...e, rulesHash: RULES_HASH });
@@ -873,7 +880,7 @@ export class CompetitiveApi {
         return true;
       }
       const eventParam = q.get("event");
-      const eventId = eventParam === "daily" ? dailyEvent(now).id
+      const eventId = eventParam === "daily" ? dailyEvent(now, this.flipHourUtc).id
         : eventParam === "weekly" ? weeklyEvent(now).id
           : eventParam;
       const archetype = q.get("archetype");
@@ -1091,7 +1098,7 @@ export class CompetitiveApi {
     for (const e of ladder) {
       if (!rival || Math.abs(e.cp - mine) < Math.abs(rival.cp - mine)) rival = e;
     }
-    const daily = dailyEvent(now);
+    const daily = dailyEvent(now, this.flipHourUtc);
     const theirs = rival
       ? this.store.board({ kind: "deepest", eventId: daily.id, verifiedOnly: true, limit: 100 })
         .find((r) => r.accountId === rival.accountId) ?? null
