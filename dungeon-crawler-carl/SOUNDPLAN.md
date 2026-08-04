@@ -73,8 +73,9 @@ the commit message, verified firing in-game by `tools/audio/probe.mjs`.
 5. **SHIPPED (SFX r1)** — `smash_{wood,clay}` + director breakable tracking
    (material from prop key, hashed rate spread, crack-then-pop, descent
    guard). Arena props (`fireArenaProp`) pop through the same channel.
-6. **SHIPPED (SFX r1, the buy half)** — svc* draft purchases ring `till`.
-   The "OPEN FOR BUSINESS" pickup moment still rides the generic chime.
+6. **SHIPPED (SFX r1 buy half; r2 pickup half)** — svc* draft purchases
+   ring `till`; r2: OPEN FOR BUSINESS announcements ring the same `till`
+   (one cash register, whichever way the money moves).
 7. Per-purpose room tone (P2) — forge crackle, tavern murmur; positional loops
    are an engine addition; only after beds ship.
 8. **SHIPPED (SFX r1)** — `ident` (normal) / `ident_high` (priority high)
@@ -101,8 +102,10 @@ the commit message, verified firing in-game by `tools/audio/probe.mjs`.
 16. **SHIPPED (SFX r1, pick + bank)** — `draft_pick` confirm, `draft_bank`
     filing cue behind the badge. Open/hover deliberately left silent.
 17. **SHIPPED (SFX r1)** — `descend_whoosh` layers under descend+band_sting.
-18. Rush tile "RACE FORMING — GUN IN mm:ss" (P2): last-10-seconds tick only,
-    and only when the tile is visible. No siren spam.
+18. **SHIPPED (SFX r2)** — rush tile "RACE FORMING — GUN IN mm:ss":
+    `count_tick` once per second over the last ten, only while the tile is
+    on screen (menu up, band not owned by a challenge card). No siren; the
+    GO stays with the in-run gate.
 
 **F. Already-mapped but worth an upgrade pass (P2, measure first)**
 19. **SHIPPED (SFX r1)** — collapse.wav → OGG q4, −3.98MB, LUFS unchanged.
@@ -118,11 +121,13 @@ scriptable and fund the budget — do them early even though they're P2 polish).
 
 ### 2.1 Buses
 
-Today: `sfx / music / ui` → master gain → muffle LPF → compressor → out.
-Add **`announcer`** (System idents, TODAY'S RULE, starting gun, verdict,
-boss_intro): it needs its own level AND it is the DUCK SOURCE — the show
-talks over the dungeon, never the reverse. Barks/smashes/status stay on
-`sfx`. Buses and any ducking live in engine.ts (existing architecture).
+**SHIPPED (SFX r2)**: `sfx / music / ui / announcer` → master gain → muffle
+LPF → compressor → out, with sidechain duck nodes between the sfx/music
+buses and master. `announcer` carries ident, ident_high, stamp, count_tick,
+count_go, verdict, boss_intro and is the DUCK SOURCE — the show talks over
+the dungeon, never the reverse. Party pings (`announce`) deliberately stay
+off it (a ping must not duck a fight); UI clicks stay `ui`. Barks/smashes/
+status stay on `sfx`. All in engine.ts.
 
 ### 2.2 Loudness targets (measured, per family)
 
@@ -158,7 +163,7 @@ phase C's.
 
 | Trigger | Ducks | Amount / shape |
 |---|---|---|
-| Announcer bus active (any ident/stinger) | music -6 dB, sfx -3 dB | 80ms attack, 600ms release, sidechain-style flag in engine |
+| Announcer bus active (any ident/stinger) — **SHIPPED r2, probe-measured -6.0dB @150ms, clean release** | music -6 dB, sfx -3 dB | 80ms attack, 600ms release, sidechain in engine.ts; overlapping stingers extend the hold; skips entirely while the APPROACH duck holds music < 0.5 (no stacking) |
 | Boss intro sting | music to 0.3 for sting length | then boss bed swells in |
 | APPROACH corridor (shipped) | music to 0.22 | keep; release at reveal |
 | Bullet time (shipped) | master LPF 700Hz | keep |
@@ -290,9 +295,12 @@ and asserts:
   (HARNESS.md spec #4).
 - **Brawl headroom**: 20-hit staged brawl — analyser time-domain peak < 1.0
   throughout (rate limits + compressor doing their jobs).
-- **Duck test**: System stinger while a bed plays — music-bus gain drops ≥
-  measured 4dB within 150ms, releases within 1s.
-- **Band swap**: crossing floor 3/6/9... swaps the bed id in the ring.
+- **Duck test — LIVE (r2)**: `trigger("ident_high")` while a bed plays —
+  the music duck gain drops ≥ 4dB within 150ms (measured -6.0dB) and
+  releases within 1.5s of the clip end (measured 1.000).
+- **Bed swap — LIVE (r2)**: the staged brawl must raise a `music_battle_*`
+  bed in the ring (the per-band ambient swap joins this assert when the
+  phase-B beds exist).
 
 **Per-file measurements (every committed clip)**: peak ≤ ceiling, LUFS in
 family band (§2.2), silence share < 10% (beds) — and for loops the **seam
@@ -349,8 +357,43 @@ the ear that counts. All on `/iso.html`, sound on, K-panel verbosity up.
 8. **Descent** — every staircase now has an air-swallow under the thunk;
    band boundaries still get the pizzicato sting on top.
 
-Levels caveat (known, measured): the shipped Kenney impacts peak over full
-scale and the compressor input peaks ~+1.4dB over the §2.2 contract in a
-20-hit brawl — the master compressor absorbs it (output peak 0.87, no hard
-clip). The mix phase (C) owns re-leveling; if anything feels crushed in a
-big fight, that is the number to blame.
+Levels caveat — RESOLVED in r2: the hot Kenney impacts were re-leveled
+(-5.2..-5.4dB in-file) and the 20-hit brawl now drives the compressor input
+to 0.794 peak (was 1.218 — the §2.2 contract holds with ~2dB margin). If a
+big fight still feels crushed, the number to blame moved to the §2.2
+phase-C re-level list.
+
+---
+
+## 7. SFX r2 — audition sheet for the owner
+
+Round 2 = the critic's four majors fixed + the announcer duck. All measured
+/ probe-verified; your ear is the acceptance. All on `/iso.html`.
+
+1. **Skeleton voices** — `?test&floor=1&level=6`: early-floor skeletons
+   now rattle at the SAME loudness as every other species (they were
+   6-8dB under, inaudible in a brawl). All 30 barks measured within 0.5dB
+   of each other. WRONG = skeletons still vanish under a fight, or the
+   rattle now sounds crunchy/distorted (the iterative limiter traded crest
+   for loudness — tell me if the trade reads as damage).
+2. **Impact levels** — any brawl: hits/crits/hurt are ~3-5dB quieter in
+   absolute file terms but nothing else changed — the whole mix should
+   feel LESS squashed at peak moments, not quieter overall (the compressor
+   was eating the overage before). WRONG = impacts now feel weak against
+   the barks/steps.
+3. **The announcer duck** — trigger any System line (a level-up in a
+   fight is easiest): the music (and slightly the sfx) steps back for the
+   stinger and swells back inside a second. It should feel like a
+   broadcast mixer, not a pumping nightclub. WRONG = audible pumping on
+   every minor line, or the duck hanging open after the line ends.
+4. **Collapse bed** — let the collapse timer run (`?test&floor=2`, wait
+   out the warning): the 25s battle loop no longer clicks at each wrap
+   (every ~25s). WRONG = a tick/pop still audible on the loop.
+5. **Safe room bed** — sit in a safe room ~2.5 minutes: the synthwave bed
+   now wraps seamlessly instead of fading to silence and slamming back in.
+   WRONG = you can still hear the restart.
+6. **Rush tile** — home screen with a race forming: the last ten seconds
+   of GUN IN tick once per second. Leaving the menu silences it. WRONG =
+   ticks while the menu is closed, or any ticking before 0:10.
+7. **OPEN FOR BUSINESS** — find a floor's service room: the announcement
+   rings the shop till (same register as buying). WRONG = generic blip.
