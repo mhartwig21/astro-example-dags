@@ -197,12 +197,20 @@ export class HudLayout {
     if (!corner) return;
     const s1 = z.controls.slot1, ult = z.controls.slot4;
     const fanVis = s1.vis ?? s1.w;
+    const ultVis = ult.vis ?? ult.w;
     const R = z.arcRadius;
     // The layout may have squeezed the fan vertically (short glass); read the
     // actual ellipse off the ultimate's landed position rather than guessing.
     const sy = Math.max(0.5, Math.min(1, (z.pivot.y - ult.cy) / (R * 1.05 * 0.999)));
-    const Ro = R * 1.05 + fanVis / 2 + 8;
-    const Ri = Math.max(24, R - fanVis / 2 - 8);
+    // THE TRACK IS A RIM AROUND THE DISCS, NOT A MOAT. Its width is now read
+    // off the discs the ring actually carries — the ultimate sets the outer
+    // edge because it is both the widest fan chip and the furthest out — with
+    // a fifth of a disc of margin. Pinned to a constant 8 px it read fine at
+    // r3's 56 px chips and would read as a wide empty band under the
+    // reference-sized 42.8 px ones.
+    const pad = Math.max(5, fanVis * 0.2);
+    const Ro = R * 1.05 + ultVis / 2 + pad;
+    const Ri = Math.max(24, R - fanVis / 2 - pad);
     const size = Math.ceil(Ro * 2);
     el.style.width = `${size}px`;
     el.style.height = `${size}px`;
@@ -213,12 +221,15 @@ export class HudLayout {
       `radial-gradient(circle, rgba(0,0,0,0) ${Math.round(Ri - 1)}px, rgba(201,162,75,0.14) ${Math.round(Ri)}px, ` +
       `rgba(10,12,16,0.30) ${Math.round(Ri + 5)}px, rgba(10,12,16,0.30) ${Math.round(Ro - 6)}px, ` +
       `rgba(201,162,75,0.14) ${Math.round(Ro - 1)}px, rgba(0,0,0,0) ${Math.round(Ro)}px)`;
-    // The fan sweeps -10..92 deg about the inboard horizontal; in conic terms
-    // (0 = up, clockwise) that is 260..362 for a right hand, -2..100 mirrored.
+    // The fan sweeps -14..92 deg about the inboard horizontal (`wr_01`'s own
+    // angles); in conic terms (0 = up, clockwise) a chip at `a` sits at
+    // 270 + a right-handed and 90 - a mirrored, so the span is 256..362 and
+    // -2..104. The track runs a chip's half-width past each end so the first
+    // and last discs sit ON the band rather than hanging off it.
     const mirror = document.body.classList.contains("handed-left");
-    const from = mirror ? -16 : 246;
+    const from = mirror ? -20 : 240;
     const mask =
-      `conic-gradient(from ${from}deg, rgba(0,0,0,0) 0deg 2deg, #000 18deg, #000 112deg, rgba(0,0,0,0) 128deg 360deg)`;
+      `conic-gradient(from ${from}deg, rgba(0,0,0,0) 0deg 2deg, #000 16deg, #000 123deg, rgba(0,0,0,0) 139deg 360deg)`;
     el.style.webkitMask = mask;
     el.style.mask = mask;
   }

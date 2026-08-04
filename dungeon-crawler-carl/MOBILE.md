@@ -458,6 +458,95 @@ screenshot is the round's real exit gate.
 
 ---
 
+## ROUND 8 (mobile-wr r4) — THE ARRANGEMENT WAS RIGHT; THE SIZES WERE NEVER MEASURED
+
+The owner, on the r3 rebuild: *"oh the screen shot looks closer! But the boxes
+are too big and overlaping."* Arrangement accepted, two faults — and both were
+things r3 CHOSE, from a reference it looked at instead of measuring. So this
+round measured it. Off `wr_01_hud_default_layout.jpg` (1024x461, default
+layout) and confirmed on `wr_03_aim_tidalwave.jpg` (1024x458, live):
+
+| measured | Wild Rift | ours before | ours now |
+|---|---|---|---|
+| ability disc / viewport height | **0.125** | 0.164 (+31%) | **0.126** |
+| basic attack / viewport height | **0.185** | 0.246 (+33%) | **0.187** |
+| ultimate / viewport height | **0.130** | 0.200 | **0.140** |
+| neighbour pitch / disc diameter | **1.24** | 0.86 | **1.26 - 1.36** |
+| gap between neighbouring discs | +0.24 disc | **MINUS 8 px** | +11 to 15 px |
+| fan ring radius / disc diameter | 2.09 | 1.39 (dead formula) | 2.16 |
+| fan angles about the primary | -13.6 / 19.9 / 57.3 / 91.9 | -10 / 22 / 54 / 92 | -14 / 20 / 57 / 92 |
+
+**1. THE DISC IS A SCREEN QUANTITY; THE TARGET UNDER IT IS A HAND ONE.** §2.0's
+register had one column too few. `CHIP_MM` is a correct TARGET size and a wrong
+DISC size, because Wild Rift runs full-screen and we run under ~50 pt of Safari
+chrome — the same millimetre is a bigger share of our frame, which is exactly
+the 31% the owner could see. The chip is now `min(hand ceiling, reference share
+of the short edge)`: on a phone the FRAME binds (42.8 px on an iPhone 13, under
+its own 44 px target — the split `ControlRect.vis` has always existed for), on
+an iPad the HAND binds and the tablet keeps the 47.9 px it already had. One
+formula, right at both ends, and no hit rect moved.
+
+**2. "EDGES VISUALLY KISS" WAS A MISREADING, AND IT COST THE STRICT INVARIANT.**
+The reference gap is a quarter of a disc; r3 shipped 48 px on 56 px chips, i.e.
+8 px of overlap. Worse, it had relaxed the axis-aligned no-overlap rule to a
+centre-distance floor *specifically to permit* that overlap. Both are reverted:
+`FAN_PITCH = 1.24` is the measured number, and **no two padded 44 px hit rects
+may overlap** is back — verified across the declared matrix (7 viewports x 2
+hands x 8 slider positions x 2 presets: zero overlaps). That restores by
+construction the property whose loss caused the Pixel 5 "tapping DASH drank a
+potion" bug: a rect can never contain a neighbour's centre.
+
+**3. THE RING IS SOLVED, NOT CHOSEN (`cornerRing`).** r3's authored ring
+formula was dead code — a floor derived from the 44 px rects (83.4 px) was what
+actually bound on every phone, so the fan's spacing was whatever relaxation
+converged to. The ring is now the smallest radius satisfying all three debts at
+once: clear the primary, hold `FAN_PITCH`, keep the padded rects axis-separated.
+Solving the last two together is why the fan angles are now `wr_01`'s own — on
+r3's eyeballed 22->54 step the chord runs diagonally, worst case for an
+axis-aligned rect, and would have forced a 106 px ring where the pitch wanted
+96; at the measured 20->57 the two rules land within 1% (91.6 vs 92.0) and the
+ring comes out at 2.16 diameters against the reference's 2.09.
+
+**4. THE CLUSTER IS CORNER-ANCHORED, NOT THE PRIMARY.** `wr_01`'s first ability
+sits 30 px *below* its basic attack's centre and its rim hangs 17 px past it,
+which is why WR's whole corner floats ~50 px off the frame edge. r3 pinned the
+primary flush, so that chip landed 13 px outside the safe box, the box clamp
+shoved it back, and the CLAMP set the pitch (46 px where the ring asked 56).
+The bounding box is flush now; the primary is still the corner chip.
+
+**5. RULE 2's BUDGET HAS AN ARITHMETIC FLOOR, WRITTEN DOWN.** The 0.57/0.58
+share still governs 95 of 96 matrix cells. In one (Pixel 5, x1.4 buttons, the
+inset slider at its 32 px maximum) it asks for 130.5 px of a cluster that
+cannot go below 136: three ranks of padded 44 px targets is the shortest nine
+controls can be once every disc is already at the floor. r3 met that number
+only by letting two hit rects intersect — which is the trade the restored
+invariant refuses. The budget is now `max(share, 3 x (MIN_TARGET + 2))`.
+
+Also fixed, found by the restored invariant: on a LEFT-handed corner grip the
+zero-area cancel band was parked at `clusterLeft`, i.e. the far side of the
+cluster, where the clamp could drop it inside the primary's own hit box. A
+degenerate rect still has a position; it now takes the inboard edge on both
+hands. And the ultimate came down from 1.22 to 1.12 chips (0.140 of viewport
+height against the reference's 0.130) — still the biggest fan chip, no longer
+the second-biggest thing on the glass.
+
+Untouched, as briefed: the touchShell gesture handlers and FSM (the iOS
+multi-touch fix), the arrangement itself, safe-area insets, compact-as-default,
+the WR skin, and the size/mirror/preset customisation.
+
+Verified: `test/touchLayout.test.ts` 64/64 with the pinned numbers rewritten to
+the new contract (the measured ratios, the strict overlap ban, the cluster-flush
+anchor, the extent floor); full vitest **1278/1278**; tsc clean;
+`battery_focus.mjs` 5/5 (identical to the pre-change baseline) and
+`ios_gesture_probe.mjs` **11/11** against the live layout, which measures the
+compact cluster at **241x200** against r3's 268x194 — smaller discs AND a
+smaller footprint. Real-GPU frames in `tools/_mobile/wr-r4/`; the owner's
+side-by-side with the ratio table is
+`~/.claude/jobs/d43e193f/tmp/wr-sidebyside-2.png` (`wr_shot.mjs` /
+`wr_composite2.mjs`).
+
+---
+
 ## ROUND 7 (mobile-wr r3) — THE ARRANGEMENT WAS THE THING, AND THREE ROUNDS NEVER TOUCHED IT
 
 The owner, after the compact round deployed: *"It still doesn't look wild
@@ -495,6 +584,9 @@ similar coins. This round rebuilt the corner-grip cluster to THAT geometry
   property, kept structural). Adjacent fan discs may visually kiss (measured
   iPhone 13: 48 px spacing on 56 px chips, ~8 px of edge overlap — `wr_01`'s
   own spacing to the pixel). The 44 px hit floor itself is untouched.
+  **[REVERSED in ROUND 8 — the parenthetical is wrong. `wr_01`'s spacing is
+  1.24 disc diameters, a real gap; nobody had measured it. The trade this
+  bullet describes bought nothing and the strict invariant is back.]**
 * **Short glass squeezes the fan before it shrinks a chip.** On a Pixel 5 (or
   a player-padded inset) the circular fan cannot meet rule 2's extent budget;
   the fan goes ELLIPTICAL (`sy`, refined against the measured extent) — which

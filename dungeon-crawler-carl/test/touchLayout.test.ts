@@ -179,12 +179,21 @@ describe("touch layout: the §4.2a cluster invariants", () => {
           }
 
           // 2. Cluster vertical extent <= 46% of safe.h on side grip, 58% on
-          //    corner (a corner grip has nowhere else to go).
+          //    corner (a corner grip has nowhere else to go) — OR, on a corner
+          //    grip only, the arithmetic floor under that share: three ranks
+          //    of padded 44 px targets, which is the shortest a nine-control
+          //    fan can be once every disc is already at MIN_TARGET. The floor
+          //    binds in exactly one cell of this matrix (Pixel 5, x1.4
+          //    buttons, the inset slider at 32) and the share governs the
+          //    other 95; before the non-overlap invariant came back, that cell
+          //    met 0.57 only by letting two hit rects intersect.
           const tops = COMBAT_CONTROLS.map((id) => hitRect(z, id).y);
           const bots = COMBAT_CONTROLS.map((id) => hitRect(z, id).y + hitRect(z, id).h);
           const extent = Math.max(...bots) - Math.min(...tops);
-          expect.soft(extent / z.safe.h, `${tag}: cluster extent`)
-            .toBeLessThanOrEqual((side ? 0.46 : 0.58) + 0.002);
+          const budget = Math.max((side ? 0.46 : 0.58) * z.safe.h,
+            side ? 0 : 3 * (MIN_TARGET + 2));
+          expect.soft(extent, `${tag}: cluster extent`)
+            .toBeLessThanOrEqual(budget + 0.6);
 
           // 3. Every combat control inside `comfortable` of its posture pivot.
           for (const id of COMBAT_CONTROLS) {
@@ -208,13 +217,34 @@ describe("touch layout: the §4.2a cluster invariants", () => {
     const phone = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
     const tablet = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, prefs());
     // THE CORNER PIVOT IS THE PRIMARY ITSELF (the WR arrangement): melee's
-    // centre, anchored a hair off the safe corner. The thumb rests ON it.
+    // centre, and the thumb rests ON it.
     expect(phone.pivot.x).toBeCloseTo(phone.controls.slot0.cx, 4);
     expect(phone.pivot.y).toBeCloseTo(phone.controls.slot0.cy, 4);
-    expect(phone.controls.slot0.y + phone.controls.slot0.h)
+    // ...and what is anchored a hair off the safe corner is the CLUSTER, not
+    // the primary alone. `wr_01`'s fan dips below its basic attack (first
+    // ability centre 30 px lower, rim 17 px past it), so pinning the primary
+    // to the corner hangs that chip out of the safe box and the box clamp
+    // eats the fan's spacing to put it back. The bounding box of every chip
+    // is flush instead — the primary is still the corner CHIP (nothing is
+    // further outboard, nothing sinks past its bottom edge), it just is not
+    // the thing touching the corner.
+    const ids = Object.keys(phone.controls) as ControlId[];
+    expect(Math.max(...ids.map((id) => hitRect(phone, id).y + hitRect(phone, id).h)))
       .toBeCloseTo(phone.safe.y + phone.safe.h - 2, 1);
-    expect(phone.controls.slot0.x + phone.controls.slot0.w)
+    expect(Math.max(...ids.map((id) => hitRect(phone, id).x + hitRect(phone, id).w)))
       .toBeCloseTo(phone.safe.x + phone.safe.w - 2, 1);
+    // ...and the primary is the chip nearest the corner itself. (Not the most
+    // outboard CENTRE: `wr_01` puts its ultimate at 91.9 degrees, a hair past
+    // vertical, so the top of the fan leans very slightly outboard of the
+    // attack button — ours does the same and that is the reference, not drift.)
+    const corner = { x: phone.safe.x + phone.safe.w, y: phone.safe.y + phone.safe.h };
+    const toCorner = (id: ControlId) =>
+      Math.hypot(phone.controls[id].cx - corner.x, phone.controls[id].cy - corner.y);
+    for (const id of ids) {
+      if (id === "slot0") continue;
+      expect.soft(toCorner("slot0"), `${id} nearer the corner than the primary`)
+        .toBeLessThan(toCorner(id));
+    }
     // ...the side grip well up the outer edge, where an 11-inch slab is held.
     expect(tablet.pivot.y).toBeCloseTo(tablet.safe.y + 0.58 * tablet.safe.h, 4);
     // The ultimate is the TOP of the fan on both postures — furthest from a
@@ -428,7 +458,11 @@ describe("touch layout: hit testing", () => {
       prefs({ buttonScale: 0.7, stickScale: 0.7 }));
     const big = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 },
       prefs({ buttonScale: 1.4, stickScale: 1.4, hudInset: 24 }));
-    expect(small.controls.slot1.w).toBeLessThan(z.controls.slot1.w);
+    // Read the slider off the DISC, not off the hit rect: on a phone the
+    // reference share already puts the disc under MIN_TARGET, so every rect
+    // in this comparison is 44 px and only `vis` can move.
+    expect(small.controls.slot1.vis).toBeLessThan(z.controls.slot1.vis);
+    expect(big.controls.slot1.vis).toBeGreaterThan(z.controls.slot1.vis);
     expect(big.controls.slot1.w).toBeGreaterThanOrEqual(small.controls.slot1.w);
     expect(big.stickRadius).toBeGreaterThan(z.stickRadius);
     // The aim throw follows buttonScale, NEVER stickScale (contradiction 2).
@@ -445,19 +479,19 @@ describe("touch layout: hit testing", () => {
   });
 
   /**
-   * NO TWO CONTROLS MAY CROWD — the invariant the route probe bought, in the
-   * metric the router actually uses.
+   * NO TWO PADDED HIT RECTS MAY OVERLAP — the strict invariant, restored.
    *
-   * `controlAt()` resolves by NEAREST CENTRE, so what a thumb needs is an
-   * exclusive landing corridor, and the honest floor is a CENTRE DISTANCE:
-   * at >= 46 px apart every chip keeps a >= 46 px-wide Voronoi corridor. The
-   * old axis-aligned-box version of this test forbade the one thing Wild
-   * Rift's corner is made of (a tight arc whose neighbours visually kiss), so
-   * it now asserts the circular floor — max(46, 0.82 x mean hit size) — plus
-   * the property whose loss caused the original Pixel 5 bug: no chip's padded
-   * rect may cover a NEIGHBOUR'S CENTRE ("tapping DASH drank a potion").
+   * r3 relaxed this to a centre-distance floor because it had read `wr_01` as
+   * "neighbours' edges visually kiss" and an axis-aligned rule forbids that
+   * outright. The frames say otherwise: neighbouring ability centres sit 1.24
+   * diameters apart, a real gap. So the relaxation bought nothing, and it cost
+   * the property whose loss caused the measured Pixel 5 bug — one chip's
+   * padded rect covering a neighbour's CENTRE, at which point the
+   * nearest-centre router and the DOM disagree and tapping DASH drinks a
+   * potion. Disjoint rects make that impossible by construction, and
+   * `cornerRing` now sizes the fan so it costs no crowding to hold.
    */
-  it("never crowds two controls past the centre-distance floor, on any viewport or grip", () => {
+  it("never overlaps two padded hit rects, on any viewport, grip or slider", () => {
     const VIEWPORTS: [number, number, Insets][] = [
       [750, 342, { top: 0, right: 47, bottom: 21, left: 47 }],   // iPhone 13
       [832, 380, { top: 0, right: 47, bottom: 21, left: 47 }],   // 13 Pro Max
@@ -474,13 +508,11 @@ describe("touch layout: hit testing", () => {
           for (let i = 0; i < ids.length; i++) {
             for (let j = i + 1; j < ids.length; j++) {
               const a = t.controls[ids[i]], b = t.controls[ids[j]];
-              const d = Math.hypot(a.cx - b.cx, a.cy - b.cy);
-              const mean = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
-              const floor = Math.max(MIN_TARGET + 2, 0.82 * mean);
               const tag = `${w}x${h} ${handed} x${buttonScale}: ${ids[i]} vs ${ids[j]}`;
-              expect.soft(d, tag).toBeGreaterThanOrEqual(floor - 0.75);
-              // A centre inside a neighbour's padded rect re-creates the
-              // table-vs-DOM disagreement outright: never.
+              expect.soft(overlaps(hitRect(t, ids[i]), hitRect(t, ids[j])), tag).toBe(false);
+              // ...which makes "a centre inside a neighbour's padded rect"
+              // — the table-vs-DOM disagreement itself — structural. Asserted
+              // anyway, because it is the property, not the mechanism.
               const inA = Math.abs(b.cx - a.cx) < Math.max(MIN_TARGET, a.w) / 2 &&
                 Math.abs(b.cy - a.cy) < Math.max(MIN_TARGET, a.h) / 2;
               const inB = Math.abs(a.cx - b.cx) < Math.max(MIN_TARGET, b.w) / 2 &&
@@ -551,11 +583,60 @@ describe("layout preset: COMPACT default vs LARGE", () => {
     }
   });
 
-  it("compact ability chips hold the 9 mm floor where the pack has room (iPhone 13)", () => {
+  /**
+   * THE REFERENCE RATIOS, TO THE PIXEL — the round's whole point, and the one
+   * table the owner can check against the screenshots himself.
+   *
+   * Measured off `wr_01_hud_default_layout.jpg` (1024x461) and confirmed on
+   * `wr_03_aim_tidalwave.jpg` (1024x458):
+   *
+   *   ability disc / viewport height   58/461, 57/458   -> 0.125
+   *   basic attack / viewport height   85/461, 85/458   -> 0.185
+   *   neighbour pitch / disc diameter  72.5/58, 69.7/57 -> 1.24
+   *
+   * This replaces a "chips hold the 9 mm floor" assertion, which was the same
+   * claim in the wrong unit: 9 mm is a correct TARGET (and `MIN_TARGET`, held
+   * unconditionally two tests up, is what enforces it) and a wrong DISC, since
+   * Wild Rift runs full-screen and we run under Safari's chrome, so equal
+   * millimetres are unequal shares of the frame. The stricter thing is
+   * asserted here — a measured ratio, not a floor.
+   */
+  it("the corner cluster reproduces Wild Rift's measured proportions (iPhone 13)", () => {
     const z = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    const vh = 342;
     for (const id of ["slot1", "slot2", "slot3"] as ControlId[]) {
-      expect.soft(z.controls[id].w * z.mmPerPx, id).toBeGreaterThanOrEqual(9);
+      expect.soft(z.controls[id].vis / vh, `${id} disc share`).toBeCloseTo(0.125, 2);
+      // ...and the hit target under it never gives, however small the paint.
+      expect.soft(Math.max(z.controls[id].w, z.controls[id].h), `${id} target`)
+        .toBeGreaterThanOrEqual(MIN_TARGET);
     }
+    expect.soft(z.controls.slot0.vis / vh, "primary share").toBeCloseTo(0.185, 2);
+    // The PITCH: adjacent, with daylight. Never below the reference's 1.24 —
+    // r3 shipped 0.86 (8 px of disc-on-disc overlap), which is what the owner
+    // saw. The upper bound is loose on purpose: the 44 px floor pushes the top
+    // of the fan wider than the reference on small glass, and an airy fan is
+    // a cosmetic miss where an intersecting one is a broken one.
+    const d = z.controls.slot1.vis;
+    for (const [a, b] of [["slot1", "slot2"], ["slot2", "slot3"], ["slot3", "slot4"]] as const) {
+      const pitch = Math.hypot(z.controls[a].cx - z.controls[b].cx,
+        z.controls[a].cy - z.controls[b].cy);
+      const mean = (z.controls[a].vis + z.controls[b].vis) / 2;
+      expect.soft(pitch / mean, `${a}-${b} pitch`).toBeGreaterThanOrEqual(1.24);
+      expect.soft(pitch / d, `${a}-${b} pitch`).toBeLessThanOrEqual(1.5);
+    }
+  });
+
+  it("a phone's disc may go under its own target; a tablet's is hand-sized", () => {
+    // The `min(hand, frame)` rule, read off both ends of the matrix. On a
+    // phone the FRAME binds, so the paint drops below MIN_TARGET (this is the
+    // vis/hit split working, not a bug); on an iPad the HAND binds and the
+    // tablet keeps the millimetre number it already had.
+    const phone = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
+    expect(phone.controls.slot1.vis).toBeLessThan(MIN_TARGET);
+    expect(phone.controls.slot1.w).toBeGreaterThanOrEqual(MIN_TARGET);
+    const tab = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, prefs());
+    expect(tab.controls.slot1.vis * tab.mmPerPx).toBeGreaterThanOrEqual(9);
+    expect(tab.controls.slot1.vis / 834).toBeLessThan(0.09); // never 0.125 of a slab
   });
 
   it("compact keeps the reach invariant: every combat control inside comfortable", () => {
