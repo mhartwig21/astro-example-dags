@@ -299,6 +299,34 @@ describe("audio director", () => {
       expect(def.url).toMatch(/^\/audio\//);
     }
   });
+
+  it("rings the till when a room goes OPEN FOR BUSINESS (row 6, pickup half)", () => {
+    const { sink, director, state } = setup();
+    director.frame(state, [], [
+      { text: "OPEN FOR BUSINESS: the forge takes customers. The System takes a cut.", kind: "show", priority: "normal" },
+    ], 0);
+    expect(sink.ids()).toContain("till");
+    sink.played = [];
+    director.frame(state, [], [
+      { text: "an unrelated line", kind: "flavor", priority: "normal" },
+    ], 0);
+    expect(sink.ids()).not.toContain("till");
+  });
+});
+
+describe("audio manifest: the announcer bus (SOUNDPLAN §2.1/§2.3)", () => {
+  it("routes exactly the System's stinger surface through the duck source", () => {
+    const announcer = Object.entries(AUDIO_MANIFEST)
+      .filter(([, def]) => def.bus === "announcer")
+      .map(([id]) => id)
+      .sort();
+    // The set §2.1 names: idents, TODAY'S RULE stamp, starting gun,
+    // verdict, boss_intro. Party pings (`announce`) deliberately stay off
+    // it — a ping must not duck the fight, and UI clicks are not the show.
+    expect(announcer).toEqual(
+      ["boss_intro", "count_go", "count_tick", "ident", "ident_high", "stamp", "verdict"].sort(),
+    );
+  });
 });
 
 describe("audio director: footsteps (appearance r1)", () => {

@@ -4,7 +4,11 @@
 // silence for the rest, so the game runs identically with zero clips present.
 // See ASSETS.md ("Audio") for license-tagged sources and drop-in conventions.
 
-export type AudioBus = "sfx" | "music" | "ui";
+// `announcer` (SOUNDPLAN §2.1, added SFX r2): the System's own channel — it
+// is the DUCK SOURCE. Any play on it sidechain-ducks music -6dB and sfx -3dB
+// (80ms attack, 600ms release, engine.ts) — the show talks over the dungeon,
+// never the reverse. The bus itself is never ducked.
+export type AudioBus = "sfx" | "music" | "ui" | "announcer";
 
 export interface SoundDef {
   url: string;
@@ -32,7 +36,7 @@ export const AUDIO_MANIFEST = {
   swing: { url: "/audio/sfx/swing.ogg", bus: "sfx", volume: 0.5, throttleMs: 120 },
   tell: { url: "/audio/sfx/tell.ogg", bus: "sfx", volume: 0.55, throttleMs: 150 },
   kill: { url: "/audio/sfx/kill.ogg", bus: "sfx", volume: 0.9, throttleMs: 90 },
-  boss_intro: { url: "/audio/sfx/boss_intro.ogg", bus: "sfx", volume: 0.9, throttleMs: 1000 },
+  boss_intro: { url: "/audio/sfx/boss_intro.ogg", bus: "announcer", volume: 0.9, throttleMs: 1000 },
 
   // Status effects (HitEvent.effect — DoT ticks read as their ELEMENT, not as
   // blows). All CC0: fire crackle (AntumDeluge), bubble (farfadet46), freeze
@@ -128,17 +132,17 @@ export const AUDIO_MANIFEST = {
   // cues from ONE generator (tools/audio/gen-sfx-announcer.mjs) sharing a
   // bell timbre, so the whole announcer surface is one voice — dry,
   // broadcast, a little too professional. Never a laugh track.
-  ident: { url: "/audio/sfx/ident.ogg", bus: "ui", volume: 0.6, throttleMs: 400 },
-  ident_high: { url: "/audio/sfx/ident_high.ogg", bus: "ui", volume: 0.7, throttleMs: 1000 },
-  stamp: { url: "/audio/sfx/stamp.ogg", bus: "ui", volume: 0.65, throttleMs: 2000 },
-  count_tick: { url: "/audio/sfx/count_tick.ogg", bus: "ui", volume: 0.7, throttleMs: 150 },
-  count_go: { url: "/audio/sfx/count_go.ogg", bus: "ui", volume: 0.85, throttleMs: 1000 },
+  ident: { url: "/audio/sfx/ident.ogg", bus: "announcer", volume: 0.6, throttleMs: 400 },
+  ident_high: { url: "/audio/sfx/ident_high.ogg", bus: "announcer", volume: 0.7, throttleMs: 1000 },
+  stamp: { url: "/audio/sfx/stamp.ogg", bus: "announcer", volume: 0.65, throttleMs: 2000 },
+  count_tick: { url: "/audio/sfx/count_tick.ogg", bus: "announcer", volume: 0.7, throttleMs: 150 },
+  count_go: { url: "/audio/sfx/count_go.ogg", bus: "announcer", volume: 0.85, throttleMs: 1000 },
   ledger_bank: { url: "/audio/sfx/ledger_bank.ogg", bus: "ui", volume: 0.7, throttleMs: 3000 },
   door_close: { url: "/audio/sfx/door_close.ogg", bus: "sfx", volume: 0.8, throttleMs: 2000 },
   draft_pick: { url: "/audio/sfx/draft_pick.ogg", bus: "ui", volume: 0.7 },
   draft_bank: { url: "/audio/sfx/draft_bank.ogg", bus: "ui", volume: 0.6, throttleMs: 500 },
   descend_whoosh: { url: "/audio/sfx/descend_whoosh.ogg", bus: "sfx", volume: 0.6, throttleMs: 1500 },
-  verdict: { url: "/audio/sfx/verdict.ogg", bus: "ui", volume: 0.8, throttleMs: 3000 },
+  verdict: { url: "/audio/sfx/verdict.ogg", bus: "announcer", volume: 0.8, throttleMs: 3000 },
   till: { url: "/audio/sfx/till.ogg", bus: "ui", volume: 0.7, throttleMs: 300 },
 
   // Boss beats that earned dedicated files (row 15): the phase HIT

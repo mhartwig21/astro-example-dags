@@ -1471,6 +1471,7 @@ interface RushView {
 }
 let rushView: RushView | null = null;
 let rushFetchedAt = 0;
+let rushTickedSec = -1; // last gun-clock second already ticked (row 18)
 const rushTileEl = document.getElementById("m-rush")!;
 const rushSubEl = document.getElementById("m-rush-sub")!;
 
@@ -1498,7 +1499,17 @@ function renderRush(): void {
     rushTileEl.classList.add("forming");
     rushSubEl.textContent =
       `RACE FORMING — ${f.players}/${f.cap} — GUN IN ${social.mmss(gunMs / 1000)}`;
+    // SOUNDPLAN row 18: the tile's last ten seconds tick — only while the
+    // tile is actually on screen (menu up, band not owned by a challenge
+    // card — both guaranteed here), one tick per displayed second, never a
+    // siren before that. The GO itself belongs to the in-run gate.
+    const secLeft = Math.ceil(gunMs / 1000);
+    if (menuOpen && secLeft >= 1 && secLeft <= 10 && secLeft !== rushTickedSec) {
+      rushTickedSec = secLeft;
+      audio.play("count_tick");
+    }
   } else {
+    rushTickedSec = -1;
     rushTileEl.classList.remove("forming");
     // Two sub lines, ONE lead fact (measured at half-width: three facts clip
     // the clock): live presence at ≥5 (§2's floor — absent below), else a

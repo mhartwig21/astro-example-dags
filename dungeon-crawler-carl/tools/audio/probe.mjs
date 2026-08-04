@@ -12,6 +12,11 @@
 //   3. RATE LIMITING — per-clip audible plays are spaced >= the manifest
 //                      throttle, and dense attempts get swallowed
 //                      (attempts > plays for the impact family).
+//   4. BED SWAP      — the staged brawl raises a battle bed (the music id in
+//                      the ring changes from the ambient bed to battle_*).
+//   5. ANNOUNCER DUCK — a System stinger sidechains the music duck gain down
+//                      >= 4dB within 150ms and releases within 1.5s of the
+//                      clip's end (SOUNDPLAN §2.3, engine.ts sidechain()).
 //
 // Usage: node tools/audio/probe.mjs [url] [--headed] [--seconds N]
 // Default url: http://localhost:5282/iso.html?test&floor=4&level=10&abilities=all&seed=11&debug=1&noassets
@@ -139,6 +144,24 @@ try {
     peakPost: window.__dcc.audio.peakPost(),
     music: window.__dcc.audio.currentMusic(),
   }));
+
+  // 5) ANNOUNCER DUCK (§2.3): wait out any residual sidechain from brawl
+  // announcements, then fire a stinger at a knowable instant and sample the
+  // duck node. ident_high is ~1.37s: expect >=4dB down within 150ms, and a
+  // release back above -1dB (0.9) within 1.5s after the clip ends.
+  const duck = await page.evaluate(async () => {
+    const a = window.__dcc.audio;
+    const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+    for (let i = 0; i < 40 && a.musicDuckGain() < 0.98; i++) await sleep(100);
+    const baseline = a.musicDuckGain();
+    a.trigger("ident_high", { force: true });
+    await sleep(150);
+    const at150 = a.musicDuckGain();
+    const sfxAt150 = a.sfxDuckGain();
+    await sleep(1400 + 1500); // clip tail + release budget
+    const released = a.musicDuckGain();
+    return { baseline, at150, sfxAt150, released };
+  });
   await browser.close();
 
   // ---- analysis ----
@@ -217,6 +240,13 @@ try {
       clipped: peakPost >= 1.0,
     },
     rateLimit: rate,
+    duck: {
+      baseline: Number(duck.baseline.toFixed(3)),
+      at150ms: Number(duck.at150.toFixed(3)),
+      at150msDb: Number((20 * Math.log10(duck.at150 / Math.max(1e-6, duck.baseline))).toFixed(1)),
+      sfxAt150ms: Number(duck.sfxAt150.toFixed(3)),
+      released: Number(duck.released.toFixed(3)),
+    },
   };
   console.log(JSON.stringify(report, null, 2));
 
@@ -226,6 +256,9 @@ try {
   if (peakPost >= 1.0) failures.push(`hard clip: compressor output peaked at ${peakPost.toFixed(3)}`);
   if (!rateOk) failures.push("rate limit violated (same-id spacing under manifest throttle)");
   if (hitAttempts > 0 && hitPlays === 0) failures.push("'hit' attempted but never audible — file missing or bus dead");
+  if (!/^music_battle_/.test(data.music ?? "")) failures.push(`bed swap: brawl did not raise a battle bed (music = ${data.music})`);
+  if (duck.at150 > duck.baseline * 0.63) failures.push(`duck: music duck only ${duck.at150.toFixed(3)} of ${duck.baseline.toFixed(3)} 150ms after the stinger (need >=4dB)`);
+  if (duck.released < 0.9) failures.push(`duck: release incomplete (${duck.released.toFixed(3)}) 1.5s after the stinger ended`);
   if (failures.length) {
     console.error("\nPROBE FAIL:\n- " + failures.join("\n- "));
     process.exit(1);

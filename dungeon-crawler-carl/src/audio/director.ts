@@ -443,6 +443,10 @@ export class AudioDirector {
     if (announcements.length > 0) {
       this.sink.play(announcements.some((a) => a.priority === "high") ? "ident_high" : "ident");
       if (announcements.some((a) => a.text.startsWith("TODAY'S RULE"))) this.sink.play("stamp");
+      // Row 6, the pickup half: a room going OPEN FOR BUSINESS rings the
+      // same till the purchases use — the System's cash register is ONE
+      // sound, whichever direction the money moves.
+      if (announcements.some((a) => a.text.startsWith("OPEN FOR BUSINESS"))) this.sink.play("till");
     }
 
     const cur: Prev = {

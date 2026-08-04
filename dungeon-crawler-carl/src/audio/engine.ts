@@ -68,6 +68,12 @@ export interface AudioDebugHook {
   buffers(): string[];
   currentMusic(): string | null;
   musicBusGain(): number;
+  /** The announcer sidechain's current music/sfx duck gains (§2.3 probe). */
+  musicDuckGain(): number;
+  sfxDuckGain(): number;
+  /** Fire a clip on demand (probe-only: the §5 duck test needs a stinger
+   *  at a knowable instant, not whenever the sim next announces). */
+  trigger(id: SoundId, opts?: PlayOpts): void;
   ctxState(): string;
   ctxTime(): number;
 }
@@ -97,7 +103,15 @@ export class AudioEngine implements AudioSink {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private muffleNode: BiquadFilterNode | null = null;
-  private buses: Partial<Record<"sfx" | "music" | "ui", GainNode>> = {};
+  private buses: Partial<Record<"sfx" | "music" | "ui" | "announcer", GainNode>> = {};
+  // §2.3 sidechain: announcer plays ride these down (music -6dB, sfx -3dB,
+  // 80ms attack / 600ms release). Separate nodes from the bus gains so the
+  // APPROACH duck (which owns buses.music.gain) and the sidechain never
+  // fight over one AudioParam's schedule.
+  private duckMusic: GainNode | null = null;
+  private duckSfx: GainNode | null = null;
+  private duckReleaseAt = 0; // ctx-time the current announcer duck lets go
+  private approachLevel = 1; // last director duck() level (the tie rule)
   private buffers = new Map<SoundId, AudioBuffer>();
   private lastPlayed = new Map<SoundId, number>();
   private current: { id: SoundId; gain: GainNode; src: AudioBufferSourceNode } | null = null;
@@ -202,7 +216,35 @@ export class AudioEngine implements AudioSink {
     src.connect(gain);
     head.connect(this.buses[def.bus]!);
     src.start();
+    // §2.3: the show talks over the dungeon — an announcer play sidechains
+    // music/sfx down for its own duration.
+    if (def.bus === "announcer") this.sidechain(buf.duration / src.playbackRate.value);
     this.record(id, now, gain.gain.value, src.playbackRate.value);
+  }
+
+  /** §2.3 announcer sidechain: music -6dB, sfx -3dB; 80ms attack, 600ms
+   *  release after the stinger ends. Overlapping stingers extend the hold.
+   *  Tie rule: at most ONE duck source — while the APPROACH duck rides the
+   *  music bus below 0.5 (deeper than -6dB), the sidechain stays out of the
+   *  way rather than stacking multiplicatively on top of it. */
+  private sidechain(holdSec: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.duckMusic || !this.duckSfx) return;
+    if (this.approachLevel < 0.5) return; // approach duck owns the room
+    const now = ctx.currentTime;
+    const release = Math.max(now + holdSec, this.duckReleaseAt);
+    this.duckReleaseAt = release;
+    for (const [node, level] of [
+      [this.duckMusic, 0.5], // -6dB
+      [this.duckSfx, 0.708], // -3dB
+    ] as const) {
+      const g = node.gain;
+      const cur = g.value;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(cur, now);
+      g.setTargetAtTime(level, now, 0.027); // ~80ms to within 5%
+      g.setTargetAtTime(1, release, 0.2); // ~600ms release tail
+    }
   }
 
   /** Switch the looping music bed (crossfade); null fades music out. */
@@ -255,7 +297,8 @@ export class AudioEngine implements AudioSink {
   duck(level: number): void {
     const bus = this.buses.music;
     if (!this.ctx || !bus) return;
-    bus.gain.setTargetAtTime(Math.max(0, Math.min(1, level)), this.ctx.currentTime, 0.5);
+    this.approachLevel = Math.max(0, Math.min(1, level));
+    bus.gain.setTargetAtTime(this.approachLevel, this.ctx.currentTime, 0.5);
   }
 
   // ---- internals ----
@@ -279,9 +322,14 @@ export class AudioEngine implements AudioSink {
     this.muffleNode.connect(compressor);
     this.master = ctx.createGain();
     this.master.connect(this.muffleNode);
-    for (const bus of ["sfx", "music", "ui"] as const) {
+    // Sidechain duck nodes sit between the duckable buses and master (§2.3).
+    this.duckMusic = ctx.createGain();
+    this.duckMusic.connect(this.master);
+    this.duckSfx = ctx.createGain();
+    this.duckSfx.connect(this.master);
+    for (const bus of ["sfx", "music", "ui", "announcer"] as const) {
       const g = ctx.createGain();
-      g.connect(this.master);
+      g.connect(bus === "music" ? this.duckMusic : bus === "sfx" ? this.duckSfx : this.master);
       this.buses[bus] = g;
     }
     this.applyMaster();
@@ -375,6 +423,9 @@ export class AudioEngine implements AudioSink {
       buffers: () => [...this.buffers.keys()],
       currentMusic: () => this.current?.id ?? null,
       musicBusGain: () => this.buses.music?.gain.value ?? 0,
+      musicDuckGain: () => this.duckMusic?.gain.value ?? 1,
+      sfxDuckGain: () => this.duckSfx?.gain.value ?? 1,
+      trigger: (id, opts) => this.play(id, opts),
       ctxState: () => this.ctx?.state ?? "none",
       ctxTime: () => this.ctx?.currentTime ?? 0,
     };
