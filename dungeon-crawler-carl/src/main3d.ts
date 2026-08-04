@@ -7149,6 +7149,43 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
     window.addEventListener("pointerdown", firstInput, true);
   }
 }
+
+// DEATH IS A DOOR (NICHE.md 4.7): ?runback=<seed> is the conceded racer's
+// two-tap path back in — the dungeon that just ate them, solo, right now.
+// No menu detour: the whole point is a fresh gun inside ten seconds.
+{
+  const n = Number(params.get("runback"));
+  if (!net && !testMode && Number.isFinite(n) && n > 0) {
+    // Deferred one microtask: startRun touches consts declared later in this
+    // module (consentEl and friends) — running it mid-evaluation is a TDZ
+    // crash the acceptance probe caught on a real ?runback= boot.
+    queueMicrotask(() => {
+      closeMenu();
+      forcedSeed = n >>> 0;
+      forcedRule = null; // a rerun measures the base game
+      startRun({ kind: "random" });
+      pushLogLine("RUN IT BACK. Same dungeon, no rivals, no excuses.");
+    });
+  }
+}
+
+// 4.7: a conceded (or long-gone) racer's superlative finds them at the next
+// session — the race refusing to forget you. Read-once on the server, shown
+// once here. Existing tokens only: headlines cannot exist for a fresh device.
+if (!testMode) {
+  const tok = loadToken();
+  if (tok) {
+    void fetch(`${API_BASE}/headlines?token=${encodeURIComponent(tok)}`)
+      .then((r) => (r.ok ? (r.json() as Promise<{ headlines?: string[] }>) : { headlines: [] as string[] }))
+      .then((j) => {
+        for (const h of (j.headlines ?? []).slice(0, 3)) {
+          pushLogLine(h);
+          showAnnouncement({ text: h, kind: "show", priority: "high" });
+        }
+      })
+      .catch(() => { /* offline: the headline keeps until next time */ });
+  }
+}
 window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
 
 /** Slide the active card out NOW (floor transitions, boss intros). Queued
@@ -9597,17 +9634,73 @@ careerEl.addEventListener("click", (e) => {
 });
 
 // RIVALS: the downed overlay — your 15 seconds, front and center.
+// DEATH IS A DOOR (NICHE.md 4.7): in a live rush the screen grows two doors —
+// KEEP FIGHTING (the default; the leader bounty is the built-in comeback and
+// the screen now says so) and CONCEDE (seat freed, RUN IT BACK one tap away).
+// Requeue intent is created in the 20 seconds after a loss or nowhere.
 const downedEl = document.getElementById("downed")!;
+/** floors between me and the race leader, for the §7 "stomped" split. */
+function floorsBehindLeader(s: GameState, myId: number): number {
+  const floorOf = (r: { floor: number }) => r.floor;
+  const rows = s.rivals ?? [];
+  const mine = rows.find((r) => r.id === myId);
+  if (!mine || rows.length < 2) return 0;
+  return Math.max(0, Math.max(...rows.map(floorOf)) - floorOf(mine));
+}
 function updateDowned(s: GameState): void {
   const p = me(s);
-  if (s.mode === "rivals" && !p.alive && (p.downedT ?? 0) > 0) {
-    downedEl.style.display = "block";
-    downedEl.innerHTML =
-      `<div class="dtitle">YOU ARE DOWN</div>` +
-      `<div class="dcount">${Math.ceil(p.downedT ?? 0)}</div>` +
-      `<div class="dsub">back on your feet at the floor entry — the race is still running</div>`;
+  if (s.mode !== "rivals" || p.alive === true) {
+    downedEl.style.display = "none";
+    delete downedEl.dataset.mode;
+    return;
+  }
+  if (p.conceded) {
+    // The seat is freed; the doors lead back IN. QUEUE AGAIN arrives with the
+    // public queue (4.5) — no door is rendered to a room that doesn't exist.
+    if (downedEl.dataset.mode !== "conceded") {
+      downedEl.dataset.mode = "conceded";
+      downedEl.style.display = "block";
+      downedEl.innerHTML =
+        `<div class="dtitle">SEAT FREED</div>` +
+        `<div class="dsub">Conceded. Your superlative still posts at the finish — the race forgets nobody.</div>` +
+        `<div class="dbtns"><button id="downed-runback">RUN IT BACK — THIS DUNGEON, SOLO, NOW</button></div>`;
+      document.getElementById("downed-runback")!.addEventListener("click", () => {
+        logUsage("door", { act: "runback", seed: s.seed >>> 0, floorsBehind: floorsBehindLeader(s, p.id) });
+        location.href = `${location.pathname}?runback=${s.seed >>> 0}`;
+      });
+    }
+    return;
+  }
+  if ((p.downedT ?? 0) > 0) {
+    if (downedEl.dataset.mode !== "downed") {
+      downedEl.dataset.mode = "downed";
+      downedEl.style.display = "block";
+      downedEl.innerHTML =
+        `<div class="dtitle">YOU ARE DOWN</div>` +
+        `<div class="dcount" id="downed-count"></div>` +
+        `<div class="dsub">back on your feet at the floor entry — the race is still running</div>` +
+        (net
+          ? `<div class="dbtns">` +
+            `<button id="downed-fight" class="primary">KEEP FIGHTING</button>` +
+            `<button id="downed-concede">CONCEDE</button></div>` +
+            `<div class="dsub dhint">the leader is worth a fat XP bounty — dropping them IS the comeback</div>`
+          : "");
+      document.getElementById("downed-fight")?.addEventListener("click", () => {
+        // The default door: nothing to send — the respawn clock already runs.
+        downedEl.querySelector(".dbtns")?.remove();
+        downedEl.querySelector(".dhint")?.remove();
+        logUsage("door", { act: "fight", floorsBehind: floorsBehindLeader(s, p.id) });
+      });
+      document.getElementById("downed-concede")?.addEventListener("click", () => {
+        net?.concede(); // the sim validates; the snapshot flips p.conceded
+        logUsage("door", { act: "concede", floorsBehind: floorsBehindLeader(s, p.id) });
+      });
+    }
+    const count = document.getElementById("downed-count");
+    if (count) count.textContent = String(Math.ceil(p.downedT ?? 0));
   } else {
     downedEl.style.display = "none";
+    delete downedEl.dataset.mode;
   }
 }
 
@@ -10372,7 +10465,9 @@ async function main(): Promise<void> {
         const rows = [...state.rivals]
           .sort((a, b) => b.floor - a.floor || b.level - a.level)
           .map((r) => {
-            const status = !r.alive
+            const status = r.conceded
+              ? ` <span style="color:#6f6757">${uic("skull")}OUT</span>`
+              : !r.alive
               ? ` <span style="color:#c0392f">${uic("skull")}${Math.ceil(r.downedT)}s</span>`
               : r.shopping ? ` ${uic("shopping")}` : "";
             const you = r.id === localId ? `${uic("marker")} ` : "";

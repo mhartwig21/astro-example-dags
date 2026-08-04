@@ -4,7 +4,8 @@ import { extname, join, normalize, resolve } from "node:path";
 import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, concedeRival, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
+import { raceSuperlatives, headlineLine, type SeatSummary } from "./superlatives";
 import { GLYPH_INFO, type GlyphId } from "../sim/glyphs";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
@@ -164,6 +165,10 @@ interface Instance {
   // instance only exists in memory while it has players, so there's nothing
   // to restore after a restart) and never flippable by a later joiner.
   public: boolean;
+  // DEATH IS A DOOR (NICHE.md 4.7): accounts that conceded this race, by
+  // player id — race-end headline delivery for seats whose member row was
+  // freed at concede time (and whose client may be long gone).
+  departed: Map<number, string>;
   // THE STARTING GUN (NICHE.md §4.1): while non-null, the sim is HELD — no
   // step() runs, no clock advances — and the gate broadcasts seat/countdown
   // state instead of snapshots. In-memory only, like the instance itself: a
@@ -382,6 +387,10 @@ export class GameServer {
       this.onTelemetry(req, res);
       return;
     }
+    if (url.split("?")[0] === "/headlines") {
+      this.onHeadlines(req, res);
+      return;
+    }
     if (this.competitive) {
       // The competitive surface owns /runs, /boards, /bands, /crawler,
       // /events, /rivals and /auth/anon; it returns false for anything else.
@@ -544,6 +553,32 @@ export class GameServer {
         res.writeHead(400, cors).end();
       }
     });
+  }
+
+  /**
+   * DEATH IS A DOOR (NICHE.md 4.7): GET /headlines?token=… hands an account
+   * its banked race superlatives — computed at race end for seats that had
+   * already conceded/dropped — exactly once (read-once server-side). The
+   * token is the same bearer id the saves key off; same open-CORS model as
+   * /telemetry (the response is the account's own single-use flavor text).
+   */
+  private onHeadlines(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "GET") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    const token = validToken(new URL(req.url ?? "/", "http://x").searchParams.get("token"));
+    const headlines = token && this.db ? this.db.takeHeadlines(token, Date.now()) : [];
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({ headlines }));
   }
 
   /**
@@ -878,6 +913,34 @@ export class GameServer {
         case "claimAchievement":
           claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
+        case "concede": {
+          // DEATH IS A DOOR (NICHE.md 4.7): the sim validates (rivals, downed,
+          // not already out). On success the seat is FREED — the member row
+          // goes so this account neither reclaims the corpse nor blocks the
+          // code — and the moment is on the record with the §7 split (how far
+          // behind the leader the stomped actually were when they walked).
+          const st = inst.state;
+          const p = st.players.find((pl) => pl.id === playerId);
+          const leader = st.players.reduce((a, pl) => Math.max(a, pl.safeRoom ? pl.safeRoom.nextFloor : pl.floorNo), 1);
+          if (p && concedeRival(st, playerId)) {
+            const seat = inst.clients.find((c) => c.playerId === playerId);
+            if (seat) {
+              inst.departed.set(playerId, seat.accountId);
+              // Unbind BEFORE deleting the row, or the next checkpoint would
+              // quietly write the membership right back.
+              seat.bound = false;
+              this.db?.deleteMember(inst.code, seat.accountId);
+              this.db?.logEvent("concede", inst.code, seat.accountId, {
+                floor: p.floorNo,
+                leaderFloor: leader,
+                floorsBehind: Math.max(0, leader - p.floorNo),
+                elapsed: Math.round(st.elapsed),
+                seats: st.players.length,
+              }, Date.now());
+            }
+          }
+          break;
+        }
         case "ready":
           // At the starting gate, READY is the gate's ready bit; everywhere
           // else it is the safe-room ready-up the sim owns.
@@ -1025,6 +1088,7 @@ export class GameServer {
       lastStatus: state.status,
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
+      departed: new Map(),
       public: isPublic,
       gate: gated ? { deadline: Date.now() + this.rushGateMs, ready: new Set() } : null,
     };
@@ -1151,6 +1215,46 @@ export class GameServer {
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
+        // DEATH IS A DOOR (4.7): a guaranteed superlative per seat at race
+        // end — four seats, four different headlines. Present clients hear
+        // them on the announcement rail; a seat with no live connection
+        // (conceded and left, or dropped) gets its line BANKED for the next
+        // session — leaving early costs nothing, the race forgets nobody.
+        if (inst.state.mode === "rivals" && inst.state.players.length >= 2) {
+          const seats: SeatSummary[] = inst.state.players.map((p) => ({
+            id: p.id, name: p.name,
+            won: inst.state.winnerId === p.id,
+            floor: p.safeRoom ? p.safeRoom.nextFloor : p.floorNo,
+            kills: p.kills,
+            damageDealt: Math.round(p.damageDealt),
+            damageTaken: Math.round(p.damageTaken),
+            gold: p.gold, level: p.level,
+            conceded: !!p.conceded,
+          }));
+          const supers = raceSuperlatives(seats);
+          for (const seat of seats) {
+            const line = supers.get(seat.id);
+            if (!line) continue;
+            inst.state.announcements.push({
+              text: `${seat.name}: ${line}`, kind: "show", priority: "normal",
+            });
+          }
+          if (this.db) {
+            const now = Date.now();
+            const live = new Set(
+              inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).map((c) => c.playerId),
+            );
+            const accountOf = new Map<number, string>(inst.departed);
+            for (const m of this.db.memberSeats(inst.code)) accountOf.set(m.playerId, m.accountId);
+            for (const seat of seats) {
+              const acct = accountOf.get(seat.id);
+              const line = supers.get(seat.id);
+              if (acct && line && !live.has(seat.id)) {
+                this.db.addHeadline(acct, headlineLine(seat.name, line), now);
+              }
+            }
+          }
+        }
         // A secured RIVALS contract goes on the CONTRACTS board SERVER-SIDE —
         // the one score the authoritative sim vouches for itself (1.1).
         //

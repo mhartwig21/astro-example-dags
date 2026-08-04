@@ -227,6 +227,8 @@ export interface RivalMeta {
   alive: boolean;
   downedT: number;
   shopping: boolean;
+  /** DEATH IS A DOOR (NICHE.md 4.7): out of the race by choice. */
+  conceded: boolean;
 }
 
 /**
@@ -251,6 +253,7 @@ function rivalView(state: GameState, playerId: number) {
     alive: p.alive,
     downedT: p.downedT ?? 0,
     shopping: !!p.safeRoom,
+    conceded: !!p.conceded,
   }));
   return {
     view: {

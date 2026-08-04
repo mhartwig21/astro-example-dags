@@ -192,6 +192,7 @@ interface GateFrame {
 interface TestClient {
   ws: WebSocket;
   playerId: number;
+  token: string; // the account bearer id echoed in the welcome
   lastSnap: GameState | null;
   snaps: { full: boolean; bytes: number }[];
   events: string[];
@@ -206,6 +207,7 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
     const client: TestClient = {
       ws,
       playerId: -1,
+      token: "",
       lastSnap: null,
       snaps: [],
       events: [],
@@ -232,6 +234,7 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
         client.playerId = msg.playerId;
+        client.token = String(msg.token ?? "");
         client.lastSnap = absorb(msg.snapshot, true);
         resolve(client);
       } else if (msg.t === "snap") {
@@ -753,5 +756,89 @@ describe("POST /telemetry: the funnel's rungs land in usage_events (NICHE.md 4.2
   it("rejects kinds outside the allowlist — telemetry is not a free logging API", async () => {
     expect((await post({ kind: "evil", token: "t", data: {} })).status).toBe(400);
     expect((await post({ kind: 42, token: "t", data: {} })).status).toBe(400);
+  });
+});
+
+describe("DEATH IS A DOOR over the wire (NICHE.md 4.7)", () => {
+  let server: GameServer;
+  let port: number;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dbFile = join(mkdtempSync(join(tmpdir(), "dcc-door-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => server.close());
+
+  it("concede frees the seat, goes on the record, and the headline still finds the quitter", async () => {
+    const a = await connect(port, "DOOR-1", "Carl", true);
+    const b = await connect(port, "DOOR-1", "Donut");
+    // Fire the starting gun so the race is live.
+    a.send({ t: "ready" });
+    b.send({ t: "ready" });
+    await waitFor(() => a.gates.some((g) => g.started));
+    const instances = (server as unknown as {
+      instances: Map<string, { state: GameState; clients: { playerId: number }[] }>;
+    }).instances;
+    const inst = instances.get("DOOR-1")!;
+
+    // Down Donut (stands in for any monster doing it), then concede.
+    const { handlePlayerDeath } = await import("../src/sim/game");
+    const donut = inst.state.players.find((p) => p.id === b.playerId)!;
+    handlePlayerDeath(inst.state, donut, "test blow");
+    await waitFor(() => {
+      const meta = b.lastSnap?.rivals?.find((r) => r.id === b.playerId);
+      return !!meta && !meta.alive && meta.downedT > 0;
+    });
+    b.send({ t: "concede" });
+    // The sim fact reaches every client: conceded, clock stopped, race alive.
+    await waitFor(() => {
+      const meta = a.lastSnap?.rivals?.find((r) => r.id === b.playerId);
+      return !!meta && meta.conceded === true;
+    });
+    expect(inst.state.status).toBe("playing");
+    expect(donut.conceded).toBe(true);
+    expect(donut.downedT).toBe(0);
+    // The seat is FREED: the membership row is gone, so this account neither
+    // reclaims the corpse nor blocks the code.
+    expect(server.db!.getMember("DOOR-1", b.token)).toBeNull();
+    // The §7 record: a concede row keyed to the account, with the stomped split.
+    const conc = server.db!.listEvents("concede");
+    expect(conc.length).toBe(1);
+    expect(conc[0].accountId).toBe(b.token);
+    expect((conc[0].data as { floorsBehind: number }).floorsBehind).toBeGreaterThanOrEqual(0);
+
+    // The quitter closes the tab — 4.7's exact case. Then the race ends.
+    b.close();
+    await waitFor(() => inst.clients.length === 1);
+    inst.state.winnerId = a.playerId;
+    inst.state.status = "won";
+    // Present seats hear the superlatives on the announcement rail...
+    await waitFor(() => a.events.some((e) => /TOOK THE DUNGEON/.test(e)));
+    // ...and the absent conceded seat's line is banked, read-once, for the
+    // next session: delivered with the doc's exact framing, then gone.
+    const url = `http://127.0.0.1:${port}/headlines?token=${encodeURIComponent(b.token)}`;
+    const first = (await (await fetch(url)).json()) as { headlines: string[] };
+    expect(first.headlines.length).toBe(1);
+    expect(first.headlines[0]).toMatch(/THE SYSTEM, RE: DONUT'S LAST RACE — DIED EARLY, DIED SPECTACULARLY:/);
+    const second = (await (await fetch(url)).json()) as { headlines: string[] };
+    expect(second.headlines).toEqual([]);
+    a.close();
+  });
+
+  it("concede outside its door does nothing: alive rivals and co-op parties keep their state", async () => {
+    const c = await connect(port, "DOOR-2", "Carl"); // co-op
+    c.send({ t: "concede" });
+    await new Promise((r) => setTimeout(r, 150));
+    const instances = (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+    const inst = instances.get("DOOR-2")!;
+    expect(inst.state.players[0].conceded ?? false).toBe(false);
+    expect(server.db!.listEvents("concede").length).toBe(1); // still just DOOR-1's
+    c.close();
   });
 });

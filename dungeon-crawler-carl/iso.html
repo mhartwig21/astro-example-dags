@@ -3812,6 +3812,19 @@
         font-family: var(--display); font-variant-numeric: tabular-nums;
         text-shadow: 0 0 18px rgba(192,57,47,0.5); }
       #downed .dsub { color: #9a8a8a; font-size: 12px; }
+      /* DEATH IS A DOOR (NICHE.md 4.7): the two doors + the comeback hint.
+         Pointer events on the buttons only — the overlay itself stays inert
+         so it never eats aim clicks around it. */
+      #downed { pointer-events: none; }
+      #downed .dbtns { display: flex; gap: 9px; margin-top: 12px; justify-content: center;
+        pointer-events: auto; }
+      #downed .dbtns button { padding: 8px 14px; border-radius: 3px; font: inherit;
+        font-size: 12px; letter-spacing: 0.08em; cursor: pointer; color: var(--ink, #e8ddc8);
+        background: rgba(20,16,12,0.92); border: 1px solid #5c4726; }
+      #downed .dbtns button:hover { border-color: var(--bronze-hi, #c9a24b); }
+      #downed .dbtns button.primary { color: #241a08; font-weight: 700;
+        background: linear-gradient(180deg, #e4b95c, #c9962f); }
+      #downed .dhint { margin-top: 8px; color: #b09a6a; }
 
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
          stats live here). Fixed, cursor-following, never intercepts clicks. */

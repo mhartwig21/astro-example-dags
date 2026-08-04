@@ -96,6 +96,16 @@ CREATE TABLE IF NOT EXISTS account_identities (
   PRIMARY KEY (provider, provider_id)
 );
 CREATE INDEX IF NOT EXISTS idx_identities_account ON account_identities (account_id);
+-- DEATH IS A DOOR (NICHE.md 4.7): a conceded/absent racer's superlative,
+-- computed at race end and delivered at their next session — "the race
+-- refusing to forget you". Read-once rows (takeHeadlines deletes on read).
+CREATE TABLE IF NOT EXISTS account_headlines (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL,
+  text       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_headlines_account ON account_headlines (account_id);
 -- Career aggregates per account (crawler profiles). Bumped on run submits.
 CREATE TABLE IF NOT EXISTS account_stats (
   account_id TEXT PRIMARY KEY,
@@ -231,6 +241,35 @@ export class PersistDb {
     ).run(code, version, snapshot, now);
   }
 
+  /** DEATH IS A DOOR (NICHE.md 4.7): a conceded racer's seat is freed — the
+   *  membership row goes, so this account neither reclaims the corpse on a
+   *  rejoin nor blocks the code's seat count. The in-sim body stays where it
+   *  fell (the race's story keeps it; the save does not). */
+  deleteMember(code: string, accountId: string): void {
+    this.db.prepare(
+      "DELETE FROM party_members WHERE party_code = ? AND account_id = ?",
+    ).run(code, accountId);
+  }
+
+  /** Bank a race headline for delivery at the account's next session (4.7:
+   *  leaving early costs nothing — the superlative still finds you). */
+  addHeadline(accountId: string, text: string, now: number): void {
+    this.db.prepare(
+      "INSERT INTO account_headlines (account_id, text, created_at) VALUES (?, ?, ?)",
+    ).run(accountId, text, now);
+  }
+
+  /** Deliver-and-forget: the next session reads its headlines exactly once.
+   *  Rows older than a week are stale gossip and get dropped unread. */
+  takeHeadlines(accountId: string, now: number): string[] {
+    const rows = this.db.prepare(
+      "SELECT id, text, created_at FROM account_headlines WHERE account_id = ? ORDER BY id",
+    ).all(accountId) as { id: number; text: string; created_at: number }[];
+    if (rows.length === 0) return [];
+    this.db.prepare("DELETE FROM account_headlines WHERE account_id = ?").run(accountId);
+    return rows.filter((r) => now - r.created_at < 7 * 24 * 3600 * 1000).map((r) => r.text);
+  }
+
   /** The run ended (won/wiped): forget the campaign so the next join under
    *  this code starts a fresh dungeon instead of resuming a finished one. */
   clearParty(code: string): void {
@@ -333,6 +372,7 @@ export class PersistDb {
       this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_tips WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM account_headlines WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM party_members WHERE account_id = ?").run(accountId);
       // Telemetry is ANONYMIZED rather than deleted: usage_events is the
       // balance record (never swept), and the only personal thing in it is

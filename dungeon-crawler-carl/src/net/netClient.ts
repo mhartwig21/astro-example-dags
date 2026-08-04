@@ -296,6 +296,11 @@ export class NetClient {
   ready(): void {
     this.send({ t: "ready" });
   }
+  /** DEATH IS A DOOR (NICHE.md 4.7): the downed racer's second door. The sim
+   *  validates (rivals, downed, not already out); the seat frees server-side. */
+  concede(): void {
+    this.send({ t: "concede" });
+  }
   equip(idx: number): void {
     this.send({ t: "equip", idx });
   }

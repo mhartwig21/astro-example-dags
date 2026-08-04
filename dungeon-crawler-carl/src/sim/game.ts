@@ -8103,6 +8103,30 @@ function leaveRivalSafeRoom(state: GameState, p: Player): void {
   }
 }
 
+/**
+ * DEATH IS A DOOR (NICHE.md 4.7): the second door on the rivals death screen.
+ * Valid only while DOWNED in a rivals race — concede is the choice the
+ * 15-second clock exists to frame, not a mid-fight ragequit verb. Terminal:
+ * the revive timer stops, the crawler stays down, and the race stops waiting
+ * for them (their superlative is still computed at race end — leaving early
+ * costs nothing). If every seat has conceded, the dungeon takes the race.
+ * A sim rule, so the server and every client agree about who is still racing.
+ */
+export function concedeRival(state: GameState, playerId: number): boolean {
+  if (state.mode !== "rivals" || state.status !== "playing") return false;
+  const p = state.players.find((pl) => pl.id === playerId);
+  if (!p || p.alive || p.conceded) return false;
+  p.conceded = true;
+  p.downedT = 0;
+  p.reviveProgress = 0;
+  announce(state, "progress", `${p.name} CONCEDES. The System respects the math, if not the spirit.`);
+  if (state.players.every((pl) => pl.conceded)) {
+    state.status = "dead";
+    announce(state, "progress", "EVERY CONTRACT CONCEDED. The dungeon takes the race by forfeit. It is not gracious about it.", "high");
+  }
+  return true;
+}
+
 /** The 15 seconds are up: back on your feet at the floor entry, briefly immune. */
 function reviveRival(state: GameState, p: Player): void {
   const w = state.worlds?.[p.floorNo];
