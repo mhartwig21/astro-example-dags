@@ -58,12 +58,12 @@ import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/sa
 import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
 // THE COMPETITIVE LAYER (COMPETITIVE.md). The sim owns the codec and the era
-// gate; net/ owns the wire and the ghost worker; ui/social.ts owns the
-// arithmetic. This file owns the screens and the one seam that matters:
-// feeding step() an intent that has already been through the wire format.
+// gate; net/ owns the wire; ui/social.ts owns the arithmetic. This file owns
+// the screens and the one seam that matters: feeding step() an intent that
+// has already been through the wire format.
 import { RunRecorder, REPLAY_DT, canonicalIntent, type RunProof } from "./sim/replay";
 import { RULES_HASH } from "./sim/rulesHash";
-import { CompetitiveClient, precomputeGhost } from "./net/competitiveClient";
+import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
@@ -246,8 +246,8 @@ let hasContinue = false; // a mid-run save was restored; the menu offers CONTINU
 let rec: RunRecorder | null = null;
 /** Why this run has no proof, in words the post-run screen prints verbatim. */
 let recBlocked = "";
-/** Ticks of the local run, kept even when nothing is recording - the ghost
- *  split delta and the band ledger both index off it. */
+/** Ticks of the local run, kept even when nothing is recording - the band
+ *  ledger indexes off it. */
 let runTicks = 0;
 /** Tick each floor was ENTERED, index 0 = floor 1; -1 for unreached. Same
  *  shape the verifier derives, so the preview and the sealed row agree. */
@@ -279,8 +279,7 @@ let runContractNote: string | null = null;
 let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
 /** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
 let forcedSeed: number | null = null;
-/** The sealed artifact of the run that just ended, kept for SHARE and for the
- *  retry that races your own ghost. */
+/** The sealed artifact of the run that just ended, offered to the verifier. */
 let runProof: RunProof | null = null;
 
 /**
@@ -297,8 +296,7 @@ function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameS
   runEvent = null;
 
   // The floor the run STARTS on was entered at tick 0. Without this the very
-  // first split has no left-hand side, and the ghost chip reads NO SPLIT YET
-  // for the whole of floor 1 - which is exactly the floor you race hardest.
+  // first band split has no left-hand side.
   floorEntryTicks = new Array<number>(CONFIG.finalFloor).fill(-1);
   if (state.floor >= 1) floorEntryTicks[state.floor - 1] = 0;
   draftsOffered = 0;
@@ -531,17 +529,17 @@ input.onReset = () => {
    * THE KEY THE SCREEN ADVERTISES RUNS THE ACTION THE SCREEN ADVERTISES.
    *
    * The verdict's primary CTA renders `RUN IT BACK <kbd>R</kbd>` and calls
-   * runItBack(): same seed, this run's own proof armed as a ghost. R routed
-   * here instead - a fresh seed, no forcedSeed, no ghost, i.e. NEW CONTRACT -
-   * and then hid the verdict with the comment "last season's report card".
-   * COMPETITIVE.md 6.2 Beat 6 names RUN IT BACK the biggest retry driver in
-   * the design and says to bind it to the key the player already
-   * reflex-presses. Shipped, the reflex press silently threw away the seed and
-   * the ghost, so the flagship retry loop was unreachable by the one input the
-   * highest-leverage screen in the product tells you to use.
+   * runItBack(): the same seed, a fresh run. R routed here instead - a fresh
+   * seed, no forcedSeed, i.e. NEW CONTRACT - and then hid the verdict with
+   * the comment "last season's report card". COMPETITIVE.md 6.2 Beat 6 names
+   * RUN IT BACK the biggest retry driver in the design and says to bind it to
+   * the key the player already reflex-presses. Shipped, the reflex press
+   * silently threw away the seed, so the flagship retry loop was unreachable
+   * by the one input the highest-leverage screen in the product tells you to
+   * use.
    *
    * The test chamber keeps its own R (reroll the stage), because there is no
-   * verdict to run back there and no proof to arm.
+   * verdict to run back there.
    */
   if (!testMode && recapFor !== null && state.status !== "playing") {
     void runItBack();
@@ -5516,22 +5514,6 @@ function drawMinimap(s: GameState): void {
     mmCtx.stroke();
   }
 
-  // THE GHOST on the chart: a hollow desaturated ring where the rival was at
-  // this tick, drawn only while they are on YOUR floor. It is a trajectory,
-  // never a shared world - no collision, no loot, no damage.
-  if (ghost) {
-    const at = social.ghostAt(ghost, runTicks);
-    if (at && at.floor === s.floor) {
-      mmCtx.save();
-      mmCtx.strokeStyle = "rgba(232,221,200,0.75)";
-      mmCtx.setLineDash([2, 2]);
-      mmCtx.lineWidth = 1.4;
-      mmCtx.beginPath();
-      mmCtx.arc(X(at.x), Y(at.y), 3.4, 0, Math.PI * 2);
-      mmCtx.stroke();
-      mmCtx.restore();
-    }
-  }
   // Party pings: gold pulses (they pierce fog — that's the point of a ping).
   for (const pg of s.pings) {
     const cycle = 1 - ((pg.t * 1.6) % 1);
@@ -7037,6 +7019,8 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
 // ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
 // characters. It re-dresses the DAILY tile into the challenge that was sent,
 // and the seed it pins is the same dungeon the challenger actually crawled.
+// The claim is a STATIC target: your run is compared against it once, at the
+// end. No ghost, no trail, no live pace-delta (NICHE.md §5 bans all three).
 {
   const code = params.get("c");
   const ch = code ? social.decodeChallenge(code) : null;
@@ -7048,36 +7032,6 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
     document.getElementById("m-daily-sub")!.textContent =
       `${ch.by} ${feat} on this exact dungeon — level ${ch.level}, ${social.count(ch.kills, "kill")}. Same seed. Beat it.`;
     tile.addEventListener("click", () => { forcedSeed = ch.seed; }, { capture: true });
-    if (ch.run) {
-      // The code carried a run id: the challenge MAY come with a ghost. It
-      // only does if the server stands behind that run. This used to check
-      // `got.playable` (the era) and nothing else - never `run.state` - so a
-      // stranger could race a proof the server had explicitly refused to
-      // certify. And when the proof was refused for any reason at all, the
-      // whole thing was swallowed by `.catch(() => null)` and nothing was
-      // said: 2.6f is emphatic that a refusal is STATED, never silent.
-      void (async () => {
-        const era = RULES_HASH.slice(0, 7);
-        let refusal = "the proof could not be reached";
-        try {
-          const row = (await competitive.run(ch.run!)) as social.BoardRun;
-          const play = social.playability(row, era);
-          if (!play.ok) {
-            refusal = play.why;
-          } else {
-            const got = await competitive.proof(ch.run!);
-            if (got.bytes && got.playable) {
-              await armGhost(got.bytes, ch.by.toUpperCase(), ch.run);
-              return;
-            }
-            refusal = got.reason ?? "no proof is retained for that run";
-          }
-        } catch { /* refusal already set */ }
-        pushLogLine(`NO GHOST WITH THIS CHALLENGE — ${refusal}`);
-        document.getElementById("m-daily-sub")!.textContent +=
-          `  ·  NO GHOST: ${refusal}. The seed still is the seed.`;
-      })();
-    }
   }
 }
 window.addEventListener("pointerdown", dismissTutorialOnInput, { capture: true });
@@ -7189,9 +7143,8 @@ function verdictPartsHtml(g: social.RunGrade): string {
   ).join("");
 }
 
-/** THE SCOREBOARD: YOU / THE GHOST YOU RACED / TODAY'S #1, sharing rows.
- *  Comparison is what makes a number mean anything, and the old recap had
- *  none of it. */
+/** THE SCOREBOARD: YOU / TODAY'S #1, sharing rows. Comparison is what makes
+ *  a number mean anything, and the old recap had none of it. */
 function scoreboardHtml(s: GameState): string {
   const p = me(s);
   // ONE DEFINITION OF "#1", SHARED WITH THE MARK (blocker 5). This took
@@ -7216,29 +7169,6 @@ function scoreboardHtml(s: GameState): string {
       ],
     },
   ];
-  // THE GHOST YOU RACED - THE MIDDLE COLUMN 6.2 Beat 2 SPECIFIES (blocker 14).
-  // It used to answer two of seven rows and dash the rest, because the ghost
-  // TRACK carries a trajectory and nothing else - so the one run where the
-  // comparison is worth the most, a RUN IT BACK against yourself, printed five
-  // em-dashes. Every ghost has a source that knows the rest (a sealed board row
-  // carries the verifier's own numbers; RUN IT BACK is this browser's last
-  // run), and `armGhost` now carries it through.
-  if (ghost) {
-    const f = ghost.facts ?? null;
-    const endFloor = f?.floor ?? ghost.track.floor[ghost.track.floor.length - 1] ?? 1;
-    cols.push({
-      head: ghost.label.toUpperCase(),
-      cells: [
-        f?.won ? "CLEAR" : `floor ${endFloor}`,
-        social.ticksClock(ghost.ticks),
-        f && f.kills !== null ? f.kills.toLocaleString() : null,
-        f && f.damageTaken !== null ? num(f.damageTaken) : null,
-        f && f.damageDealt !== null ? num(f.damageDealt) : null,
-        f && f.goldSpent !== null ? num(f.goldSpent) : null,
-        f && f.level !== null ? String(f.level) : null,
-      ],
-    });
-  }
   // ...and the leader column is filled from the VERIFIER'S OWN NUMBERS. Damage
   // dealt, damage taken and gold spent are derived during the replay and stored
   // on the row; printing a dash next to a figure the server demonstrably knows
@@ -7518,8 +7448,6 @@ function renderRecap(s: GameState): void {
   renderLadderLine(s);
   renderEarned(s);
   // ---- Beat 6: the buttons that make sense for THIS run -----------------
-  document.getElementById("recap-race")!.style.display =
-    !net && (todaysBoard ?? []).some((r) => social.playability(r, RULES_HASH.slice(0, 7)).ok) ? "" : "none";
   document.getElementById("recap-share")!.style.display = net ? "none" : "";
 }
 
@@ -7813,16 +7741,14 @@ document.getElementById("recap-earned")!.addEventListener("click", () => {
 });
 document.getElementById("recap-new")!.addEventListener("click", () => {
   forcedSeed = null;
-  ghost = null;
   startRun({ kind: "random" }, "race");
   recapEl.style.display = "none";
 });
 document.getElementById("recap-standings")!.addEventListener("click", () => { void openLadder(); });
-// RUN IT BACK: the same seed, with THIS run as your ghost. The strongest urge
-// a roguelike death produces is "I know this dungeon now", and this button is
-// the only thing on the screen that answers it.
+// RUN IT BACK: the same seed, a fresh run. The strongest urge a roguelike
+// death produces is "I know this dungeon now", and this button is the only
+// thing on the screen that answers it.
 document.getElementById("recap-again")!.addEventListener("click", () => { void runItBack(); });
-document.getElementById("recap-race")!.addEventListener("click", () => { void raceTheLeader(); });
 // ---- The run card (launch polish #4): the recap as a shareable artifact ----
 // A 1200x630 canvas (link-preview dims) in the Torchlit palette. Cinzel and
 // Alegreya are document fonts, so the canvas can use them directly.
@@ -7995,13 +7921,9 @@ let shareUrl = "";
 
 function openShareSheet(): void {
   const p = me(state);
-  // A CHALLENGE CODE ONLY CARRIES A RUN ID THE SERVER WOULD STAND BEHIND.
-  // The id used to be embedded unconditionally, including for runs in state
-  // `claimed` or `rejected`, and the receiving side checked only the era - so
-  // a stranger could be handed a ghost the server had explicitly refused to
-  // certify.
-  const sealed = submitResult?.state === "verified" && !!submitResult.runId
-    && submitVisibility === "public";
+  // THE LINK CARRIES THE SEED AND THE CLAIM, NEVER A RECORDING. Whoever opens
+  // it gets this exact dungeon and your stated result to beat; the comparison
+  // happens once, at the end of their run (NICHE.md 4.2).
   shareUrl = `${location.origin}${location.pathname}?c=${social.encodeChallenge({
     seed: state.seed,
     ev: runEvent?.eventId,
@@ -8012,20 +7934,15 @@ function openShareSheet(): void {
     kills: p.kills,
     level: p.level,
     ult: p.abilities.ultimate,
-    run: sealed ? submitResult!.runId : undefined,
   })}`;
   // Draw the real card into the preview, at whatever size the sheet is.
   const cv = composeRunCard(state);
   const dst = document.getElementById("share-preview") as HTMLCanvasElement;
   dst.getContext("2d")!.drawImage(cv, 0, 0);
   document.getElementById("share-link")!.textContent = shareUrl;
-  document.getElementById("share-note")!.textContent = sealed
-    ? "The link carries the seed AND the sealed run, so whoever opens it gets this exact dungeon with your ghost already on the course."
-    : submitResult?.state === "rejected"
-      ? "The link carries the seed only. The System refused to certify this run, so it is not handed out as a ghost — a refused proof is not a rival."
-      : submitVisibility === "private"
-        ? "The link carries the seed only. This run is private: it ranks, and it is never distributed."
-        : "The link carries the seed only. A ghost needs a run the server has re-executed, and this one is not sealed.";
+  document.getElementById("share-note")!.textContent =
+    "The link carries the seed and your claim. Whoever opens it crawls this exact dungeon "
+    + "and hears about your run once theirs is over.";
   shareEl.classList.add("on");
 }
 
@@ -8143,7 +8060,7 @@ kbConsent.addEventListener("click", () => {
         await competitive.setPrivate(submitResult!.runId!, await accountToken(), next === "private");
         pushLogLine(next === "private"
           ? "THIS RUN IS NOW PRIVATE. It still ranks. Nobody else gets the film."
-          : "THIS RUN IS NOW PUBLIC. Anyone can race your ghost.");
+          : "THIS RUN IS NOW PUBLIC. The row stands on the boards under your name.");
         renderEarned(state);
       } catch { /* the standing choice still changed */ }
     })();
@@ -8210,53 +8127,16 @@ async function submitProof(visibility: "public" | "private"): Promise<void> {
   }
 }
 
-// ---- GHOSTS (4.1) ---------------------------------------------------------
-// A stored proof plus the same seed is a rival playing beside you, live and
-// offline. It never runs on the main thread: the worker replays at 150-250x
-// realtime and streams back a keyframe track, so the frame cost is an array
-// index and a lerp. This project has no spare 4% of a frame for a second sim.
-let ghost: social.GhostState | null = null;
-let ghostNote = "";
+// ---- RUN IT BACK ----------------------------------------------------------
+// PURE SEED-REPLAY: pin the seed, fresh run. The recording layer that used to
+// ride along here (your last run replayed beside you) was the rejected ghost
+// feature; the seed pin is the part worth keeping, and it is the whole part.
 
-/** Load a proof through the era gate and precompute its track. */
-async function armGhost(
-  bytes: Uint8Array, label: string, runId?: string,
-  // WHAT THE GHOST DID, from whatever armed it (blocker 14). The track knows
-  // where they were; only the caller knows what they scored.
-  facts?: social.GhostState["facts"],
-): Promise<boolean> {
-  const reply = await precomputeGhost({ bytes, ghostHz: 10, eras: [RULES_HASH] });
-  if (!reply.ok) {
-    // NEVER step a foreign proof into the current sim to see what happens: it
-    // does not throw, it quietly renders a wrong ghost with a wrong delta, and
-    // the player has no way to detect it.
-
-    ghost = null;
-    ghostNote = reply.reason;
-    // Stated, not silently disabled. A ghost that quietly fails to appear is
-    // how a player concludes the feature is broken; a named era is how they
-    // conclude the game is honest.
-    pushLogLine(`GHOST REFUSED — ${reply.reason}`);
-    showAnnouncement({
-      text: `NO GHOST. ${reply.reason}`,
-      kind: "flavor", priority: "high",
-    });
-    return false;
-  }
-  ghost = {
-    label: label || reply.label, track: reply.track,
-    floorEntryTicks: reply.floorEntryTicks, ticks: reply.ticks, runId, facts,
-  };
-  ghostNote = "";
-  return true;
-}
-
-/** RUN IT BACK: the same seed, with the run you just played as your ghost.
+/** RUN IT BACK: the same seed, a fresh run.
  *  The strongest urge a roguelike death produces is "I know this dungeon now",
  *  and this is the only button on the screen that answers it. */
 async function runItBack(): Promise<void> {
   const seed = state.seed;
-  const proof = runProof;
   recapEl.style.display = "none";
   recapEl.classList.remove("tabbed");
   consentEl.classList.remove("on"); // the offer does not outlive the screen
@@ -8266,179 +8146,16 @@ async function runItBack(): Promise<void> {
   if (abilOpen) toggleAbilities();
   document.getElementById("saferoom")!.style.display = "none";
   document.getElementById("draft")!.style.display = "none";
-  ghost = null;
-  if (proof) {
-    const { encodeProof } = await import("./sim/replay");
-    // The run you are about to race is the one this browser just filed, so the
-    // scoreboard's ghost column is a full column rather than two numbers.
-    const last = loadHistory()[0] ?? null;
-    await armGhost(encodeProof(proof), "YOUR LAST RUN", undefined, last ? {
-      won: last.won, floor: last.floor, kills: last.kills, level: last.level,
-      damageDealt: last.damageDealt, damageTaken: last.damageTaken, goldSpent: null,
-    } : undefined);
-  }
   forcedSeed = seed;
   // A RERUN OF TODAY'S CONTRACT IS ANOTHER ATTEMPT ON IT, and an attempt the
   // server did not observe is exactly the hole tickets exist to close. So R on
   // a daily signs again (attempt 2, 3, ...) instead of quietly dropping off the
   // contract onto the same seed.
   if (runMode.kind === "daily" && runMode.day === dayFromMs(Date.now()) && !net && !testMode) {
-    const armed = ghost;
     await enterDailyContract(runMode.day);
-    ghost = armed; // the sign-in must not throw away the ghost we just built
   } else {
     startRun(runMode, currentRunKind);
   }
-  if (ghost) {
-    showAnnouncement({
-      text: "SAME DUNGEON. Your own ghost is on the course with you. Beat yourself.",
-      kind: "flavor", priority: "high",
-    });
-  }
-}
-
-/** RACE THE LEADER: today's number one as your ghost, on today's seed. */
-async function raceTheLeader(): Promise<void> {
-  const era = RULES_HASH.slice(0, 7);
-  const leader = (todaysBoard ?? []).find((r) => social.playability(r, era).ok);
-  if (!leader) return;
-  await raceRun(leader.id, leader.name, leader);
-}
-
-/** Download a sealed run and start the same seed beside it. */
-async function raceRun(runId: string, label: string, row?: social.BoardRun): Promise<void> {
-  const token = await accountToken();
-  const got = await competitive.proof(runId, token);
-  if (!got.bytes || !got.playable) {
-
-    ghostNote = got.reason ?? "no proof retained for that row";
-    pushLogLine(`GHOST REFUSED — ${ghostNote}`);
-    showAnnouncement({ text: `NO GHOST. ${ghostNote}`, kind: "flavor", priority: "high" });
-    return;
-  }
-  // The verifier derived damage, gold and level as it replayed and wrote them
-  // onto the row, so racing a sealed run fills every cell of the ghost column.
-  const facts = row ? {
-    won: row.won, floor: row.floor, kills: row.kills, level: row.level,
-    damageDealt: row.damageDealt || null, damageTaken: row.damageTaken || null,
-    goldSpent: row.goldSpent || null,
-  } : undefined;
-  if (!(await armGhost(got.bytes, label, runId, facts))) return;
-  closeSets();
-  recapEl.style.display = "none";
-  forcedSeed = null;
-  startRun({ kind: "daily", day: dayFromMs(Date.now()) }, "race");
-  showAnnouncement({
-    text: `RACING ${label.toUpperCase()}. Same dungeon, same seed. The split is live in the corner.`,
-    kind: "flavor", priority: "high",
-  });
-}
-
-// The rail chip. The ghost collapses to a split delta whenever it is not on
-// your floor, because a rival two floors down is information, not a marker.
-const ghostEl = document.getElementById("ghost")!;
-function updateGhostHud(s: GameState): void {
-  if (!ghost || s.status !== "playing" || net) { ghostEl.classList.remove("on"); return; }
-  ghostEl.classList.add("on");
-  const at = social.ghostAt(ghost, runTicks);
-  const theirFloor = at?.floor ?? ghost.track.floor[ghost.track.floor.length - 1] ?? 1;
-  // THE CHIP IS TITLED BY WHO YOU ARE RACING. "YOUR LAST RUN" is only true for
-  // one of the three ghost sources; a rival's name is the whole reason the
-  // number on this chip matters.
-  document.getElementById("ghost-name")!.textContent = ghost.label;
-  document.getElementById("ghost-where")!.textContent = at ? `· FLOOR ${theirFloor}` : "· RUN OVER";
-
-  // THE LIVE SPLIT. A speedrun clock, not a post-hoc comparison: while you are
-  // still on this floor the number counts UP toward the tick the ghost left it,
-  // green until you pass their exit and red the instant you do. The entry
-  // delta is the fallback for the floors they never reached.
-  //
-  // AND IT STAYS DARK UNTIL THERE IS A SPLIT TO SHOW. On floor 1, before
-  // either of you has left it, there is no prior split on either side - the old
-  // chip printed an unsigned, uncoloured "0.0s" with the caption "you took time
-  // entering floor 1", which is both meaningless and untrue. Until the first
-  // transition the chip shows the TARGET instead: the tick your rival leaves
-  // this floor. That is the number you are actually racing.
-  const theirExit = ghost.floorEntryTicks[s.floor] ?? -1; // they entered floor+1 here
-  const myEntry = floorEntryTicks[s.floor - 1] ?? -1;
-  const entryDelta = s.floor > 1 ? social.splitDelta(ghost, s.floor, myEntry) : null;
-  const live = theirExit >= 0 ? (runTicks - theirExit) / 60 : null;
-  // THE MODAL CASE HAD NO NUMBER AT ALL. RUN IT BACK races your last run, and
-  // the most common last run died on floor 1 - precisely when the urge to
-  // re-run is strongest. `floorEntryTicks[1]` is then -1, so the chip showed
-  // "NO SPLIT YET / YOUR LAST RUN has not left floor 1" in grey with eighteen
-  // empty pips, for the entire race. A rival who DIED on this floor is not a
-  // missing split: their run END is the target, and outliving it is the race.
-  const theyEndedHere = theirExit < 0 && theirFloor <= s.floor && ghost.ticks > 0;
-  const endRace = theyEndedHere ? (runTicks - ghost.ticks) / 60 : null;
-  const delta = live ?? endRace ?? entryDelta;
-  const dEl = document.getElementById("ghost-delta")!;
-  const sub = document.getElementById("ghost-sub")!;
-  ghostEl.classList.toggle("racing", delta !== null);
-  if (delta === null) {
-    dEl.className = "gdelta pending";
-    if (theirFloor < s.floor) {
-      dEl.textContent = "PAST THEIR DEPTH";
-      sub.textContent = `they never got below floor ${theirFloor}`;
-    } else {
-      dEl.textContent = "NO SPLIT YET";
-      sub.textContent = `${ghost.label} has not left floor ${s.floor}`;
-    }
-  } else if (endRace !== null) {
-    // Signed against their whole run: negative until you outlive them.
-    dEl.className = `gdelta ${endRace > 0 ? "ahead" : "behind"}`;
-    dEl.textContent = social.signedTime(endRace);
-    sub.textContent = endRace > 0
-      ? `you have outlived ${ghost.label.toUpperCase()} — they ended here at ${social.mmss(ghost.ticks / 60)}`
-      : `${ghost.label.toUpperCase()} ended on this floor at ${social.mmss(ghost.ticks / 60)}. Get past it.`;
-  } else {
-    // Signed AND coloured, both directions. Red is losing time, green is taking
-    // it: a split delta that does not commit to a sign and a colour is a
-    // decoration, not a race.
-    dEl.className = `gdelta ${delta > 0 ? "behind" : "ahead"}`;
-    dEl.textContent = social.signedTime(delta);
-    const who = ghost.label.toUpperCase();
-    sub.textContent = live !== null
-      ? (live > 0
-        ? `past ${who}'s floor ${s.floor} exit`
-        : `${who} leaves floor ${s.floor} at ${social.mmss(theirExit / 60)}`)
-      : delta > 0
-        ? `you entered floor ${s.floor} behind ${who}`
-        : `you entered floor ${s.floor} ahead of ${who}`;
-  }
-  // One pip per floor: green where you took time, red where you gave it back.
-  let pips = "";
-  for (let f = 1; f <= CONFIG.finalFloor; f++) {
-    const d = social.splitDelta(ghost, f, floorEntryTicks[f - 1] ?? -1);
-    const cls = d === null ? "" : d > 0 ? "behind" : "ahead";
-    pips += `<i class="${cls}${f === s.floor ? " now" : ""}"></i>`;
-  }
-  document.getElementById("ghost-splits")!.innerHTML = pips;
-}
-
-/**
- * THE GHOST IS A BODY, NOT A LIGHTING ARTIFACT (4.1: "a race you cannot see is
- * a number"). The mesh renders at 45% opacity, desaturated cold, with no
- * shadow and no contribution to lighting - which is correct for a rival you
- * cannot hit and hopeless as an IDENTIFICATION. In capture it was genuinely
- * hard to tell from a torch flicker, and the only other cue in the world was a
- * 3.4px dashed ring on the minimap. One projected nameplate, on the same
- * worldToScreen the mob plates already use, is the whole fix.
- */
-const ghostPlateLayer = document.createElement("div");
-ghostPlateLayer.id = "ghostplate";
-ghostPlateLayer.innerHTML = `<div class="gp"></div>`;
-document.body.appendChild(ghostPlateLayer);
-const ghostPlateEl = ghostPlateLayer.firstElementChild as HTMLElement;
-function updateGhostPlate(s: GameState): void {
-  const at = ghost && s.status === "playing" && !net ? social.ghostAt(ghost, runTicks) : null;
-  if (!at || !ghost || at.floor !== s.floor) { ghostPlateLayer.classList.remove("on"); return; }
-  const sp = renderer.worldToScreen(at.x, 2.05, at.y);
-  if (!sp.visible) { ghostPlateLayer.classList.remove("on"); return; }
-  ghostPlateLayer.classList.add("on");
-  ghostPlateEl.style.left = `${sp.x}px`;
-  ghostPlateEl.style.top = `${sp.y}px`;
-  if (ghostPlateEl.textContent !== ghost.label) ghostPlateEl.textContent = ghost.label;
 }
 
 // ---- THE STANDINGS (3) ----------------------------------------------------
@@ -8856,8 +8573,6 @@ function boardRowHtml(
   // `verified` with no film, and the chip used to promise a re-execution that
   // never happened for it.
   const chip = social.sealChip(r.state, r.rulesEra, r.private, weight, social.provenanceOf(r));
-  const play = social.playability(r, ERA);
-
   const mine = !!r.publicId && r.publicId === myPublicId;
   const rival = !mine && !!r.publicId && rivalAccounts.has(r.publicId);
   const sub = [
@@ -8884,12 +8599,9 @@ function boardRowHtml(
     extra || null,
   ].filter(Boolean).join(" · ");
   const detail = verifierDetailHtml(r);
-  const acts = (detail
+  const acts = detail
     ? `<button class="rmore" data-more="1" title="splits, build and cause of death, all derived by the verifier">DETAIL</button>`
-    : "")
-    + (play.ok
-      ? `<button data-race="${esc(r.id)}" data-label="${esc(r.name)}">RACE</button>`
-      : `<button disabled title="${esc(play.why)}">RACE</button>`);
+    : "";
 
   // The colour is backed up by a word: a legend under the tab bar answers it
   // once, and the tag answers it on the row itself.
@@ -9180,9 +8892,7 @@ async function renderLadderBody(): Promise<void> {
     `· resolves in <b>${social.untilText(rc.resolvesAt)}</b></div>` +
     `<div class="crule">You both play today's seed whenever you like. The better SEALED run takes the ` +
     `contract. No lobby, no queue, nobody has to be online at the same time as anybody.</div>` +
-    (theirs
-      ? `<button class="cgo" data-race="${esc(theirs.id)}" data-label="${esc(theirs.name)}">RACE THEIR GHOST ▶</button>`
-      : `<button class="cgo" data-enter="${esc(rc.eventId)}">TAKE THE CONTRACT ▶</button>`) +
+    `<button class="cgo" data-enter="${esc(rc.eventId)}">TAKE THE CONTRACT ▶</button>` +
     `</div>` +
     (theirs
       ? `<div class="rsec" style="margin-top:16px;color:var(--gold);font-family:var(--display);` +
@@ -9235,8 +8945,6 @@ ladderEl.addEventListener("click", (e) => {
   }
   const ab = el.closest("[data-ab]") as HTMLElement | null;
   if (ab) { alltimeTab = ab.dataset.ab ?? "deepest"; void renderLadder(); return; }
-  const race = el.closest("[data-race]") as HTMLElement | null;
-  if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "RIVAL"); return; }
   if (toggleRowDetail(el)) return;
   const enter = el.closest("[data-enter]") as HTMLElement | null;
   if (enter) void enterContract(enter.dataset.enter!);
@@ -9300,7 +9008,6 @@ async function enterContract(eventId: string): Promise<void> {
     pendingContractNote = contractNoteFor(t);
     closeSets();
     closeMenu();
-    ghost = null;
     forcedSeed = t.seed;
     startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
     contractSigned(t);
@@ -9335,7 +9042,6 @@ async function enterDailyContract(day: string | null): Promise<void> {
     pendingTicket = null;
     pendingContractNote = `a challenge on the ${day} dungeon — that contract has closed, so this is `
       + `a rerun of it. The board row and the splits still stand; contract points do not.`;
-    ghost = null;
     startRun({ kind: "daily", day }, "race");
     return;
   }
@@ -9346,7 +9052,6 @@ async function enterDailyContract(day: string | null): Promise<void> {
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
     pendingContractNote = contractNoteFor(t);
     forcedSeed = t.seed;
-    ghost = null;
     startRun({ kind: "daily", day: events.daily.day }, "race");
     contractSigned(t);
   } catch (err) {
@@ -9355,7 +9060,6 @@ async function enterDailyContract(day: string | null): Promise<void> {
     pendingTicket = null;
     pendingContractNote = `today's contract dungeon, played UNSIGNED — the System could not issue an `
       + `attempt ticket (${(err as Error).message}). Same seed, same board row, no contract points.`;
-    ghost = null;
     startRun({ kind: "daily", day: today }, "race");
     pushLogLine("THE CONTRACT WENT UNSIGNED. Same dungeon; the ladder is not watching this one.");
   }
@@ -9414,7 +9118,6 @@ function masteryHtml(rows: { ultimate: string; xp: number }[]): string {
  */
 function recentRowHtml(r: social.BoardRun): string {
   const chip = social.sealChip(r.state, r.rulesEra, r.private, "plain");
-  const play = social.playability(r, ERA);
   const refused = r.state === "rejected";
   const sub = [
     r.eventId ? "contract" : "free seed",
@@ -9437,10 +9140,7 @@ function recentRowHtml(r: social.BoardRun): string {
     `<span class="what"><b>${refused ? "the System did not agree" : r.won ? "escaped the dungeon" : `died on floor ${r.floor}`}</b>` +
     `<span class="sub">${esc(sub)}</span></span>` +
     `<span class="${chip.cls}" title="${esc(chip.title)}">${chip.label}</span>` +
-    result +
-    `<span class="acts">${play.ok
-      ? `<button data-race="${esc(r.id)}" data-label="YOUR RUN">RACE</button>`
-      : `<button disabled title="${esc(play.why)}">RACE</button>`}</span></li>`;
+    result + `</li>`;
 }
 
 function ledgerHtml(rows: [string, string][]): string {
@@ -9691,8 +9391,6 @@ async function openCareerSet(): Promise<void> {
 careerEl.addEventListener("click", (e) => {
   const el = e.target as HTMLElement;
   if (toggleFitList(el, careerEl)) return;
-  const race = el.closest("[data-race]") as HTMLElement | null;
-  if (race) { void raceRun(race.dataset.race!, race.dataset.label ?? "YOUR RUN"); return; }
   toggleRowDetail(el);
 });
 
@@ -10544,7 +10242,7 @@ async function main(): Promise<void> {
         if (state.floor !== lastFloor) {
           lastFloor = state.floor;
           // The split ledger, live: the tick a floor was entered is the whole
-          // basis of the band boards and of the ghost delta.
+          // basis of the band boards.
           if (state.floor >= 1 && floorEntryTicks[state.floor - 1] === -1) {
             floorEntryTicks[state.floor - 1] = runTicks;
           }
@@ -10761,16 +10459,6 @@ async function main(): Promise<void> {
       // frozen backdrop world stays un-rendered until the menu closes.
       charSelect.frame(now / 1000);
     } else {
-      // THE GHOST, IN THE ROOM (4.1). One array index and a lerp - the track
-      // was precomputed off-thread, so a visible rival costs nothing per frame.
-      // It shows only while it shares your floor; the rail chip carries it the
-      // rest of the time.
-      if (ghost && state.status === "playing" && !net) {
-        const at = social.ghostAt(ghost, runTicks);
-        renderer.setGhost(at ? { x: at.x, y: at.y, onFloor: at.floor === state.floor } : null);
-      } else {
-        renderer.setGhost(null);
-      }
       renderer.update(state, now / 1000);
       renderer.render();
     }
@@ -10781,8 +10469,6 @@ async function main(): Promise<void> {
     maybeShowRecap(state);
     updateHud(state);
     updateSkills(state);
-    updateGhostHud(state);
-    updateGhostPlate(state);
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);

@@ -579,9 +579,10 @@ export function bandName(i: number): string {
 /**
  * A CHALLENGE CODE: a seed plus a claim, in about eighty characters - small
  * enough to paste into a chat message, and it reproduces the whole dungeon,
- * because the dungeon IS the seed. This is the cheap half of 8.2; the
- * expensive half (?run=<id>) needs the server to still hold the proof, and the
- * code carries that id so the two degrade into each other.
+ * because the dungeon IS the seed. Opening one pins the seed and states the
+ * claim; the comparison happens once, at the end of YOUR run. It never
+ * carries a recording - a racing ghost is the rejected feature, and NICHE.md
+ * §5 bans it by name.
  */
 export interface Challenge {
   seed: number;
@@ -594,8 +595,6 @@ export interface Challenge {
   kills: number;
   level: number;
   ult?: string | null;
-  /** Run id, when the run was sealed and is worth racing as a ghost. */
-  run?: string;
 }
 
 const CODE_VERSION = 1;
@@ -603,7 +602,7 @@ const CODE_VERSION = 1;
 export function encodeChallenge(c: Challenge): string {
   const tuple = [
     CODE_VERSION, c.seed >>> 0, c.ev ?? "", c.by.slice(0, 24), c.floor,
-    c.won ? 1 : 0, Math.round(c.timeSec), c.kills, c.level, c.ult ?? "", c.run ?? "",
+    c.won ? 1 : 0, Math.round(c.timeSec), c.kills, c.level, c.ult ?? "",
   ];
   return b64urlEncode(JSON.stringify(tuple));
 }
@@ -616,6 +615,9 @@ export function decodeChallenge(code: string): Challenge | null {
     const str = (i: number): string => (typeof t[i] === "string" ? (t[i] as string) : "");
     const seed = num(1) >>> 0;
     if (!Number.isFinite(seed) || seed === 0) return null;
+    // Old codes carried an eleventh entry - a sealed run id for ghost racing.
+    // The ghost layer is gone; the extra entry is ignored, never an error, so
+    // a pre-removal link still opens its dungeon.
     return {
       seed,
       ev: str(2) || undefined,
@@ -626,7 +628,6 @@ export function decodeChallenge(code: string): Challenge | null {
       kills: clamp(num(7), 0, 100000),
       level: clamp(num(8), 0, 99),
       ult: str(9) || null,
-      run: str(10) || undefined,
     };
   } catch {
     return null;
@@ -660,68 +661,9 @@ function b64urlDecode(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// GHOSTS (COMPETITIVE.md 4.1)
+// CLOCKS - one set of formatters, so no two surfaces disagree by a rounding
+// rule
 // ---------------------------------------------------------------------------
-
-export interface GhostState {
-  label: string;
-  /** 10 Hz keyframes, precomputed off-thread by ghostWorker. */
-  track: { hz: number; x: number[]; y: number[]; floor: number[] };
-  floorEntryTicks: number[];
-  ticks: number;
-  /** Source run, when the ghost came off a board row. */
-  runId?: string;
-  /**
-   * WHAT THE GHOST ACTUALLY DID, so the post-run scoreboard can print a COLUMN
-   * instead of two numbers and five em-dashes (6.2 Beat 2, blocker 14).
-   *
-   * The track carries a trajectory and nothing else, so the ghost column could
-   * only ever answer "how deep" and "how long" - and a column that is 71%
-   * em-dashes is what made a three-column scoreboard read as two. Every ghost
-   * has a source that knows the rest: a board row (RACE THE LEADER, a
-   * challenge link) carries the verifier-derived numbers, and RUN IT BACK is
-   * this browser's own last run. Filled at ARM time, because the source is in
-   * scope exactly then.
-   */
-  facts?: {
-    won: boolean;
-    floor: number;
-    kills: number | null;
-    level: number | null;
-    damageDealt: number | null;
-    damageTaken: number | null;
-    goldSpent: number | null;
-  };
-}
-
-/** Where the ghost is at a given tick, lerped between keyframes. Null once the
- *  ghost run is over - a finished rival simply stops being on the floor with
- *  you, which is the honest read and the one the HUD chip prints. */
-export function ghostAt(g: GhostState, tick: number): { x: number; y: number; floor: number } | null {
-  const step = 60 / g.track.hz;
-  const idx = tick / step;
-  const i = Math.floor(idx);
-  if (i < 0 || i >= g.track.x.length) return null;
-  const j = Math.min(i + 1, g.track.x.length - 1);
-  const t = idx - i;
-  return {
-    x: g.track.x[i] + (g.track.x[j] - g.track.x[i]) * t,
-    y: g.track.y[i] + (g.track.y[j] - g.track.y[i]) * t,
-    floor: g.track.floor[i],
-  };
-}
-
-/**
- * THE SPLIT DELTA - the drama (4.1). Positive means you are BEHIND: you
- * entered this floor that many seconds later than the ghost did. Null while
- * the ghost never reached your floor, because "infinitely ahead" is not a
- * number and pretending otherwise is how split displays start lying.
- */
-export function splitDelta(g: GhostState, floor: number, myEntryTick: number): number | null {
-  const theirs = g.floorEntryTicks[floor - 1] ?? -1;
-  if (theirs < 0 || myEntryTick < 0) return null;
-  return (myEntryTick - theirs) / 60;
-}
 
 /** Speedrun-style signed clock: +1:12 / -0:04. */
 export function signedTime(sec: number): string {
@@ -790,9 +732,8 @@ export type SealWeight = "ranked" | "plain";
  * not happen - and the only existing tell, "party of N", is absent on a solo
  * rivals row, because N is 1.
  *
- * Both are honest seals. They are not the same seal, and the honest sentence
- * for the second one already existed in this file - buried in `playability`, a
- * disabled button's title attribute.
+ * Both are honest seals. They are not the same seal, and the chip says which
+ * one it is wearing.
  */
 export type SealProvenance = "replayed" | "vouched";
 
@@ -1104,9 +1045,6 @@ export function verdictSeal(
   }
 }
 
-/** WATCH / RACE availability, with the refusal STATED rather than a greyed-out
- *  button (2.6f). A silent disable is how a player concludes the ladder is
- *  broken; a named era is how they conclude the game is honest. */
 /**
  * THE SEAL STATE, as arithmetic rather than as a hope.
  *
@@ -1141,32 +1079,6 @@ export function sealHoldMs(
   if (!terminal || !hadPriorPaint || verdictVisibleAt <= 0) return 0;
   const visibleFrom = Math.max(pendingSince, verdictVisibleAt + SEAL_CASCADE_MS);
   return Math.max(0, SEAL_MIN_PENDING_MS - (now - visibleFrom));
-}
-
-export function playability(r: BoardRun, currentEra: string): { ok: boolean; why: string } {
-  if (r.private) return { ok: false, why: "PRIVATE — this crawler kept the film" };
-  if (r.state !== "verified") return { ok: false, why: "UNPROVEN — only sealed runs are raceable" };
-  // A ROW WITH NO FILM IS NOT A ROW WHOSE FILM EXPIRED. A RIVALS contract is
-  // inserted verified with `proofId = null` because the AUTHORITATIVE sim
-  // decided it and nobody records a party run - and the last branch of this
-  // function told the player "the proof has aged out of retention" about a
-  // proof that never existed. The store's own comment admitted the reuse
-  // ("exactly as they do for a proof that aged out"); it was still a deliberate
-  // false statement, in the product whose whole pitch is that it does not make
-  // them.
-  if (r.film === "never") {
-    return {
-      ok: false,
-      why: "THE SERVER RAN THIS ONE ITSELF — a rivals contract is decided on the authoritative sim, "
-        + "so the row is sealed and there is no film to hand out",
-    };
-  }
-  if (!r.rulesEra) return { ok: false, why: "no proof retained for this row" };
-  if (r.rulesEra !== currentEra) {
-    return { ok: false, why: `RECORDED UNDER RULES ERA ${r.rulesEra} — NOT PLAYABLE ON ERA ${currentEra}` };
-  }
-  if (!r.playable) return { ok: false, why: "the proof has aged out of retention" };
-  return { ok: true, why: "" };
 }
 
 // ---------------------------------------------------------------------------

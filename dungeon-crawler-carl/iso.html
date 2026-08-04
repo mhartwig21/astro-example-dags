@@ -447,9 +447,6 @@
            upper chips:         #show 48px (under the buttons) · #bossbar 92px (center)
 
                                 · #party 96px right rail (roster under YOUR stats chip)
-                                · #ghost 96px right rail (the rival split delta; only
-                                  ever shown while racing a ghost, and #party is
-                                  network-only, so the two never both exist)
                                 · #quests 210px right rail (Roam contract ledger,
                                   collapsible, below the roster zone)
            headline zone:       #headline — the ONE high-priority banner at a time
@@ -853,7 +850,7 @@
       body.cine #hud-tl, body.cine #hud-tr, body.cine #hud-log,
       body.cine #minimap-frame, body.cine #show, body.cine #cockpit,
       body.cine #party, body.cine #toasts, body.cine #banner,
-      body.cine #ghost, body.cine #bossbar,
+      body.cine #bossbar,
       body.cine #draft-badge { opacity: 0; transition: opacity 0.3s ease; }
       /* And they FADE back in when the cut ends, not pop. */
       #hud-tl, #hud-tr, #minimap-frame, #show, #cockpit, #party, #banner,
@@ -2704,59 +2701,6 @@
         .cname { font-size: 20px; }
         .cseals b { font-size: 22px; }
       }
-
-      /* ============ THE GHOST (COMPETITIVE.md 4.1) ============
-         In-run rail chip, under the party roster zone. GLASS, not stone: it is
-         overlaid on live gameplay (STYLEGUIDE rule four). The split delta is
-         the drama - red when you are losing time, green when you are taking it. */
-      #ghost { position: fixed; right: 12px; top: 96px; z-index: 6; display: none;
-        min-width: 208px; padding: 8px 11px; border-radius: 4px;
-        background: rgba(12,10,20,0.62); border: 1px solid rgba(110,85,51,0.85);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.5); pointer-events: none; }
-      #ghost.on { display: block; }
-      #ghost .gh { display: flex; align-items: baseline; gap: 7px;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        font-size: 11px; color: var(--ink-dim); }
-      #ghost .gh b { color: var(--ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis;
-        white-space: nowrap; max-width: 132px; }
-      #ghost .gdelta { font-family: var(--display); font-size: 25px; line-height: 1.15;
-        font-variant-numeric: tabular-nums; color: var(--verdant); }
-      #ghost .gdelta.behind { color: var(--blood); }
-      /* Taking time is as loud as giving it back. A one-sided colour scheme
-         only tells you when you are losing, which is the half nobody needs
-         help noticing. */
-      #ghost .gdelta.ahead { color: var(--verdant); }
-      #ghost .gdelta.pending { color: var(--ink-faint); font-size: 15px; }
-      #ghost .gsub { font-size: 11px; color: var(--ink-faint); }
-      #ghost .gsplits { margin-top: 5px; display: flex; gap: 3px; }
-      #ghost .gsplits i { flex: 1; height: 3px; background: #2c241b; border-radius: 1px; }
-      #ghost .gsplits i.ahead { background: var(--verdant); }
-      #ghost .gsplits i.behind { background: var(--blood); }
-      #ghost .gsplits i.now { box-shadow: 0 0 0 1px var(--gold-hi); }
-      /* THE CHIP IS THE COLLAPSED FORM, NOT THE FEATURE. It used to be the
-         whole presentation of the cheapest multiplayer in the design, at
-         11-25px in a 150px dark box. It reads as a race now: the title is the
-         rival, and the delta is the biggest number on the rail. */
-      #ghost .gdelta { font-size: 30px; }
-      #ghost.racing { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(242,193,78,0.14),
-        0 4px 18px rgba(0,0,0,0.55); }
-
-      /* THE GHOST'S NAMEPLATE. The body renders at 45% opacity, desaturated
-         cold, with no shadow — in capture it was genuinely hard to tell from a
-         lighting artifact, and the only other cue was a 3.4px dashed ring on
-         the minimap. A rival you cannot identify is not a rival. */
-      #ghostplate { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
-      #ghostplate.on { display: block; }
-      #ghostplate .gp { position: absolute; transform: translate(-50%, -100%);
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
-        font-size: 11.5px; white-space: nowrap; color: #cfe0f2;
-        text-shadow: 0 1px 3px #000, 0 0 12px rgba(120,170,220,0.5);
-        padding: 1px 8px; border-radius: 2px;
-        background: rgba(10,14,26,0.55); border: 1px solid rgba(140,180,225,0.4); }
-      #ghostplate .gp::after { content: ""; position: absolute; left: 50%; top: 100%;
-        width: 1px; height: 13px; transform: translateX(-50%);
-        background: linear-gradient(180deg, rgba(140,180,225,0.7), rgba(140,180,225,0)); }
-      body.cine #ghostplate, body.modal #ghostplate { opacity: 0; }
 
       /* ============ CONSENT (COMPETITIVE.md 8.1) ============
          One card, the first time a run is offered to a board. Defaulting to
@@ -5946,7 +5890,6 @@
         border-top: 1px solid var(--bronze); }
       /* Five of the seven are not decisions you make in the first two seconds;
          they scroll with the rest of the verdict and keep their 46px box. */
-      body[data-uiclass="compact"] #recap .rfoot #recap-race,
       body[data-uiclass="compact"] #recap .rfoot #recap-share,
       body[data-uiclass="compact"] #recap .rfoot #recap-standings,
       body[data-uiclass="compact"] #recap .rfoot #recap-card,
@@ -6153,14 +6096,6 @@
     <div id="hud-log" class="hud"><div id="hud-log-feed"></div><div id="hud-log-status"></div></div>
 
     <div id="party" style="display:none"></div>
-    <!-- THE GHOST (COMPETITIVE.md 4.1): a rival trajectory, never a shared
-         world. Right rail under the roster zone; glass, not stone. -->
-    <div id="ghost">
-      <div class="gh"><b id="ghost-name">RIVAL</b><span id="ghost-where"></span></div>
-      <div class="gdelta pending" id="ghost-delta">—</div>
-      <div class="gsub" id="ghost-sub"></div>
-      <div class="gsplits" id="ghost-splits"></div>
-    </div>
     <div id="bossbar">
       <div class="bb-row">
         <span class="bb-icon" id="bb-icon"></span>
@@ -6474,7 +6409,6 @@
         <div class="rfoot">
           <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
           <button class="dismiss" id="recap-new">NEW CONTRACT</button>
-          <button class="dismiss" id="recap-race">RACE THE LEADER</button>
           <button class="dismiss" id="recap-share">SHARE</button>
           <button class="dismiss" id="recap-standings">STANDINGS</button>
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
@@ -6743,8 +6677,8 @@
         <h3>THE SYSTEM RECORDS EVERYTHING YOU DO</h3>
         <p>
           Every button, sixty times a second. That recording is what makes the seal worth
-          anything — <b>anyone can replay your run and watch you earn it</b>. It is also how
-          other crawlers race your ghost.
+          anything — <b>the System replays your run and watches you earn it</b> before a
+          single number reaches a board.
         </p>
         <p>
           A <b>private</b> run is still replayed, still certified, and still takes its place on

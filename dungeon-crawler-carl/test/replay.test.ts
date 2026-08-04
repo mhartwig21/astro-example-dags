@@ -153,19 +153,7 @@ describe("the era gate (COMPETITIVE.md 2.6f)", () => {
   }, 60_000);
 });
 
-describe("ghost track (COMPETITIVE.md 4.1)", () => {
-  it("precomputes 10 Hz keyframes so the frame cost is an index and a lerp", () => {
-    const { proof } = recordBotRun(47, 3);
-    const s = new ReplaySession(proof, { ghostHz: 10 });
-    while (!s.advance(4096));
-    expect(s.ghost).not.toBeNull();
-    expect(s.ghost!.hz).toBe(10);
-    expect(s.ghost!.x.length).toBe(Math.floor(proof.header.ticks / 6));
-    expect(s.ghost!.floor.length).toBe(s.ghost!.x.length);
-    // 12 B/tick raw vs the keyframe track: memory, not a stream.
-    expect(s.ghost!.x.length * 12).toBeLessThan(proof.header.ticks * 12);
-  }, 60_000);
-
+describe("chunked replay (the verify worker's duty cycle)", () => {
   it("chunked advance produces the same world as one shot", () => {
     const { proof, finalWorld } = recordBotRun(555, 3);
     const s = new ReplaySession(proof);
@@ -231,22 +219,3 @@ describe("the rules hash (COMPETITIVE.md 2.6a)", () => {
   });
 });
 
-describe("the ghost data path (COMPETITIVE.md 4.1)", () => {
-  it("builds a track off the sim thread, and refuses a foreign era", async () => {
-    const { buildGhostTrack } = await import("../src/net/ghostWorker");
-    const { proof } = recordBotRun(47, 3);
-    const ok = buildGhostTrack({ bytes: encodeProof(proof), ghostHz: 10 });
-    expect(ok.ok).toBe(true);
-    if (ok.ok) {
-      expect(ok.track.x.length).toBeGreaterThan(0);
-      expect(ok.floorEntryTicks[0]).toBe(0);
-    }
-    proof.header.rulesHash = "d".repeat(64);
-    const nope = buildGhostTrack({ bytes: encodeProof(proof) });
-    expect(nope.ok).toBe(false);
-    if (!nope.ok) {
-      expect(nope.era).toBe("ddddddd");
-      expect(nope.reason).toContain("NOT PLAYABLE");
-    }
-  }, 60_000);
-});

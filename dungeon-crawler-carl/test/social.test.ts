@@ -8,12 +8,12 @@
 import { describe, expect, it } from "vitest";
 import {
   bandSplitsFrom, bankedTicks, benchmark, boardsPhrase, decodeChallenge, deathContext,
-  deathHeadline, deathName, encodeChallenge, ghostAt, gradeRun, leaderSplits, letterFor,
-  masteryLevel, milestonesFrom, nextMilestone, playability, sealChip, signedTime,
-  splitDelta, verdictSeal, worstBand,
+  deathHeadline, deathName, encodeChallenge, gradeRun, leaderSplits, letterFor,
+  masteryLevel, milestonesFrom, nextMilestone, sealChip, signedTime,
+  verdictSeal, worstBand,
   boardLeader, count, provenanceOf, rulesetLabel,
   sealHoldMs, SEAL_CASCADE_MS, SEAL_MIN_PENDING_MS,
-  type BoardRun, type GhostState, type RunFacts,
+  type BoardRun, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
 
@@ -174,7 +174,7 @@ describe("the death, named (6.2 Beat 3)", () => {
   });
 });
 
-describe("splits and ghosts (3.3, 4.1)", () => {
+describe("band splits (3.3)", () => {
   it("bands the floor-entry ticks the same way the verifier does", () => {
     const entries = new Array<number>(18).fill(-1);
     entries[0] = 0; entries[1] = 600; entries[2] = 1500; entries[3] = 2400;
@@ -215,38 +215,19 @@ describe("splits and ghosts (3.3, 4.1)", () => {
     expect(ok[2]).toBeNull(); // a band the leader never walked is not a zero
   });
 
-  it("a ghost that has finished its run is off the floor, not frozen on it", () => {
-    const g: GhostState = {
-      label: "RIVAL", ticks: 60,
-      track: { hz: 10, x: [1, 2], y: [3, 4], floor: [1, 1] },
-      floorEntryTicks: [0, 600, -1],
-    };
-    expect(ghostAt(g, 0)).toEqual({ x: 1, y: 3, floor: 1 });
-    expect(ghostAt(g, 600)).toBeNull();
-    // Positive is BEHIND; a floor they never reached has no number at all.
-    expect(splitDelta(g, 2, 900)).toBe(5);
-    expect(splitDelta(g, 3, 900)).toBeNull();
+  it("the signed clock keeps its sign and its sub-minute precision", () => {
     expect(signedTime(75)).toBe("+1:15");
     expect(signedTime(-4)).toContain("4.0s");
   });
 });
 
-describe("seals, eras and what may be raced (2.4, 2.6f)", () => {
-  it("a private run ranks with a lock, and is never handed out", () => {
+describe("seals and eras (2.4, 2.6f)", () => {
+  it("a private run ranks with a lock", () => {
     expect(sealChip("verified", "abc1234", true).label).toContain("PRIVATE");
-    expect(playability(boardRow({ private: true }), "abc1234").ok).toBe(false);
-  });
-
-  it("refuses a foreign era LOUDLY, with the era named on the button", () => {
-    const p = playability(boardRow({ rulesEra: "0000000" }), "abc1234");
-    expect(p.ok).toBe(false);
-    expect(p.why).toContain("RULES ERA 0000000");
-    expect(p.why).toContain("abc1234");
   });
 
   it("an unproven row is shown, and says so", () => {
     expect(sealChip("claimed", null).label).toBe("CLAIMED");
-    expect(playability(boardRow({ state: "claimed" }), "abc1234").ok).toBe(false);
     expect(sealChip("unverifiable", "0000000").title).toContain("keeps whatever it earned");
   });
 
@@ -277,11 +258,24 @@ describe("sharing (8.2)", () => {
   it("round-trips a challenge in about a chat message", () => {
     const c = {
       seed: 2698932116, ev: "daily-2026-08-02", by: "Donut Holes", floor: 18,
-      won: true, timeSec: 902, kills: 641, level: 34, ult: "airstrike", run: "seed-1",
+      won: true, timeSec: 902, kills: 641, level: 34, ult: "airstrike",
     };
     const code = encodeChallenge(c);
     expect(code.length).toBeLessThan(140);
     expect(decodeChallenge(code)).toEqual(c);
+  });
+
+  it("still opens a pre-removal code that carried a ghost run id", () => {
+    // Old links embedded an eleventh tuple entry (a sealed run id to race).
+    // The ghost layer is gone; the entry is ignored, the dungeon still opens.
+    const legacy = btoa(JSON.stringify([
+      1, 2698932116, "daily-2026-08-02", "Donut Holes", 18, 1, 902, 641, 34, "airstrike", "run-abc123",
+    ])).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const ch = decodeChallenge(legacy);
+    expect(ch).not.toBeNull();
+    expect(ch!.seed).toBe(2698932116);
+    expect(ch!.by).toBe("Donut Holes");
+    expect("run" in ch!).toBe(false);
   });
 
   it("refuses garbage rather than launching a wrong dungeon", () => {
@@ -356,15 +350,15 @@ describe("the seal is weighted by what it CERTIFIES (6.2)", () => {
   });
 
   it("a rivals row is sealed WITHOUT a film, and never claims one aged out", () => {
-    // The row is inserted verified with proofId = null because nobody records a
-    // party run; `playability` fell through to "the proof has aged out of
-    // retention" - a proof that never existed. competitive.ts even admitted the
-    // reuse in a comment. It was still a deliberate false statement to the
-    // player.
-    const vouched = playability(boardRow({ film: "never", playable: false }), "abc1234");
-    expect(vouched.ok).toBe(false);
-    expect(vouched.why).not.toMatch(/aged out/i);
-    expect(vouched.why).toContain("THE SERVER RAN THIS ONE ITSELF");
+    // The row is inserted verified with proofId = null because nobody records
+    // a party run. Its chip must say the honest sentence (the authoritative
+    // sim decided it) and never imply a re-execution or a film that expired.
+    const row = boardRow({ film: "never" as const, playable: false });
+    expect(provenanceOf(row)).toBe("vouched");
+    const chip = sealChip("verified", "abc1234", false, "ranked", provenanceOf(row));
+    expect(chip.label).toContain("SERVER-RUN");
+    expect(chip.title).not.toMatch(/aged out/i);
+    expect(chip.title).toContain("no film");
     // ...and the verdict has a state for it, so the one genuinely
     // server-authoritative score in the product is shown being earned.
     const seal = verdictSeal("vouched", "abc1234");
