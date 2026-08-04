@@ -458,6 +458,71 @@ screenshot is the round's real exit gate.
 
 ---
 
+## ROUND 7 (mobile-wr r3) — THE ARRANGEMENT WAS THE THING, AND THREE ROUNDS NEVER TOUCHED IT
+
+The owner, after the compact round deployed: *"It still doesn't look wild
+rift... that's what the old controls looked like."* The diagnosis, binding:
+rounds 4-6 skinned the chips (correctly) and never changed the ARRANGEMENT.
+Wild Rift's control corner is a specific geometry — one large basic-attack
+disc anchored IN the corner, 3-4 abilities fanned in a tight arc around it
+(edges visually kissing), the ultimate distinct within the fan, small
+utilities tucked inside the organism — and ours was two shallow ranks of
+similar coins. This round rebuilt the corner-grip cluster to THAT geometry
+(`ARC_CORNER`/`ARC_CORNER_COMPACT` in `src/input/touchLayout.ts`):
+
+* **The PRIMARY is melee (slot0), and it is the corner.** `rf: 0` — the
+  cluster pivot IS its centre, parked 2 px off the safe corner, 1.5x chip
+  size (84 px on an iPhone 13, the same ~25%-of-height WR's attack takes).
+  The thumb rests on it; `fromPivot` semantics unchanged.
+* **The fan is ONE ring, chip-scaled.** slot1-3 + the ultimate at ring radius
+  = primary radius + chip radius + `RING_GAP`, sweeping -10 deg (WR starts at
+  about -13) to 92 deg. The ultimate: top of the fan, 1.22-1.26x — distinct
+  in position AND size, exactly `wr_01`'s button 4. The ring is deliberately
+  NOT reach-scaled: the fan must hug the primary whatever the thumb length;
+  reach is still asserted per control against `comfortable`.
+* **Utilities tucked, not orbiting.** Flask + context pill run inboard along
+  the bottom edge (WR's summoner-spell row); LOCK and MAP are small sockets
+  in the fan's outer notches (where WR parks its level-up pips). Locked
+  ability slots keep the r6 socket demotion — now they are sockets *within
+  the fan arc*, not free-floating coins.
+* **The spacing metric went circular, and this is the round's one trade
+  against the old spec.** The axis-aligned no-box-overlap invariant forbade
+  the WR look outright (a tight arc's diagonal neighbours always overlap
+  boxes). The floor is now a CENTRE DISTANCE: `max(46 px, 0.82 x mean hit
+  size)` — the router resolves by nearest centre, so every chip keeps an
+  exclusive Voronoi corridor >= 46 px wide, and no chip's padded rect may
+  ever cover a neighbour's centre (the Pixel 5 "tapping DASH drank a potion"
+  property, kept structural). Adjacent fan discs may visually kiss (measured
+  iPhone 13: 48 px spacing on 56 px chips, ~8 px of edge overlap — `wr_01`'s
+  own spacing to the pixel). The 44 px hit floor itself is untouched.
+* **Short glass squeezes the fan before it shrinks a chip.** On a Pixel 5 (or
+  a player-padded inset) the circular fan cannot meet rule 2's extent budget;
+  the fan goes ELLIPTICAL (`sy`, refined against the measured extent) — which
+  is what WR itself does: `wr_01`'s ring radii measure 180 -> 113 px climbing
+  the fan. Chips step down 5% only when a 0.55 squeeze still cannot fit.
+* **The fan track.** `#t-fanarc` (`ui/hudLayout.ts`): a faint annulus under
+  the ring, conic-masked to the fan's span, squeezed by the measured ellipse
+  — the one paint that makes nine controls read as a single quarter-circle
+  unit. DOM-ordered under the chips; stylesheet keeps display authority
+  (modal/cine/checkin stand it down); corner grips only.
+
+Kept whole: the FSM and touchShell gesture handlers (untouched), aim
+throw/cancel ordering, safe-area insets, compact-as-default, the skin
+(rims/sweeps/cdnum/pips), the customisation surface (size/mirror/preset all
+operate on the new geometry — mirroring is still one reflection). Side grip
+(tablets) keeps its measured side-fan posture.
+
+Verified: `test/touchLayout.test.ts` rewritten to pin the NEW contract
+(primary anchored + biggest on corner; ult top-of-fan + biggest fan chip;
+circular spacing floor + centre-coverage ban; elliptical adaptation), 63/63;
+full vitest 1277/1277; `battery_focus.mjs` 6/6 and `ios_gesture_probe.mjs`
+11/11 against the live layout (compact 268x194 vs large 301x189 on iPhone
+13); real-GPU frames + the owner's side-by-side composite:
+`tools/_mobile/wr-arr/` and `~/.claude/jobs/d43e193f/tmp/wr-sidebyside.png`
+(`wr_shot.mjs` / `wr_composite.mjs`).
+
+---
+
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it

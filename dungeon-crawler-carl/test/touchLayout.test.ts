@@ -138,12 +138,16 @@ describe("touch layout: device classes and the reach rule", () => {
     const small = computeZones(802, 293, { top: 0, right: 24, bottom: 0, left: 0 }, prefs());
     const big = computeZones(832, 380, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
     // The measured failure was chip distances IDENTICAL on a 293-tall Pixel 5
-    // and a 380-tall Pro Max. They must not be.
+    // and a 380-tall Pro Max. The WR ring is deliberately CHIP-scaled (the
+    // fan must hug the primary on every phone), so what adapts to the short
+    // edge is the fan's VERTICAL squeeze: the Pixel's fan is elliptical where
+    // the Pro Max's is circular (wr_01's own ring compresses toward the top),
+    // and the ultimate lands measurably nearer the pivot.
     expect(Math.round(small.controls.slot4.fromPivot))
       .not.toBe(Math.round(big.controls.slot4.fromPivot));
-    // The stick is now a MILLIMETRE quantity, so two devices in the same
-    // class share it by design — what must differ is the cluster geometry.
-    expect(small.arcRadius).toBeLessThan(big.arcRadius);
+    expect(small.controls.slot4.fromPivot).toBeLessThan(big.controls.slot4.fromPivot);
+    const rise = (z: ZoneTable) => z.pivot.y - z.controls.slot4.cy;
+    expect(rise(small)).toBeLessThan(rise(big));
   });
 });
 
@@ -203,24 +207,26 @@ describe("touch layout: the §4.2a cluster invariants", () => {
   it("posture selects pivot, radius cap AND fan together", () => {
     const phone = computeZones(750, 342, { top: 0, right: 47, bottom: 21, left: 47 }, prefs());
     const tablet = computeZones(1194, 834, { top: 24, right: 0, bottom: 20, left: 0 }, prefs());
-    // Corner grip roots at the bottom outer corner...
-    expect(phone.pivot.y).toBeCloseTo(phone.safe.y + phone.safe.h - 26, 4);
+    // THE CORNER PIVOT IS THE PRIMARY ITSELF (the WR arrangement): melee's
+    // centre, anchored a hair off the safe corner. The thumb rests ON it.
+    expect(phone.pivot.x).toBeCloseTo(phone.controls.slot0.cx, 4);
+    expect(phone.pivot.y).toBeCloseTo(phone.controls.slot0.cy, 4);
+    expect(phone.controls.slot0.y + phone.controls.slot0.h)
+      .toBeCloseTo(phone.safe.y + phone.safe.h - 2, 1);
+    expect(phone.controls.slot0.x + phone.controls.slot0.w)
+      .toBeCloseTo(phone.safe.x + phone.safe.w - 2, 1);
     // ...the side grip well up the outer edge, where an 11-inch slab is held.
     expect(tablet.pivot.y).toBeCloseTo(tablet.safe.y + 0.58 * tablet.safe.h, 4);
-    // The ultimate is furthest from a resting thumb on BOTH postures: it is
-    // the topmost of the five slots.
+    // The ultimate is the TOP of the fan on both postures — furthest from a
+    // resting thumb — and DISTINCT within it: bigger than every other fan
+    // chip. The PRIMARY hierarchy differs by posture: on the corner grip the
+    // primary is the largest disc on the glass (WR's basic attack), on the
+    // side grip the ultimate keeps the crown.
     for (const z of [phone, tablet]) {
-      for (const id of ["slot0", "slot1", "slot2", "slot3"] as const) {
-        // TOP EDGE, NOT CENTRE. The ultimate is now the BIGGEST chip in the
-        // cluster (chip hierarchy was inverted: the basic attack measured
-        // 92x92 and the ultimate 75x75, backwards for a once-a-fight,
-        // under-pressure press). Both it and its neighbours sit against the
-        // read band's ceiling on a corner grip, so comparing centres would
-        // penalise the ultimate for exactly the size we just gave it.
+      for (const id of ["slot1", "slot2", "slot3"] as const) {
         // +2 px of slack: the relaxation pass may nudge a rank by a hair.
         expect.soft(hitRect(z, "slot4").y, `${z.cls}: ult above ${id}`)
           .toBeLessThanOrEqual(hitRect(z, id).y + 2);
-        // ...and it is the largest thing in the cluster, on every posture.
         expect.soft(z.controls.slot4.w, `${z.cls}: ult bigger than ${id}`)
           .toBeGreaterThanOrEqual(z.controls[id].w);
       }
@@ -230,11 +236,19 @@ describe("touch layout: the §4.2a cluster invariants", () => {
           .toBeLessThan(z.controls[id].fromPivot);
       }
     }
+    // Corner: the primary IS the anchor and the biggest disc (wr_01/wr_03).
+    for (const id of ["slot1", "slot2", "slot3", "slot4"] as const) {
+      expect.soft(phone.controls.slot0.w, `corner: primary biggest vs ${id}`)
+        .toBeGreaterThanOrEqual(phone.controls[id].w);
+    }
     // The side grip fans SYMMETRICALLY about the inboard horizontal: there is
-    // as much cluster below the pivot as above it. A corner grip cannot.
+    // as much cluster below the pivot as above it. The corner fan may DIP just
+    // below the horizontal (WR starts its fan at about -13 deg) but nothing
+    // sinks past the primary's own bottom edge.
     const below = Object.values(tablet.controls).filter((c) => c.cy > tablet.pivot.y).length;
     expect(below).toBeGreaterThanOrEqual(2);
-    expect(Object.values(phone.controls).every((c) => c.cy <= phone.pivot.y + 1)).toBe(true);
+    const primBottom = phone.controls.slot0.cy + phone.controls.slot0.h / 2;
+    expect(Object.values(phone.controls).every((c) => c.cy <= primBottom + 1)).toBe(true);
   });
 });
 
@@ -431,14 +445,19 @@ describe("touch layout: hit testing", () => {
   });
 
   /**
-   * NO TWO CONTROLS MAY OVERLAP — the invariant the route probe bought.
+   * NO TWO CONTROLS MAY CROWD — the invariant the route probe bought, in the
+   * metric the router actually uses.
    *
-   * `controlAt()` resolves an overlap by nearest centre; `chipUnder()` asks the
-   * DOM, which answers with whichever chip PAINTS last. When two rects overlap
-   * the two disagree and the DOM wins. Measured on a Pixel 5 (802x293), the
-   * flask's rect covered slot 1's own centre, so tapping DASH drank a potion.
+   * `controlAt()` resolves by NEAREST CENTRE, so what a thumb needs is an
+   * exclusive landing corridor, and the honest floor is a CENTRE DISTANCE:
+   * at >= 46 px apart every chip keeps a >= 46 px-wide Voronoi corridor. The
+   * old axis-aligned-box version of this test forbade the one thing Wild
+   * Rift's corner is made of (a tight arc whose neighbours visually kiss), so
+   * it now asserts the circular floor — max(46, 0.82 x mean hit size) — plus
+   * the property whose loss caused the original Pixel 5 bug: no chip's padded
+   * rect may cover a NEIGHBOUR'S CENTRE ("tapping DASH drank a potion").
    */
-  it("never overlaps two controls, on any measured viewport or grip", () => {
+  it("never crowds two controls past the centre-distance floor, on any viewport or grip", () => {
     const VIEWPORTS: [number, number, Insets][] = [
       [750, 342, { top: 0, right: 47, bottom: 21, left: 47 }],   // iPhone 13
       [832, 380, { top: 0, right: 47, bottom: 21, left: 47 }],   // 13 Pro Max
@@ -455,12 +474,18 @@ describe("touch layout: hit testing", () => {
           for (let i = 0; i < ids.length; i++) {
             for (let j = i + 1; j < ids.length; j++) {
               const a = t.controls[ids[i]], b = t.controls[ids[j]];
-              const gapX = Math.abs(a.cx - b.cx) - (a.w + b.w) / 2;
-              const gapY = Math.abs(a.cy - b.cy) - (a.h + b.h) / 2;
-              expect.soft(
-                Math.max(gapX, gapY),
-                `${w}x${h} ${handed} x${buttonScale}: ${ids[i]} vs ${ids[j]}`,
-              ).toBeGreaterThanOrEqual(0);
+              const d = Math.hypot(a.cx - b.cx, a.cy - b.cy);
+              const mean = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
+              const floor = Math.max(MIN_TARGET + 2, 0.82 * mean);
+              const tag = `${w}x${h} ${handed} x${buttonScale}: ${ids[i]} vs ${ids[j]}`;
+              expect.soft(d, tag).toBeGreaterThanOrEqual(floor - 0.75);
+              // A centre inside a neighbour's padded rect re-creates the
+              // table-vs-DOM disagreement outright: never.
+              const inA = Math.abs(b.cx - a.cx) < Math.max(MIN_TARGET, a.w) / 2 &&
+                Math.abs(b.cy - a.cy) < Math.max(MIN_TARGET, a.h) / 2;
+              const inB = Math.abs(a.cx - b.cx) < Math.max(MIN_TARGET, b.w) / 2 &&
+                Math.abs(a.cy - b.cy) < Math.max(MIN_TARGET, b.h) / 2;
+              expect.soft(inA || inB, `${tag}: centre covered`).toBe(false);
             }
           }
         }

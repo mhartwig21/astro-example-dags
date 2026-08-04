@@ -314,68 +314,65 @@ export function isSideGrip(cls: DeviceClass): boolean {
 interface ArcSpec { id: ControlId; ang: number; rf: number; size: number }
 
 /**
- * CORNER GRIP (compact / phone) — fan +6 to +96 degrees about the inboard
- * horizontal. There is nothing below a bottom corner, so every angle is
- * positive; the basic attack sits nearest the root and the ultimate rides the
- * top of the fan, where a resting thumb cannot brush it.
+ * CORNER GRIP (compact / phone) — WILD RIFT'S CONTROL CORNER, mapped to this
+ * kit. Three rounds skinned the chips and never changed the ARRANGEMENT; the
+ * owner rejected all three. The arrangement is the thing (wr_01/wr_03):
  *
- * WHY `rf` GOES PAST 1.0 HERE AND NOT ON THE TABLET. `arcRadius` is capped by
- * the posture's share of the safe height (0.58), which on a 342 px-tall
- * landscape phone is 172 px — and nine controls with a 44 px hit floor do not
- * fit inside a 172 px quarter-disc that also has to clear the movement thumb's
- * zone and the top 32% read band. What DOES fit is two shallow ranks, which is
- * what the numbers below describe: the fan flattens as the screen does. The
- * reach invariant is asserted on `fromPivot` against `comfortable` — the thing
- * the hand actually cares about — not on `rf`, which is only the authoring
- * unit. Landscape phones clear it only because the millimetre reach model
- * (§3.2) gave them back the 31% of arc the short-edge model was taking.
+ *   - ONE LARGE PRIMARY anchored IN the corner. `rf: 0` — the pivot IS its
+ *     centre, parked a hair off the safe corner. Ours is MELEE (slot0),
+ *     hold-to-repeat, the forgiving press, exactly WR's basic attack.
+ *   - THE FAN: the other three actives plus the ultimate on ONE tight ring
+ *     around the primary (`rf: 1` = ring radius = primary radius + chip
+ *     radius + a small gap), sweeping from just below the inboard horizontal
+ *     (-10 deg, WR starts its fan at about -13) up past vertical (92 deg).
+ *     The ultimate takes the TOP of the fan and a distinct size — the one
+ *     chip that is different inside the organism.
+ *   - UTILITIES TUCKED, NOT ORBITING: the flask and the context pill run
+ *     inboard along the BOTTOM edge (WR's summoner-spell row), and LOCK / MAP
+ *     drop to small sockets in the fan's outer notches (WR parks its level-up
+ *     pips there). No free-floating full-size coins anywhere.
+ *
+ * Angles are degrees about the inboard horizontal (0 = inboard, 90 = up);
+ * `rf` multiplies the RING radius, which for this posture is derived from
+ * chip geometry (see `computeZones`), not from the reach arc — the fan must
+ * hug the primary whatever the thumb length is. Reach is still asserted on
+ * `fromPivot` against `comfortable` for every combat control.
  */
 const ARC_CORNER: ArcSpec[] = [
-  // near rank, along the shallow end of the fan
-  { id: "slot0", ang: 25, rf: 0.34, size: 1.22 }, // basic attack, hold-to-repeat
-  { id: "flask", ang: 11, rf: 0.74, size: 0.92 },
-  { id: "slot1", ang: 8, rf: 1.08, size: 1.00 },
-  { id: "slot2", ang: 6, rf: 1.42, size: 1.00 },
-  // far rank, climbing the fan; the ultimate takes the top AND the size.
-  //
-  // CHIP HIERARCHY WAS INVERTED. Measured, the basic attack was the largest
-  // control in the cluster (92x92 on an iPhone 13) and the ultimate the
-  // smallest of the five slots (75x75). That is backwards: the basic attack is
-  // hold-to-repeat and forgiving of a sloppy press, while the ultimate is the
-  // once-a-fight, under-pressure, cannot-miss press — which is exactly why
-  // Wild Rift makes it the biggest and the most distinct button on the glass.
-  { id: "slot4", ang: 82, rf: 0.63, size: 1.42 },
-  { id: "slot3", ang: 51, rf: 0.81, size: 1.00 },
-  // SATELLITES PAINT A TIER DOWN (wr_01/03: WR's utilities are visibly
-  // smaller than its abilities; ours measured near ability-sized, which is
-  // what made the cluster read as nine similar coins). Hit stays >= 44.
-  { id: "lock", ang: 36, rf: 1.06, size: 0.64 },
-  { id: "context", ang: 28, rf: 1.30, size: 0.86 },
-  { id: "map", ang: 23, rf: 1.56, size: 0.64 },
+  { id: "slot0", ang: 0, rf: 0, size: 1.50 },  // THE PRIMARY: melee, in the corner
+  { id: "slot1", ang: -10, rf: 1.00, size: 1.00 },
+  { id: "slot2", ang: 22, rf: 1.00, size: 1.00 },
+  { id: "slot3", ang: 54, rf: 1.00, size: 1.00 },
+  { id: "slot4", ang: 92, rf: 1.05, size: 1.26 }, // the ult: top of the fan, distinct
+  { id: "flask", ang: -6, rf: 1.75, size: 0.82 },
+  { id: "context", ang: -4, rf: 2.45, size: 0.82 },
+  { id: "lock", ang: 38, rf: 1.62, size: 0.62 },
+  { id: "map", ang: 73, rf: 1.60, size: 0.62 },
 ];
 
 /**
- * CORNER GRIP, COMPACT (the default). Same fan, same two-rank shape, but the
- * radial ladder is compressed (outermost combat chip at 1.32 instead of 1.42,
- * map at 1.48 instead of 1.56), the hero chips are one step less theatrical
- * (ultimate 1.28 vs 1.42, attack 1.16 vs 1.22) and the satellites drop a
- * further tier (0.52 vs 0.64 — the LOCK and MAP discs paint small; the router
- * still pads every hit rect to MIN_TARGET). Combined with CHIP_MM_COMPACT this
- * is what turns "eight full-size coins across half the screen" back into the
- * tight bottom-right cluster the July layout had, without giving up the arc
- * geometry, the reach model or a single tap target.
+ * CORNER GRIP, COMPACT (the default). The SAME arrangement — one primary, one
+ * ring, tucked utilities — with the economy in the sizes: chips off
+ * CHIP_MM_COMPACT, the hero tiers a step quieter, satellites a tier lower.
+ * Compact vs large must read as one family whose difference is how much glass
+ * it spends, never a different geometry.
  */
 const ARC_CORNER_COMPACT: ArcSpec[] = [
-  { id: "slot0", ang: 25, rf: 0.34, size: 1.16 },
-  { id: "flask", ang: 10, rf: 0.72, size: 0.84 },
-  { id: "slot1", ang: 7, rf: 1.02, size: 1.00 },
-  { id: "slot2", ang: 5, rf: 1.32, size: 1.00 },
-  { id: "slot4", ang: 78, rf: 0.60, size: 1.28 },
-  { id: "slot3", ang: 48, rf: 0.78, size: 1.00 },
-  { id: "lock", ang: 36, rf: 1.00, size: 0.52 },
-  { id: "context", ang: 27, rf: 1.24, size: 0.74 },
-  { id: "map", ang: 21, rf: 1.48, size: 0.52 },
+  { id: "slot0", ang: 0, rf: 0, size: 1.50 },
+  { id: "slot1", ang: -10, rf: 1.00, size: 1.00 },
+  { id: "slot2", ang: 22, rf: 1.00, size: 1.00 },
+  { id: "slot3", ang: 54, rf: 1.00, size: 1.00 },
+  { id: "slot4", ang: 92, rf: 1.05, size: 1.22 },
+  { id: "flask", ang: -6, rf: 1.75, size: 0.80 },
+  { id: "context", ang: -4, rf: 2.45, size: 0.80 },
+  { id: "lock", ang: 38, rf: 1.62, size: 0.60 },
+  { id: "map", ang: 73, rf: 1.60, size: 0.60 },
 ];
+
+/** Edge gap between the primary's rim and a fan chip's rim, CSS px. */
+const RING_GAP: Record<LayoutPreset, number> = { compact: 8, large: 12 };
+/** The fan's angular step (deg) — sets the spacing floor's chord factor. */
+const RING_STEP = 32;
 
 /**
  * SIDE GRIP (tablet-s / tablet-l) — fan -46 to +46 degrees, SYMMETRIC about
@@ -480,23 +477,25 @@ export function computeZones(
 
   // --- cluster ----------------------------------------------------------
   const side = isSideGrip(cls);
-  const pivotOuter = safe.x + safe.w - 26;
-  const pivot: Vec2 = {
-    x: mirror ? vw - pivotOuter : pivotOuter,
-    // Corner grip roots the thumb at the bottom outer corner; a side grip
-    // roots it up the outer edge at 58% of the safe height, where an 11-inch
-    // slab is actually held.
+  // Side grip roots the thumb up the outer edge at 58% of the safe height,
+  // where an 11-inch slab is actually held. The CORNER grip's pivot is the
+  // PRIMARY's own centre, anchored in the corner, so it depends on the chip
+  // size and is computed inside the packing loop below.
+  const sidePivotOuter = safe.x + safe.w - 26;
+  let pivot: Vec2 = {
+    x: mirror ? vw - sidePivotOuter : sidePivotOuter,
     y: side ? safe.y + 0.58 * safe.h : safe.y + safe.h - 26,
   };
 
-  // THE BOX CHIPS MAY OCCUPY. Three of §4.2a's four invariants become
-  // structural here rather than being asserted and hoped for: the top of the
-  // band never enters the read band (rule 1), the band is never taller than
-  // the posture's share of the safe box (rule 2), and the inboard wall keeps
-  // the cluster out of the movement thumb's zone.
-  // Compact gives the world back 6% of the safe height on a corner grip: the
-  // cluster band is the screen-scale half of the sprawl.
-  const bandFrac = side ? 0.46 : compact ? 0.52 : 0.58;
+  // THE BOX CHIPS MAY OCCUPY. The top never enters the read band (§4.2a rule
+  // 1) and the inboard wall keeps the cluster out of the movement thumb's
+  // zone. On a corner grip the box runs from the read band's floor to the
+  // safe bottom — the WR fan is TALL and thin, so the vertical budget is
+  // enforced as an EXTENT check in `clusterFits` (rule 2: combat extent
+  // <= 58% of safe.h, compact 57%) rather than as a shorter box that a
+  // clamped ultimate would fold into the ring.
+  const bandFrac = side ? 0.46 : 1 - READ_BAND;
+  const extentCap = side ? 0.46 : compact ? 0.57 : 0.58;
   const readFloor = safe.y + READ_BAND * safe.h;
   const box = {
     x0: mirror ? safe.x : Math.max(safe.x, stickZone.x + stickZone.w),
@@ -511,41 +510,90 @@ export function computeZones(
    * THE SIZE SLIDER IS A REQUEST, NOT A COMMAND.
    *
    * Nine controls, a 44 px hit floor and 1.4x buttons do not fit inside a
-   * landscape phone's cluster box — that is arithmetic, not a bug. The old
-   * layout let the relaxation pass resolve it by pushing chips wherever they
-   * would go: past `comfortable`, into the stick zone, off the arc. Two of
-   * those outcomes are worse than a smaller chip.
-   *
-   * So the requested `chipBase` is tried first and stepped down 5% at a time
-   * until the cluster packs without a residual overlap and with every combat
-   * control inside `comfortable`. A player who asks for huge buttons on a
-   * Pixel 5 gets the biggest buttons a Pixel 5 can hold, which is the honest
-   * answer to the request.
+   * landscape phone's cluster box — that is arithmetic, not a bug. So the
+   * requested `chipBase` is tried first and stepped down 5% at a time until
+   * the cluster packs: no residual crowding, every combat control inside
+   * `comfortable`, the combat extent inside the posture's band share. A
+   * player who asks for huge buttons on a Pixel 5 gets the biggest buttons a
+   * Pixel 5 can hold, which is the honest answer to the request.
    */
   const keepout = crawlerKeepout(vw, vh);
   const arc = side
     ? (compact ? ARC_SIDE_COMPACT : ARC_SIDE)
     : (compact ? ARC_CORNER_COMPACT : ARC_CORNER);
-  // The outermost COMBAT control sets the radial unit: `rf = 1` is normalised
-  // so that chip lands exactly on `comfortable`. Without this the reach
-  // invariant would hold only where `arcRadius` happens to be the binding cap
-  // — it fails on a 38 mm thumb, which is the 5th-percentile hand the slider
-  // exists to serve.
   const maxCombatRf = Math.max(
     ...arc.filter((s) => COMBAT_CONTROLS.includes(s.id)).map((s) => s.rf),
   );
+  const sPrim = arc.find((s) => s.id === "slot0")?.size ?? 1.5;
+  const sFan = arc.find((s) => s.id === "slot1")?.size ?? 1.0;
   let chipBase = chipBase0;
   let controls = {} as Record<ControlId, ControlRect>;
   let arcRadius = 0;
+  let sy = 1;
   for (let attempt = 0; ; attempt++) {
     const maxHalf = Math.max(MIN_TARGET, chipBase * 1.40) / 2;
-    arcRadius = Math.max(56, Math.min(
-      comfortable - maxHalf - 6,
-      (comfortable - 2) / maxCombatRf,
-      (side ? 0.62 : compact ? 0.52 : 0.58) * safe.h,
-    ));
-    controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout);
-    if (attempt >= 12 || clusterFits(controls, comfortable, keepout)) break;
+    if (side) {
+      // Side grip: `rf = 1` is normalised so the outermost combat chip lands
+      // exactly on `comfortable` — the tablet fan is reach-scaled.
+      arcRadius = Math.max(56, Math.min(
+        comfortable - maxHalf - 6,
+        (comfortable - 2) / maxCombatRf,
+        0.62 * safe.h,
+      ));
+    } else {
+      // CORNER GRIP: the ring is CHIP-scaled, not reach-scaled — the fan must
+      // hug the primary whatever the thumb length. `rf = 1` is the ring:
+      // primary radius + fan-chip radius + RING_GAP, floored so two adjacent
+      // 44 px tap circles on a RING_STEP chord can never collide, and capped
+      // so the outermost combat control stays inside `comfortable` (when the
+      // cap binds, chips crowd, `clusterFits` fails and the size steps down —
+      // the same honest answer the slider gets).
+      const ringGeom = chipBase * (sPrim + sFan) / 2 + RING_GAP[preset];
+      const ringFloor = (MIN_TARGET + 2) / (2 * Math.sin((RING_STEP / 2) * RAD));
+      arcRadius = Math.min(
+        Math.max(ringGeom, ringFloor),
+        (comfortable - 2) / maxCombatRf,
+        0.62 * safe.h,
+      );
+      // The primary is anchored IN the corner: its centre is the pivot.
+      const primHalf = Math.max(MIN_TARGET, chipBase * sPrim) / 2;
+      const outer = safe.x + safe.w - primHalf - 2;
+      pivot = {
+        x: mirror ? vw - outer : outer,
+        y: safe.y + safe.h - primHalf - 2,
+      };
+      // THE FAN GOES ELLIPTICAL BEFORE THE CHIPS SHRINK. On a short safe box
+      // (a Pixel 5, or a player-padded inset) the full circular fan cannot fit
+      // the posture's extent budget — and WR's own default fan is not circular
+      // either: its ring radii measure 180 -> 113 px climbing from the first
+      // ability to the top of the fan (wr_01), i.e. the TOP compresses. `sy`
+      // scales every chip's vertical offset so the tallest combat chip meets
+      // the budget; the relaxation pass restores neighbour spacing sideways,
+      // which flattens the fan exactly the way WR's editor does. Chips only
+      // step down 5% when even a 0.55 squeeze cannot fit the glass.
+      let rise = 0;
+      for (const s of arc) {
+        if (!COMBAT_CONTROLS.includes(s.id) || s.ang <= 0) continue;
+        rise = Math.max(rise,
+          Math.sin(s.ang * RAD) * arcRadius * s.rf + Math.max(MIN_TARGET, chipBase * s.size) / 2);
+      }
+      const maxRise = extentCap * safe.h - primHalf - 1;
+      sy = rise > 0 ? clamp(maxRise / rise, 0.55, 1) : 1;
+    }
+    controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout, side ? 1 : sy);
+    if (!side) {
+      // The relaxation can push a squeezed fan back UP past the prediction
+      // (spacing is restored along the centre lines), so the squeeze is
+      // refined against the MEASURED extent, not the predicted one.
+      for (let t = 0; t < 4 && sy > 0.551; t++) {
+        const ext = combatExtent(controls);
+        const budget = extentCap * safe.h;
+        if (ext <= budget + 0.4) break;
+        sy = Math.max(0.55, sy - (ext - budget) / Math.max(40, arcRadius * 1.05));
+        controls = placeCluster(arc, chipBase, arcRadius, pivot, mirror, box, keepout, sy);
+      }
+    }
+    if (attempt >= 12 || clusterFits(controls, comfortable, keepout, safe, extentCap)) break;
     chipBase *= 0.95;
   }
 
@@ -662,7 +710,7 @@ interface ClusterBox { x0: number; x1: number; y0: number; y1: number }
 /** One placement attempt at a given chip size: polar layout, then relaxation. */
 function placeCluster(
   arc: ArcSpec[], chipBase: number, arcRadius: number, pivot: Vec2,
-  mirror: boolean, box: ClusterBox, keepout: Rect,
+  mirror: boolean, box: ClusterBox, keepout: Rect, sy = 1,
 ): Record<ControlId, ControlRect> {
   const controls = {} as Record<ControlId, ControlRect>;
   for (const spec of arc) {
@@ -670,7 +718,7 @@ function placeCluster(
     // The paint may be smaller than the target, never the other way round.
     const vis = Math.min(size, Math.max(30, chipBase * spec.size));
     const dx = Math.cos(spec.ang * RAD) * arcRadius * spec.rf;
-    const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf;
+    const dy = Math.sin(spec.ang * RAD) * arcRadius * spec.rf * sy;
     const cx = mirror ? pivot.x + dx : pivot.x - dx;
     const cy = pivot.y - dy;
     controls[spec.id] = {
@@ -682,14 +730,57 @@ function placeCluster(
   return controls;
 }
 
+/**
+ * THE SPACING METRIC IS CIRCULAR, BECAUSE THE CLUSTER IS (the WR round).
+ *
+ * The old invariant demanded axis-aligned 44 px BOXES never overlap, which
+ * forbids the one thing Wild Rift's corner is made of: a tight arc whose
+ * neighbours visually kiss (wr_01: ability discs at centre spacing ~= their
+ * own diameter). What a thumb actually needs is an EXCLUSIVE LANDING ZONE,
+ * and the router resolves by NEAREST CENTRE (`controlAt`), so the honest
+ * floor is a centre distance: at >= MIN_TARGET + 2 apart, every chip keeps an
+ * exclusive corridor at least 46 px wide through the Voronoi split — the same
+ * guarantee the boxes gave, without banning the arc. Bigger chips scale the
+ * floor at 0.82x their mean hit size, which allows up to ~18% visual overlap
+ * between hero discs — deliberately: WR overlaps its edges, and the paint
+ * (`vis`) is never larger than the hit rect. What stays forbidden outright is
+ * a chip whose padded rect covers a NEIGHBOUR'S CENTRE (the Pixel 5 "tapping
+ * DASH drank a potion" bug) — structural here, since dmin always exceeds any
+ * padded half-rect.
+ */
+function minCentreDist(a: ControlRect, b: ControlRect): number {
+  const mean = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
+  return Math.max(MIN_TARGET + 2, 0.82 * mean);
+}
+
+/** Vertical extent of the combat cluster's padded hit rects. */
+function combatExtent(controls: Record<ControlId, ControlRect>): number {
+  let top = Infinity, bot = -Infinity;
+  for (const id of COMBAT_CONTROLS) {
+    const c = controls[id];
+    const half = Math.max(MIN_TARGET, c.h) / 2;
+    top = Math.min(top, c.cy - half);
+    bot = Math.max(bot, c.cy + half);
+  }
+  return bot - top;
+}
+
 /** Did the attempt pack cleanly AND keep every combat control in reach? */
 function clusterFits(
   controls: Record<ControlId, ControlRect>, comfortable: number, keepout: Rect,
+  safe: Rect, extentCap: number,
 ): boolean {
   const ids = Object.keys(controls) as ControlId[];
   for (const id of COMBAT_CONTROLS) {
     if (controls[id].fromPivot > comfortable) return false;
   }
+  // Rule 2 as arithmetic: the combat cluster's vertical extent must fit the
+  // posture's share of the safe box. The corner box runs to the read band's
+  // floor (a clamped fan folds into the ring, which is worse than smaller
+  // chips), so the budget is enforced here instead.
+  const tops = COMBAT_CONTROLS.map((id) => controls[id].cy - Math.max(MIN_TARGET, controls[id].h) / 2);
+  const bots = COMBAT_CONTROLS.map((id) => controls[id].cy + Math.max(MIN_TARGET, controls[id].h) / 2);
+  if (Math.max(...bots) - Math.min(...tops) > extentCap * safe.h + 0.5) return false;
   // A chip left sitting on the crawler is a failed pack, not a cosmetic
   // problem: it is the §1.2 bug (chrome inside a thumb's territory) aimed at
   // the one thing the player is actually looking at.
@@ -702,32 +793,30 @@ function clusterFits(
   for (let i = 0; i < ids.length; i++) {
     for (let j = i + 1; j < ids.length; j++) {
       const a = controls[ids[i]], b = controls[ids[j]];
-      const gapX = Math.abs(a.cx - b.cx) - (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2;
-      const gapY = Math.abs(a.cy - b.cy) - (Math.max(MIN_TARGET, a.h) + Math.max(MIN_TARGET, b.h)) / 2;
-      if (Math.max(gapX, gapY) < 0) return false;
+      const d = Math.hypot(a.cx - b.cx, a.cy - b.cy);
+      // 0.75 px of slack: the relaxation converges, it does not solve.
+      if (d < minCentreDist(a, b) - 0.75) return false;
     }
   }
   return true;
 }
 
 /**
-   * NO TWO CHIPS MAY OVERLAP, AND NONE MAY LEAVE THE CLUSTER BOX.
+   * NO TWO CHIPS MAY CROWD PAST `minCentreDist`, AND NONE MAY LEAVE THE
+   * CLUSTER BOX.
    *
    * The arc is authored in angles and radius fractions, so its spacing scales
-   * with `arcRadius` — but the 44px hit-target floor does not. Below roughly
-   * 130px of arc radius the chips start to collide, and an overlap is not a
-   * cosmetic problem: `controlAt()` resolves it by nearest centre, while the
-   * DOM hit-test in `chipUnder()` returns whichever chip PAINTS last. The two
-   * disagree, and the DOM wins.
+   * with `arcRadius` — but the 46 px centre-distance floor does not. Below it
+   * the router's nearest-centre split gives a chip less than a thumb's worth
+   * of exclusive corridor, and (the measured Pixel 5 bug) one chip's rect can
+   * cover another's CENTRE, at which point `controlAt()` and the DOM path
+   * disagree and the DOM wins: tapping DASH drank a potion.
    *
-   * Measured on a Pixel 5 (802x293): the flask's rect covered slot 1's own
-   * centre, so tapping DASH drank a potion.
-   *
-   * This is a few passes of pair relaxation: push overlapping boxes apart
-   * along the line between their centres, re-clamp into the safe box AND into
-   * the posture's cluster band, repeat. The band clamp is what makes §4.2a's
-   * rules 1 and 2 structural — a chip pushed out of a collision cannot escape
-   * upward into the read band, it has to travel sideways instead.
+   * This is a few passes of pair relaxation: push crowded pairs apart along
+   * the line between their centres, re-clamp into the safe box AND into the
+   * posture's cluster band, repeat. The band clamp is what makes §4.2a's
+   * rule 1 structural — a chip pushed out of a collision cannot escape upward
+   * into the read band, it has to travel sideways instead.
    *
    * Order-stable because every pair moves both members by the same half-step,
    * and bounded because each pass strictly reduces total penetration or stops.
@@ -773,23 +862,17 @@ function separate(
     for (let i = 0; i < ids.length; i++) {
       for (let j = i + 1; j < ids.length; j++) {
         const a = controls[ids[i]], b = controls[ids[j]];
-        const needX = (Math.max(MIN_TARGET, a.w) + Math.max(MIN_TARGET, b.w)) / 2 + GAP;
-        const needY = (Math.max(MIN_TARGET, a.h) + Math.max(MIN_TARGET, b.h)) / 2 + GAP;
         const dx = b.cx - a.cx, dy = b.cy - a.cy;
-        const penX = needX - Math.abs(dx), penY = needY - Math.abs(dy);
-        if (penX <= 0 || penY <= 0) continue;
-        moved = true;
-        // Push along the LINE BETWEEN THE CENTRES, not along the axis of least
-        // penetration. Least-penetration is the cheaper exit in open space,
-        // but it grinds when that axis is the one the safe box has already
-        // clamped: the pass makes no progress and the next pass picks the same
-        // axis again. Sliding along the centre line lets a jammed pair travel
-        // around an edge instead of into it.
         const len = Math.hypot(dx, dy);
-        // Coincident centres have no direction; break the tie deterministically
-        // rather than dividing by zero.
+        const pen = minCentreDist(a, b) + GAP - len;
+        if (pen <= 0) continue;
+        moved = true;
+        // Push along the LINE BETWEEN THE CENTRES — the direction the circular
+        // metric actually measures — so a jammed pair can slide around a
+        // clamped edge instead of grinding into it. Coincident centres have no
+        // direction; break the tie deterministically rather than divide by 0.
         const ux = len > 1e-6 ? dx / len : 1, uy = len > 1e-6 ? dy / len : 0;
-        const push = Math.min(penX, penY) / 2 + 0.25;
+        const push = pen / 2 + 0.25;
         a.cx -= ux * push; a.cy -= uy * push;
         b.cx += ux * push; b.cy += uy * push;
       }
