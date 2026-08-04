@@ -1177,6 +1177,13 @@ export interface Announcement {
   // Addressed to one crawler (tips: the System explains rules to whoever they
   // first touched, not the whole party). Absent = everyone sees it.
   forPlayer?: number;
+  // kind:"tip" only — which tips.ts rule this line explains. The host's
+  // once-EVER ledger (dcc:tips:v1) is written when the CARD PAINTS, not when
+  // the sim generates the line (r4 blocker 1): display is a queue and a queued
+  // card can die with the run, so spending the concept at generation time
+  // destroyed it permanently for that profile. This id is how presentation
+  // tells the ledger what it actually showed.
+  tipId?: string;
 }
 
 /**

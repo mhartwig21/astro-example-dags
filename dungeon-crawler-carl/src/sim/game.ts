@@ -1365,7 +1365,14 @@ export function hasRevision(p: Player, id: string): boolean {
  * time the rule touches them. The System files a courtesy explanation.
  * `priority` is presentation pacing, not headline routing: the host's card
  * surface holds a "high" tip only for the active card, never for the 9s
- * politeness gap — reserved for tips whose moment expires (collapse). */
+ * politeness gap — reserved for tips whose moment expires (collapse).
+ *
+ * `tipsSeen` is the SIM's once-per-crawler latch — it stops this rule
+ * re-announcing every step of the run that generated it, and that is ALL it
+ * means. The once-EVER ledger belongs to presentation: the line rides `tipId`
+ * out to the host, which writes `dcc:tips:v1` when the card actually paints
+ * (r4 blocker 1). A tip generated into a queue that never drains is therefore
+ * not spent, and the next run gets to teach the concept properly. */
 function systemTip(
   state: GameState, p: Player, id: string,
   priority: Announcement["priority"] = "normal",
@@ -1375,7 +1382,7 @@ function systemTip(
   (p.tipsSeen ??= []).push(id);
   // Addressed: the System explains the rule to the crawler it touched, not
   // to party veterans who dismissed this explanation runs ago.
-  announce(state, "tip", line, priority, p.id);
+  announce(state, "tip", line, priority, p.id, id);
 }
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
@@ -1914,6 +1921,13 @@ export function createTestGame(opts: TestSetup = {}): GameState {
       }
     }
   }
+
+  // A stage-representative crawler did not just find their first glyph, and
+  // the grants below run at CONSTRUCTION — without this, every test-mode URL
+  // would open with a COURTESY card sitting over the frame someone came here
+  // to look at. The `glyph` tip alone: every other tip still fires normally in
+  // test mode, because test mode is how the sim's tip sites get exercised.
+  (p.tipsSeen ??= []).push("glyph");
 
   // GLYPHS (V2 §3): a stage-representative crawler has found firmware by now —
   // one per unlocked socket across the kit, seeded, auto-filling compatible
@@ -3201,8 +3215,9 @@ function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
   forPlayer?: number,
+  tipId?: string,
 ): void {
-  state.announcements.push({ text: line, kind, priority, forPlayer });
+  state.announcements.push({ text: line, kind, priority, forPlayer, tipId });
   state.events.push(line);
 }
 
@@ -3489,6 +3504,11 @@ function dominantSchool(p: Player): School {
  */
 export function grantGlyph(state: GameState, p: Player, id: GlyphId): void {
   const g = (p.glyphs ??= defaultGlyphs());
+  // GLYPHS, TAUGHT BY OWNING ONE (r4). Mordecai's B7 beat needs a safe room
+  // AND an open socket AND a glyph in hand, which a first session mostly never
+  // assembles — so the concept's first-session coverage is here, at the moment
+  // the stone is actually in the crawler's possession.
+  systemTip(state, p, "glyph");
   const trySlot = (slotIdx: number): boolean => {
     const ability = slotIdx === ABILITY_SLOTS ? p.abilities.ultimate : p.abilities.slots[slotIdx];
     if (!ability || !glyphMatches(id, ability)) return false;
@@ -4028,7 +4048,14 @@ export function damageMonster(
     const key = (opts.ability ?? (opts.effect ? "dot" : "other")) + (opts.ambient ? ":ambient" : "");
     state.dmgBySource[key] = (state.dmgBySource[key] ?? 0) + dmg;
   }
-  if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
+  if (isCrit) {
+    addHype(state, p, CONFIG.show.hypeCrit);
+    // THE SHOW, TAUGHT ON A HYPE EVENT THE PLAYER CAUSED (r4). The hype bar and
+    // the viewer count are on the glass from second one and nothing ever
+    // explained them; a crit is the cheapest honest hook — the number visibly
+    // jumps in the same frame the crawler made it jump.
+    systemTip(state, p, "hype");
+  }
   // Venom Clause (chase legendary): crits inject a poison stack — the DoT
   // ticks back through this same choke point, so resists/caps keep applying.
   // (statusDuration: the Sump Crown stretches the wearer's poison/chill.)

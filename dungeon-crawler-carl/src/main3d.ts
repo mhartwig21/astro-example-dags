@@ -419,6 +419,10 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = forcedSeed ?? (mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed());
   forcedSeed = null;
   consentEl.classList.remove("on"); // a stale offer never survives into a new run
+  // Neither does a stale COURTESY card (r4 blocker 2). Both boot paths that
+  // reach startRun are already deferred past module evaluation, so the card
+  // surface's module-level state is live by the time this runs.
+  resetTutorialSurface();
   closeSets();
   // TODAY'S RULE (NICHE.md §4.8): the daily deals one — same rule for every
   // crawler on that day's dungeon. Non-daily runs are always the base game.
@@ -2753,6 +2757,7 @@ invBag.addEventListener("click", (e) => {
     equipFromInventory(state, me(state).id, idx);
     persistRun(state);
   }
+  onrampNoteEquip(); // the loot lesson's second half (r4)
   renderInventory(state);
 });
 
@@ -4719,8 +4724,10 @@ function renderSafeRoom(s: GameState): void {
     ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
     : "SAFE ROOM";
   srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
-  srTip.textContent = room.tip ||
-    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
+  // r4 minor: he does not say the same thing twice in two typographies — see
+  // guideSrBeatThisVisit. The portrait beat outranks the header line.
+  srTip.textContent = guideSrBeatThisVisit ? "" : (room.tip ||
+    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : ""));
   // Zero-value currencies stay off the header until first earned — three
   // dead 0-chips are noise, not information.
   const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
@@ -5291,6 +5298,7 @@ srDetail.addEventListener("click", (e) => {
       flushFeedback(state);
       persistRun(state);
     }
+    onrampNoteEquip(); // the loot lesson's second half (r4)
     shopSel = null;
     renderSafeRoom(state);
     return;
@@ -6207,6 +6215,15 @@ let guideAfter: (() => void) | null = null;  // continuation armed on close
 let guideChoices: GuideChoice[] = [];
 /** Safe-room "one beat per surface visit" latch (reset when the room closes). */
 let guideSrVisitSpent = false;
+/**
+ * ONE VOICE, ONE SURFACE, ONE MOMENT (r4 minor). The safe-room panel header
+ * carries `room.tip` — Mordecai's deterministic manager advice, in green, in
+ * the panel's typography. On the visit a BEAT plays he has already said his
+ * piece two seconds earlier through the portrait, and the header line made him
+ * speak twice in two different faces about the same room. On those visits the
+ * header stays quiet; every other safe room keeps its line.
+ */
+let guideSrBeatThisVisit = false;
 /** Tab the closing beat asked the auto-opening safe-room panel to show. */
 let guideSrTab: "shop" | "abil" | null = null;
 
@@ -7508,7 +7525,12 @@ function showAnnouncement(a: Announcement): void {
   // carries the same choice.
   if (a.kind === "tip") {
     const skippedAll = guide ? guide.skipped : knownTips().includes(GUIDE_SKIP_KEY);
-    if (!cleanMode && !skippedAll) showTutorialCard(a);
+    // A DECLINED tip is spent (shown-or-declined = consumed): the player asked
+    // for no teaching, and re-offering it next run would ignore the answer.
+    // An undisplayed tip is NOT spent — that distinction is r4 blocker 1, and
+    // it is the only reason the ledger write lives down here at all.
+    if (skippedAll) { if (a.tipId) recordTips([a.tipId]); return; }
+    if (!cleanMode) showTutorialCard(a);
     return;
   }
   if (a.priority === "high") {
@@ -7629,8 +7651,31 @@ function showTutorialCard(a: Announcement): void {
   pumpTutorialQueue();
 }
 
+/**
+ * A CARD BELONGS TO THE RUN THAT EARNED IT (r4 blocker 2). Pressing R at the
+ * verdict carried run 1's queue into run 2, and "the crowd has FAVORITES now"
+ * painted over a floor-1 crawler with an empty hype bar, zero favorites, level
+ * 1 and full HP. Contextual teaching that arrives with no context is worse
+ * than silence, and it is worse still now that arrival is what spends the
+ * concept. So the queue is scoped to a run: startRun drops everything still
+ * waiting (unspent — the ledger only hears about cards that painted, so the
+ * new run may teach these the moment they are true again) and clears the
+ * pacing clock so run 2's first honest card is not held for run 1's politeness.
+ */
+function resetTutorialSurface(): void {
+  tutorialQueue.length = 0;
+  window.clearTimeout(tutorialGapTimer);
+  tutorialDismissActive?.();
+  tutorialLastDismiss = -Infinity;
+}
+
 function displayTutorialCard(a: Announcement): void {
   tutorialActive = true;
+  // THE SPEND (r4 blocker 1). This is the only line in the client that turns a
+  // sim tip into a once-EVER fact, and it runs here — after the queue, after
+  // the pacing gap, after tutorialBlocked() — because those are exactly the
+  // things that used to eat a card between generation and glass.
+  if (a.tipId) recordTips([a.tipId]);
   // Strip the redundant lead-in (the ribbon header already says COURTESY
   // EXPLANATION) and re-capitalize so the body never reads as a truncated
   // sentence ("that unlock queued…" -> "That unlock queued…").
@@ -7718,9 +7763,24 @@ const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
 // player's ACTUAL binds. The shipped Five default to Space/Shift/Q/C + F —
 // the old hardcoded "1–4" named keys that do nothing, so the first thing the
 // System taught a compliant fresh crawler was that the System lies.
+//
+// r4 blocker 3 takes that one step further: a bind is only true when there is
+// something IN the slot. The static labels below are the ones that are always
+// true (movement, the strike, the flask, the bag); every ability label is
+// computed at the moment of teaching by onrampSlotKeys/onrampUltKey.
 const onrampKey = (a: BindableAction): string =>
   bindings[a][0] ? keyLabel(bindings[a][0]) : "—";
 const onrampMove = (["moveUp", "moveLeft", "moveDown", "moveRight"] as const).map(onrampKey);
+const SLOT_ACTIONS = ["slot1", "slot2", "slot3", "slot4"] as const;
+/** Labels for the active slots past the strike that CURRENTLY hold an ability.
+ *  Empty string when the crawler has nothing but their swing. */
+function onrampSlotKeys(p: Player): string {
+  const live: string[] = [];
+  for (let i = 1; i < SLOT_ACTIONS.length; i++) {
+    if (p.abilities?.slots?.[i]) live.push(onrampKey(SLOT_ACTIONS[i]));
+  }
+  return live.join(", ");
+}
 // The onramp RUNS UNDER NET too (r2 major): it is a pure observer — no sim
 // writes, no seed, no spawn — and the fresh browser whose first click is THE
 // RUSH deserves the same six lines. (Mordecai stays solo-only: the dialogue
@@ -7731,14 +7791,35 @@ const onramp: Onramp | null = freshCrawler && !testMode
       // Single-char labels read as one word ("WASD"); anything longer spaces out.
       move: onrampMove.every((k) => k.length === 1) ? onrampMove.join("") : onrampMove.join(" "),
       attack: `Left click or ${onrampKey("slot1")}`,
-      cast: (["slot2", "slot3", "slot4"] as const).map(onrampKey).join(", "),
-      ult: onrampKey("ultimate"),
       flask: bindingLabel(bindings, "flask"),
       bag: onrampKey("inventory"),
     })
   : null;
 let onrampGold = 0;
 let onrampItems = -1;
+/** Loadout/kit facts sampled last step, so the observer can see an EDGE: a
+ *  slot filling, an ultimate arriving, a piece of gear going on, a flask
+ *  charge going down. Every teach-by-doing confirmation below is one of these
+ *  edges — the player did a thing, and the System files the paperwork. */
+let onrampSlotSig = "";
+let onrampUlt: string | null = null;
+let onrampFlask = -1;
+let onrampSwung = false;
+
+/** The loot lesson's second half (r4): the player opened the bag and CHOSE to
+ *  wear something. Called from the bag panels' equip handlers, never from the
+ *  step loop — the sim auto-equips strict upgrades on pickup, and confirming a
+ *  decision nobody made teaches nothing. */
+function onrampNoteEquip(): void {
+  if (!onramp || guide?.skipped) return;
+  const line = onramp.note("equipped", state.floor);
+  if (line) showAnnouncement({ text: line, kind: "tip", priority: "normal" });
+}
+/** How close a monster has to be before "there is something to swing at" is
+ *  true. The r3 script fired the combat lecture with the nearest monster 13.6
+ *  tiles away; three is inside the crawler's own reach. */
+const ONRAMP_CONTACT_TILES = 3;
+
 /** Called once per sim step (solo) or intent pump (net): turns what just
  *  happened into at most one first-time System line on the card surface. */
 function onrampObserve(intent: Intent): void {
@@ -7747,30 +7828,62 @@ function onrampObserve(intent: Intent): void {
   // The world must actually be LIVE. Solo elapses immediately; a rush race
   // counts down before the gun (elapsed holds at 0 while forming). Gating
   // the WHOLE observe on it also keeps the script's order sane everywhere:
-  // "fresh meat detected" always precedes "locomotion confirmed", even for
-  // a player already holding W when the gun fires.
+  // "fresh meat detected" always precedes everything else, even for a player
+  // already holding W when the gun fires.
   if (state.elapsed <= 1) return;
   const p = me(state); // under net the local crawler is not players[0]
-  const say = (ev: OnrampEvent): void => {
-    const line = onramp.note(ev, state.floor);
+  const say = (ev: OnrampEvent, keys = ""): void => {
+    const line = onramp.note(ev, state.floor, keys);
     // The flask line races the wound that prompted it: "high" jumps the card
     // pacing gap (never the active card) — everything else waits its turn.
     if (line) showAnnouncement({ text: line, kind: "tip", priority: ev === "lowhp" ? "high" : "normal" });
   };
-  // The cast confirmation ALONE survives to floor 2 (r3 major: a level-1
-  // crawler's ability slots can all be locked — the organic cold run banked
-  // the draft, descended, and the line became unreachable forever). Onramp
-  // .note() enforces the same window, so this is belt and braces.
-  if (state.floor === 2) {
-    if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
-    return;
+
+  // ---- CONFIRMATIONS: no floor window, because the act is the trigger ----
+  // (r4 blocker 3 / teach-by-doing. r3 had already carved `cast` out of the
+  // floor-1 retirement for exactly this reason; the others earn the same
+  // exemption on exactly the same argument.)
+  //
+  // The swing came first, so NOW the louder options are worth naming — and
+  // only the ones that are actually in a slot.
+  if (!onrampSwung && (intent.cast?.[0] || intent.attack)) onrampSwung = true;
+  if (onrampSwung) say("ability", onrampSlotKeys(p));
+  // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
+  if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
+  // A slot FILLING is the moment its bind becomes true. Compare against last
+  // step's loadout and name the slot that changed, never the whole row.
+  const slotSig = (p.abilities?.slots ?? []).map((a) => a ?? "").join("|");
+  if (onrampSlotSig && slotSig !== onrampSlotSig) {
+    const before = onrampSlotSig.split("|");
+    const now = slotSig.split("|");
+    for (let i = 1; i < now.length; i++) {
+      if (now[i] && !before[i]) { say("slotted", onrampKey(SLOT_ACTIONS[i])); break; }
+    }
   }
+  onrampSlotSig = slotSig;
+  // The ultimate: CONFIG.ultimateMinFloor is 7, so this line is unreachable in
+  // a first session and that is the point — it is never printed as a promise.
+  const ult = p.abilities?.ultimate ?? null;
+  if (ult && !onrampUlt) say("ult", onrampKey("ultimate"));
+  onrampUlt = ult;
+  // (The equip confirmation is NOT sampled here — the sim auto-equips strict
+  //  upgrades on pickup, and a lesson about a decision must not fire on a
+  //  decision the player never made. onrampNoteEquip is called from the bag's
+  //  own click handlers instead.)
+  // The flask confirmation: "you died holding 3 flasks" was the critic's
+  // verdict, so the low-HP beat now has a second half that only exists if the
+  // player actually pressed it.
+  if (onrampFlask >= 0 && p.flaskCharges < onrampFlask) say("drink");
+  onrampFlask = p.flaskCharges;
+
+  // ---- PROMPTS: uninvited, floor 1 only, six at most ----
   if (state.floor !== 1) return;
   if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
   say("start");
-  if (Math.abs(intent.move.x) + Math.abs(intent.move.y) > 0.01) say("moved");
-  // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
-  if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
+  // The swing is taught when there is finally something to swing at.
+  if (state.monsters.some((m) => m.hp > 0
+    && Math.abs(m.pos.x - p.pos.x) <= ONRAMP_CONTACT_TILES
+    && Math.abs(m.pos.y - p.pos.y) <= ONRAMP_CONTACT_TILES)) say("contact");
   if (p.gold > onrampGold || p.inventory.length > onrampItems) {
     onrampGold = p.gold;
     onrampItems = p.inventory.length;
@@ -11386,7 +11499,7 @@ async function main(): Promise<void> {
     // shown before the panel (the sim is already paused — shipped safe-room
     // behavior). The panel itself opens the moment the beat closes; a beat
     // choice may pre-pick its tab (shop / bench) via guideSrTab.
-    if (!inSafeRoom) guideSrVisitSpent = false;
+    if (!inSafeRoom) { guideSrVisitSpent = false; guideSrBeatThisVisit = false; }
     if (guide && inSafeRoom && !draftPending && !guideSrVisitSpent && !dlgOpen
       && srEl.style.display !== "flex") {
       guideSrVisitSpent = true; // one beat per surface visit, spent either way
@@ -11401,7 +11514,7 @@ async function main(): Promise<void> {
             || lp.glyphs.slots.some((s) => s.some(Boolean)) || lp.glyphs.ultimate.some(Boolean)))
             || (state.safeRoom?.available.includes("glyph_cache") ?? false)),
       });
-      if (beat) guideShow(beat);
+      if (beat) { guideSrBeatThisVisit = true; guideShow(beat); }
     }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending && !dlgOpen) {
       srTab = guideSrTab ?? "shop"; // every safe room opens on today's shelf

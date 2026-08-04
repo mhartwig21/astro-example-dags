@@ -80,7 +80,11 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
       { id: "go", label: "Let's go.", effect: "close" },
       {
         id: "skip", label: "Skip the hand-holding.", effect: "skipAll",
-        reply: "Fine by me. Advice keeps. The stairs are down — everything else you'll learn from the floor.",
+        // "Advice keeps." is kept verbatim — the r3 critic named it as one of
+        // the lines that already work. What followed it was the `collapse`
+        // tip's own sentence, word for word ("The stairs are down"), which is
+        // the System's to say and nobody else's.
+        reply: "Fine by me. Advice keeps. Go on, then — you'll pick it up the hard way, same as I did.",
       },
     ],
   },
@@ -95,7 +99,10 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
   "tut.saferoom": {
     key: "tut.saferoom",
     lines: [
-      "Safe room. The one door down here the dungeon can't follow you through. Shop's stocked, the bench will re-slot your kit, and the flask gets topped on the house.",
+      // r4 voice: line 1 was a panel-affordance list in his idiom — a tooltip
+      // wearing a portrait. He doesn't inventory the room; he tells you what
+      // the room is FOR, which is the one thing the panel can't.
+      "Safe room. Nothing in here is trying to kill you, and that stops being true the second you take those stairs. Sit down. Breathe. It counts as work.",
       "Spend the gold. The exchange rate only gets worse with depth, and nobody's buried with their savings. If you're sitting on a draft, cash it here — nothing's chewing on you for once.",
     ],
     choices: [
@@ -103,17 +110,30 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
       { id: "later", label: "Later.", effect: "close" },
     ],
   },
+  // B6 DEBRIEFS; IT DOES NOT PARAPHRASE (r4 voice). The old line restated the
+  // System's `sponsors` tip nearly clause-for-clause — "sponsors pay YOU, in
+  // gear, between floors" against "sponsors send gifts between floors" — which
+  // is the division-of-labor rule broken in the one place it was written down.
+  // The System owns the mechanism. Mordecai owns the part the System will
+  // never say: what it costs you, and why you should pay it anyway.
   "tut.show": {
     key: "tut.show",
     lines: [
-      "You've noticed the cameras. Here's the honest version: hype is money. Crits, crowds, close calls — the audience pays for all of it, and sponsors pay YOU, in gear, between floors. Play a little louder than survival strictly needs. I hate it too. It works.",
+      "You've noticed the cameras. Nobody down here will tell you the honest part, so I will: the numbers are not a scoreboard. They are a leash, and it is already on. You will start choosing the loud option because it pays, and one day the loud option will be the stupid one and you'll take it anyway.",
+      "Take it on the fights you can afford. Not the ones you can't. I hate it too. It works.",
     ],
     choices: [{ id: "noted", label: "Noted.", effect: "close" }],
   },
+  // r4: the mechanism (firmware, one ability, behaviour not size, banks until
+  // a socket) now belongs to the System's `glyph` tip, which fires the instant
+  // the stone is in hand. What was left over here was a restatement of it, so
+  // the beat starts from the thing the System will never file: the reason
+  // people fail this system is nerve, not information. The two sentences the
+  // r3 critic praised are kept exactly as they were.
   "tut.glyphs": {
     key: "tut.glyphs",
     lines: [
-      "Your kit grew a socket. Glyphs go in. They don't make an ability bigger — they make it DIFFERENT, and different is what gets you off floor six. Try one. Hate it. Swap it at any bench, free. The first commitment is the hardest; make it anyway.",
+      "Here's what kills builds: people hold the stone back, waiting for the perfect place to put it, and they hit floor six with it still on the bench. Try one. Hate it. Swap it at any bench, free. The first commitment is the hardest; make it anyway.",
     ],
     choices: [
       { id: "bench", label: "Open the bench.", effect: "open", open: "bench" },
@@ -133,10 +153,14 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
     ],
     choices: [],
   },
+  // r4 voice: the old B9 was menu copy in his idiom — two feature blurbs with
+  // a portrait attached. He is not the front page. He is the man who has
+  // watched a lot of people crawl alone and stop coming back.
   "tut.menu2": {
     key: "tut.menu2",
     lines: [
-      "Back for more. Good. Two things worth knowing up top: the DAILY deals every crawler alive the same dungeon — one seed, one board, bragging rights until midnight. And the RUSH always has seats — racing strangers beats dying alone.",
+      "Back for more. Most aren't. The ones who last don't crawl alone — not because it's safer, it isn't, but because you learn twice as fast watching someone else make the mistake you were about to.",
+      "So take the DAILY, or take the RUSH. Same dungeon as everyone else breathing today, and a seat is always open. Dying in company is still dying. It's just cheaper tuition.",
     ],
     choices: [
       {
@@ -201,19 +225,26 @@ export class Guide {
 
   /**
    * B5/B6/B7 — called once per safe-room VISIT (rising edge): at most one
-   * beat per visit, priority B5 → B6 → B7, so B6/B7 land on later visits by
-   * construction ("second-or-later safe room" is structural, not a counter).
+   * beat per visit, so "second-or-later safe room" stays structural rather
+   * than a counter.
+   *
+   * B5 always goes first. After that, B7 OUTRANKS B6 (r4): B7 is only
+   * offerable when a socket, a safe room and an actual glyph have lined up —
+   * a rare conjunction the r3 critic never once reached in three cold runs —
+   * while B6 is offerable at every later visit for the rest of the run. Giving
+   * the scarce opportunity to the scarce beat is the only way B7 is reachable
+   * at all; B6 loses nothing but a visit.
    */
   safeRoomBeat(facts: SafeRoomFacts): GuideBeat | null {
     const first = this.take("tut.saferoom");
     if (first) return first;
-    if (facts.showMet) {
-      const show = this.take("tut.show");
-      if (show) return show;
-    }
     if (facts.glyphReady) {
       const glyphs = this.take("tut.glyphs");
       if (glyphs) return glyphs;
+    }
+    if (facts.showMet) {
+      const show = this.take("tut.show");
+      if (show) return show;
     }
     return null;
   }

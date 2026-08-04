@@ -12,10 +12,19 @@ const TIPS_KEY = "dcc:tips:v1";
 // First-contact tips (tips.ts) are once-EVER, not once-per-run: this browser-
 // level ledger outlives individual saves (a new run mints a fresh character,
 // and the run save dies with the run). Hosts seed it into new characters via
-// seedTips and it grows on every saveRun; the multiplayer client sends it on
-// join so the server's account-level ledger and this one converge.
+// seedTips; the multiplayer client sends it on join so the server's
+// account-level ledger and this one converge.
+//
+// WHO WRITES IT (r4 blocker 1). Only PRESENTATION does — the host calls
+// recordTips when a card actually paints (or when the player declines the
+// teaching outright). saveRun used to mirror `player.tipsSeen` here on every
+// save, which spent tips the sim had merely GENERATED: display is a paced,
+// modal-aware queue, so `favorites` and `achievementClaim` were measured being
+// consumed, permanently ledgered, and never once shown. A once-EVER ledger
+// that records unseen lines does not teach a concept, it deletes it.
 
-/** Tip ids this browser has ever been shown (across all runs and characters). */
+/** Tip ids whose CARD this browser has actually painted. */
+
 export function knownTips(): string[] {
   try {
     const raw = localStorage.getItem(TIPS_KEY);
@@ -150,8 +159,15 @@ export function saveRun(state: GameState, mode?: RunMode): void {
   try {
     // Single-player persistence: the local player's progression (players[0]).
     const data = toSaveData(state, state.players[0], mode);
-    localStorage.setItem(KEY, JSON.stringify(data));
-    recordTips(data.player.tipsSeen); // the once-ever ledger outlives this save
+    // The run save carries the sim's latch, MINUS anything the player has not
+    // actually been shown (r4 blocker 1). A refresh mid-run would otherwise
+    // resume a character who is "done" with a rule nobody ever explained — the
+    // same permanent silence, one layer down. Unshown ids drop, the sim
+    // regenerates them on the resumed run, and the card gets another chance.
+    const shown = new Set(knownTips());
+    const seen = data.player.tipsSeen?.filter((id) => shown.has(id));
+    localStorage.setItem(KEY, JSON.stringify({ ...data, player: { ...data.player, tipsSeen: seen } }));
+    // NO recordTips here. Presentation owns the once-EVER ledger.
   } catch {
     // Persistence is best-effort in the slice; ignore quota/availability errors.
   }
