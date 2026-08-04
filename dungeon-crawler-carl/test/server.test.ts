@@ -417,6 +417,8 @@ describe("authoritative server", () => {
     const held = holds[holds.length - 1];
     expect(held.msLeft).toBeGreaterThan(0);
     expect(held.seats.map((s: { ready: boolean }) => s.ready)).toEqual([false, false]);
+    // A private-code race is the base game: the READY card shows no rule.
+    expect((held as { rule?: string | null }).rule ?? null).toBeNull();
     // Movement buffered at the gate must not smuggle a head start.
     a.send({ t: "intent", intent: { move: { x: 1, y: 0 }, attack: false, useStairs: false } });
     // One ready is not a gun; readiness is visible to the other seat.
@@ -464,6 +466,18 @@ describe("authoritative server", () => {
     expect(c.lastSnap!.dailyRule).toBe(dailyRuleFor(day)); // and the rule rides the wire
     // The System announced the rule at second zero (welcome flush).
     await waitFor(() => c.events.some((e) => /TODAY'S RULE/.test(e)));
+    // TODAY'S RULE ON THE READY CARD (NICHE.md §4.8): the gate is a modal and
+    // modals hide the banner rail, so the gate frames themselves carry the
+    // rule — the one surface every racer reads at second zero.
+    await waitFor(() => c.gates.some((g) => !g.started && (g as { rule?: string | null }).rule === dailyRuleFor(day)));
+    // A LATE JOINER of the held race still gets the rule DURABLY: the private
+    // copy rides both channels — the banner for the moment, the event for the
+    // #hud-log — because the gate outlives the banner (the critic's repro:
+    // joiner polled 25s, rule text never visible, nothing in the log after).
+    const late = await connect(port, `DAILY-${day}-AB12`, "Donut");
+    await waitFor(() => late.events.some((e) => /TODAY'S RULE/.test(e)));
+    await waitFor(() => late.gates.some((g) => !g.started && (g as { rule?: string | null }).rule === dailyRuleFor(day)));
+    late.close();
     c.close();
     // A co-op party wearing the prefix is NOT a daily — the rush is a race.
     const coop = await connect(port, `DAILY-${day}-COOP`, "Donut");

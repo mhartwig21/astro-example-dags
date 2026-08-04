@@ -280,6 +280,17 @@ let runContractNote: string | null = null;
 let runEvent: { eventId: string; attemptNo: number; scoresCp: boolean } | null = null;
 /** RUN IT BACK / ACCEPT CHALLENGE pin the next seed instead of rolling one. */
 let forcedSeed: number | null = null;
+/**
+ * TODAY'S RULE for the next run, when someone other than the local calendar
+ * decides it (NICHE.md §4.8). `undefined` = derive from the run mode as
+ * usual (a same-day daily deals dailyRuleFor); an explicit value overrides:
+ *  - a signed contract pins the SERVER's rule (the submit path refuses a
+ *    header that disagrees with the event row's pin, so the door must deal
+ *    exactly what the exit will check);
+ *  - a past-day challenge rerun pins null — the contract closed and the rule
+ *    went with the day; reruns measure the base game like every free seed.
+ */
+let forcedRule: DailyRuleId | null | undefined = undefined;
 /** The sealed artifact of the run that just ended, offered to the verifier. */
 let runProof: RunProof | null = null;
 
@@ -402,7 +413,12 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   closeSets();
   // TODAY'S RULE (NICHE.md §4.8): the daily deals one — same rule for every
   // crawler on that day's dungeon. Non-daily runs are always the base game.
-  const rule = mode.kind === "daily" && mode.day ? dailyRuleFor(mode.day) : null;
+  // A pinned override (signed contract / closed-day rerun) outranks the
+  // local derivation — see forcedRule.
+  const rule = forcedRule !== undefined
+    ? forcedRule
+    : mode.kind === "daily" && mode.day ? dailyRuleFor(mode.day) : null;
+  forcedRule = undefined;
   state = createGame(seed, "coop", runKind, rule);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
@@ -833,6 +849,13 @@ function submitTelemetry(s: GameState): void {
       token: ensureToken(),
       data: {
         status: s.status, floor: s.floor, mode: "solo", runKind: s.runKind,
+        // PER-RULE PARTICIPATION AND WIN RATE (NICHE.md §7 falsification for
+        // TODAY'S RULE): every run_end says which rule it ate and which day
+        // dealt it, or the pull-a-bad-rule contract cannot be measured. The
+        // rule comes from the STATE — the game actually played — never from
+        // a recompute of the calendar.
+        dailyRule: s.dailyRule ?? null,
+        day: runMode.kind === "daily" ? runMode.day ?? null : null,
         elapsed: Math.round(s.elapsed),
         players: [{
           name: p.name, level: p.level, slots: p.abilities.slots,
@@ -8166,6 +8189,9 @@ async function runItBack(): Promise<void> {
   if (runMode.kind === "daily" && runMode.day === dayFromMs(Date.now()) && !net && !testMode) {
     await enterDailyContract(runMode.day);
   } else {
+    // A rerun of a CLOSED day's daily is the base game, same as the entry
+    // path pinned it — the day's rule went with the day (§4.8).
+    if (runMode.kind === "daily" && runMode.day !== dayFromMs(Date.now())) forcedRule = null;
     startRun(runMode, currentRunKind);
   }
 }
@@ -9010,6 +9036,15 @@ function contractSigned(t: SignedContract): void {
   });
 }
 
+/** The server's pinned rule, coerced to what THIS build can execute. An id
+ *  this client does not know cannot be dealt honestly (the sim would play
+ *  base game while the header claimed the rule), so it collapses to base
+ *  game and the server's pin check says so plainly at submit — the honest
+ *  outcome for a deploy-skew window, and a vanishing one. */
+function pinnedRuleOf(id: string | null | undefined): DailyRuleId | null {
+  return id && id in DAILY_RULES ? (id as DailyRuleId) : null;
+}
+
 /** ENTER THE CONTRACT. The START is observed, which is what makes an attempt
  *  count honest and closes practise-offline-then-submit-the-winner (3.2A). */
 async function enterContract(eventId: string): Promise<void> {
@@ -9021,6 +9056,9 @@ async function enterContract(eventId: string): Promise<void> {
     closeSets();
     closeMenu();
     forcedSeed = t.seed;
+    // Deal the SERVER's pinned rule, not a local recompute — the weekly pins
+    // the base game, and the submit path refuses a header off the pin (§4.8).
+    forcedRule = pinnedRuleOf(t.dailyRule);
     startRun({ kind: "daily", day: events?.daily.day ?? dayFromMs(Date.now()) }, "race");
     contractSigned(t);
   } catch (err) {
@@ -9053,7 +9091,12 @@ async function enterDailyContract(day: string | null): Promise<void> {
   if (day && day !== today) {
     pendingTicket = null;
     pendingContractNote = `a challenge on the ${day} dungeon — that contract has closed, so this is `
-      + `a rerun of it. The board row and the splits still stand; contract points do not.`;
+      + `a rerun of it, played as the base game (the day's rule went with the day). `
+      + `The board row and the splits still stand; contract points do not.`;
+    // The rule was that day's meta and the day is over: a closed-day rerun
+    // measures the base game, which is also the only thing the all-time
+    // boards accept (the server refuses ruled runs with no contract).
+    forcedRule = null;
     startRun({ kind: "daily", day }, "race");
     return;
   }
@@ -9064,6 +9107,7 @@ async function enterDailyContract(day: string | null): Promise<void> {
     pendingTicket = { eventId: t.eventId, ticket: t.ticket, attemptNo: t.attemptNo, scoresCp: t.scoresCp };
     pendingContractNote = contractNoteFor(t);
     forcedSeed = t.seed;
+    forcedRule = pinnedRuleOf(t.dailyRule); // the pin on the event row, verbatim
     startRun({ kind: "daily", day: events.daily.day }, "race");
     contractSigned(t);
   } catch (err) {
@@ -10115,6 +10159,7 @@ async function main(): Promise<void> {
     const gateEl = document.getElementById("rushgate")!;
     const gateSeatsEl = document.getElementById("rushgate-seats")!;
     const gateCountEl = document.getElementById("rushgate-count")!;
+    const gateRuleEl = document.getElementById("rushgate-rule")!;
     const gateBtn = document.getElementById("rushgate-ready") as HTMLButtonElement;
     gateBtn.addEventListener("click", () => {
       net!.ready();
@@ -10128,6 +10173,13 @@ async function main(): Promise<void> {
       }
       gateEl.classList.add("on");
       gateCountEl.textContent = String(Math.ceil(g.msLeft / 1000));
+      // TODAY'S RULE, ON THE CARD (NICHE.md §4.8). The gate frames carry the
+      // rule id because a late joiner's banner copy dies behind this very
+      // modal — the READY card is the one surface everyone reads at second
+      // zero, so the rule is printed here, System-voiced, for the whole hold.
+      const gateRule = g.rule && g.rule in DAILY_RULES ? DAILY_RULES[g.rule as DailyRuleId] : null;
+      gateRuleEl.style.display = gateRule ? "" : "none";
+      if (gateRule) gateRuleEl.innerHTML = `<b>TODAY'S RULE — ${esc(gateRule.name)}.</b> ${esc(gateRule.line.replace(/^TODAY'S RULE: [^.]+\. /, ""))}`;
       gateSeatsEl.innerHTML = g.seats.map((s) =>
         `<div class="gseat"><span>${esc(s.name)}</span>`
         + `<span class="${s.ready ? "gready" : "gwait"}">${s.ready ? "READY" : "STAGING"}</span></div>`).join("");

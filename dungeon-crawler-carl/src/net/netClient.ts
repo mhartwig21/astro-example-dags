@@ -20,6 +20,11 @@ export interface GateState {
   msLeft: number;
   cap?: number;
   started?: boolean;
+  /** TODAY'S RULE for this race (NICHE.md §4.8), when the instance was dealt
+   *  one (live daily). The READY card prints it — the gate is a modal, and a
+   *  modal hides the banner the rule announcement rides. null/absent = base
+   *  game. */
+  rule?: string | null;
 }
 
 export interface NetEventBatch {

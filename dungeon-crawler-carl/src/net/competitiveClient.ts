@@ -68,6 +68,11 @@ export class CompetitiveClient {
   startEvent(eventId: string, token: string): Promise<{
     eventId: string; seed: number; attemptNo: number; ticket: string; scoresCp: boolean;
     rulesHash: string;
+    /** TODAY'S RULE, pinned on the event row at creation (NICHE.md §4.8).
+     *  The run MUST be dealt from this value — the server refuses a header
+     *  that disagrees with the pin. null/absent = base game (weekly, or a
+     *  server predating the pin). */
+    dailyRule?: string | null;
     /** Does this account have a provider identity? CP and the seal both need
      *  one, and the honest place to say so is the DOOR (6.2 Beat 5). */
     linked: boolean;

@@ -343,6 +343,24 @@ export class CompetitiveApi {
       }
       if (now > evt.closesAt + 3600_000) return { error: "that contract has closed" };
       if (h.seed !== evt.seed) return { error: "seed does not match the event" };
+      // TODAY'S RULE IS THE EVENT'S, NEVER THE HEADER'S (NICHE.md §4.8).
+      // The header's `dailyRule` decides which game the verifier replays, so
+      // an unchecked header let a doctored client record the daily seed under
+      // whatever rule swept easiest — base game on an OVERSTAFFED day, RUSH
+      // HOUR's fat gold on a base day — pass byte-exact verification, and
+      // take a SEALED row on a board where every honest client played the
+      // pinned rule. Same class of refusal as the seed mismatch: this run,
+      // whatever it is, was not played under this contract.
+      const pinnedRule = evt.dailyRule ?? null;
+      if ((h.dailyRule ?? null) !== pinnedRule) {
+        return {
+          error: "today's rule does not match the contract — this "
+            + (evt.kind === "daily" ? "daily" : "contract") + " was dealt "
+            + (pinnedRule ? pinnedRule.toUpperCase().replace("_", " ") : "the base game")
+            + " and the run was recorded under "
+            + (h.dailyRule ? String(h.dailyRule).toUpperCase().replace("_", " ") : "the base game"),
+        };
+      }
       eventSeed = evt.seed;
 
       // THE TICKET HAS TO FIT THE RUN (3.2A). A signature alone proves only
@@ -423,6 +441,21 @@ export class CompetitiveApi {
     // is precisely the pattern 2.5 step 2 says it fixed for test starts.
     const ruleset = rulesetRefusal(h);
     if (ruleset) return refuse(ruleset);
+    // A RULED RUN COUNTS ON ITS DAY'S CONTRACT OR NOWHERE (NICHE.md §4.8:
+    // "solo runs, private races and the balance contract all measure the base
+    // game unless a rule is explicitly dealt in"). Without this line the
+    // museum boards — DEEPEST, KILLS, FASTEST, which state no event and no
+    // rule — would take verified rows from whichever rotation member sweeps
+    // easiest, self-dealt: OVERSTAFFED's second elite per floor alone would
+    // let a kills row outbid every base-game run honestly played. The row is
+    // kept and told plainly; it holds no rank.
+    if (!eventId && h.dailyRule != null) {
+      return refuse(
+        "recorded under TODAY'S RULE (" + String(h.dailyRule).toUpperCase().replace("_", " ")
+        + ") with no contract attached — a ruled run counts on its day's contract, and the "
+        + "all-time boards measure the base game",
+      );
+    }
     if (!this.eras.includes(h.rulesHash)) {
       // NOT rejected. The row keeps whatever stamp it earned and the player is
       // told plainly, and offered a re-run - the seed is in the artifact, and
@@ -704,6 +737,9 @@ export class CompetitiveApi {
           const stored = this.store.getEvent(e.id);
           return {
             ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
+            // The STORED pin wins over the live recompute, always — the pin is
+            // the truth a rotation-growing deploy cannot re-deal (§4.8).
+            dailyRule: stored ? stored.dailyRule : e.dailyRule,
             entrants: this.store.eventEntrants(e.id),
           };
         };
@@ -739,6 +775,11 @@ export class CompetitiveApi {
       this.json(res, 200, {
         eventId: evt.id, seed: evt.seed, attemptNo,
         ticket: this.tokens.issueTicket(evt.id, token, attemptNo, now),
+        // THE PINNED RULE RIDES THE TICKET (NICHE.md §4.8): the client deals
+        // the run from THIS value, never from its own dailyRuleFor — the
+        // submit path refuses any header that disagrees with the pin, so the
+        // door and the exit have to be reading the same row.
+        dailyRule: evt.dailyRule ?? null,
         linked,
         scoresCp: attemptNo === 1 && linked,
         unlinkedReason: linked ? null

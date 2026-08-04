@@ -218,6 +218,17 @@ design doc — see `PHYSICALITY.md`.
 28. **Hardening.** New-entity netcode under packet loss, save-migration
     tests beyond the one golden fixture, prop-placement edge-case QA
     (tabletop clipping, mounts on odd walls), soak tests.
+30. **The live daily has no front door yet — DAILY codes are the front-door
+    phase's default seed source, not an orphan.** The plumbing is live
+    (gameServer `dayFromDailyCode`: a rivals code `DAILY-YYYY-MM-DD-*` seeds
+    from `dailySeed(day)` and is dealt that day's pinned rule), but no UI
+    mints one — today it is reachable only by hand-writing the code into
+    `?join=`. Until NICHE.md 4.5's RUSH surface ships, "everyone racing
+    today's dungeon" is aspirational. When the front door (4.5) is built,
+    its public queue MUST default to `DAILY-<today>-<suffix>` codes per
+    4.8 ("the daily seed is the default seed for open rushes") rather than
+    inventing a second seed path. Code: gameServer.ts ~207 (dayFromDailyCode),
+    ~977 (creation); main3d race-forming UI is the missing half.
 29. SHIPPED 2026-08-04 (NICHE.md step 0) — the collapse was BOTH suspects
     plus one nobody named: (a) the bot never consulted `map.blocked`
     (pathing artifact — fixed in bot.ts, early-floor death pile-up gone),

@@ -807,8 +807,12 @@ export class GameServer {
         // line, so skip the direct copy while it is still pending.)
         if (inst.state.dailyRule
           && !inst.state.announcements.some((a) => a.text === DAILY_RULES[inst.state.dailyRule!].line)) {
+          // The line rides BOTH channels, like the sim's announce() does: the
+          // banner for the moment, the event for the #hud-log — because the
+          // banner expires (and a held race's modal hides it), and a rule the
+          // joiner cannot find afterwards is a rule they never got.
           ws.send(JSON.stringify({
-            t: "events", events: [],
+            t: "events", events: [DAILY_RULES[inst.state.dailyRule].line],
             announcements: [{ text: DAILY_RULES[inst.state.dailyRule].line, kind: "show", priority: "high" }],
             hits: [], bossEvents: [],
           }));
@@ -1128,6 +1132,11 @@ export class GameServer {
           floor: inst.state.floor,
           mode: inst.state.mode,
           runKind: inst.state.runKind,
+          // PER-RULE PARTICIPATION AND WIN RATE (NICHE.md §7): the rule the
+          // sim actually ran (state, never a recompute) and the day whose
+          // draw dealt it — the two keys the pull-a-bad-rule query needs.
+          dailyRule: inst.state.dailyRule ?? null,
+          day: dayFromDailyCode(inst.code),
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
@@ -1252,6 +1261,11 @@ export class GameServer {
       t: "gate", seats,
       msLeft: Math.max(0, gate.deadline - Date.now()),
       cap: capFor(inst.state),
+      // TODAY'S RULE ON THE READY CARD (NICHE.md §4.8): the gate is a modal,
+      // modals hide the banner rail, and the hold outlives the banner anyway
+      // — so the one surface every racer reads at second zero carries the
+      // rule itself. "Today's rule is today's meta."
+      rule: inst.state.dailyRule ?? null,
     });
   }
 
