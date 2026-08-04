@@ -22,6 +22,7 @@ import {
 import { PURPOSE_PERCEPTION } from "./roomPurposes";
 import { smashBlockersAt } from "./game";
 import { datan2, dcos, dhypot, dsin } from "./dmath";
+import { ruleBossTelegraphMult } from "./dailyRules";
 
 /**
  * SEPARATION (pack presence, AI tier 1): monsters softly shove each other
@@ -249,9 +250,13 @@ function announce2(state: GameState, text: string, priority: "high" | "normal" =
 function beginBossWindup(
   state: GameState, m: Monster, kind: NonNullable<Monster["windupKind"]>, seconds: number, label?: string,
 ): void {
-  let t = seconds;
+  // TODAY'S RULE — HAIR TRIGGER (§4.8): boss telegraphs run faster today.
+  // Identity when no rule is dealt (base tells pass through untouched);
+  // composes with REDACTED below; 0.25s is the shared hard floor.
+  const ruleMult = ruleBossTelegraphMult(state.dailyRule);
+  let t = ruleMult < 1 ? Math.max(0.25, seconds * ruleMult) : seconds;
   if (m.bossMutators?.includes("redacted")) {
-    t = Math.max(0.25, seconds * 0.6);
+    t = Math.max(0.25, t * 0.6);
     if (label) announce2(state, `[REDACTED FEED] Next: ${label}.`);
   }
   beginWindup(m, kind, t);

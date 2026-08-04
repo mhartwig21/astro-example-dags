@@ -136,7 +136,7 @@ public/audio/
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
           announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg,
           dot_burn.ogg, dot_poison.ogg, dot_chill.ogg, band_sting.ogg   (status/band cues)
-  music/  dungeon.ogg, safe_room.mp3, collapse.wav,
+  music/  dungeon.ogg, safe_room.ogg, collapse.ogg,
           battle_theme_a.ogg, battle_music.ogg, battle_winter.ogg,   (battle rotation)
           boss_epic.ogg, boss_blackmoor.ogg, boss_colossal.ogg   (boss themes; all loop)
 ```
@@ -149,26 +149,27 @@ pointers for the audio sources too.
 
 | Our file(s) | Source | Author | License |
 |---|---|---|---|
-| `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds | Kenney | CC0 |
+| `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds (SFX r2: re-leveled -5.2/-5.3/-5.4/-5.2dB via `ffmpeg -af volume`, q5 — the originals decoded at +1.9..+2.1 dBFS over full scale and breached the SOUNDPLAN §2.2 headroom contract; now peak -6.4/-6.2/-6.4/-6.0 dBFS (the earlier -3.4/-3.2/-3.4/-3.0 row was read with the pre-fix stereo-inflating meter; re-measured in the final audit — files are SAFER than first documented). Level change only, no creative edit) | Kenney | CC0 |
 | `sfx/announce,warning.ogg` | Kenney — Interface Sounds | Kenney | CC0 |
 | `sfx/gold,buy,item,equip,door_unlock,descend.ogg` | Kenney — RPG Audio | Kenney | CC0 |
 | `sfx/level_up,victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles | Kenney | CC0 |
 | `sfx/heal,dash,bolt,death.ogg` | Kenney — Digital Audio | Kenney | CC0 |
 | `music/dungeon.ogg` | [Loopable Dungeon Ambience](https://opengameart.org/content/loopable-dungeon-ambience) | JaggedStone | CC0 |
-| `music/safe_room.mp3` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) | The Cynic Project (cynicmusic.com) | CC0 |
-| `music/collapse.wav` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) | Ville Nousiainen, loop by XCVG | CC0 |
+| `music/safe_room.ogg` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) (re-encoded MP3→OGG q3; SFX r2: source's fade-out tail trimmed + 2s loop crossfade via `tools/audio/fix-beds.mjs` — the fade made every loop restart step 20.7dB. -18.0 LUFS preserved, 157.9s→143.1s) | The Cynic Project (cynicmusic.com) | CC0 |
+| `music/collapse.ogg` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) (re-encoded WAV→OGG q4; SFX r2: -2.0dB trim + 25ms loop crossfade via `tools/audio/fix-beds.mjs` — the source loop had a seam click and +0.52 dBTP true peak; now -1.4 dBTP, seam delta 0.3dB) | Ville Nousiainen, loop by XCVG | CC0 |
 | `music/battle_theme_a.ogg` | [Battle Theme A](https://opengameart.org/content/battle-theme-a) | cynicmusic (The Cynic Project) | CC0 |
 | `music/boss_epic.ogg` | [Boss Battle Music](https://opengameart.org/content/boss-battle-music) | Juhani Junkala (SubspaceAudio) | CC0 |
 | `sfx/dot_burn.ogg` | [Fire Crackling](https://opengameart.org/content/fire-crackling) (trimmed to a 0.4s tick) | AntumDeluge | CC0 |
 | `sfx/dot_poison.ogg` | [bubbles 'pop'](https://opengameart.org/content/bubbles-pop) (pitched down ~20%) | farfadet46 | CC0 |
 | `sfx/dot_chill.ogg` | [Freeze Spell](https://opengameart.org/content/freeze-spell-0) (first 0.5s, faded) | artisticdude | CC0 |
 | `sfx/band_sting.ogg` | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) (jingles_PIZZA07) | Kenney | CC0 |
-
-Not yet sourced: `sfx/crowd.ogg` (multi-kill roar), the combat-feel trio
-`sfx/swing.ogg` (melee whoosh), `sfx/tell.ogg` (enemy windup cue), and
-`sfx/kill.ogg` (killing-blow thump), plus `sfx/boss_intro.ogg` (ringside
-introduction sting). Kenney Impact/RPG Audio (CC0) have good candidates for
-all of them; the game stays silent for each until a clip is added.
+| `sfx/steps/step_{stone,grass,metal,wet}_{a,b,c}.wav` | Synthesized in-repo by `scripts/gen-footsteps.mjs` (deterministic — rerun the script to reproduce byte-for-byte) | this project | CC0 (own work) |
+| `sfx/swing,tell,kill,crowd,boss_intro.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (seeded/deterministic; measured against SOUNDPLAN §2.2 by `tools/audio/measure.mjs`) | this project | CC0 (own work) |
+| `sfx/apply_{burn,poison,chill}.ogg`, `sfx/smash_{wood,clay}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-world.mjs` (status-apply cues + breakable smash family) | this project | CC0 (own work) |
+| `sfx/barks/bark_{skel,org,hum,mech,air}_{aggro,pain,death}_{a,b}.ogg` (30 files) | Synthesized in-repo by `tools/audio/gen-sfx-barks.mjs` (five archetype-family voices; SOUNDPLAN row 9) | this project | CC0 (own work) |
+| `sfx/{ident,ident_high,stamp,count_tick,count_go,ledger_bank,door_close,draft_pick,draft_bank,descend_whoosh,verdict,till}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (the System's stinger language — one shared bell timbre) | this project | CC0 (own work) |
+| `sfx/boss_{phase,punish,down}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (dedicated boss beats; SOUNDPLAN row 15) | this project | CC0 (own work) |
+| `music/band_{undercroft,sewers,garden,ruins,ironworks,approach}.ogg`, `music/menu.ogg` | Synthesized in-repo by `tools/audio/gen-music-beds.mjs` (SOUNDPLAN §3: the six band ambiences + the campfire check-in bed; stereo, mastered to -23 LUFS-I / ≤-6 dBTP, loop-fold seams — deterministic, rerun is byte-identical) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.

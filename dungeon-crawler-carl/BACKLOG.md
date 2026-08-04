@@ -100,6 +100,12 @@ session has a reason not to. Numbers reference the entries below.
     data with a seed-VARIANCE harness (bot over N seeds x floors, flag the
     outlier tails that starve drafts or stack early elite affixes —
     `src/sim/bot.ts`); tuning the tails is what makes the Daily fair.
+    STEP-0 HANDOFF (2026-08-04): the variance harness has its first concrete
+    question — disjoint sweep seed ranges disagree by ~15-23 points at
+    identical config (BALANCE-NOTES round 3), deaths concentrated floors
+    14-18. Which BUILD families fail the last two bands, and would a human
+    piloting them? If specific ability/glyph kits (not pilots) are the
+    losers, that is #14's itemization work, not a difficulty knob.
 14. **Itemization depth** (polish ranking #3). Three cuts, no new systems:
     (a) prune dead affixes — anything no build ever wants is noise on every
     drop (`src/sim/items.ts` affix tables; #13's data names the corpses);
@@ -212,16 +218,23 @@ design doc — see `PHYSICALITY.md`.
 28. **Hardening.** New-entity netcode under packet loss, save-migration
     tests beyond the one golden fixture, prop-placement edge-case QA
     (tabletop clipping, mounts on odd walls), soak tests.
-29. **Bot full-run win rate collapsed to 0% on current main (balance
-    telemetry, 2026-07-12).** `npx tsx scripts/balance-sweep.ts 48 1`:
-    35.4% on last week's tip -> 0/48 today, measured with tempo knobs
-    HELD at their old values (control run), so the depth-tempo retune is
-    not the cause. Deaths pile up on floors 1-4 (3/5/6/5 per floor vs
-    1/2/1/1 baseline). Prime suspects: PHYSICALITY §1 blocked furniture
-    (`map.blocked`) that `src/sim/bot.ts` pathing doesn't route around
-    (wedged bot = surrounded bot), and/or roomPurposes residents adding
-    early-floor pack density. Worth deciding whether this is a bot
-    pathing artifact or a real early-game difficulty spike before the
-    next balance pass — the sweep is blind as a tuning instrument until
-    it's resolved. The floors-1-2 contract in balance.test.ts still
-    passes (bar is only "4/6 seeds clear 2 floors").
+30. **The live daily has no front door yet — DAILY codes are the front-door
+    phase's default seed source, not an orphan.** The plumbing is live
+    (gameServer `dayFromDailyCode`: a rivals code `DAILY-YYYY-MM-DD-*` seeds
+    from `dailySeed(day)` and is dealt that day's pinned rule), but no UI
+    mints one — today it is reachable only by hand-writing the code into
+    `?join=`. Until NICHE.md 4.5's RUSH surface ships, "everyone racing
+    today's dungeon" is aspirational. When the front door (4.5) is built,
+    its public queue MUST default to `DAILY-<today>-<suffix>` codes per
+    4.8 ("the daily seed is the default seed for open rushes") rather than
+    inventing a second seed path. Code: gameServer.ts ~207 (dayFromDailyCode),
+    ~977 (creation); main3d race-forming UI is the missing half.
+29. SHIPPED 2026-08-04 (NICHE.md step 0) — the collapse was BOTH suspects
+    plus one nobody named: (a) the bot never consulted `map.blocked`
+    (pathing artifact — fixed in bot.ts, early-floor death pile-up gone),
+    and (b) a real game-wide difficulty accretion: pack AI tiers 1-4,
+    heavy packs, veterans, depth tempo and bosses-v2's `bossDamage` 38->52
+    each landed tuned in isolation, never re-measured as a stack against
+    full runs. Retuned in config.ts with the sweep as the instrument;
+    receipts in BALANCE-NOTES.md round 3. The daily board / named winner /
+    rule-rotation gate is LIFTED.

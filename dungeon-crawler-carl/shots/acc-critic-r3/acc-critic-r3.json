@@ -1,0 +1,740 @@
+[
+ [
+  "menu geom 1366x768",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 575,
+    "y": 256,
+    "w": 414,
+    "h": 97
+   },
+   "daily": {
+    "x": 575,
+    "y": 360,
+    "w": 414,
+    "h": 60
+   },
+   "ratioSoloDaily": 1.62,
+   "primaryClipPath": "polygon(0px 0px, calc(100% - 30.052px) 0px, 100% 50%, calc(100% - 30.052px) 100%",
+   "tabsInfo": {
+    "tabRows": 1,
+    "tabs": [
+     {
+      "t": "TODAY",
+      "y": 336,
+      "right": 1071,
+      "w": 52,
+      "textClipped": false
+     },
+     {
+      "t": "DEPTH",
+      "y": 336,
+      "right": 1129,
+      "w": 52,
+      "textClipped": false
+     },
+     {
+      "t": "TIME",
+      "y": 336,
+      "right": 1173,
+      "w": 39,
+      "textClipped": false
+     },
+     {
+      "t": "KILLS",
+      "y": 336,
+      "right": 1223,
+      "w": 44,
+      "textClipped": false
+     },
+     {
+      "t": "RIVALS",
+      "y": 336,
+      "right": 1282,
+      "w": 54,
+      "textClipped": false
+     }
+    ],
+    "stripScrollX": 0,
+    "tabSlack": 0,
+    "allVisible": true
+   },
+   "tiles": [
+    {
+     "cls": "m-tile hero",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile hero gold",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile red",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile roam",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    }
+   ],
+   "board": {
+    "x": 1005,
+    "y": 323,
+    "w": 292,
+    "h": 277
+   },
+   "boardTxt": "TODAY DEPTH TIME KILLS RIVALS 2026-08-04 THE BOARD IS DARK the server keeps the score — the standings return with the signal",
+   "ghostRows": 0,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   }
+  }
+ ],
+ [
+  "menu clips 1366x768",
+  []
+ ],
+ [
+  "menu fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   },
+   "voidBelowViewport": 109,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 1366x768",
+  {
+   "meanLuma": 9.6,
+   "maxLuma": 100,
+   "litFrac": 0.251,
+   "px": 421632
+  }
+ ],
+ [
+  "ladder ack 1366x768",
+  {
+   "ackMs": 16,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 1366x768",
+  {
+   "frame": {
+    "w": 1180,
+    "h": 737
+   },
+   "state": "THE BOARD IS DARK",
+   "emptyTxt": "THE BOARD IS DARK the server keeps the score, and it will still be there when the signal is back",
+   "skelRows": 9
+  }
+ ],
+ [
+  "ladder fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1366x768",
+  []
+ ],
+ [
+  "ladder bands frame 1366x768",
+  {
+   "hBefore": 737,
+   "hLoading": 737,
+   "hSettled": 737,
+   "stable": true
+  }
+ ],
+ [
+  "ladder bands clips 1366x768",
+  []
+ ],
+ [
+  "career ack 1366x768",
+  {
+   "ackMs": 160
+  }
+ ],
+ [
+  "career content 1366x768",
+  {
+   "bodyTxt": "UNRANKED no ranked contract scored yet Carl contract points arrive with your first sealed contract 0 SEALS WHERE YOU DIE Eighteen floors, one bar each — 0 runs recorded in this browser. Gold bars are floors 13+, where a death costs the most. This browser alone — the tier, contract points and seals come from the server, which only ever sees sealed runs. NO EPISODES ON FILE the first bar draws where",
+   "histoBars": 19
+  }
+ ],
+ [
+  "career fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1366x768",
+  []
+ ],
+ [
+  "abil ach fit 1366x768",
+  {
+   "paneClient": 495,
+   "paneScroll": 495,
+   "overflowY": 0,
+   "columns": 3,
+   "cards": 13
+  }
+ ],
+ [
+  "abil fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 316,
+    "y": 59,
+    "w": 734,
+    "h": 603
+   },
+   "voidBelowViewport": 106,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "abil clips 1366x768",
+  []
+ ],
+ [
+  "menu geom 1600x900",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 673,
+    "y": 314,
+    "w": 507,
+    "h": 109
+   },
+   "daily": {
+    "x": 673,
+    "y": 430,
+    "w": 507,
+    "h": 68
+   },
+   "ratioSoloDaily": 1.6,
+   "primaryClipPath": "polygon(0px 0px, calc(100% - 35.2px) 0px, 100% 50%, calc(100% - 35.2px) 100%, 25",
+   "tabsInfo": {
+    "tabRows": 1,
+    "tabs": [
+     {
+      "t": "TODAY",
+      "y": 397,
+      "right": 1273,
+      "w": 59,
+      "textClipped": false
+     },
+     {
+      "t": "DEPTH",
+      "y": 397,
+      "right": 1336,
+      "w": 59,
+      "textClipped": false
+     },
+     {
+      "t": "TIME",
+      "y": 397,
+      "right": 1384,
+      "w": 44,
+      "textClipped": false
+     },
+     {
+      "t": "KILLS",
+      "y": 397,
+      "right": 1439,
+      "w": 50,
+      "textClipped": false
+     },
+     {
+      "t": "RIVALS",
+      "y": 397,
+      "right": 1504,
+      "w": 61,
+      "textClipped": false
+     }
+    ],
+    "stripScrollX": 0,
+    "tabSlack": 0,
+    "allVisible": true
+   },
+   "tiles": [
+    {
+     "cls": "m-tile hero",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile hero gold",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile red",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile roam",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    }
+   ],
+   "board": {
+    "x": 1199,
+    "y": 384,
+    "w": 320,
+    "h": 306
+   },
+   "boardTxt": "TODAY DEPTH TIME KILLS RIVALS 2026-08-04 THE BOARD IS DARK the server keeps the score — the standings return with the signal",
+   "ghostRows": 0,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   }
+  }
+ ],
+ [
+  "menu clips 1600x900",
+  []
+ ],
+ [
+  "menu fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   },
+   "voidBelowViewport": 147,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 1600x900",
+  {
+   "meanLuma": 8.7,
+   "maxLuma": 100,
+   "litFrac": 0.222,
+   "px": 579600
+  }
+ ],
+ [
+  "ladder ack 1600x900",
+  {
+   "ackMs": 49,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 1600x900",
+  {
+   "frame": {
+    "w": 1180,
+    "h": 864
+   },
+   "state": "THE BOARD IS DARK",
+   "emptyTxt": "THE BOARD IS DARK the server keeps the score, and it will still be there when the signal is back",
+   "skelRows": 9
+  }
+ ],
+ [
+  "ladder fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1600x900",
+  []
+ ],
+ [
+  "ladder bands frame 1600x900",
+  {
+   "hBefore": 864,
+   "hLoading": 864,
+   "hSettled": 864,
+   "stable": true
+  }
+ ],
+ [
+  "ladder bands clips 1600x900",
+  []
+ ],
+ [
+  "career ack 1600x900",
+  {
+   "ackMs": 411
+  }
+ ],
+ [
+  "career content 1600x900",
+  {
+   "bodyTxt": "UNRANKED no ranked contract scored yet Carl contract points arrive with your first sealed contract 0 SEALS WHERE YOU DIE Eighteen floors, one bar each — 0 runs recorded in this browser. Gold bars are floors 13+, where a death costs the most. This browser alone — the tier, contract points and seals come from the server, which only ever sees sealed runs. NO EPISODES ON FILE the first bar draws where",
+   "histoBars": 19
+  }
+ ],
+ [
+  "career fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1600x900",
+  []
+ ],
+ [
+  "abil ach fit 1600x900",
+  {
+   "paneClient": 547,
+   "paneScroll": 547,
+   "overflowY": 0,
+   "columns": 3,
+   "cards": 13
+  }
+ ],
+ [
+  "abil fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 370,
+    "y": 67,
+    "w": 860,
+    "h": 669
+   },
+   "voidBelowViewport": 164,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "abil clips 1600x900",
+  []
+ ],
+ [
+  "menu geom 2560x1440",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 1067,
+    "y": 488,
+    "w": 992,
+    "h": 196
+   },
+   "daily": {
+    "x": 1067,
+    "y": 704,
+    "w": 992,
+    "h": 121
+   },
+   "ratioSoloDaily": 1.62,
+   "primaryClipPath": "polygon(0px 0px, calc(100% - 40px) 0px, 100% 50%, calc(100% - 40px) 100%, 26px 1",
+   "tabsInfo": {
+    "tabRows": 1,
+    "tabs": [
+     {
+      "t": "TODAY",
+      "y": 503,
+      "right": 2165,
+      "w": 67,
+      "textClipped": false
+     },
+     {
+      "t": "DEPTH",
+      "y": 503,
+      "right": 2237,
+      "w": 67,
+      "textClipped": false
+     },
+     {
+      "t": "TIME",
+      "y": 503,
+      "right": 2292,
+      "w": 50,
+      "textClipped": false
+     },
+     {
+      "t": "KILLS",
+      "y": 503,
+      "right": 2354,
+      "w": 57,
+      "textClipped": false
+     },
+     {
+      "t": "RIVALS",
+      "y": 503,
+      "right": 2428,
+      "w": 69,
+      "textClipped": false
+     }
+    ],
+    "stripScrollX": 0,
+    "tabSlack": 0,
+    "allVisible": true
+   },
+   "tiles": [
+    {
+     "cls": "m-tile hero",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile hero gold",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile red",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    },
+    {
+     "cls": "m-tile roam",
+     "iconColor": "rgb(232, 221, 200)",
+     "iconBg": "linear-gradient(160deg, rgb(27, 22, 17), rgb(16, 12, 9))"
+    }
+   ],
+   "board": {
+    "x": 2083,
+    "y": 490,
+    "w": 360,
+    "h": 669
+   },
+   "boardTxt": "TODAY DEPTH TIME KILLS RIVALS 2026-08-04 THE BOARD IS DARK the server keeps the score — the standings return with the signal",
+   "ghostRows": 0,
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020
+   }
+  }
+ ],
+ [
+  "menu clips 2560x1440",
+  []
+ ],
+ [
+  "menu fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020
+   },
+   "voidBelowViewport": 210,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 2560x1440",
+  {
+   "meanLuma": 9.3,
+   "maxLuma": 100,
+   "litFrac": 0.242,
+   "px": 1488960
+  }
+ ],
+ [
+  "ladder ack 2560x1440",
+  {
+   "ackMs": 168,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 2560x1440",
+  {
+   "frame": {
+    "w": 1587,
+    "h": 1382
+   },
+   "state": "THE BOARD IS DARK",
+   "emptyTxt": "THE BOARD IS DARK the server keeps the score, and it will still be there when the signal is back",
+   "skelRows": 9
+  }
+ ],
+ [
+  "ladder fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "voidBelowViewport": 29,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 2560x1440",
+  []
+ ],
+ [
+  "ladder bands frame 2560x1440",
+  {
+   "hBefore": 1382,
+   "hLoading": 1382,
+   "hSettled": 1382,
+   "stable": true
+  }
+ ],
+ [
+  "ladder bands clips 2560x1440",
+  []
+ ],
+ [
+  "career ack 2560x1440",
+  {
+   "ackMs": 756
+  }
+ ],
+ [
+  "career content 2560x1440",
+  {
+   "bodyTxt": "UNRANKED no ranked contract scored yet Carl contract points arrive with your first sealed contract 0 SEALS WHERE YOU DIE Eighteen floors, one bar each — 0 runs recorded in this browser. Gold bars are floors 13+, where a death costs the most. This browser alone — the tier, contract points and seals come from the server, which only ever sees sealed runs. NO EPISODES ON FILE the first bar draws where",
+   "histoBars": 19
+  }
+ ],
+ [
+  "career fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "voidBelowViewport": 29,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 2560x1440",
+  []
+ ],
+ [
+  "abil ach fit 2560x1440",
+  {
+   "paneClient": 0,
+   "paneScroll": 0,
+   "overflowY": 0,
+   "columns": 3,
+   "cards": 0
+  }
+ ],
+ [
+  "abil fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 0,
+    "y": 0,
+    "w": 0,
+    "h": 0
+   },
+   "voidBelowViewport": 1440,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "abil clips 2560x1440",
+  []
+ ]
+]

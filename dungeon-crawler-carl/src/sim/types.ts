@@ -77,6 +77,11 @@ export interface Player {
   floorNo: number; // which floor world this crawler is on (mirrors state.floor in co-op)
   safeRoom?: SafeRoom | null; // PERSONAL shop between floors — the race keeps running
   downedT?: number; // seconds until auto-revive after going down
+  // DEATH IS A DOOR (NICHE.md 4.7): a downed rival who chose the second door.
+  // Conceded is terminal for the run — no revive timer, no seat in the race's
+  // win condition — and it is a SIM fact (set via concedeRival), so replays
+  // and the server agree about who was still racing.
+  conceded?: boolean;
   reviveGraceT?: number; // brief post-revive immunity (no spawn-camping the timer)
   // The Five (DESIGN.md 5.7): 4 active slots + 1 ultimate + a bench of known-
   // but-unslotted abilities, plus rank taken per upgrade node.
@@ -1211,6 +1216,11 @@ export interface GameState {
   // settlement/tribe/quest, regenerating open-endedly instead of ending at
   // floor 18. See SETTLEMENTS.md.
   runKind: "race" | "roam";
+  // TODAY'S RULE (NICHE.md §4.8): the daily mutator this run was dealt, or
+  // null/absent for the base game. Set once at createGame from the day
+  // string (sim/dailyRules.ts) — never mid-run. Optional: older snapshots
+  // lack it and read as the base game, which is what they were.
+  dailyRule?: import("./dailyRules").DailyRuleId | null;
   // Roam only: the guide NPC (Mordecai, entrance settlement). Kept as the
   // legacy singular field so v1 snapshots and the current renderer path stay
   // valid; the full roster lives in `npcs` below.
@@ -1242,6 +1252,7 @@ export interface GameState {
   rivals?: {
     id: number; name: string; floor: number; level: number;
     alive: boolean; downedT: number; shopping: boolean;
+    conceded?: boolean; // DEATH IS A DOOR (NICHE.md 4.7): out by choice
   }[];
   rng: Rng;
   seed: number;

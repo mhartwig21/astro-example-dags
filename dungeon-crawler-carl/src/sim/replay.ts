@@ -4,8 +4,8 @@
  * A whole run is a seed plus the input stream that produced it: ~27 KB for a
  * 13-minute descent, against 7.0 MB for the naive "JSON-log the Intent every
  * tick" strawman. That artifact is the spine of the entire competitive layer -
- * the server re-executes it to certify a leaderboard row, the client re-executes
- * it to race a ghost, and a link to it reproduces a run exactly.
+ * the server re-executes it to certify a leaderboard row, and a link to it
+ * reproduces a run exactly.
  *
  * THE LOAD-BEARING DESIGN CHOICE: quantize BEFORE the sim, not at record time.
  * The host builds an Intent, runs it through encode/decode here, and feeds the
@@ -28,6 +28,7 @@ import {
   setUltimate, slotAbility, socketGlyph, step, unsocketGlyph,
 } from "./game";
 import { datan2, dcos, dsin, DTAU } from "./dmath";
+import { DAILY_RULES, type DailyRuleId } from "./dailyRules";
 import { RULES_HASH } from "./rulesHash";
 import type { AbilityId } from "./abilities";
 import type { GlyphId } from "./glyphs";
@@ -277,6 +278,10 @@ export interface RunProofHeader {
   /** Signed attempt ticket from POST /events/:id/start (COMPETITIVE.md 3.2A).
    *  The START is observed, which is what makes an attempt count honest. */
   ticket?: string;
+  /** TODAY'S RULE (NICHE.md §4.8): the daily mutator this run was dealt.
+   *  Absent/null = base game. Part of the header because it changes what the
+   *  sim eats — a ruled run replayed without its rule diverges on tick one. */
+  dailyRule?: DailyRuleId | null;
 }
 
 /** What the CLIENT says happened. Checked with zero tolerance against the
@@ -311,8 +316,8 @@ export class ReplayFormatError extends Error {
  * THE ERA GATE (COMPETITIVE.md 2.6f). A proof recorded under rules era X is
  * executable only by a sim that computes X's numbers. Stepping a foreign proof
  * into the current sim does not throw - the artifact decodes and the sim runs -
- * it quietly diverges and renders a wrong ghost with a wrong split delta, and
- * the player has no way to detect it. So: refuse, loudly, with the era named.
+ * it quietly diverges into a wrong run with wrong numbers, and nobody can
+ * detect it after the fact. So: refuse, loudly, with the era named.
  */
 export class ReplayEraError extends Error {
   constructor(readonly proofHash: string, readonly available: readonly string[]) {
@@ -413,6 +418,7 @@ export function validateProofShape(proof: RunProof): string | null {
   if (!Number.isInteger(h.ticks) || h.ticks < 0 || h.ticks > MAX_TICKS) return "tick count out of range";
   if (h.dtNum !== REPLAY_DT_NUM || h.dtDen !== REPLAY_DT_DEN) return "unsupported timestep";
   if (h.startKind !== "fresh" && h.startKind !== "test") return "bad start kind";
+  if (h.dailyRule != null && !(h.dailyRule in DAILY_RULES)) return "unknown daily rule";
   if (!Array.isArray(proof.actions)) return "actions is not an array";
   if (proof.actions.length > MAX_ACTIONS) return "too many actions";
   let last = -1;
@@ -457,6 +463,8 @@ export interface RecorderOptions {
   playerName?: string;
   eventId?: string;
   ticket?: string;
+  /** TODAY'S RULE the run was dealt (see RunProofHeader.dailyRule). */
+  dailyRule?: DailyRuleId | null;
   /** Stop recording past this many ticks (memory guard). 4 B/tick means a
    *  60-minute run is 864 KB; the default ceiling is the artifact cap. */
   maxTicks?: number;
@@ -544,6 +552,7 @@ export class RunRecorder {
         playerName: this.opts.playerName,
         eventId: this.opts.eventId,
         ticket: this.opts.ticket,
+        dailyRule: this.opts.dailyRule ?? undefined,
       },
       frames: rleFrames(this.frames, this.tickN),
       actions: this.acts,
@@ -582,7 +591,7 @@ export interface RunBuild {
  * certification time rather than recomputed on read (COMPETITIVE.md 2.5.5).
  * That single decision is what lets a row stay informative after its proof
  * stops being executable: the splits, the build and the named death are DATA
- * ON THE ROW, and only WATCH and RACE depend on the film still running.
+ * ON THE ROW, so nothing a reader sees depends on the film still running.
  */
 export interface RunSummary {
   status: GameState["status"];
@@ -636,40 +645,24 @@ function buildOf(p: Player): RunBuild {
 }
 
 export interface ReplaySessionOptions {
-  /** Sample the crawler transform this often (Hz) into a ghost track. Omitted
-   *  or 0 skips it. RACE uses 10 Hz and lerps on the main thread, so the
-   *  frame cost of a ghost becomes an array index and a lerp - not 4% of a
-   *  frame this project does not have (COMPETITIVE.md 4.1). */
-  ghostHz?: number;
   /** Rules eras this executor can run. Defaults to the bundle own era. */
   availableEras?: readonly string[];
-}
-
-/** 10 Hz keyframes of the ghost crawler: x, y, floor. No render state and no
- *  interaction - a ghost is a rival TRAJECTORY, never a shared world. */
-export interface GhostTrack {
-  hz: number;
-  x: number[];
-  y: number[];
-  floor: number[];
 }
 
 /**
  * A replay in progress. advance(n) runs at most n ticks and returns true when
  * the stream is exhausted. That chunking is what lets the verify worker hold a
- * duty cycle (COMPETITIVE.md 2.4 rule 4) and what makes a ghost seek an index.
+ * duty cycle (COMPETITIVE.md 2.4 rule 4).
  */
 export class ReplaySession {
   readonly state: GameState;
   readonly playerId: number;
-  readonly ghost: GhostTrack | null;
   private proof: RunProof;
   private frames: Uint8Array;
   private tickN = 0;
   private ai = 0;
   private floorEntry: number[] = [];
   private lastFloor = 0;
-  private ghostEvery = 0;
   private finished = false;
 
   constructor(proof: RunProof, opts: ReplaySessionOptions = {}) {
@@ -683,17 +676,11 @@ export class ReplaySession {
     // reproduces exactly and a restored snapshot might not (COMPETITIVE.md 2.1).
     this.state = proof.header.startKind === "test" && proof.header.test
       ? createTestGame(proof.header.test)
-      : createGame(proof.header.seed, proof.header.mode, proof.header.runKind);
+      : createGame(proof.header.seed, proof.header.mode, proof.header.runKind, proof.header.dailyRule ?? null);
     if (proof.header.playerName) this.state.players[0].name = proof.header.playerName;
     this.playerId = this.state.players[0].id;
     this.lastFloor = this.state.floor;
     this.floorEntry[this.state.floor - 1] = 0;
-    if (opts.ghostHz && opts.ghostHz > 0) {
-      this.ghostEvery = Math.max(1, Math.round(REPLAY_DT_DEN / opts.ghostHz));
-      this.ghost = { hz: REPLAY_DT_DEN / this.ghostEvery, x: [], y: [], floor: [] };
-    } else {
-      this.ghost = null;
-    }
   }
 
   get tick(): number { return this.tickN; }
@@ -723,12 +710,6 @@ export class ReplaySession {
       step(this.state, intent, REPLAY_DT);
       this.tickN++;
       this.markFloor();
-      if (this.ghost && this.tickN % this.ghostEvery === 0) {
-        const p = this.state.players[0];
-        this.ghost.x.push(p.pos.x);
-        this.ghost.y.push(p.pos.y);
-        this.ghost.floor.push(this.state.floor);
-      }
     }
     if (this.tickN >= this.proof.header.ticks) {
       // Trailing actions land on the final tick: a shop purchase on the last
@@ -813,7 +794,7 @@ export class ReplaySession {
   }
 }
 
-/** Run a proof to completion in one go (tests, tools, the ghost worker). */
+/** Run a proof to completion in one go (tests, tools). */
 export function replayProof(proof: RunProof, opts: ReplaySessionOptions = {}): {
   summary: RunSummary; session: ReplaySession;
 } {

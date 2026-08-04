@@ -10,9 +10,13 @@
 // which draft options come up first) across seeds, not a controlled A/B.
 //
 // Usage: npx tsx scripts/balance-sweep.ts [count] [startSeed]
+//   DCC_RULE=<dailyRuleId> forces TODAY'S RULE on every run — the pool
+//   discipline sweep (sim/dailyRules.ts): a rule enters rotation only if a
+//   forced sweep lands inside the same 25-55% band as the base game.
 import { createGame } from "../src/sim/game";
 import { runBot } from "../src/sim/bot";
 import { CONFIG } from "../src/sim/config";
+import { DAILY_RULES, type DailyRuleId } from "../src/sim/dailyRules";
 import { weaponClassOf, type WeaponClass } from "../src/sim/items";
 import { GLYPH_INFO, type GlyphId } from "../src/sim/glyphs";
 import type { AbilityId } from "../src/sim/abilities";
@@ -36,8 +40,16 @@ interface RunSummary {
   glyphs: GlyphId[]; // stones SOCKETED at run end (the bench is not the build)
 }
 
+const FORCED_RULE: DailyRuleId | null = (() => {
+  const r = process.env.DCC_RULE ?? "";
+  if (!r) return null;
+  if (!(r in DAILY_RULES)) throw new Error(`unknown DCC_RULE "${r}"`);
+  return r as DailyRuleId;
+})();
+if (FORCED_RULE) console.log(`TODAY'S RULE forced for every run: ${FORCED_RULE}`);
+
 function runOne(seed: number): RunSummary {
-  const g = createGame(seed);
+  const g = createGame(seed, "coop", "race", FORCED_RULE);
   const r = runBot(g, CONFIG.finalFloor + 2, MAX_STEPS);
   const hitStepBudget = !r.won && !r.died && r.steps >= MAX_STEPS;
   const p = g.players[0];

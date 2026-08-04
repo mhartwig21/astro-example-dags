@@ -8,12 +8,13 @@
 import { describe, expect, it } from "vitest";
 import {
   bandSplitsFrom, bankedTicks, benchmark, boardsPhrase, decodeChallenge, deathContext,
-  deathHeadline, deathName, encodeChallenge, ghostAt, gradeRun, leaderSplits, letterFor,
-  masteryLevel, milestonesFrom, nextMilestone, playability, sealChip, signedTime,
-  splitDelta, verdictSeal, worstBand,
+  deathHeadline, deathName, encodeChallenge, gradeRun, leaderSplits, letterFor,
+  masteryLevel, milestonesFrom, nextMilestone, sealChip, signedTime,
+  verdictSeal, worstBand,
   boardLeader, count, provenanceOf, rulesetLabel,
   sealHoldMs, SEAL_CASCADE_MS, SEAL_MIN_PENDING_MS,
-  type BoardRun, type GhostState, type RunFacts,
+  resultCardText, raceCardText, claimBanner, claimVerdict,
+  type BoardRun, type RunFacts,
 } from "../src/ui/social";
 import type { RunRecord } from "../src/persist/history";
 
@@ -174,7 +175,7 @@ describe("the death, named (6.2 Beat 3)", () => {
   });
 });
 
-describe("splits and ghosts (3.3, 4.1)", () => {
+describe("band splits (3.3)", () => {
   it("bands the floor-entry ticks the same way the verifier does", () => {
     const entries = new Array<number>(18).fill(-1);
     entries[0] = 0; entries[1] = 600; entries[2] = 1500; entries[3] = 2400;
@@ -215,38 +216,19 @@ describe("splits and ghosts (3.3, 4.1)", () => {
     expect(ok[2]).toBeNull(); // a band the leader never walked is not a zero
   });
 
-  it("a ghost that has finished its run is off the floor, not frozen on it", () => {
-    const g: GhostState = {
-      label: "RIVAL", ticks: 60,
-      track: { hz: 10, x: [1, 2], y: [3, 4], floor: [1, 1] },
-      floorEntryTicks: [0, 600, -1],
-    };
-    expect(ghostAt(g, 0)).toEqual({ x: 1, y: 3, floor: 1 });
-    expect(ghostAt(g, 600)).toBeNull();
-    // Positive is BEHIND; a floor they never reached has no number at all.
-    expect(splitDelta(g, 2, 900)).toBe(5);
-    expect(splitDelta(g, 3, 900)).toBeNull();
+  it("the signed clock keeps its sign and its sub-minute precision", () => {
     expect(signedTime(75)).toBe("+1:15");
     expect(signedTime(-4)).toContain("4.0s");
   });
 });
 
-describe("seals, eras and what may be raced (2.4, 2.6f)", () => {
-  it("a private run ranks with a lock, and is never handed out", () => {
+describe("seals and eras (2.4, 2.6f)", () => {
+  it("a private run ranks with a lock", () => {
     expect(sealChip("verified", "abc1234", true).label).toContain("PRIVATE");
-    expect(playability(boardRow({ private: true }), "abc1234").ok).toBe(false);
-  });
-
-  it("refuses a foreign era LOUDLY, with the era named on the button", () => {
-    const p = playability(boardRow({ rulesEra: "0000000" }), "abc1234");
-    expect(p.ok).toBe(false);
-    expect(p.why).toContain("RULES ERA 0000000");
-    expect(p.why).toContain("abc1234");
   });
 
   it("an unproven row is shown, and says so", () => {
     expect(sealChip("claimed", null).label).toBe("CLAIMED");
-    expect(playability(boardRow({ state: "claimed" }), "abc1234").ok).toBe(false);
     expect(sealChip("unverifiable", "0000000").title).toContain("keeps whatever it earned");
   });
 
@@ -277,11 +259,24 @@ describe("sharing (8.2)", () => {
   it("round-trips a challenge in about a chat message", () => {
     const c = {
       seed: 2698932116, ev: "daily-2026-08-02", by: "Donut Holes", floor: 18,
-      won: true, timeSec: 902, kills: 641, level: 34, ult: "airstrike", run: "seed-1",
+      won: true, timeSec: 902, kills: 641, level: 34, ult: "airstrike",
     };
     const code = encodeChallenge(c);
     expect(code.length).toBeLessThan(140);
     expect(decodeChallenge(code)).toEqual(c);
+  });
+
+  it("still opens a pre-removal code that carried a ghost run id", () => {
+    // Old links embedded an eleventh tuple entry (a sealed run id to race).
+    // The ghost layer is gone; the entry is ignored, the dungeon still opens.
+    const legacy = btoa(JSON.stringify([
+      1, 2698932116, "daily-2026-08-02", "Donut Holes", 18, 1, 902, 641, 34, "airstrike", "run-abc123",
+    ])).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+    const ch = decodeChallenge(legacy);
+    expect(ch).not.toBeNull();
+    expect(ch!.seed).toBe(2698932116);
+    expect(ch!.by).toBe("Donut Holes");
+    expect("run" in ch!).toBe(false);
   });
 
   it("refuses garbage rather than launching a wrong dungeon", () => {
@@ -356,15 +351,15 @@ describe("the seal is weighted by what it CERTIFIES (6.2)", () => {
   });
 
   it("a rivals row is sealed WITHOUT a film, and never claims one aged out", () => {
-    // The row is inserted verified with proofId = null because nobody records a
-    // party run; `playability` fell through to "the proof has aged out of
-    // retention" - a proof that never existed. competitive.ts even admitted the
-    // reuse in a comment. It was still a deliberate false statement to the
-    // player.
-    const vouched = playability(boardRow({ film: "never", playable: false }), "abc1234");
-    expect(vouched.ok).toBe(false);
-    expect(vouched.why).not.toMatch(/aged out/i);
-    expect(vouched.why).toContain("THE SERVER RAN THIS ONE ITSELF");
+    // The row is inserted verified with proofId = null because nobody records
+    // a party run. Its chip must say the honest sentence (the authoritative
+    // sim decided it) and never imply a re-execution or a film that expired.
+    const row = boardRow({ film: "never" as const, playable: false });
+    expect(provenanceOf(row)).toBe("vouched");
+    const chip = sealChip("verified", "abc1234", false, "ranked", provenanceOf(row));
+    expect(chip.label).toContain("SERVER-RUN");
+    expect(chip.title).not.toMatch(/aged out/i);
+    expect(chip.title).toContain("no film");
     // ...and the verdict has a state for it, so the one genuinely
     // server-authoritative score in the product is shown being earned.
     const seal = verdictSeal("vouched", "abc1234");
@@ -574,5 +569,72 @@ describe("the seal moment happens on screen (round-4 blocker 6)", () => {
     // verdictVisibleAt 0 means the card has not been displayed yet; the first
     // paint happens during the Beat 0 freeze and must not be deferred.
     expect(sealHoldMs(CARD + 10, 0, 0, true, true)).toBe(0);
+  });
+});
+
+describe("THE RESULT CARD (NICHE.md 4.2): a link a stranger can read", () => {
+  // The two legibility rules, held as tests: every number carries its scale,
+  // and the System grades the claim in exactly one line.
+  const card = (o: Partial<Parameters<typeof resultCardText>[0]> = {}) => resultCardText({
+    name: "Meatshield", won: false, floor: 7, timeSec: 372, kills: 41,
+    letter: "B", url: "https://dungeon-crawler-claude.fly.dev/iso.html?c=XYZ", ...o,
+  });
+
+  it("every number carries its scale: FLOOR 7 alone is an in-joke, OF 18 is a story", () => {
+    const c = card();
+    expect(c).toContain("FLOOR 7 OF 18");
+    expect(c).toContain("6:12");
+    expect(c).toContain("41 KILLS");
+    expect(c).toContain("MEATSHIELD");
+    // A clear states the whole scale too — "ALL 18 FLOORS", never a bare 18.
+    expect(card({ won: true, timeSec: 702 })).toContain("ALL 18 FLOORS");
+  });
+
+  it("the System grades the claim — one line, from the audited letter", () => {
+    expect(card()).toContain("THE SYSTEM RATES THIS CLAIM: RESPECTABLE. BARELY.");
+    expect(card({ letter: "S" })).toMatch(/RATES THIS CLAIM/);
+    // An ungraded run (no grade yet) carries no rating line rather than a fake one.
+    expect(card({ letter: null })).not.toMatch(/RATES THIS CLAIM/);
+  });
+
+  it("ends in the door, and the door is a ?c= seed link — not a recording", () => {
+    const c = card();
+    const last = c.split("\n").slice(-1)[0];
+    expect(last).toMatch(/^beat it → .*\?c=/);
+    // §5: the card must never carry pace-delta furniture.
+    expect(c).not.toMatch(/BEHIND|AHEAD OF/);
+  });
+
+  it("a daily card names the day — the claim is against everyone on that dungeon", () => {
+    expect(card({ day: "2026-08-04" })).toContain("THE DAILY 2026-08-04");
+  });
+
+  it("the race card is crew-flavored and its door is a live rematch, not a chase", () => {
+    const c = raceCardText({
+      winner: "Meatshield", seats: 4, timeSec: 702,
+      joinUrl: "https://dungeon-crawler-claude.fly.dev/iso.html?join=AB2CD&rivals=1",
+    });
+    expect(c).toContain("MEATSHIELD TOOK THE DUNGEON — 3 CRAWLERS ATE FLOOR");
+    expect(c.split("\n").slice(-1)[0]).toMatch(/^rematch → .*\?join=/);
+    expect(c).not.toContain("?c="); // the race door is the party, never a solo chase
+    // Two-seat race reads correctly in the singular.
+    expect(raceCardText({ winner: "A", seats: 2, timeSec: 100, joinUrl: "u" }))
+      .toContain("1 CRAWLER ATE FLOOR");
+  });
+
+  it("the inbound claim is a static goal at the start and one comparison at the end", () => {
+    const ch = { seed: 1, by: "Meatshield", floor: 7, won: false, timeSec: 372, kills: 41, level: 12, ult: null };
+    expect(claimBanner(ch)).toBe("MEATSHIELD CLAIMS FLOOR 7 OF 18 IN 6:12. OUTLIVE THEM.");
+    // Deeper beats shallower; a clear beats any death; two clears settle on the clock.
+    const you = { name: "You", won: false, floor: 9, timeSec: 500, kills: 10 };
+    expect(claimVerdict(ch, you)).toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict(ch, { ...you, floor: 5 })).toMatch(/^CLAIM STANDS/);
+    expect(claimVerdict({ ...ch, won: true, timeSec: 700 }, { ...you, won: true, timeSec: 650 }))
+      .toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict({ ...ch, won: true, timeSec: 600 }, { ...you, won: true, timeSec: 650 }))
+      .toMatch(/^CLAIM STANDS/);
+    // Same-floor deaths settle on kills — and the sentence never carries a live delta.
+    expect(claimVerdict(ch, { ...you, floor: 7, kills: 50 })).toMatch(/^CLAIM SETTLED/);
+    expect(claimVerdict(ch, { ...you, floor: 7, kills: 30 })).toMatch(/^CLAIM STANDS/);
   });
 });

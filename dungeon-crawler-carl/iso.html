@@ -447,9 +447,6 @@
            upper chips:         #show 48px (under the buttons) · #bossbar 92px (center)
 
                                 · #party 96px right rail (roster under YOUR stats chip)
-                                · #ghost 96px right rail (the rival split delta; only
-                                  ever shown while racing a ghost, and #party is
-                                  network-only, so the two never both exist)
                                 · #quests 210px right rail (Roam contract ledger,
                                   collapsible, below the roster zone)
            headline zone:       #headline — the ONE high-priority banner at a time
@@ -463,9 +460,15 @@
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
                                   System chatter)
-           modals (z 20-28):    #inv/#abil/#sheet 20 · #dialogue 22 (Roam NPC
+           modals (z 20-28):    #inv/#abil/#sheet/#ledger 20 (#ledger = THE CRAWL
+                                  LEDGER, NICHE.md 4.3: contracts/stamps/streak,
+                                  toggled by the "ledger" binding, default L)
+                                · #dialogue 22 (Roam NPC
                                   conversation — letterboxed cut, portrait left)
                                 · #saferoom 24 · #draft 25 · #keys 26
+                                · #rushgate 26 (THE STARTING GUN — rivals pre-run
+                                  hold; never coexists with #keys: it exists only
+                                  before the race's first sim tick)
 
                                 · #recap 27 (THE VERDICT — end-of-run; nothing in-run
                                   outranks it. #recap-tab is its held-TAB drill-down,
@@ -607,6 +610,38 @@
         filter: drop-shadow(0 1px 1px rgba(0,0,0,0.8)); }
 
       /* Keybinds panel */
+      /* THE STARTING GUN (#rushgate, z 26 — zone map): the rivals pre-run
+         hold. The dungeon is already built behind it; the server holds the
+         sim, so this card is the only surface that matters until the gun. */
+      #rushgate { position: fixed; inset: 0; z-index: 26; display: none;
+        align-items: center; justify-content: center; background: rgba(8,6,14,0.55); }
+      #rushgate.on { display: flex; }
+      #rushgate .card { width: min(480px, 92vw); background: rgba(18,14,26,0.96);
+        border: 1px solid #c9a24b; border-radius: 8px; padding: 20px 26px 24px;
+        text-align: center; box-shadow: 0 0 40px rgba(201,162,75,0.25), 0 10px 40px rgba(0,0,0,0.6); }
+      #rushgate .kicker { color: #c9a24b; font-size: 10px; letter-spacing: 2.5px; margin-bottom: 6px; }
+      #rushgate h3 { margin: 0 0 4px; color: #f5e6bf; font-size: 20px; letter-spacing: 1px; }
+      #rushgate .gsub { color: #a99f8c; font-size: 12px; margin-bottom: 12px; }
+      /* TODAY'S RULE on the READY card: System-voiced, boxed apart from the
+         seat list so it reads as the day's contract term, not chrome. */
+      #rushgate .grule { margin: 0 auto 12px; width: min(400px, 84vw);
+        padding: 8px 12px; border: 1px solid rgba(201,162,75,0.45); border-radius: 4px;
+        background: rgba(201,162,75,0.08); color: #f5e6bf; font-size: 12px;
+        line-height: 1.45; text-align: left; }
+      #rushgate .grule b { color: #c9a24b; letter-spacing: 1.5px; }
+      #rushgate .gcount { font-size: 40px; color: #f5e6bf; font-variant-numeric: tabular-nums;
+        letter-spacing: 2px; margin: 6px 0 12px; }
+      #rushgate .gseats { display: flex; flex-direction: column; gap: 5px; margin: 0 auto 16px;
+        width: min(340px, 80vw); }
+      #rushgate .gseat { display: flex; justify-content: space-between; padding: 5px 12px;
+        background: rgba(255,255,255,0.04); border: 1px solid rgba(201,162,75,0.25);
+        border-radius: 4px; color: #e8dcc0; font-size: 13px; }
+      #rushgate .gseat .gready { color: #7dc17d; letter-spacing: 1px; }
+      #rushgate .gseat .gwait { color: #a99f8c; letter-spacing: 1px; }
+      #rushgate button { pointer-events: auto; background: #c9a24b; color: #17111f;
+        border: 0; border-radius: 4px; padding: 10px 34px; font-weight: 700;
+        font-size: 14px; letter-spacing: 1.5px; cursor: pointer; }
+      #rushgate button[disabled] { background: rgba(201,162,75,0.35); color: #3a3145; cursor: default; }
       #keys { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 26; }
       /* r1 BLOCKER: 1,237px of content in a 681px window at 1366 and a 792px
@@ -853,7 +888,7 @@
       body.cine #hud-tl, body.cine #hud-tr, body.cine #hud-log,
       body.cine #minimap-frame, body.cine #show, body.cine #cockpit,
       body.cine #party, body.cine #toasts, body.cine #banner,
-      body.cine #ghost, body.cine #bossbar,
+      body.cine #bossbar,
       body.cine #draft-badge { opacity: 0; transition: opacity 0.3s ease; }
       /* And they FADE back in when the cut ends, not pop. */
       #hud-tl, #hud-tr, #minimap-frame, #show, #cockpit, #party, #banner,
@@ -2003,6 +2038,10 @@
         letter-spacing: 0.4em; font-family: var(--display); font-variant: small-caps; margin-bottom: 10px; }
       #sharesheet canvas { display: block; width: 100%; height: auto; border: 1px solid var(--bronze);
         border-radius: 2px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+      #sharesheet #share-text { margin: 11px 0 0; padding: 9px 11px; border: 1px solid #3a2f22;
+        border-radius: 3px; background: rgba(0,0,0,0.35); color: var(--ink, #e8ddc8);
+        font: 12px/1.55 ui-monospace, Consolas, monospace; white-space: pre-wrap;
+        word-break: break-all; }
       #sharesheet .slink { margin-top: 11px; padding: 7px 10px; border: 1px solid #3a2f22;
         border-radius: 2px; background: #14100c; color: var(--ink-dim); font-size: 11.5px;
         word-break: break-all; font-family: ui-monospace, monospace; }
@@ -2021,9 +2060,18 @@
          z 28, after #menu in the DOM so it wins the tie and covers check-in;
          #loading (29) still outranks it. */
 
+      /* THE FIELD AROUND THE FRAME IS A SET, NOT A VOID (social r3). At
+         2560x1440 a career with no data hugged to an 878px card floating in
+         what measured as pure black — a window over nothing. The page behind
+         the frame now carries the house material: the stone noise, a faint
+         gold stage-light falling from the top of the page, and a vignette
+         that closes toward the corners — so whatever height the frame earns,
+         it stands on a dressed stage the way every Riot client screen does. */
       #ladder, #career { position: fixed; inset: 0; display: none; z-index: 28;
-
-        background: radial-gradient(ellipse at 50% 22%, rgb(24,18,12), rgb(4,4,8) 72%);
+        background-color: rgb(6,5,9);
+        background-image: var(--noise),
+          radial-gradient(56% 40% at 50% 12%, rgba(201,162,75,0.07), transparent 72%),
+          radial-gradient(ellipse at 50% 24%, rgb(28,22,15), rgb(6,5,9) 78%);
         overflow: auto; padding: 18px; scrollbar-width: none; }
       /* House rule: no scrollbars. A long ladder still scrolls - it just does
          not put a grey elevator down the side of a gilt document.
@@ -2214,6 +2262,65 @@
       .set-frame > h2::before, .set-frame > h2::after { content: ""; flex: 1; height: 3px;
         border-top: 1px solid var(--bronze); border-bottom: 1px solid rgba(0,0,0,0.6); }
       .set-sub { text-align: center; color: var(--ink-dim); font-size: 12px; margin-bottom: 14px; }
+      /* AN EMPTY PANEL IS CONTENT (social r2). With the server dark, THE
+         STANDINGS was a 1180x737-to-1587x1382 stone panel with one italic
+         line in the top-left corner — while the menu board module had just
+         been given the TUNING IN + ghost-rows treatment for the identical
+         condition. Same condition, one voice, at panel scale now: the
+         System's headline, the plain reason, and five ghost rows fading out
+         — the shape of the board, waiting. It also settles the BANDS
+         hug-jump: `fitPanel` never hugs a frame whose body is a .set-empty,
+         so a loading/offline tab claims the same frame as its siblings
+         instead of collapsing the world to a 172px letterbox. */
+      .set-empty { flex: 1; display: flex; flex-direction: column; align-items: center;
+        justify-content: center; gap: 10px; text-align: center; padding: 28px 0;
+        font-family: var(--display); font-variant: small-caps; color: var(--ink-dim); }
+      .set-empty::before { content: ""; width: 12px; height: 12px; transform: rotate(45deg);
+        background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
+        box-shadow: 0 0 0 1px rgba(10,6,3,0.7); margin-bottom: 4px; }
+      .set-empty b { font-size: 17px; letter-spacing: 0.22em; color: var(--ink); }
+      .set-empty span { font-family: var(--body); font-variant: normal; font-size: 12.5px;
+        letter-spacing: 0.02em; color: var(--ink-faint); max-width: 52ch; line-height: 1.55; }
+      /* THE SKELETON IS THE BOARD'S OWN GEOMETRY (social r3). The r2 ghosts
+         were five 13px striped bars in a 560px block — at 2560x1440 that is
+         ~350px of content centered in a 1382px frame, and the stripe gradient
+         read as a left cluster with a detached right column, i.e. a rendering
+         mistake, not a skeleton. `.skelrow` is a ghost of `.brow` itself: the
+         same grid (rank / name / seal chip / result), the same row background
+         and hairline seams, at the width the real rows will claim — so the
+         empty state holds the SHAPE of the score to come at any panel scale.
+         One component: the standings/career panel skeletons and the career
+         shelf ghost all draw it. */
+      .set-empty .skelrows { width: min(1180px, 100%); margin-top: 26px; }
+      .skelrows { display: flex; flex-direction: column; }
+      .skelrow { display: grid; grid-template-columns: 30px minmax(0, 1fr) 58px 128px;
+        gap: 10px; align-items: center; height: 40px; padding: 0 10px;
+        border-bottom: 1px solid rgba(0,0,0,0.5);
+        background: linear-gradient(180deg, rgba(34,27,21,0.55), rgba(20,16,12,0.55)); }
+      .skelrow + .skelrow { border-top: 1px solid rgba(110,85,51,0.25); }
+      .skelrow i { display: block; height: 11px; border-radius: 2px;
+        background: rgba(169,159,140,0.13); }
+      .skelrow .sk-rank { width: 14px; margin: 0 auto; }
+      .skelrow .sk-nm { width: 52%; }
+      .skelrow:nth-child(even) .sk-nm { width: 37%; }
+      .skelrow:nth-child(3n) .sk-nm { width: 45%; }
+      .skelrow .sk-chip { width: 100%; height: 13px; background: rgba(169,159,140,0.08); }
+      .skelrow .sk-res { width: 68%; justify-self: end; background: rgba(169,159,140,0.10); }
+      .skelrow:nth-child(even) .sk-res { width: 52%; }
+      .skelrow:nth-child(2) { opacity: 0.78; }
+      .skelrow:nth-child(3) { opacity: 0.6; }
+      .skelrow:nth-child(4) { opacity: 0.45; }
+      .skelrow:nth-child(5) { opacity: 0.32; }
+      .skelrow:nth-child(6) { opacity: 0.22; }
+      .skelrow:nth-child(7) { opacity: 0.14; }
+      .skelrow:nth-child(8) { opacity: 0.08; }
+      /* Five rows on a laptop; a 1440p frame shows the full eight, taller —
+         the same slack-into-rows rule the populated boards follow. */
+      .set-empty .skelrows .skelrow:nth-child(n+6) { display: none; }
+      @media (min-height: 1100px) {
+        .set-empty .skelrows .skelrow { height: 48px; }
+        .set-empty .skelrows .skelrow:nth-child(n+6) { display: grid; }
+      }
 
       .set-close { position: absolute; top: 16px; right: 18px; background: var(--raised);
         border: 1px solid var(--bronze); color: var(--ink-dim); border-radius: 3px;
@@ -2592,7 +2699,7 @@
         font-family: var(--display); font-variant: small-caps; }
       /* WHERE YOU DIE - eighteen bars, a whole career in one glance, and the
          most interesting chart this game can draw. */
-      .histo { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; align-items: end;
+      .histo { position: relative; display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; align-items: end;
 
         height: 108px; margin-top: 6px; }
       .histo .hb { position: relative; background: linear-gradient(180deg, #8a6a2f, #4a3a1f);
@@ -2600,6 +2707,20 @@
       .histo .hb.deep { background: linear-gradient(180deg, var(--gold-hi), #8a6a2f); }
 
       .histo .hb.none { background: #191410; border-color: #241d16; }
+      /* AN EMPTY PLOT IS CONTENT TOO (social r3). With zero runs the plot
+         region was a raw ~110px band of stone above the floor axis — the
+         module's own empty state, unbuilt, on the same panel that designed
+         one for the boards. The zero chart draws the SHAPE of the data to
+         come: eighteen ghost bars in a plausible death-curve silhouette, and
+         the System says plainly what fills them. */
+      .histo .hb.ghost { background: linear-gradient(180deg, rgba(169,159,140,0.11), rgba(169,159,140,0.03));
+        border: 1px dashed rgba(110,85,51,0.35); border-bottom: 0; }
+      .histo .hzero { position: absolute; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 3px; text-align: center;
+        text-shadow: 0 1px 4px rgba(10,7,4,0.9); }
+      .histo .hzero b { font-family: var(--display); font-variant: small-caps;
+        letter-spacing: 0.2em; font-size: 13px; color: var(--ink-dim); }
+      .histo .hzero span { font-family: var(--body); font-size: 11.5px; color: var(--ink-faint); }
       .histo .hb i { position: absolute; top: -15px; left: 0; right: 0; text-align: center;
         font-size: 10px; color: var(--ink-dim); font-style: normal; font-variant-numeric: tabular-nums; }
       .histax { display: grid; grid-template-columns: repeat(18, 1fr); gap: 3px; margin-top: 3px;
@@ -2614,9 +2735,20 @@
       /* MASTERY per archetype: a level per ultimate, earned from VERIFIED runs
          weighted by depth. Unlike LoL mastery, every point is backed by a
          replayable proof. */
-      .mrow { display: grid; grid-template-columns: 30px 1fr 74px; gap: 10px; align-items: center;
+      .mrow { display: grid; grid-template-columns: 38px 1fr 74px; gap: 10px; align-items: center;
         padding: 6px 0; border-bottom: 1px solid rgba(0,0,0,0.45); }
-      .mrow .mic { width: 26px; height: 26px; background: var(--gold); mask-size: contain;
+      /* ONE GLYPH TREATMENT, THE MENU'S (social r3). The raw 26px gold
+         pictorial glyphs read as emoji next to the mode tiles' discipline
+         (framed plate + masked glyph + ONE shared ink — .m-tile-icon). The
+         same construction here: the ultimate's glyph sits engraved on a
+         bronze-edged plate in the shared ink; gold stays reserved for the
+         level and the progress bar, where the ranking lives. */
+      .mrow .micbox { width: 34px; height: 34px; display: flex; align-items: center;
+        justify-content: center; flex: none;
+        background: linear-gradient(160deg, #1b1611, #100c09); border: 1px solid #3a2f22;
+        border-radius: var(--r-tile); box-shadow: inset 0 0 12px rgba(0,0,0,0.6); }
+      .mrow .mic { width: 20px; height: 20px; display: block; background: var(--ink-dim);
+        mask-size: contain;
         -webkit-mask-size: contain; mask-repeat: no-repeat; -webkit-mask-repeat: no-repeat;
         mask-position: center; -webkit-mask-position: center; }
       .mrow .mname { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.1em;
@@ -2655,6 +2787,38 @@
       .mstone .mtitle { font-family: var(--display); font-variant: small-caps; letter-spacing: 0.12em;
         font-size: 13px; color: var(--gold-hi); }
       .mstone .mdetail { color: var(--ink-dim); font-size: 12px; }
+
+      /* THE CAREER FILLS A TALL VIEWPORT THE SAME WAY THE BOARDS DO (social
+         r3). Measured before this: a zero-data career hugged to an 878px card
+         in the middle of a 1440px page while its sibling THE STANDINGS held
+         1382 — one document family, two sizes. The slack goes into the
+         content: the 18-bar histogram grows to broadcast scale (it is the
+         best thing on the surface), the ledger/mastery/split rows breathe,
+         and each column's closing module docks to the column floor, so the
+         three columns share one top line and one bottom line instead of
+         three ragged tails over a void. (This block must sit AFTER the base
+         career rules — several selectors tie on specificity, and order is
+         the tiebreak.) */
+      @media (min-height: 1100px) {
+        .histo { height: 210px; }
+        /* `align-items: stretch` (base is `start`) is what lets the three
+           columns share the grid row's full height so the docking below has
+           real slack to dock across. */
+        .ccols { gap: 26px 34px; margin-top: 26px; align-items: stretch; }
+        #career-body > .ccols { flex: 1 0 auto; }
+        .ccol { display: flex; flex-direction: column; }
+        /* The 4px inset is load-bearing: docking ink EXACTLY on the frame
+           floor left `fitPanel.over()` a sub-pixel to Math.ceil into 1, and
+           the fit pass answered a 1px phantom overflow by confiscating the
+           MILESTONES empty note. */
+        .ccol > :last-child { margin-top: auto; margin-bottom: 4px; }
+        #career .ledger td { padding: 9px 0; }
+        #career .mrow { padding: 12px 0; }
+        .ccol .splitrow { padding: 8px 0; }
+        .mstone { padding-top: 5px; padding-bottom: 5px; }
+        .cheadline { padding-bottom: 20px; }
+        .lgroup + .lgroup { margin-top: 24px; }
+      }
 
       /* ---- SHORT VIEWPORTS PAY OUT OF THE CHROME, NOT OUT OF THE CONTENT ----
          Same stance the verdict already takes at `max-height: 830px`: on a
@@ -2704,59 +2868,6 @@
         .cname { font-size: 20px; }
         .cseals b { font-size: 22px; }
       }
-
-      /* ============ THE GHOST (COMPETITIVE.md 4.1) ============
-         In-run rail chip, under the party roster zone. GLASS, not stone: it is
-         overlaid on live gameplay (STYLEGUIDE rule four). The split delta is
-         the drama - red when you are losing time, green when you are taking it. */
-      #ghost { position: fixed; right: 12px; top: 96px; z-index: 6; display: none;
-        min-width: 208px; padding: 8px 11px; border-radius: 4px;
-        background: rgba(12,10,20,0.62); border: 1px solid rgba(110,85,51,0.85);
-        box-shadow: 0 4px 16px rgba(0,0,0,0.5); pointer-events: none; }
-      #ghost.on { display: block; }
-      #ghost .gh { display: flex; align-items: baseline; gap: 7px;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        font-size: 11px; color: var(--ink-dim); }
-      #ghost .gh b { color: var(--ink); font-size: 12px; overflow: hidden; text-overflow: ellipsis;
-        white-space: nowrap; max-width: 132px; }
-      #ghost .gdelta { font-family: var(--display); font-size: 25px; line-height: 1.15;
-        font-variant-numeric: tabular-nums; color: var(--verdant); }
-      #ghost .gdelta.behind { color: var(--blood); }
-      /* Taking time is as loud as giving it back. A one-sided colour scheme
-         only tells you when you are losing, which is the half nobody needs
-         help noticing. */
-      #ghost .gdelta.ahead { color: var(--verdant); }
-      #ghost .gdelta.pending { color: var(--ink-faint); font-size: 15px; }
-      #ghost .gsub { font-size: 11px; color: var(--ink-faint); }
-      #ghost .gsplits { margin-top: 5px; display: flex; gap: 3px; }
-      #ghost .gsplits i { flex: 1; height: 3px; background: #2c241b; border-radius: 1px; }
-      #ghost .gsplits i.ahead { background: var(--verdant); }
-      #ghost .gsplits i.behind { background: var(--blood); }
-      #ghost .gsplits i.now { box-shadow: 0 0 0 1px var(--gold-hi); }
-      /* THE CHIP IS THE COLLAPSED FORM, NOT THE FEATURE. It used to be the
-         whole presentation of the cheapest multiplayer in the design, at
-         11-25px in a 150px dark box. It reads as a race now: the title is the
-         rival, and the delta is the biggest number on the rail. */
-      #ghost .gdelta { font-size: 30px; }
-      #ghost.racing { border-color: var(--gold); box-shadow: 0 0 0 1px rgba(242,193,78,0.14),
-        0 4px 18px rgba(0,0,0,0.55); }
-
-      /* THE GHOST'S NAMEPLATE. The body renders at 45% opacity, desaturated
-         cold, with no shadow — in capture it was genuinely hard to tell from a
-         lighting artifact, and the only other cue was a 3.4px dashed ring on
-         the minimap. A rival you cannot identify is not a rival. */
-      #ghostplate { position: fixed; inset: 0; pointer-events: none; z-index: 5; display: none; }
-      #ghostplate.on { display: block; }
-      #ghostplate .gp { position: absolute; transform: translate(-50%, -100%);
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.16em;
-        font-size: 11.5px; white-space: nowrap; color: #cfe0f2;
-        text-shadow: 0 1px 3px #000, 0 0 12px rgba(120,170,220,0.5);
-        padding: 1px 8px; border-radius: 2px;
-        background: rgba(10,14,26,0.55); border: 1px solid rgba(140,180,225,0.4); }
-      #ghostplate .gp::after { content: ""; position: absolute; left: 50%; top: 100%;
-        width: 1px; height: 13px; transform: translateX(-50%);
-        background: linear-gradient(180deg, rgba(140,180,225,0.7), rgba(140,180,225,0)); }
-      body.cine #ghostplate, body.modal #ghostplate { opacity: 0; }
 
       /* ============ CONSENT (COMPETITIVE.md 8.1) ============
          One card, the first time a run is offered to a board. Defaulting to
@@ -2938,6 +3049,32 @@
         pointer-events: auto;
         background: rgba(20,16,13,0.88); border: 1px solid #6e5533; border-radius: var(--r-panel);
         padding: var(--set-pad); box-shadow: 0 30px 80px rgba(0,0,0,0.75); }
+      /* social r2 (minor 8b): at 2560x1440 the panel ended ~370px above the
+         frame's bottom edge — top-heavy at exactly the size with room to
+         spare. On tall viewports the panel claims 84vh (still under the
+         --set-h ceiling); the board module — already flex:1 in the side
+         column — turns its share into ROWS, and the command stack, which is
+         intrinsically ~430px tall, CENTERS in the left column and grows a
+         step (--hero-h below) instead of pooling its slack under TEST
+         CHAMBER as dead stone. */
+      @media (min-height: 1100px) {
+        #menu .panel { min-height: min(84vh, var(--set-h)); }
+        #menu .m-cols > div:first-child { align-self: center; }
+        /* #menu-scoped: the base .m-tiles rule sits later in this sheet and
+           would win an equal-specificity tie. */
+        /* social r3 — THE SLACK GOES INTO THE PLATES, NOT THE GAPS. r2's
+           centering split ~300px of column slack into two ~130-140px voids
+           (name row -> DESCEND, TEST CHAMBER -> footer). The composition's
+           own tokens now absorb most of it: the featured banner grows to
+           118px (the primary rides at 1.62x by construction), the mode tiles
+           to 184px, and the board gaps a step — so what centering has left
+           to split is breathing, not dead stone. */
+        #menu .m-tiles { --hero-h: clamp(60px, 8.4vh, 124px);
+          gap: clamp(8px, 1.4vh, 20px); }
+        #menu .m-modes { gap: clamp(8px, 1.4vh, 20px); }
+        #menu .m-tile:not(.hero) { min-height: clamp(104px, 14vh, 200px); }
+        #menu .m-name-row { margin-bottom: clamp(10px, 2.2vh, 32px); }
+      }
       /* While checked in, the game HUD behind the campfire goes dark — the
          backdrop world isn't being rendered, only the lineup is. */
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
@@ -2984,8 +3121,17 @@
       #menu input:focus { outline: none; border-color: #c9a24b; }
       #menu .m-name-row input { width: 180px; text-align: center; font-weight: 700;
         letter-spacing: 1px; color: #f5e6bf; }
+      /* The side column's floor is set by its widest fixed row: five board
+         tabs on ONE line — and the floor is MEASURED, not asserted (social
+         r2 blocker: the r1 comment claimed the five tabs fit 248px; they
+         measured 307-337px, KILLS sheared mid-glyph at 1366 and the overflow
+         turned this very grid into a live 74px horizontal scroller). The
+         compact strip (TODAY DEPTH TIME KILLS RIVALS, stamp capped at 10px,
+         hair gaps — see .m-board-tabs) measures ~250px at 1366 and ~310px at
+         2560; this floor buys it a 264-332px content box (.m-board pads
+         14px a side), so it fits with real slack at every viewport. */
       #menu .m-cols { display: grid;
-        grid-template-columns: minmax(0, 1fr) minmax(200px, clamp(230px, 17vw, 360px));
+        grid-template-columns: minmax(0, 1fr) minmax(292px, clamp(292px, 20vw, 360px));
         gap: var(--g-col); flex: 1; min-height: 0; overflow-y: auto;
         align-items: start; }
       /* ---- THE MODE BOARD (r1 blocker) ----
@@ -3001,29 +3147,52 @@
            · every row is 1fr, so heights are equal whatever the copy does;
            · descriptions clamp to two lines and reserve both.
          Whatever is hidden, the grid below it is still a 2x2. */
-      .m-tiles { display: grid; grid-template-columns: 1fr;
+      /* ---- THE MODE BOARD'S VERTICAL CONTRACT (social r1) ----
+         Measured before this: #m-daily is content-sized (68px at every
+         viewport) while #m-solo is padding-sized, so the primary:featured
+         ratio collapsed from 1.57 at 2560 to 1.18 at 1366 — at the one size
+         most players own, the front door's primary was 12px of extra height
+         away from a secondary banner. Heights are now TOKENS and the ratio is
+         a CONSTRUCTION, not an accident of copy: the featured banner owns
+         --hero-h, the primary is defined as 1.62x it, and both hold at every
+         viewport. The notch cut scales with the plate for the same reason. */
+      .m-tiles { --hero-h: clamp(60px, 7.5vh, 76px);
+        --pri-h: calc(var(--hero-h) * 1.62);
+        --pri-cut: clamp(16px, 1.6vw, 26px);
+        --pri-prow: clamp(24px, 2.2vw, 40px);
+        display: grid; grid-template-columns: 1fr;
         grid-auto-rows: auto; gap: var(--g-tight); margin-bottom: var(--g-hair); }
       /* THE SECONDARY ROW: three modes, identical mass, one row. */
       .m-modes { display: grid; grid-template-columns: repeat(3, 1fr); gap: var(--g-tight); }
 
-      /* ============ THE PRIMARY (r2 blocker) ============
+      /* ============ THE PRIMARY (r2 blocker; silhouette finished social r2)
          The one filled-gold action in the pre-run flow, and the only control
-         on the screen with this SHAPE: a wide plate with its top-right and
-         bottom-left corners cut, a kicker above the verb, and the chevron
-         anchored to the right edge. Nothing else imitates it — that is the
-         whole point of a primary. (The only other filled gold on this screen
-         used to be CO-OP, which does not exist until you open a sub-form.) */
+         on the screen with this SHAPE. Social r1 proved the corner-cut alone
+         was not a silhouette: in greyscale the plate was still the same
+         rectangle family as DAILY CRAWL and the mode tiles, and the
+         differentiation rested entirely on the gold fill — Riot's PLAY plate
+         wins on shape with the color off. So the primary now has the one
+         non-rectangle in the pre-run flow: the right edge converges to a
+         PROW — a plate pointing the way down. The bottom-left corner cut
+         stays (the family tie); every other control on the screen remains a
+         rectangle, which is what makes this one shape read primary in
+         greyscale. (CONTINUE and DESCEND swap through this class and are
+         mutually exclusive — never two prows at once; the demoted step-down
+         keeps the shape, loses the fill and the mass, by design.) */
       .m-primary { position: relative; display: grid;
         grid-template-columns: 1fr auto; grid-template-rows: auto auto auto;
-        align-items: center; column-gap: var(--g-col); row-gap: 1px;
-        width: 100%; cursor: pointer; text-align: left;
+        align-items: center; align-content: center; column-gap: var(--g-col); row-gap: 1px;
+        width: 100%; min-height: var(--pri-h); box-sizing: border-box;
+        cursor: pointer; text-align: left;
         padding: clamp(11px, 1vw, 18px) clamp(16px, 1.4vw, 26px);
+        padding-right: calc(clamp(16px, 1.4vw, 26px) + var(--pri-prow) * 0.6);
         color: #241a08;
         background: linear-gradient(180deg, #fff6d4 0%, #ffd970 9%, var(--gold) 44%,
           #9c7527 78%, #6e5327 95%, #57411e);
         border: 1px solid #4a3a1e; border-bottom-width: 2px;
-        clip-path: polygon(0 0, calc(100% - 15px) 0, 100% 15px, 100% 100%,
-          15px 100%, 0 calc(100% - 15px));
+        clip-path: polygon(0 0, calc(100% - var(--pri-prow)) 0, 100% 50%,
+          calc(100% - var(--pri-prow)) 100%,
+          var(--pri-cut) 100%, 0 calc(100% - var(--pri-cut)));
         box-shadow: inset 0 1px 0 rgba(255,246,220,0.85), inset 0 2px 2px rgba(255,240,200,0.3),
           inset 0 -3px 4px rgba(76,50,12,0.6), 0 3px 10px rgba(0,0,0,0.6),
           0 0 26px rgba(242,193,78,0.22);
@@ -3058,7 +3227,10 @@
       .m-primary.demoted { color: var(--ink); background: linear-gradient(180deg, #221b15, #171310);
         border-color: var(--bronze); box-shadow: inset 0 1px 0 rgba(232,221,200,0.07),
           inset 0 0 0 1px rgba(201,162,75,0.22), 0 2px 8px rgba(0,0,0,0.5);
-        padding: clamp(9px, 0.8vw, 14px) clamp(16px, 1.4vw, 26px); }
+        padding: clamp(9px, 0.8vw, 14px) clamp(16px, 1.4vw, 26px);
+        /* the step-down keeps the SHAPE but not the MASS — CONTINUE above it
+           is the one plate built to the primary height */
+        min-height: calc(var(--hero-h) * 1.1); }
       .m-primary.demoted b { color: var(--gold-hi); font-size: var(--t-lead);
         text-shadow: none; }
       .m-primary.demoted .m-pri-kick { color: var(--ink-faint); }
@@ -3081,14 +3253,22 @@
       .m-modes .m-tile b { min-height: 2.3em; display: flex; align-items: center;
         justify-content: center; text-align: center; }
       .m-modes .m-tile-icon { width: 42px; height: 42px; }
-      .m-modes .m-tile-ic { width: 24px; height: 24px; }
-      /* The featured/resume banners: full width, horizontal, icon anchored. */
+      /* ONE glyph treatment across the secondary row (social r1: a grey
+         sword, a RED skull and an ORANGE pin gave three same-rank modes
+         three different voices). The glyphs share the ink; each mode's hue
+         still answers on interaction — --tc keeps driving the hover glow
+         and the hover edge, which is where identity belongs. */
+      .m-modes .m-tile-ic { width: 24px; height: 24px; background: var(--ink-dim); }
+      /* The featured/resume banners: full width, horizontal, icon anchored.
+         HEIGHT IS THE TOKEN (--hero-h), not the copy — the primary's mass is
+         defined relative to this, so this may not drift. */
       .m-tile.hero { grid-column: 1 / -1; display: grid;
         grid-template-columns: auto 1fr; grid-template-rows: auto auto;
         column-gap: var(--g-row); row-gap: 0; align-items: center; align-content: center;
-        text-align: left; padding: 11px 14px; }
-      .m-tile.hero .m-tile-icon { grid-row: 1 / -1; width: 42px; height: 42px; }
-      .m-tile.hero .m-tile-ic { width: 25px; height: 25px; }
+        text-align: left; padding: 6px 14px;
+        height: var(--hero-h); box-sizing: border-box; }
+      .m-tile.hero .m-tile-icon { grid-row: 1 / -1; width: 36px; height: 36px; }
+      .m-tile.hero .m-tile-ic { width: 22px; height: 22px; }
       .m-tile.hero b { font-size: var(--t-body); }
       .m-tile.hero small { min-height: 0; -webkit-line-clamp: 1; }
       .m-tile b { display: block; font-size: var(--t-body); letter-spacing: 0.13em;
@@ -3134,6 +3314,23 @@
       .m-tile.gold { --tc: #c9a24b; }
       .m-tile.gold b { color: #f5e6bf; }
       .m-tile.gold:hover { border-color: #c9a24b; }
+      /* THE FRONT DOOR (NICHE.md 4.5): the featured band splits into two
+         doors — DAILY (solo, gold) and THE RUSH (live, red) — at the SAME
+         total mass, so the mode board keeps its one-featured-row shape.
+         .solo (a ?c= card re-dressed the DAILY door) collapses the band. */
+      .m-hero-row { grid-column: 1 / -1; display: grid;
+        grid-template-columns: 1fr 1fr; gap: var(--g-tight); }
+      .m-hero-row .m-tile.hero { grid-column: auto; }
+      /* Half-width banners earn a second sub line — a clamp that eats the
+         GUN clock (measured: "RACE FORMING — 1/4 —…") is a lying surface. */
+      .m-hero-row .m-tile.hero small { -webkit-line-clamp: 2; }
+      .m-hero-row.solo { grid-template-columns: 1fr; }
+      .m-hero-row.solo .m-tile.rush { display: none; }
+      .m-tile.hero.rush { --tc: #c0392f; }
+      .m-tile.hero.rush b { color: #e8b3a6; }
+      .m-tile.hero.rush:hover { border-color: #8a3038; }
+      .m-tile.hero.rush.forming { border-color: rgba(192,57,47,0.65);
+        background: linear-gradient(180deg, #2b1c19, #221b15 70%); }
       .m-tile.red { --tc: #c0392f; }
       .m-tile.red:hover { border-color: #8a3038; }
       .m-tile.green { --tc: #6da356; }
@@ -3192,7 +3389,21 @@
 
       .m-board .m-board-h { color: #c9a24b; font-size: var(--t-fine); letter-spacing: 2.5px; margin-bottom: 8px;
         font-family: var(--display); font-variant: small-caps; flex: none; }
-      .m-board .m-board-tabs { display: flex; flex-wrap: wrap; gap: var(--g-tight); align-items: baseline; }
+      /* ONE line, MEASURED (social r2 blocker — the r1 nowrap shipped the
+         exact defect class the acceptance lesson names: tabRows==1 passed
+         while KILLS sheared mid-glyph and RIVALS left the frame). The fit is
+         a construction with three parts, each carrying its number:
+           · the side column floor is 292px (see .m-cols);
+           · the two widest labels wear compact names on THIS module only
+             (DEPTH, TIME) — THE STANDINGS' own tabs keep the full words,
+             where there is a panel's width to spend;
+           · the tab stamp is capped at 10px here (rule below) so a 2560
+             screen grows the BOARD, not the nav.
+         The r2 probe asserts every tab's right edge sits inside the module's
+         content box, with slack, at 1366/1600/2560 — and that no ancestor
+         becomes a live horizontal scroller. */
+      .m-board .m-board-tabs { display: flex; flex-wrap: nowrap; gap: var(--g-hair);
+        justify-content: space-between; align-items: baseline; }
       .m-board ol { margin: 0; padding: 0; list-style: none; font-size: var(--t-small);
         flex: 1; min-height: 0; overflow-y: auto; }
       .m-board li { display: flex; gap: var(--g-tight); align-items: baseline; padding: 4px 2px;
@@ -3209,16 +3420,53 @@
          problem this layer exists to solve. */
       .m-board li .seal { font-size: var(--t-stamp); padding: 1px 5px; letter-spacing: 0.1em; flex: none; }
       .m-board li .res.win { color: #6da356; }
-      /* An empty board is a STATE, not an apology in italic faint: a drawn
-         diamond, the System's line in the display face, and enough contrast
-         to read (r1 minor). */
-      .m-board li.none { color: var(--ink-faint); border-top: none; font-style: normal;
+      /* An empty board is CONTENT, not a void (social r1: BOARD OFFLINE
+         measured an 86px message floating in a 232x254 module). The System
+         states the condition in the display voice — headline, then the plain
+         reason — and beneath it the module draws the three GHOST ROWS the
+         score will occupy, fading out: the shape of the board, waiting.
+         Scoped: ol.empty centers the state; a bare li.none elsewhere (the
+         legacy footnote under real rows) stays a quiet caption. */
+      .m-board ol.empty { display: flex; flex-direction: column; overflow: hidden; }
+      .m-board ol.empty li.none { flex: 1; justify-content: center; }
+      .m-board li.none { color: var(--ink-dim); border-top: none; font-style: normal;
         display: flex; flex-direction: column; align-items: center; gap: var(--g-tight);
-        text-align: center; padding: 20px 6px; font-family: var(--display);
+        text-align: center; padding: 14px 6px; font-family: var(--display);
         font-variant: small-caps; letter-spacing: 0.1em; font-size: var(--t-small); }
       .m-board li.none::before { content: ""; width: 9px; height: 9px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
         box-shadow: 0 0 0 1px rgba(10,6,3,0.7); opacity: 0.9; }
+      .m-board li.none b { color: var(--ink-dim); letter-spacing: 0.14em;
+        font-size: var(--t-small); }
+      .m-board li.none span { font-family: var(--body); font-variant: normal;
+        letter-spacing: 0.02em; color: var(--ink-faint); font-size: var(--t-fine);
+        line-height: 1.4; max-width: 26ch; }
+      /* The module's ghost rows FLEX (social r3): a bounded share of the
+         module's slack goes into each row instead of pooling as a dead band
+         under row three — the same slack-into-rows rule the boards follow.
+         Rows four and five exist for tall viewports, where the module is
+         ~200px taller and three thin bars read as a mistake. */
+      .m-board li.none .ghost { display: block; align-self: stretch;
+        flex: 1 1 10px; min-height: 8px; max-height: 16px;
+        margin-top: 2px; border-radius: var(--r-tile);
+        background: linear-gradient(90deg,
+          rgba(169,159,140,0.18) 0 12px, transparent 12px 20px,
+          rgba(169,159,140,0.12) 20px 58%, transparent 58% calc(100% - 44px),
+          rgba(169,159,140,0.09) calc(100% - 36px) 100%); }
+      .m-board li.none .ghost:first-of-type { margin-top: var(--g-row); }
+      .m-board li.none .ghost:nth-of-type(2) { opacity: 0.62; }
+      .m-board li.none .ghost:nth-of-type(3) { opacity: 0.4; }
+      .m-board li.none .ghost:nth-of-type(4) { opacity: 0.28; }
+      .m-board li.none .ghost:nth-of-type(5) { opacity: 0.2; }
+      .m-board li.none .ghost:nth-of-type(6) { opacity: 0.14; }
+      .m-board li.none .ghost:nth-of-type(7) { opacity: 0.09; }
+      .m-board li.none .ghost:nth-of-type(8) { opacity: 0.05; }
+      .m-board li.none .ghost:nth-of-type(n+4) { display: none; }
+      @media (min-height: 1100px) {
+        .m-board li.none { gap: 12px; }
+        .m-board li.none .ghost { max-height: 22px; }
+        .m-board li.none .ghost:nth-of-type(n+4) { display: block; }
+      }
       #m-open-list { flex: 1 0 100%; margin: 0; padding: 0; list-style: none; font-size: var(--t-small);
         max-height: 140px; overflow-y: auto; font-variant-numeric: tabular-nums; }
       #m-open-list li { display: flex; gap: var(--g-tight); align-items: baseline; padding: 4px 2px;
@@ -3233,8 +3481,11 @@
          "2026-08-02" read as a fifth tab (r2 major). Same underline tabs as
          everything else, and the date is a CAPTION under the rule — data
          about the board, not a view of it. */
-      .m-board-h .bt { margin-right: 0; font-size: var(--t-stamp); letter-spacing: 0.08em;
-        padding: 3px 1px 5px; }
+      /* The stamp cap is part of the one-line construction above: --t-stamp
+         grows to 11px at 2560 and the five labels with it; 10px is where the
+         measured strip stays inside the 360px column cap with slack. */
+      .m-board-h .bt { margin-right: 0; font-size: min(var(--t-stamp), 10px);
+        letter-spacing: 0.05em; padding: 3px 0 5px; white-space: nowrap; }
       .m-board-day { display: block; margin: 5px 0 0; text-align: right;
         color: var(--ink-empty); font-size: var(--t-micro); letter-spacing: 0.16em;
         font-variant-numeric: tabular-nums; }
@@ -3829,6 +4080,19 @@
         font-family: var(--display); font-variant-numeric: tabular-nums;
         text-shadow: 0 0 18px rgba(192,57,47,0.5); }
       #downed .dsub { color: #9a8a8a; font-size: 12px; }
+      /* DEATH IS A DOOR (NICHE.md 4.7): the two doors + the comeback hint.
+         Pointer events on the buttons only — the overlay itself stays inert
+         so it never eats aim clicks around it. */
+      #downed { pointer-events: none; }
+      #downed .dbtns { display: flex; gap: 9px; margin-top: 12px; justify-content: center;
+        pointer-events: auto; }
+      #downed .dbtns button { padding: 8px 14px; border-radius: 3px; font: inherit;
+        font-size: 12px; letter-spacing: 0.08em; cursor: pointer; color: var(--ink, #e8ddc8);
+        background: rgba(20,16,12,0.92); border: 1px solid #5c4726; }
+      #downed .dbtns button:hover { border-color: var(--bronze-hi, #c9a24b); }
+      #downed .dbtns button.primary { color: #241a08; font-weight: 700;
+        background: linear-gradient(180deg, #e4b95c, #c9962f); }
+      #downed .dhint { margin-top: 8px; color: #b09a6a; }
 
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
          stats live here). Fixed, cursor-following, never intercepts clicks. */
@@ -4215,6 +4479,14 @@
          flow and the bottom-right ~700x250px was empty stone. */
       .sr-ach-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
         grid-auto-rows: 1fr; gap: var(--g-row); align-content: start; }
+      /* social r1: in the CONSTELLATION's pane the 240px floor bought two
+         columns at 1366 and the 13 cards ran +100px past the pane — a live
+         scrollbar on a no-scrollbars product. A fluid floor buys the third
+         column exactly where the height is missing; 1600/2560 keep the
+         column counts they already had. Scoped to #abil: the safe room's
+         grid (reverted at the owner's request) is not touched. */
+      #abil .sr-ach-grid { grid-template-columns:
+        repeat(auto-fill, minmax(clamp(200px, 16vw, 260px), 1fr)); }
       .sr-ach { background: rgba(12,9,6,0.55); border: 1px solid #221b15; padding: 10px 12px;
         border-radius: var(--r-tile); display: flex; flex-direction: column; }
       .sr-ach .atitle { font-size: var(--t-small); font-weight: 700; color: #f2c14e; letter-spacing: 0.4px; }
@@ -4286,6 +4558,27 @@
          document family as inventory/abilities (z 20; it pauses the game). */
       #sheet { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
         background: rgba(4,4,8,0.6); z-index: 20; }
+      /* THE CRAWL LEDGER (NICHE.md 4.3) — same modal contract as #sheet:
+         fixed frame, capped height, NEVER scrolls (three contracts + a streak
+         line + a stamp tally fit by construction). */
+      #ledger { position: fixed; inset: 0; display: none; align-items: center; justify-content: center;
+        background: rgba(4,4,8,0.6); z-index: 20; }
+      #ledger .panel { box-sizing: border-box; width: min(660px, 94vw); max-height: var(--set-h, 88vh);
+        display: flex; flex-direction: column; overflow: hidden; background: var(--stone, #17120d);
+        border: 1px solid var(--bronze, #6e5533); border-radius: 6px; padding: 18px 22px;
+        box-shadow: 0 12px 48px rgba(0,0,0,0.7); }
+      #ledger h2 { margin: 0 0 2px; font-family: var(--display, Cinzel, serif); color: var(--gold, #c9a24b);
+        font-size: 19px; letter-spacing: 1.5px; }
+      #ledger .hint { color: var(--ink-faint, #6f6757); font-size: 11.5px; margin-bottom: 12px; }
+      #ledger .lg-sec { color: var(--gold, #c9a24b); font-size: 11px; letter-spacing: 2px;
+        margin: 12px 0 6px; border-bottom: 1px solid #3a2f22; padding-bottom: 3px; }
+      #ledger .lg-row { display: flex; justify-content: space-between; gap: 12px; align-items: baseline;
+        padding: 5px 0; border-bottom: 1px dotted rgba(110,85,51,0.35); }
+      #ledger .lg-row b { color: var(--ink, #e8ddc8); font-size: 13px; letter-spacing: 0.5px; }
+      #ledger .lg-row .lg-desc { color: var(--ink-dim, #a99f8c); font-size: 12px; flex: 1; }
+      #ledger .lg-row .lg-prog { color: var(--gold, #c9a24b); font-size: 12px; white-space: nowrap; }
+      #ledger .lg-note { color: var(--ink-dim, #a99f8c); font-size: 12.5px; padding: 6px 0; }
+      #ledger .lg-titles { color: #9a6bd0; font-size: 12px; }
       /* Same frame contract as every other set: the masthead is fixed, the
          body is the one region that may give, and the PANEL can never overflow
          (it measured +24px at 1366 once the empty gear slots started holding
@@ -5426,9 +5719,10 @@
       /* r2: the hue is in the icon well and the edge, not in the title. */
       .m-tile.roam:hover { border-color: var(--ember);
         box-shadow: 0 0 18px rgba(217,142,74,0.18); }
-      .m-tile.roam .m-tile-icon { border-color: #4a3820;
-        background: radial-gradient(60% 55% at 50% 68%, rgba(217,142,74,0.35), transparent 75%),
-          linear-gradient(160deg, #1b1611, #100c09); }
+      /* social r1: the ember-glow icon WELL made ROAM's glyph zone the one
+         orange voice in a row that now speaks with one glyph treatment —
+         the poster gradient on the tile and the ember hover edge carry the
+         campaign identity; the well matches its two neighbours. */
       .m-tile.roam.continues { border-color: rgba(217,142,74,0.7); }
       .m-tile.roam.continues small { color: #a99f8c; }
 
@@ -5946,7 +6240,6 @@
         border-top: 1px solid var(--bronze); }
       /* Five of the seven are not decisions you make in the first two seconds;
          they scroll with the rest of the verdict and keep their 46px box. */
-      body[data-uiclass="compact"] #recap .rfoot #recap-race,
       body[data-uiclass="compact"] #recap .rfoot #recap-share,
       body[data-uiclass="compact"] #recap .rfoot #recap-standings,
       body[data-uiclass="compact"] #recap .rfoot #recap-card,
@@ -6096,6 +6389,23 @@
       <div class="tb"><button class="topbtn" id="tb-crawler">Crawler</button>
         <div class="topmenu" id="tm-crawler"></div></div>
     </div>
+    <!-- THE STARTING GUN (NICHE.md §4.1): rivals races hold here until every
+         seat is ready or the countdown expires. Server-driven; the card only
+         renders what the gate frames say. -->
+    <div id="rushgate" data-overlay="modal">
+      <div class="card">
+        <div class="kicker">◆ RINGSIDE ◆</div>
+        <h3>THE STARTING GUN</h3>
+        <div class="gsub">Every crawler descends at second zero. The System insists.</div>
+        <!-- TODAY'S RULE (NICHE.md §4.8): printed on the one surface every
+             racer reads at second zero. The gate modal hides the banner rail
+             and outlives the banner, so the card carries the rule itself. -->
+        <div class="grule" id="rushgate-rule" style="display:none"></div>
+        <div class="gcount" id="rushgate-count">—</div>
+        <div class="gseats" id="rushgate-seats"></div>
+        <button id="rushgate-ready">READY</button>
+      </div>
+    </div>
     <div id="keys" data-overlay="modal">
       <div class="panel">
         <!-- The panel title said KEY BINDINGS and so did the first tab, 60px
@@ -6126,6 +6436,8 @@
           <span class="kb-key" id="kb-perfmode">AUTO</span></div>
         <div class="kb-row"><span class="kb-name">Render scale<small>3D resolution — lower = faster; UI stays crisp</small></span>
           <span class="kb-key" id="kb-renderscale">100%</span></div>
+      <div class="kb-row"><span class="kb-name">Player ring<small>a kit-colored circle under your crawler — off by default; the contact shadow does this job in the house style</small></span>
+        <span class="kb-key" id="kb-anchorring">OFF</span></div>
         <div class="kb-row"><span class="kb-name">Controller<small>twin-stick play + rumble when a pad is connected</small></span>
           <span class="kb-key" id="kb-gamepad">ON</span></div>
         <div class="kb-row"><span class="kb-name">Touch controls<small>AUTO shows them on tablets; ON forces them anywhere</small></span>
@@ -6153,14 +6465,6 @@
     <div id="hud-log" class="hud"><div id="hud-log-feed"></div><div id="hud-log-status"></div></div>
 
     <div id="party" style="display:none"></div>
-    <!-- THE GHOST (COMPETITIVE.md 4.1): a rival trajectory, never a shared
-         world. Right rail under the roster zone; glass, not stone. -->
-    <div id="ghost">
-      <div class="gh"><b id="ghost-name">RIVAL</b><span id="ghost-where"></span></div>
-      <div class="gdelta pending" id="ghost-delta">—</div>
-      <div class="gsub" id="ghost-sub"></div>
-      <div class="gsplits" id="ghost-splits"></div>
-    </div>
     <div id="bossbar">
       <div class="bb-row">
         <span class="bb-icon" id="bb-icon"></span>
@@ -6420,6 +6724,17 @@
         </div>
       </div>
     </div>
+    <!-- THE CRAWL LEDGER (NICHE.md 4.3): losing banks something. Account-level
+         and server-side — contracts, mastery stamps, the forgiving streak.
+         One zone (modal 20, see the zone map), toggled by the "ledger" bind. -->
+    <div id="ledger" data-overlay="modal">
+      <div class="panel">
+        <h2>THE CRAWL LEDGER <span class="sub" id="ledger-sub"></span></h2>
+        <div class="hint">Every run deposits something — dead runs included. Identity, never stats.<span class="kbdhint"> ·
+          <kbd id="ledger-close-key">L</kbd> or <kbd>Esc</kbd> to close</span></div>
+        <div id="ledger-body"><div class="lg-note">Reaching the System's records office…</div></div>
+      </div>
+    </div>
     <div id="draft-badge"></div>
     <div id="cockpit">
       <div id="skills"></div>
@@ -6474,7 +6789,6 @@
         <div class="rfoot">
           <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
           <button class="dismiss" id="recap-new">NEW CONTRACT</button>
-          <button class="dismiss" id="recap-race">RACE THE LEADER</button>
           <button class="dismiss" id="recap-share">SHARE</button>
           <button class="dismiss" id="recap-standings">STANDINGS</button>
           <button class="dismiss" id="recap-dismiss">WATCH THE ARENA</button>
@@ -6491,11 +6805,16 @@
         <div class="card">
           <div class="kicker">◆ WHAT THEY WILL SEE ◆</div>
           <canvas id="share-preview" width="1200" height="630"></canvas>
+          <!-- THE RESULT CARD (NICHE.md 4.2): the exact text COPY CARD pastes —
+               a few System lines plus the door, sized for a group chat. Shown
+               before anything is copied, same honesty rule as the canvas. -->
+          <pre id="share-text"></pre>
           <div class="slink" id="share-link"></div>
           <div class="snote" id="share-note"></div>
           <div class="sbtns">
-            <button class="primary" id="share-copy">COPY THE CHALLENGE LINK</button>
-            <button id="share-save">SAVE THE CARD</button>
+            <button class="primary" id="share-card">COPY CARD</button>
+            <button id="share-copy">COPY THE LINK ONLY</button>
+            <button id="share-save">SAVE THE IMAGE</button>
             <button id="share-close">CLOSE</button>
           </div>
         </div>
@@ -6615,10 +6934,21 @@
                 <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
                 <b>REJOIN <span id="m-rejoin-code"></span></b><small id="m-rejoin-sub">your party is still out there</small>
               </button>
-              <button class="m-tile hero gold" id="m-daily">
-                <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
-                <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler, one board · resets at midnight UTC</small>
-              </button>
+              <!-- THE FEATURED BAND: still ONE banner of mass (the r2
+                   composition rule), now holding the two doors into today's
+                   dungeon — solo (DAILY) and live (THE RUSH, NICHE.md 4.5).
+                   A ?c= card re-dresses DAILY into ACCEPT CHALLENGE and the
+                   band collapses to that single door (.solo). -->
+              <div class="m-hero-row" id="m-hero-row">
+                <button class="m-tile hero gold" id="m-daily">
+                  <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/nouns/crown.svg);-webkit-mask-image:url(/icons/nouns/crown.svg)"></i></span>
+                  <b>DAILY CRAWL</b><small id="m-daily-sub">one dungeon, every crawler · resets at midnight UTC</small>
+                </button>
+                <button class="m-tile hero rush" id="m-rush">
+                  <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/skull.svg);-webkit-mask-image:url(/icons/ui/skull.svg)"></i></span>
+                  <b>THE RUSH</b><small id="m-rush-sub">today's dungeon, live rivals — one tap claims a seat</small>
+                </button>
+              </div>
               <div class="m-modes">
                 <button class="m-tile" id="m-party">
                   <span class="m-tile-icon"><i class="m-tile-ic" style="mask-image:url(/icons/ui/party.svg);-webkit-mask-image:url(/icons/ui/party.svg)"></i></span>
@@ -6675,16 +7005,19 @@
 
             <div class="m-board">
               <div class="m-board-h m-board-tabs">
+                <!-- Compact names on this module only (the one-line fit is
+                     measured — see .m-board-tabs). THE STANDINGS keeps the
+                     full DEEPEST / FASTEST on its own tabs. -->
                 <span class="bt active" data-bt="today">TODAY</span>
-                <span class="bt" data-bt="deepest">DEEPEST</span>
-                <span class="bt" data-bt="fastest">FASTEST</span>
+                <span class="bt" data-bt="deepest">DEPTH</span>
+                <span class="bt" data-bt="fastest">TIME</span>
                 <span class="bt" data-bt="kills">KILLS</span>
                 <span class="bt" data-bt="contracts">RIVALS</span>
               </div>
               <!-- The date used to sit INSIDE the tab row, floated right, so
                    "2026-08-02" read as a fifth tab. It is a caption. -->
               <span class="m-board-day" id="m-board-day"></span>
-              <ol id="m-board-list"><li class="none">the board is listening…</li></ol>
+              <ol id="m-board-list" class="empty"><li class="none"><b>TUNING IN</b><span>the board is listening for today's crawls</span><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i><i class="ghost"></i></li></ol>
             </div>
             <div class="m-account" id="m-account" style="display:none">
               <span id="m-acct-status"></span>
@@ -6743,8 +7076,8 @@
         <h3>THE SYSTEM RECORDS EVERYTHING YOU DO</h3>
         <p>
           Every button, sixty times a second. That recording is what makes the seal worth
-          anything — <b>anyone can replay your run and watch you earn it</b>. It is also how
-          other crawlers race your ghost.
+          anything — <b>the System replays your run and watches you earn it</b> before a
+          single number reaches a board.
         </p>
         <p>
           A <b>private</b> run is still replayed, still certified, and still takes its place on

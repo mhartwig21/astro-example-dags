@@ -329,6 +329,24 @@ export class FxParticles {
   private now = 0;
   private addPool: Pool;
   private alphaPool: Pool;
+  // CAMERA-SIDE BIAS for the impact kit (combat FX r1). The 200ms filmstrip
+  // (tools/_r1strip.mjs) caught the contact frame EMPTY at t+8ms: flash3 is
+  // spawned at the struck monster's center, so the hot core and the spiked
+  // star are born INSIDE the body and depth-tested away until they outgrow
+  // the silhouette ~40ms later — the exact frames where LoL impacts peak.
+  // Nudging the kit toward the camera clears the torso without touching the
+  // world position the player reads the hit at.
+  private biasX = 0;
+  private biasY = 0;
+  private biasZ = 0;
+
+  /** World-space camera direction; the impact kit spawns `dist` toward it. */
+  setCamBias(x: number, y: number, z: number, dist = 0.55): void {
+    const l = Math.hypot(x, y, z) || 1;
+    this.biasX = (x / l) * dist;
+    this.biasY = (y / l) * dist;
+    this.biasZ = (z / l) * dist;
+  }
 
   constructor() {
     const map = atlasTexture();
@@ -425,21 +443,29 @@ export class FxParticles {
     // its 2-frame life (that IS the contact read); the star + rim layers stay
     // saturated mid/deep hue so the flash silhouette keeps its school color.
     // De-stacking (claimFlash) guarantees only one kit per spot per beat.
-    // White-hot core: a 2-frame contact card — small, hard falloff, hands
-    // off to color in ~70ms. This is the "hot flash card" of the impact kit.
+    // The whole kit rides the camera bias (see setCamBias): the filmstrip
+    // proved a kit at body-center is invisible exactly at contact.
+    const bx = x + this.biasX, by = y + this.biasY, bz = z + this.biasZ;
+    // White-hot core: the CONTACT CARD. r1 gave it ~90ms and area; r2 makes
+    // t=0 the LOUD frame (the 30ms staged crit-kill still read as a faint
+    // puff — the numeral at ~70ms was carrying the contact). The card is now
+    // born at full area (no grow-in) with a near-instant fade-in, so the
+    // first composited frame after the hit IS the brightest one.
     this.spawn({
-      x, y, z, life: 0.07, size0: size * 0.2, size1: size * 0.3,
-      col0: pal.core, col1: pal.mid, fadeIn: 0.015, dim: 0.7, tex: TEX_CORE,
+      x: bx, y: by, z: bz, life: 0.11, size0: size * 0.48, size1: size * 0.56,
+      col0: pal.core, col1: pal.mid, fadeIn: 0.006, dim: 0.92, tex: TEX_CORE,
     });
-    // Saturated mid: the spiked star IS the shape language; slight spin-in.
+    // Saturated mid: the spiked star IS the shape language. r2: born at 85%
+    // of its final size instead of 52% — the silhouette exists AT contact,
+    // not two frames later.
     this.spawn({
-      x, y, z, life: 0.17, size0: size * 0.6, size1: size * 1.15,
-      col0: pal.mid, col1: pal.rim, fadeIn: 0.02, dim: 0.62,
+      x: bx, y: by, z: bz, life: 0.17, size0: size * 0.85, size1: size * 1.15,
+      col0: pal.mid, col1: pal.rim, fadeIn: 0.01, dim: 0.62,
       rot: Math.random() * 6.28, tex: TEX_STAR,
     });
     // Deep rim: a dim narrow halo that grounds the flash in its school color.
     this.spawn({
-      x, y, z, life: 0.26, size0: size * 0.6, size1: size * 1.25,
+      x: bx, y: by, z: bz, life: 0.26, size0: size * 0.6, size1: size * 1.25,
       col0: pal.mid, col1: pal.rim, fadeIn: 0.04, dim: 0.2, tex: TEX_SOFT,
     });
   }
@@ -546,8 +572,72 @@ export class FxParticles {
     }
   }
 
+  /** CAST COMMIT (FX r2). The sim casts on the key edge — there is no windup
+   * to anticipate — so the correct read is the reference's: put the CAST's
+   * brightest frame AT commit, at the caster's hands. A white-hot muzzle
+   * card + kit-color star at hand height, a directional flare thrown toward
+   * the aim, and a couple of recoil motes kicked back the other way. The
+   * old converge-then-pop (gatherBurst) staged its peak 110ms AFTER the
+   * projectile had already left, which photographed as "no cast read at
+   * all" through the real input path (tools/_fxaccept1c.mjs).
+   * `scale` < 1 is the per-swing melee glint; 1 is a full cast. */
+  castCommit(x: number, y: number, z: number, pal: FxPalette, dir?: { x: number; y: number }, scale = 1): void {
+    const bx = x + this.biasX, by = y + this.biasY, bz = z + this.biasZ;
+    // Muzzle card: instant full area, brightest at t=0, hue hand-off.
+    this.spawn({
+      x: bx, y: by, z: bz, life: 0.11, size0: 0.55 * scale, size1: 0.45 * scale,
+      col0: pal.core, col1: pal.mid, fadeIn: 0.005, dim: 0.95, tex: TEX_CORE,
+    });
+    if (scale >= 0.99) {
+      // Kit-color star: the shape that says WHICH school just committed.
+      this.spawn({
+        x: bx, y: by, z: bz, life: 0.16, size0: 0.9, size1: 1.2,
+        col0: pal.mid, col1: pal.rim, fadeIn: 0.008, dim: 0.6,
+        rot: Math.random() * 6.28, tex: TEX_STAR,
+      });
+      // Dim deep-hue halo grounds the flash in the ability's color.
+      this.spawn({
+        x: bx, y: by, z: bz, life: 0.26, size0: 0.8, size1: 1.4,
+        col0: pal.mid, col1: pal.rim, fadeIn: 0.03, dim: 0.16, tex: TEX_SOFT,
+      });
+    }
+    if (dir) {
+      const dl = Math.hypot(dir.x, dir.y) || 1;
+      const dx = dir.x / dl, dz = dir.y / dl;
+      // Directional muzzle streaks toward the aim: the cast POINTS.
+      const n = scale >= 0.99 ? 6 : 3;
+      for (let i = 0; i < n; i++) {
+        const a = (Math.random() - 0.5) * 0.55;
+        const ca = Math.cos(a), sa = Math.sin(a);
+        const px = dx * ca - dz * sa, pz = dx * sa + dz * ca;
+        const sp = (6.5 + Math.random() * 5) * scale;
+        this.spawn({
+          x: bx + dx * 0.25, y: by + (Math.random() - 0.5) * 0.2, z: bz + dz * 0.25,
+          vx: px * sp, vy: (Math.random() - 0.3) * 1.4, vz: pz * sp,
+          life: 0.13 + Math.random() * 0.08,
+          size0: 0.15 * scale, size1: 0.04,
+          col0: hot(pal.mid, 0.5), col1: pal.mid,
+          stretch: 2.4, fadeIn: 0.01,
+        });
+      }
+      // Recoil kick: a few motes thrown BACK off the hands — the body read.
+      for (let i = 0; i < 3; i++) {
+        const sp = 2 + Math.random() * 1.6;
+        this.spawn({
+          x: bx, y: by, z: bz,
+          vx: -dx * sp + (Math.random() - 0.5) * 0.8, vy: 0.9 + Math.random() * 0.6,
+          vz: -dz * sp + (Math.random() - 0.5) * 0.8, ay: -6,
+          life: 0.22 + Math.random() * 0.1,
+          size0: 0.09 * scale, size1: 0.03,
+          col0: pal.mid, col1: pal.rim, stretch: 1.2, dim: 0.7,
+        });
+      }
+    }
+  }
+
   /** Cast anticipation: sparks CONVERGE onto the caster's hands over ~140ms,
-   * then a delayed hand flash pops right as the ability fires. */
+   * then a delayed hand flash pops right as the ability fires. (Boss beats
+   * still stage this; the player cast read is castCommit above.) */
   gatherBurst(x: number, y: number, z: number, hex: number): void {
     const life = 0.14;
     for (let i = 0; i < 11; i++) {

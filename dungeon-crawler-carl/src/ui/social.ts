@@ -15,9 +15,38 @@
  * than a flattering placeholder.
  */
 import { CONFIG, FLOOR_BANDS, floorBand } from "../sim/config";
+import { dayFromMs } from "../sim/daily";
 import type { RunBuild } from "../sim/replay";
 import type { LastHitSrc } from "../sim/types";
 import type { RunRecord } from "../persist/history";
+
+// ---------------------------------------------------------------------------
+// THE SERVER'S DAY (NICHE.md 4.5). The flip hour is a SERVER config, so
+// "today" is the server's day, not the browser's UTC-midnight guess — during
+// the 00:00Z→flip window those disagree, and every screen that gates on the
+// day (contract re-signs, closed-day demotions, board headers, the card's
+// daily flag) must gate on the server's. The client learns the day from
+// /rush (which also carries the flip instant) or the daily event row; this
+// is the arithmetic that keeps it current between fetches.
+// ---------------------------------------------------------------------------
+
+/** The freshest day the server has named, plus (when /rush answered) the
+ *  epoch-ms instant that day rotates. flipsAt null = instant unknown. */
+export interface KnownServerDay {
+  day: string;
+  flipsAt: number | null;
+}
+
+/** The server's CURRENT day: the learned day, advanced locally across the
+ *  learned flip instant so a menu left open over the flip doesn't hold
+ *  yesterday. `localDay` is the offline fallback (no server ever answered =
+ *  the flip hour is unknowable and UTC midnight is the honest default). */
+export function serverDayAt(known: KnownServerDay | null, now: number, localDay: string): string {
+  if (!known) return localDay;
+  if (known.flipsAt == null || now < known.flipsAt) return known.day;
+  const days = 1 + Math.floor((now - known.flipsAt) / 86_400_000);
+  return dayFromMs(Date.parse(known.day + "T12:00:00Z") + days * 86_400_000);
+}
 
 // ---------------------------------------------------------------------------
 // Typed views of the server projections (competitiveApi.ts publicRun et al.)
@@ -99,6 +128,9 @@ export interface EventView {
   season: string;
   frozen: boolean;
   rulesHash: string;
+  /** TODAY'S RULE pinned on the event row (NICHE.md §4.8); null = base game.
+   *  Absent on servers predating the pin. */
+  dailyRule?: string | null;
   entrants: number;
 }
 
@@ -579,9 +611,10 @@ export function bandName(i: number): string {
 /**
  * A CHALLENGE CODE: a seed plus a claim, in about eighty characters - small
  * enough to paste into a chat message, and it reproduces the whole dungeon,
- * because the dungeon IS the seed. This is the cheap half of 8.2; the
- * expensive half (?run=<id>) needs the server to still hold the proof, and the
- * code carries that id so the two degrade into each other.
+ * because the dungeon IS the seed. Opening one pins the seed and states the
+ * claim; the comparison happens once, at the end of YOUR run. It never
+ * carries a recording - a racing ghost is the rejected feature, and NICHE.md
+ * §5 bans it by name.
  */
 export interface Challenge {
   seed: number;
@@ -594,8 +627,6 @@ export interface Challenge {
   kills: number;
   level: number;
   ult?: string | null;
-  /** Run id, when the run was sealed and is worth racing as a ghost. */
-  run?: string;
 }
 
 const CODE_VERSION = 1;
@@ -603,7 +634,7 @@ const CODE_VERSION = 1;
 export function encodeChallenge(c: Challenge): string {
   const tuple = [
     CODE_VERSION, c.seed >>> 0, c.ev ?? "", c.by.slice(0, 24), c.floor,
-    c.won ? 1 : 0, Math.round(c.timeSec), c.kills, c.level, c.ult ?? "", c.run ?? "",
+    c.won ? 1 : 0, Math.round(c.timeSec), c.kills, c.level, c.ult ?? "",
   ];
   return b64urlEncode(JSON.stringify(tuple));
 }
@@ -616,6 +647,9 @@ export function decodeChallenge(code: string): Challenge | null {
     const str = (i: number): string => (typeof t[i] === "string" ? (t[i] as string) : "");
     const seed = num(1) >>> 0;
     if (!Number.isFinite(seed) || seed === 0) return null;
+    // Old codes carried an eleventh entry - a sealed run id for ghost racing.
+    // The ghost layer is gone; the extra entry is ignored, never an error, so
+    // a pre-removal link still opens its dungeon.
     return {
       seed,
       ev: str(2) || undefined,
@@ -626,7 +660,6 @@ export function decodeChallenge(code: string): Challenge | null {
       kills: clamp(num(7), 0, 100000),
       level: clamp(num(8), 0, 99),
       ult: str(9) || null,
-      run: str(10) || undefined,
     };
   } catch {
     return null;
@@ -645,6 +678,122 @@ export function encodeBuild(b: RunBuild): string {
   return b64urlEncode(JSON.stringify(tuple));
 }
 
+// ---------------------------------------------------------------------------
+// THE RESULT CARD (NICHE.md 4.2) — every run ends in a link a stranger can read
+// ---------------------------------------------------------------------------
+// A few System-voiced lines plus a URL, sized for a group chat. Two legibility
+// rules decide whether this is an invitation or an in-joke:
+//   1. EVERY NUMBER CARRIES ITS SCALE — "FLOOR 7" means nothing to someone who
+//      has never played; "FLOOR 7 OF 18" is a story.
+//   2. THE SYSTEM GRADES THE CLAIM — gradeRun's letter is the auditable
+//      arithmetic that tells a stranger whether 6:12 is good; the card spends
+//      exactly one line saying so, in the System's voice.
+// The URL is the existing challenge code (seed + claim): a playable door into
+// the exact same dungeon, never a recording (§5 bans the ghost by name).
+
+/** One grade line per card. Keyed on the letter alone — the card is read by
+ *  people who cannot see the four parts, so nuance would be noise. */
+export function rateClaim(letter: Letter): string {
+  const phrase: Record<Letter, string> = {
+    S: "APPALLINGLY GOOD. The sponsors are circling.",
+    A: "GENUINELY IMPRESSIVE. The System checked the math twice.",
+    B: "RESPECTABLE. BARELY.",
+    C: "A RESULT TECHNICALLY OCCURRED.",
+    D: "THE AUDIENCE HAS SEEN CORPSES WITH MORE MOMENTUM.",
+  };
+  return `THE SYSTEM RATES THIS CLAIM: ${phrase[letter]}`;
+}
+
+export interface ResultCardFacts {
+  name: string;
+  won: boolean;
+  floor: number;
+  timeSec: number;
+  kills: number;
+  /** Grade letter when the run was graded; null renders no rating line. */
+  letter: Letter | null;
+  /** The ?c= door. The caller builds it — the card only frames it. */
+  url: string;
+  /** Daily day (YYYY-MM-DD) when the run was a daily — the scale for TIME:
+   *  a daily claim is against everyone on that dungeon today. */
+  day?: string | null;
+}
+
+/** The solo/daily card: three-ish lines + the door. Plain text, clipboard-
+ *  ready — the artifact that actually lands in the chat. */
+export function resultCardText(c: ResultCardFacts): string {
+  const depth = c.won
+    ? `ALL ${CONFIG.finalFloor} FLOORS`
+    : `FLOOR ${Math.max(1, c.floor)} OF ${CONFIG.finalFloor}`;
+  const head = c.won
+    ? `THE SYSTEM CONFIRMS, RELUCTANTLY: ${c.name.toUpperCase()} — ${depth}, ${mmss(c.timeSec)}, ${c.kills} KILLS`
+    : `THE SYSTEM REGRETS TO ANNOUNCE: ${c.name.toUpperCase()} — ${depth}, ${mmss(c.timeSec)}, ${c.kills} KILLS`;
+  const lines = [c.day ? `${head} · THE DAILY ${c.day}` : head];
+  if (c.letter) lines.push(rateClaim(c.letter));
+  lines.push(`beat it → ${c.url}`);
+  return lines.join("\n");
+}
+
+export interface RaceCardFacts {
+  /** The winner's name, or null when the dungeon won (everyone conceded). */
+  winner: string | null;
+  seats: number;
+  timeSec: number;
+  /** One-tap rematch: the ?join= invite, same code. */
+  joinUrl: string;
+  /** Optional personal second line ("placement is the race's story,
+   *  improvement is yours") — the caller decides whether it has one. */
+  yourLine?: string | null;
+}
+
+/** The crew-flavored race card (4.2): the recap as a chat message, with the
+ *  rematch door. The link is a LIVE door (?join=), never a recording. */
+export function raceCardText(c: RaceCardFacts): string {
+  const ate = Math.max(0, c.seats - 1);
+  const head = c.winner
+    ? `${c.winner.toUpperCase()} TOOK THE DUNGEON — ${ate === 0 ? "UNOPPOSED" : `${ate} CRAWLER${ate === 1 ? "" : "S"} ATE FLOOR`}. ${mmss(c.timeSec)}.`
+    : `THE DUNGEON TOOK THE RACE — ${c.seats} CRAWLER${c.seats === 1 ? "" : "S"} ATE FLOOR.`;
+  const lines = [head];
+  if (c.yourLine) lines.push(c.yourLine);
+  lines.push(`rematch → ${c.joinUrl}`);
+  return lines.join("\n");
+}
+
+/** The claim, restated as a goal when a ?c= run starts. STATIC by design:
+ *  this sentence is announced once and never updates against your progress —
+ *  a live delta is the rejected ghost chase wearing a number (§5). */
+export function claimBanner(ch: Challenge): string {
+  const feat = ch.won
+    ? `CLEARED ALL ${CONFIG.finalFloor} FLOORS IN ${mmss(ch.timeSec)}`
+    : `CLAIMS FLOOR ${Math.max(1, ch.floor)} OF ${CONFIG.finalFloor} IN ${mmss(ch.timeSec)}`;
+  return `${ch.by.toUpperCase()} ${feat}. OUTLIVE THEM.`;
+}
+
+/** The comparison, made ONCE, at the end (NICHE.md 4.2/§5): deeper beats
+ *  shallower; two clears settle on the clock; two deaths on the same floor
+ *  settle on kills. Returns the one sentence the end of a ?c= run earns. */
+export function claimVerdict(
+  ch: Challenge,
+  you: { name: string; won: boolean; floor: number; timeSec: number; kills: number },
+): string {
+  const theirDepth = ch.won ? CONFIG.finalFloor + 1 : ch.floor;
+  const yourDepth = you.won ? CONFIG.finalFloor + 1 : you.floor;
+  const beat = yourDepth !== theirDepth
+    ? yourDepth > theirDepth
+    : you.won && ch.won
+      ? you.timeSec < ch.timeSec
+      : you.kills > ch.kills;
+  const theirs = ch.won
+    ? `${ch.by} cleared in ${mmss(ch.timeSec)}`
+    : `${ch.by} reached floor ${ch.floor} of ${CONFIG.finalFloor}`;
+  const yours = you.won
+    ? `you cleared in ${mmss(you.timeSec)}`
+    : `you reached floor ${you.floor}`;
+  return beat
+    ? `CLAIM SETTLED: ${theirs}; ${yours}. The System will notify them. Loudly.`
+    : `CLAIM STANDS: ${theirs}; ${yours}. The dungeon is still theirs. R says otherwise.`;
+}
+
 function b64urlEncode(s: string): string {
   const bytes = new TextEncoder().encode(s);
   let bin = "";
@@ -660,68 +809,9 @@ function b64urlDecode(s: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// GHOSTS (COMPETITIVE.md 4.1)
+// CLOCKS - one set of formatters, so no two surfaces disagree by a rounding
+// rule
 // ---------------------------------------------------------------------------
-
-export interface GhostState {
-  label: string;
-  /** 10 Hz keyframes, precomputed off-thread by ghostWorker. */
-  track: { hz: number; x: number[]; y: number[]; floor: number[] };
-  floorEntryTicks: number[];
-  ticks: number;
-  /** Source run, when the ghost came off a board row. */
-  runId?: string;
-  /**
-   * WHAT THE GHOST ACTUALLY DID, so the post-run scoreboard can print a COLUMN
-   * instead of two numbers and five em-dashes (6.2 Beat 2, blocker 14).
-   *
-   * The track carries a trajectory and nothing else, so the ghost column could
-   * only ever answer "how deep" and "how long" - and a column that is 71%
-   * em-dashes is what made a three-column scoreboard read as two. Every ghost
-   * has a source that knows the rest: a board row (RACE THE LEADER, a
-   * challenge link) carries the verifier-derived numbers, and RUN IT BACK is
-   * this browser's own last run. Filled at ARM time, because the source is in
-   * scope exactly then.
-   */
-  facts?: {
-    won: boolean;
-    floor: number;
-    kills: number | null;
-    level: number | null;
-    damageDealt: number | null;
-    damageTaken: number | null;
-    goldSpent: number | null;
-  };
-}
-
-/** Where the ghost is at a given tick, lerped between keyframes. Null once the
- *  ghost run is over - a finished rival simply stops being on the floor with
- *  you, which is the honest read and the one the HUD chip prints. */
-export function ghostAt(g: GhostState, tick: number): { x: number; y: number; floor: number } | null {
-  const step = 60 / g.track.hz;
-  const idx = tick / step;
-  const i = Math.floor(idx);
-  if (i < 0 || i >= g.track.x.length) return null;
-  const j = Math.min(i + 1, g.track.x.length - 1);
-  const t = idx - i;
-  return {
-    x: g.track.x[i] + (g.track.x[j] - g.track.x[i]) * t,
-    y: g.track.y[i] + (g.track.y[j] - g.track.y[i]) * t,
-    floor: g.track.floor[i],
-  };
-}
-
-/**
- * THE SPLIT DELTA - the drama (4.1). Positive means you are BEHIND: you
- * entered this floor that many seconds later than the ghost did. Null while
- * the ghost never reached your floor, because "infinitely ahead" is not a
- * number and pretending otherwise is how split displays start lying.
- */
-export function splitDelta(g: GhostState, floor: number, myEntryTick: number): number | null {
-  const theirs = g.floorEntryTicks[floor - 1] ?? -1;
-  if (theirs < 0 || myEntryTick < 0) return null;
-  return (myEntryTick - theirs) / 60;
-}
 
 /** Speedrun-style signed clock: +1:12 / -0:04. */
 export function signedTime(sec: number): string {
@@ -790,9 +880,8 @@ export type SealWeight = "ranked" | "plain";
  * not happen - and the only existing tell, "party of N", is absent on a solo
  * rivals row, because N is 1.
  *
- * Both are honest seals. They are not the same seal, and the honest sentence
- * for the second one already existed in this file - buried in `playability`, a
- * disabled button's title attribute.
+ * Both are honest seals. They are not the same seal, and the chip says which
+ * one it is wearing.
  */
 export type SealProvenance = "replayed" | "vouched";
 
@@ -1104,9 +1193,6 @@ export function verdictSeal(
   }
 }
 
-/** WATCH / RACE availability, with the refusal STATED rather than a greyed-out
- *  button (2.6f). A silent disable is how a player concludes the ladder is
- *  broken; a named era is how they conclude the game is honest. */
 /**
  * THE SEAL STATE, as arithmetic rather than as a hope.
  *
@@ -1141,32 +1227,6 @@ export function sealHoldMs(
   if (!terminal || !hadPriorPaint || verdictVisibleAt <= 0) return 0;
   const visibleFrom = Math.max(pendingSince, verdictVisibleAt + SEAL_CASCADE_MS);
   return Math.max(0, SEAL_MIN_PENDING_MS - (now - visibleFrom));
-}
-
-export function playability(r: BoardRun, currentEra: string): { ok: boolean; why: string } {
-  if (r.private) return { ok: false, why: "PRIVATE — this crawler kept the film" };
-  if (r.state !== "verified") return { ok: false, why: "UNPROVEN — only sealed runs are raceable" };
-  // A ROW WITH NO FILM IS NOT A ROW WHOSE FILM EXPIRED. A RIVALS contract is
-  // inserted verified with `proofId = null` because the AUTHORITATIVE sim
-  // decided it and nobody records a party run - and the last branch of this
-  // function told the player "the proof has aged out of retention" about a
-  // proof that never existed. The store's own comment admitted the reuse
-  // ("exactly as they do for a proof that aged out"); it was still a deliberate
-  // false statement, in the product whose whole pitch is that it does not make
-  // them.
-  if (r.film === "never") {
-    return {
-      ok: false,
-      why: "THE SERVER RAN THIS ONE ITSELF — a rivals contract is decided on the authoritative sim, "
-        + "so the row is sealed and there is no film to hand out",
-    };
-  }
-  if (!r.rulesEra) return { ok: false, why: "no proof retained for this row" };
-  if (r.rulesEra !== currentEra) {
-    return { ok: false, why: `RECORDED UNDER RULES ERA ${r.rulesEra} — NOT PLAYABLE ON ERA ${currentEra}` };
-  }
-  if (!r.playable) return { ok: false, why: "the proof has aged out of retention" };
-  return { ok: true, why: "" };
 }
 
 // ---------------------------------------------------------------------------

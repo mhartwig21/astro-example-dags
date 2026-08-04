@@ -13,6 +13,20 @@ import type { Announcement, BossEvent, GameState, HitEvent, Intent, Vec2 } from 
 // Sends the local intent on a fixed pump and forwards UI actions (draft picks,
 // shop buys, ready-up, equips) as protocol messages — no game logic runs locally.
 
+/** THE STARTING GUN (NICHE.md §4.1): the held race's READY screen data.
+ * `started` marks the gun itself — one final frame, then the sim runs. */
+export interface GateState {
+  seats: { name: string; ready: boolean }[];
+  msLeft: number;
+  cap?: number;
+  started?: boolean;
+  /** TODAY'S RULE for this race (NICHE.md §4.8), when the instance was dealt
+   *  one (live daily). The READY card prints it — the gate is a modal, and a
+   *  modal hides the banner the rule announcement rides. null/absent = base
+   *  game. */
+  rule?: string | null;
+}
+
 export interface NetEventBatch {
   events: string[];
   announcements: Announcement[];
@@ -76,6 +90,9 @@ export class NetClient {
   playerId = -1;
   connected = false;
   onEvents: ((batch: NetEventBatch) => void) | null = null;
+  /** Starting-gun gate frames (rivals pre-run hold). Fires ~2/s while the
+   *  race is held and once with `started: true` when the gun goes. */
+  onGate: ((gate: GateState) => void) | null = null;
   onDisconnect: (() => void) | null = null;
   /** Fired when an automatic rejoin lands: playerId may have changed (the
    *  world can be a restored instance) — hosts must re-read it. */
@@ -189,6 +206,8 @@ export class NetClient {
           this.snapAt = now;
         } else if (msg.t === "events") {
           this.onEvents?.(msg as NetEventBatch);
+        } else if (msg.t === "gate") {
+          this.onGate?.(msg as GateState);
         }
       };
     });
@@ -276,6 +295,11 @@ export class NetClient {
   }
   ready(): void {
     this.send({ t: "ready" });
+  }
+  /** DEATH IS A DOOR (NICHE.md 4.7): the downed racer's second door. The sim
+   *  validates (rivals, downed, not already out); the seat frees server-side. */
+  concede(): void {
+    this.send({ t: "concede" });
   }
   equip(idx: number): void {
     this.send({ t: "equip", idx });

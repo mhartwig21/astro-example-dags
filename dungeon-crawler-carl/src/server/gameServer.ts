@@ -4,7 +4,9 @@ import { extname, join, normalize, resolve } from "node:path";
 import { createGzip } from "node:zlib";
 import { randomUUID } from "node:crypto";
 import { WebSocketServer, WebSocket } from "ws";
-import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
+import { createGame, addPlayer, applySavedPlayer, buildFloor, isCrawlerSkin, step, chooseReward, chooseUpgrade, buyCatalogItem, sellItem, sellAllItems, claimAchievementLootBox, setReady, concedeRival, equipFromInventory, slotAbility, setUltimate, dismantleItem, refitItem, socketGlyph, unsocketGlyph, type SavedProgress } from "../sim/game";
+import { raceSuperlatives, headlineLine, type SeatSummary } from "./superlatives";
+import { ledgerRunFrom } from "./ledger";
 import { GLYPH_INFO, type GlyphId } from "../sim/glyphs";
 import { ABILITY_INFO, type AbilityId } from "../sim/abilities";
 import {
@@ -12,7 +14,11 @@ import {
   deserialize, SNAPSHOT_VERSION,
 } from "../sim/snapshot";
 import { toSaveData } from "../persist/save";
-import { dayFromMs } from "../sim/daily";
+import { dailySeed, dayFromMs, isValidDay } from "../sim/daily";
+import { DAILY_RULES, dailyRuleFor } from "../sim/dailyRules";
+import { CONFIG } from "../sim/config";
+import { flipDayFromMs, msUntilFlip, parseFlipHour } from "./flip";
+import { CrewWire, crewIdFromCode, sanitizeCrewName, validWebhook, MAX_CREWS, type CrewRow } from "./crewWire";
 import { TIPS } from "../sim/tips";
 import { ALLTIME_CATS, Leaderboard, type AlltimeCat } from "./leaderboard";
 import { sanitizeName } from "./names";
@@ -22,6 +28,7 @@ import { TokenService } from "./tokens";
 import { makeExecutor, InlineExecutor } from "./verifyExecutor";
 import { RULES_HASH } from "../sim/rulesHash";
 import { openDb, type PersistDb } from "./db";
+import { MAX_BOARD_ROWS } from "./competitive";
 import { Metrics } from "./metrics";
 import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntents, type Player, type Vec2 } from "../sim/types";
 
@@ -37,7 +44,11 @@ import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntent
 //       (saves key off it); public only matters the FIRST time a code is seen —
 //       it flags the new instance discoverable via GET /open-parties; tips is
 //       the browser's seen-tips ledger — merged into the account so
-//       first-contact tips never replay for a returning crawler
+//       first-contact tips never replay for a returning crawler.
+//       THE LIVE DAILY (NICHE.md §4.8): a rivals race code of the form
+//       DAILY-YYYY-MM-DD-* seeds from dailySeed(day) and is dealt that day's
+//       rule (see dayFromDailyCode) — everyone racing a daily code that day
+//       is in the same dungeon under the same rule.
 //     { t: "intent", intent: Intent }                  input for upcoming ticks
 //     { t: "choose", kind: "upgrade"|"reward", idx }   pick a draft card
 //     { t: "buy", id: string }                         System Shop purchase (catalog id)
@@ -51,6 +62,9 @@ import { NO_INTENT, type GameState, type Intent, type ItemSlot, type PartyIntent
 //   server -> client:
 //     { t: "welcome", playerId, token, snapshot }      join accepted (full state;
 //       keep the token — it is the account id saves key off)
+//     { t: "gate", seats, msLeft, cap?, started? }     THE STARTING GUN
+//         (NICHE.md §4.1): while a fresh rivals race is held, seat list +
+//         countdown ~2/s; one final frame with started=true is the gun
 //     { t: "snap", tick, full?, snapshot }             state (interval below).
 //         full=true carries map + fog (join/floor change/doors unlocking);
 //         otherwise DYNAMIC — no map/fog, the client keeps its cached world
@@ -65,6 +79,14 @@ export const CHECKPOINT_EVERY = 60 * TICK_HZ; // periodic save while active (~60
 // be cheap over a month-long idle Roam party, short enough to reasonably
 // bound a genuinely dead connection.
 export const HEARTBEAT_INTERVAL_MS = 20_000;
+// THE STARTING GUN (NICHE.md §4.1): a fresh rivals race holds its sim at a
+// READY gate — world built, seat list + countdown visible, nobody's clock
+// running — and fires when every seated crawler is ready or the countdown
+// expires. Everyone descends from second zero; a "race" without a common
+// start isn't one. Long enough to paste the invite at a slow friend, short
+// enough that an abandoned gate never squats a seat list for long.
+export const RUSH_GATE_MS = 60_000;
+const GATE_STATUS_EVERY = 15; // gate countdown broadcast cadence (ticks; 2/s)
 
 // Abuse guards for an internet-facing deployment. Generous for friendly play,
 // tight enough that a hostile client can't balloon memory or the tick budget.
@@ -148,6 +170,19 @@ interface Instance {
   // instance only exists in memory while it has players, so there's nothing
   // to restore after a restart) and never flippable by a later joiner.
   public: boolean;
+  // DEATH IS A DOOR (NICHE.md 4.7): accounts that conceded this race, by
+  // player id — race-end headline delivery for seats whose member row was
+  // freed at concede time (and whose client may be long gone).
+  departed: Map<number, string>;
+  // THE STARTING GUN (NICHE.md §4.1): while non-null, the sim is HELD — no
+  // step() runs, no clock advances — and the gate broadcasts seat/countdown
+  // state instead of snapshots. In-memory only, like the instance itself: a
+  // deploy mid-gate evaporates it and the regenerated instance resumes
+  // ungated (a resumed race is a pause, never a second gun).
+  gate: { deadline: number; ready: Set<number> } | null;
+  // THE CREW WIRE's "race forming" ping (NICHE.md 4.6): fired at most once
+  // per instance, the moment a PUBLIC gated race finds its second human.
+  formingWired?: boolean;
 }
 
 /** Accept a well-formed client token; anything else gets a fresh identity. */
@@ -164,6 +199,11 @@ function buildSummary(p: Player): Record<string, unknown> {
     level: p.level,
     slots: p.abilities.slots,
     ultimate: p.abilities.ultimate,
+    // Socketed glyph ids — the ledger's mastery stamps (NICHE.md 4.3) read
+    // these; the bench deliberately stays home (owning is not fielding).
+    glyphs: p.glyphs
+      ? [...p.glyphs.slots.flat(), ...p.glyphs.ultimate].filter((g): g is NonNullable<typeof g> => g != null)
+      : [],
     ranks: Object.values(p.abilities.ranks).reduce((a, b) => a + b, 0),
     weapon: p.equipment.weapon?.name ?? null,
     maxHp: p.maxHp,
@@ -180,6 +220,19 @@ function buildSummary(p: Player): Record<string, unknown> {
   };
 }
 
+/**
+ * THE LIVE DAILY (NICHE.md §4.8): a rivals race whose code carries the daily
+ * prefix (`DAILY-YYYY-MM-DD-anything`) runs THAT day's dungeon under that
+ * day's rule — the one moment everyone provably shares a dungeon becomes the
+ * moment they can race it. Derived from the CODE, not a join flag, so a
+ * regenerated instance after a restart lands in the same dungeon. Returns
+ * the day string, or null when the code is an ordinary party code.
+ */
+export function dayFromDailyCode(code: string): string | null {
+  const m = /^DAILY-(\d{4}-\d{2}-\d{2})(-|$)/.exec(code);
+  return m && isValidDay(m[1]) ? m[1] : null;
+}
+
 /** Deterministic seed from an invite code (djb2), so a party code IS the dungeon. */
 export function seedFromCode(code: string): number {
   let h = 5381;
@@ -194,6 +247,11 @@ function capFor(state: GameState): number {
     : state.runKind === "roam" ? MAX_PARTY_SIZE_ROAM
     : MAX_PARTY_SIZE;
 }
+
+/** Client-reported usage kinds POST /telemetry accepts (see onTelemetry). */
+export const TELEMETRY_KINDS: ReadonlySet<string> = new Set([
+  "run_end", "run_start", "card_open", "first_input", "card_copy", "door",
+]);
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",
@@ -238,6 +296,12 @@ export class GameServer {
   // onConnection — see HEARTBEAT_INTERVAL_MS). Configurable so tests don't
   // wait 20 real seconds for a zombie connection to get reaped.
   private heartbeatTimer: NodeJS.Timeout;
+  /** THE FLIP HOUR (NICHE.md 4.5): which UTC hour rotates the daily. Config,
+   *  not constant — one timezone deserves one honest evening. */
+  readonly flipHourUtc: number;
+  /** THE CREW WIRE (NICHE.md 4.6). Null without a DB (nowhere to keep crews). */
+  readonly crewWire: CrewWire | null = null;
+  private wireTimer: NodeJS.Timeout | null = null;
 
   /**
    * One process serves everything: HTTP (built client from `staticDir` + a
@@ -247,7 +311,18 @@ export class GameServer {
   constructor(
     port: number, staticDir?: string, leaderboardFile?: string, dbFile?: string,
     heartbeatIntervalMs = HEARTBEAT_INTERVAL_MS,
+    private rushGateMs = RUSH_GATE_MS,
+    opts: {
+      /** NICHE.md 4.5: the daily flip hour (UTC). Default: env, then 0. */
+      flipHourUtc?: number;
+      /** NICHE.md 4.6 kill switch + injected transport/clock for tests. */
+      wireEnabled?: boolean;
+      wirePost?: (webhookUrl: string, content: string) => Promise<void>;
+      wireSweepMs?: number;
+      baseUrl?: string;
+    } = {},
   ) {
+    this.flipHourUtc = opts.flipHourUtc ?? parseFlipHour(process.env.DAILY_FLIP_HOUR_UTC);
     this.staticDir = staticDir && existsSync(staticDir) ? resolve(staticDir) : null;
     this.leaderboard = new Leaderboard(leaderboardFile);
     // Account + save persistence (PERSISTENCE.md P1). No dbFile (tests, bare
@@ -282,6 +357,7 @@ export class GameServer {
         tokens: this.tokens,
         executor: new InlineExecutor(),
         eras: [RULES_HASH],
+        flipHourUtc: this.flipHourUtc,
       });
       void makeExecutor().then((exec) => this.competitive?.queue.setExecutor(exec));
       // One-time import of the retired JSON boards, as CLAIMED rows with no
@@ -294,6 +370,29 @@ export class GameServer {
       ];
       const n = this.db.competitive.importLegacyBoard(legacy, 60);
       if (n > 0) console.log(`imported ${n} legacy board rows as claimed`);
+    }
+    // THE CREW WIRE (NICHE.md 4.6): outbound-only, opt-in, rate-limited.
+    // Needs the DB (crew rows live beside accounts/saves); without one the
+    // wire simply doesn't exist, like the rest of persistence.
+    if (this.db) {
+      this.crewWire = new CrewWire(this.db.crews, {
+        enabled: opts.wireEnabled ?? process.env.CREW_WIRE_OFF !== "1",
+        baseUrl: opts.baseUrl ?? process.env.PUBLIC_BASE_URL ?? "https://dungeon-crawler-claude.fly.dev",
+        post: opts.wirePost,
+        // §7's wire number ("app opens within 15 minutes of a wire ping vs
+        // baseline") is measured against DURABLE pings: one usage_events row
+        // per dispatched post. The dcc_wire_posts gauge resets on deploy and
+        // a scrape is too coarse to anchor a 15-minute window.
+        onPosted: (crewId, event) =>
+          this.db?.logEvent("wire_post", "WIRE", null, { event, crewId }, Date.now()),
+      });
+      this.wireTimer = setInterval(
+        () => this.crewWire?.sweep(Date.now(), this.flipHourUtc,
+          () => this.yesterdayWinnerLine(), (crewId) => this.crewBoardLine(crewId)),
+        opts.wireSweepMs ?? 30_000,
+      );
+      // Prime the flip-day edge at boot so a restart never re-announces today.
+      this.crewWire.sweep(Date.now(), this.flipHourUtc, () => null);
     }
     this.http = createServer((req, res) => this.onRequest(req, res));
     // permessage-deflate: snapshot JSON is highly repetitive frame-to-frame,
@@ -325,6 +424,8 @@ export class GameServer {
     this.metrics.gauge("dcc_tick_ms_max", () => +this.tickMsMax.toFixed(1));
     this.metrics.gauge("dcc_rss_bytes", () => process.memoryUsage().rss);
     this.metrics.gauge("dcc_uptime_seconds", () => Math.round((Date.now() - this.startedAt) / 1000));
+    // §7's crew-wire falsification number needs the dispatch count on a graph.
+    this.metrics.gauge("dcc_wire_posts", () => this.crewWire?.posts ?? 0);
   }
 
   private onRequest(req: IncomingMessage, res: import("node:http").ServerResponse): void {
@@ -339,6 +440,26 @@ export class GameServer {
     }
     if (url.split("?")[0] === "/telemetry") {
       this.onTelemetry(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/headlines") {
+      this.onHeadlines(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/ledger") {
+      this.onLedger(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/rush") {
+      this.onRush(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/crew") {
+      this.onCrewRegister(req, res);
+      return;
+    }
+    if (url.split("?")[0] === "/crew/revoke") {
+      this.onCrewRevoke(req, res);
       return;
     }
     if (this.competitive) {
@@ -487,16 +608,94 @@ export class GameServer {
       try {
         const msg = JSON.parse(body) as Record<string, unknown>;
         // Only the shapes we mine; everything client-sent is size-capped and
-        // stored as data, never interpreted by the server.
-        if (msg.kind !== "run_end") { res.writeHead(400, cors).end(); return; }
+        // stored as data, never interpreted by the server. The allowlist IS
+        // the funnel (NICHE.md 4.2 + §7): card_open → first_input →
+        // run_start/run_end are the growth loop's rungs, card_copy is the
+        // outbound half, door is DEATH IS A DOOR's requeue-or-run-back rate.
+        if (typeof msg.kind !== "string" || !TELEMETRY_KINDS.has(msg.kind)) {
+          res.writeHead(400, cors).end();
+          return;
+        }
         const token = validToken(msg.token);
-        this.db.logEvent("run_end", "SOLO", token, msg.data ?? {}, Date.now());
+        const now = Date.now();
+        this.db.logEvent(msg.kind, "SOLO", token, msg.data ?? {}, now);
+        // THE CRAWL LEDGER (NICHE.md 4.3): a solo run end IS a deposit. The
+        // response carries the System's deposit lines so the client can say
+        // them — the one round trip the post-run moment already makes.
+        let deposits: string[] = [];
+        if (msg.kind === "run_end" && token) {
+          const d = (msg.data ?? {}) as { status?: unknown; floor?: unknown; day?: unknown; players?: unknown };
+          const player = Array.isArray(d.players) ? (d.players[0] as Record<string, unknown> | undefined) : undefined;
+          const run = ledgerRunFrom({ status: d.status, floor: d.floor, day: d.day, player: player ?? null });
+          if (run) {
+            deposits = this.db.ledger.applyRun(token, run, now);
+            for (const line of deposits) {
+              if (/CONTRACT COMPLETE|MILESTONE/.test(line)) {
+                this.db.logEvent("ledger_deposit", "SOLO", token, { line }, now);
+              }
+            }
+          }
+        }
         res.writeHead(200, { "content-type": "application/json", ...cors });
-        res.end('{"ok":true}');
+        res.end(JSON.stringify({ ok: true, deposits }));
       } catch {
         res.writeHead(400, cors).end();
       }
     });
+  }
+
+  /**
+   * THE CRAWL LEDGER (NICHE.md 4.3): GET /ledger?token=… — the L-panel's
+   * data: three active contracts, the mastery-stamp collection, titles, and
+   * the forgiving streak. Same bearer-token trust model as /headlines.
+   */
+  private onLedger(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "GET") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    const token = validToken(new URL(req.url ?? "/", "http://x").searchParams.get("token"));
+    if (!token || !this.db) {
+      res.writeHead(200, { "content-type": "application/json", ...cors });
+      res.end(JSON.stringify({ ok: false, reason: "no account" }));
+      return;
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({ ok: true, ...this.db.ledger.view(token, Date.now()) }));
+  }
+
+  /**
+   * DEATH IS A DOOR (NICHE.md 4.7): GET /headlines?token=… hands an account
+   * its banked race superlatives — computed at race end for seats that had
+   * already conceded/dropped — exactly once (read-once server-side). The
+   * token is the same bearer id the saves key off; same open-CORS model as
+   * /telemetry (the response is the account's own single-use flavor text).
+   */
+  private onHeadlines(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "GET") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    const token = validToken(new URL(req.url ?? "/", "http://x").searchParams.get("token"));
+    const headlines = token && this.db ? this.db.takeHeadlines(token, Date.now()) : [];
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({ headlines }));
   }
 
   /**
@@ -562,10 +761,16 @@ export class GameServer {
   }
 
   /**
-   * Quick Join: GET /open-parties lists live co-op instances that opted into
-   * discovery (see Instance.public) and still have a free seat — a stranger's
-   * only path into the game besides a shared code. No names, no auth, same
-   * open-CORS trust model as /leaderboard.
+   * Quick Join: GET /open-parties lists live PUBLIC instances that still have
+   * a free seat — a stranger's only path into the game besides a shared code.
+   * No names, no auth, same open-CORS trust model as /leaderboard.
+   *
+   * THE FRONT DOOR (NICHE.md 4.5): the co-op-only filter is gone. Public
+   * RIVALS races are listed while they are still FORMING (gate held) — a
+   * race someone could actually join at second zero. A race whose gun has
+   * fired is not listed: seating a stranger on floor 1 of a race three
+   * floors deep is the dishonesty the starting gun exists to end. Private
+   * code races (public=false, the default) are untouched.
    */
   private onOpenParties(req: IncomingMessage, res: import("node:http").ServerResponse): void {
     const cors = {
@@ -576,17 +781,216 @@ export class GameServer {
       res.writeHead(204, cors).end();
       return;
     }
-    const parties = [...this.instances.values()]
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
+    res.end(JSON.stringify(this.openParties()));
+  }
+
+  /** The joinable-instance list /open-parties and /rush share. */
+  private openParties(): {
+    code: string; players: number; cap: number; floor: number;
+    mode: "coop" | "rivals"; msLeft?: number;
+  }[] {
+    const now = Date.now();
+    return [...this.instances.values()]
       .filter((inst) =>
-        inst.public && inst.state.mode === "coop" && inst.state.runKind === "race"
-        && inst.state.status === "playing" && inst.clients.length < capFor(inst.state))
-      .sort((a, b) => b.clients.length - a.clients.length) // busiest parties first
+        inst.public && inst.state.runKind === "race"
+        && inst.clients.some((c) => c.ws.readyState === WebSocket.OPEN)
+        && inst.clients.length < capFor(inst.state)
+        && (inst.state.mode === "coop"
+          ? inst.state.status === "playing"
+          : inst.gate !== null)) // rivals: only while the race is still forming
+      .sort((a, b) => b.clients.length - a.clients.length) // busiest first
       .slice(0, 50)
       .map((inst) => ({
-        code: inst.code, players: inst.clients.length, cap: capFor(inst.state), floor: inst.state.floor,
+        code: inst.code, players: inst.clients.length, cap: capFor(inst.state),
+        floor: inst.state.floor,
+        mode: inst.state.mode as "coop" | "rivals",
+        ...(inst.gate ? { msLeft: Math.max(0, inst.gate.deadline - now) } : {}),
       }));
-    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-cache", ...cors });
-    res.end(JSON.stringify(parties));
+  }
+
+  /**
+   * THE FRONT DOOR (NICHE.md 4.5): GET /rush is the public race queue's data
+   * and its door. One response carries: the code RUSH should join (a forming
+   * public race if one has a seat, else a fresh DAILY-coded one so open
+   * rushes default to TODAY'S dungeon under today's rule — §4.8), the
+   * population's clock (day, countdown to the flip, the configured hour),
+   * the races actually forming right now, and the next scheduled crew
+   * windows. Everything population-dependent is data here; the CLIENT owns
+   * the ≥5 render floor (§2: no number rendered small).
+   */
+  private onRush(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "GET, OPTIONS",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    const now = Date.now();
+    const day = flipDayFromMs(now, this.flipHourUtc);
+    const forming = this.openParties().filter((p) => p.mode === "rivals");
+    // Fullest forming race first — the queue coalesces instead of fragmenting.
+    const code = forming[0]?.code
+      ?? `DAILY-${day}-RUSH-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+    let live = 0;
+    for (const inst of this.instances.values()) {
+      live += inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).length;
+    }
+    res.writeHead(200, { "content-type": "application/json", "cache-control": "no-store", ...cors });
+    res.end(JSON.stringify({
+      ok: true,
+      day,
+      code,
+      msToFlip: msUntilFlip(now, this.flipHourUtc),
+      flipHourUtc: this.flipHourUtc,
+      forming,
+      crawlers: live, // client renders only at ≥5 (NICHE.md §2/§5)
+      windows: this.crewWire?.upcomingWindows(now) ?? [],
+    }));
+  }
+
+  /**
+   * THE CREW WIRE registration (NICHE.md 4.6): POST /crew
+   * { name, webhook, windowDow?, windowHour? } → { crewId, revokeToken,
+   * revokeUrl, codePrefix }. The webhook must be a Discord webhook URL (the
+   * server refuses to POST anywhere else); the response carries the one-click
+   * revoke link and the code prefix whose races recap to this channel.
+   */
+  private onCrewRegister(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const cors = {
+      "access-control-allow-origin": "*",
+      "access-control-allow-methods": "POST, OPTIONS",
+      "access-control-allow-headers": "content-type",
+    };
+    if (req.method === "OPTIONS") {
+      res.writeHead(204, cors).end();
+      return;
+    }
+    if (req.method !== "POST") {
+      res.writeHead(405, cors).end();
+      return;
+    }
+    let body = "";
+    let overflow = false;
+    req.on("data", (chunk) => {
+      body += chunk;
+      if (body.length > 4096) { overflow = true; req.destroy(); }
+    });
+    req.on("end", () => {
+      const fail = (code: number, error: string): void => {
+        res.writeHead(code, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify({ ok: false, error }));
+      };
+      if (overflow) return;
+      if (!this.db || !this.crewWire) { fail(503, "no persistence — the wire needs a database"); return; }
+      try {
+        const msg = JSON.parse(body) as Record<string, unknown>;
+        if (!validWebhook(msg.webhook)) {
+          fail(400, "webhook must be a Discord webhook URL (https://discord.com/api/webhooks/…)");
+          return;
+        }
+        if (this.db.crews.count() >= MAX_CREWS) { fail(429, "crew registry full"); return; }
+        const dow = Number(msg.windowDow);
+        const hour = Number(msg.windowHour);
+        const hasWindow = Number.isInteger(dow) && dow >= 0 && dow <= 6
+          && Number.isInteger(hour) && hour >= 0 && hour <= 23;
+        const crew: CrewRow = {
+          id: randomUUID().replace(/-/g, "").slice(0, 8).toUpperCase(),
+          name: sanitizeCrewName(msg.name),
+          webhookUrl: msg.webhook,
+          revokeToken: randomUUID().replace(/-/g, ""),
+          windowDow: hasWindow ? dow : null,
+          windowHour: hasWindow ? hour : null,
+          createdAt: Date.now(),
+        };
+        this.db.crews.register(crew);
+        this.db.logEvent("crew_register", "WIRE", null, { crewId: crew.id, window: hasWindow }, Date.now());
+        res.writeHead(200, { "content-type": "application/json", ...cors });
+        res.end(JSON.stringify({
+          ok: true,
+          crewId: crew.id,
+          revokeToken: crew.revokeToken,
+          revokeUrl: `/crew/revoke?k=${crew.revokeToken}`,
+          codePrefix: `CREW-${crew.id}-`,
+          note: "race codes starting with the prefix recap to your channel; keep the revoke link — one click cuts the wire",
+        }));
+      } catch {
+        fail(400, "bad request");
+      }
+    });
+  }
+
+  /** One-click revoke: GET (a link Discord users can click) or POST both
+   *  delete the crew row. Token-bearer trust — the token IS the capability. */
+  private onCrewRevoke(req: IncomingMessage, res: import("node:http").ServerResponse): void {
+    const q = new URL(req.url ?? "/", "http://x").searchParams;
+    const token = q.get("k") ?? "";
+    const ok = !!this.db && /^[a-f0-9]{32}$/.test(token) && this.db.crews.revoke(token);
+    if ((req.headers.accept ?? "").includes("text/html")) {
+      res.writeHead(ok ? 200 : 404, { "content-type": "text/html; charset=utf-8" });
+      res.end(ok
+        ? "<h1>THE WIRE IS CUT.</h1><p>The System will no longer address this channel. It pretends not to be hurt.</p>"
+        : "<h1>NO SUCH WIRE.</h1><p>Already cut, or never registered.</p>");
+      return;
+    }
+    res.writeHead(ok ? 200 : 404, { "content-type": "application/json" });
+    res.end(JSON.stringify({ ok }));
+  }
+
+  /** Yesterday's daily, top verified row, as a System line — the named-winner
+   *  line the daily-flip wire post carries (NICHE.md 4.8's precedence rule:
+   *  a named human with a beatable time is a scene; absent rows say nothing). */
+  private yesterdayWinnerLine(): string | null {
+    if (!this.db?.competitive) return null;
+    const yday = flipDayFromMs(Date.now() - 86_400_000, this.flipHourUtc);
+    try {
+      const rows = this.db.competitive.board({
+        kind: "deepest", eventId: "daily-" + yday, verifiedOnly: true, limit: 1,
+      });
+      const top = rows[0];
+      if (!top) return null;
+      const t = Math.round(top.timeTicks / 60);
+      const feat = top.won
+        ? `CLEARED IT IN ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
+        : `FLOOR ${top.floor} OF ${CONFIG.finalFloor}`;
+      return `THE SYSTEM CONGRATULATES: ${top.displayName.toUpperCase()} — YESTERDAY'S DUNGEON, ${feat}.`;
+    } catch {
+      return null;
+    }
+  }
+
+  /** THE CREW'S OWN DAILY BOARD LINE (NICHE.md 4.6 event 4), riding the
+   *  daily-flip ping: the crew's best verified row on the board that just
+   *  closed. "The crew" is DERIVED, never stored — accounts that raced under
+   *  the crew's CREW- codes in the last 30 days (usage_events crew_seat),
+   *  matched against the closed day's rows — so the crew row stays a channel
+   *  and the no-member-list stance holds. No matching row = no line: an
+   *  absent line says nothing rather than something small (§2). */
+  private crewBoardLine(crewId: string): string | null {
+    if (!this.db?.competitive) return null;
+    const now = Date.now();
+    const yday = flipDayFromMs(now - 86_400_000, this.flipHourUtc);
+    try {
+      const accts = new Set(this.db.crewRacerAccounts(crewId, now - 30 * 86_400_000));
+      if (accts.size === 0) return null;
+      const rows = this.db.competitive.board({
+        kind: "deepest", eventId: "daily-" + yday, verifiedOnly: true, limit: MAX_BOARD_ROWS,
+      });
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i];
+        if (!accts.has(r.accountId)) continue;
+        const t = Math.round(r.timeTicks / 60);
+        const feat = r.won
+          ? `CLEARED IT IN ${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`
+          : `FLOOR ${r.floor} OF ${CONFIG.finalFloor}`;
+        return `YOUR CREW ON YESTERDAY'S BOARD: ${r.displayName.toUpperCase()} — #${i + 1}, ${feat}.`;
+      }
+      return null;
+    } catch {
+      return null;
+    }
   }
 
   // The per-IP submit bucket and recordRunStats are DELETED, not disabled.
@@ -634,6 +1038,7 @@ export class GameServer {
     // BEFORE terminating sockets: each terminate fires a close handler that
     // must not re-checkpoint an already-flushed instance against a closed DB.
     clearInterval(this.heartbeatTimer);
+    if (this.wireTimer) clearInterval(this.wireTimer);
     for (const inst of this.instances.values()) {
       this.checkpoint(inst);
       clearInterval(inst.timer);
@@ -765,9 +1170,41 @@ export class GameServer {
           t: "welcome", playerId: player.id, token,
           snapshot: inst.state.mode === "rivals" ? serializeFor(inst.state, player.id) : serialize(inst.state),
         }));
+        // TODAY'S RULE was announced at world creation; a late joiner still
+        // deserves to hear it — sent to THIS seat only, never re-broadcast.
+        // (The creating join's flushTransients below delivers the original
+        // line, so skip the direct copy while it is still pending.)
+        if (inst.state.dailyRule
+          && !inst.state.announcements.some((a) => a.text === DAILY_RULES[inst.state.dailyRule!].line)) {
+          // The line rides BOTH channels, like the sim's announce() does: the
+          // banner for the moment, the event for the #hud-log — because the
+          // banner expires (and a held race's modal hides it), and a rule the
+          // joiner cannot find afterwards is a rule they never got.
+          ws.send(JSON.stringify({
+            t: "events", events: [DAILY_RULES[inst.state.dailyRule].line],
+            announcements: [{ text: DAILY_RULES[inst.state.dailyRule].line, kind: "show", priority: "high" }],
+            hits: [], bossEvents: [],
+          }));
+        }
         // Joining can announce too (drop-in lines, the restore-fallback
         // "renovated" notice) — flush before the next tick clears them.
         this.flushTransients(inst);
+        // A held race shows its new seat to everyone at once (the joiner
+        // included — their first gate frame should not wait half a second).
+        if (inst.gate) this.broadcastGate(inst);
+        // THE CREW WIRE, event 1 (NICHE.md 4.6): a PUBLIC race found its
+        // second human while still forming — the one moment "race forming
+        // 2/4" is true, warm, and worth a channel's attention. Once per
+        // instance; private code races never ping anyone.
+        if (inst.gate && inst.public && inst.state.mode === "rivals" && !inst.formingWired) {
+          const live = inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).length;
+          if (live >= 2) {
+            inst.formingWired = true;
+            this.crewWire?.raceForming(
+              inst.code, live, capFor(inst.state), Math.max(0, inst.gate.deadline - Date.now()),
+            );
+          }
+        }
         return;
       }
 
@@ -812,8 +1249,43 @@ export class GameServer {
         case "claimAchievement":
           claimAchievementLootBox(inst.state, playerId, String(msg.id));
           break;
+        case "concede": {
+          // DEATH IS A DOOR (NICHE.md 4.7): the sim validates (rivals, downed,
+          // not already out). On success the seat is FREED — the member row
+          // goes so this account neither reclaims the corpse nor blocks the
+          // code — and the moment is on the record with the §7 split (how far
+          // behind the leader the stomped actually were when they walked).
+          const st = inst.state;
+          const p = st.players.find((pl) => pl.id === playerId);
+          const leader = st.players.reduce((a, pl) => Math.max(a, pl.safeRoom ? pl.safeRoom.nextFloor : pl.floorNo), 1);
+          if (p && concedeRival(st, playerId)) {
+            const seat = inst.clients.find((c) => c.playerId === playerId);
+            if (seat) {
+              inst.departed.set(playerId, seat.accountId);
+              // Unbind BEFORE deleting the row, or the next checkpoint would
+              // quietly write the membership right back.
+              seat.bound = false;
+              this.db?.deleteMember(inst.code, seat.accountId);
+              this.db?.logEvent("concede", inst.code, seat.accountId, {
+                floor: p.floorNo,
+                leaderFloor: leader,
+                floorsBehind: Math.max(0, leader - p.floorNo),
+                elapsed: Math.round(st.elapsed),
+                seats: st.players.length,
+              }, Date.now());
+            }
+          }
+          break;
+        }
         case "ready":
-          setReady(inst.state, playerId);
+          // At the starting gate, READY is the gate's ready bit; everywhere
+          // else it is the safe-room ready-up the sim owns.
+          if (inst.gate) {
+            inst.gate.ready.add(playerId);
+            this.pumpGate(inst);
+          } else {
+            setReady(inst.state, playerId);
+          }
           break;
         case "equip":
           equipFromInventory(inst.state, playerId, Number(msg.idx));
@@ -860,6 +1332,13 @@ export class GameServer {
       }
       inst.clients = inst.clients.filter((c) => c.ws !== ws);
       inst.intents[playerId] = NO_INTENT; // seat stays; character idles until rejoin
+      // A held race re-checks the gun: the leaver may have been the one seat
+      // everyone else was waiting on.
+      if (inst.gate && inst.clients.length > 0) {
+        inst.gate.ready.delete(playerId);
+        this.pumpGate(inst);
+        if (inst.gate) this.broadcastGate(inst);
+      }
       if (inst.clients.length === 0) {
         // Empty instance: stop ticking and drop it from memory. Characters
         // (and the party's floor) are checkpointed above; the world itself is
@@ -905,7 +1384,14 @@ export class GameServer {
     // rejoiners must reclaim them as-is rather than re-applying save_json.
     const seated = new Set<number>(state ? state.players.map((p) => p.id) : []);
     if (!state) {
-      state = createGame(seedFromCode(code), mode, runKind);
+      // THE LIVE DAILY: a DAILY-coded rivals race is seeded from the day in
+      // its code and dealt that day's rule; everything else seeds from the
+      // code as always. Co-op/roam codes never take the daily path — the
+      // rush is a race.
+      const dailyDay = mode === "rivals" && runKind === "race" ? dayFromDailyCode(code) : null;
+      state = dailyDay
+        ? createGame(dailySeed(dailyDay), mode, runKind, dailyRuleFor(dailyDay))
+        : createGame(seedFromCode(code), mode, runKind);
       // Fallback (PERSISTENCE.md): regenerate the party's floor from seed;
       // characters reload from their saves as members rejoin. Rivals track
       // per-player floors, so only shared-world parties fast-forward.
@@ -919,6 +1405,13 @@ export class GameServer {
         });
       }
     }
+    // THE STARTING GUN: a rivals race gets the gate unless it is genuinely
+    // UNDERWAY — some member has saved real progress (deploy/crash mid-race:
+    // re-firing a gun into floor 7 would be absurd). A stored party whose
+    // members never left the gate re-gates honestly: joining a code, standing
+    // at the READY screen and leaving must not burn the code's only gun.
+    const gated = mode === "rivals" && runKind === "race"
+      && !(stored && this.db?.partyUnderway(code));
     inst = {
       code,
       state,
@@ -931,8 +1424,17 @@ export class GameServer {
       lastStatus: state.status,
       worldKey: "", // first snapshot tick broadcasts FULL
       coldCache: new Map(),
+      departed: new Map(),
       public: isPublic,
+      gate: gated ? { deadline: Date.now() + this.rushGateMs, ready: new Set() } : null,
     };
+    if (gated) {
+      state.announcements.push({
+        text: "RINGSIDE. The dungeon is built and the gate is holding. Ready up — "
+          + "the System starts every rush at second zero, out of fairness. And spite.",
+        kind: "progress", priority: "normal",
+      });
+    }
     this.instances.set(code, inst);
     if (!stored) this.db?.upsertParty(code, mode, runKind, state.floor, Date.now());
     return inst;
@@ -993,6 +1495,16 @@ export class GameServer {
   }
 
   private tickInstanceBody(inst: Instance): void {
+    // THE STARTING GUN: while the gate holds, the sim does not step — the
+    // race clock is 0 for every seat until the gun. The gate broadcasts its
+    // own countdown state; the welcome already carried the FULL snapshot, so
+    // clients have a world to stand in front of.
+    if (inst.gate) {
+      inst.tick++;
+      this.pumpGate(inst);
+      if (inst.gate && inst.tick % GATE_STATUS_EVERY === 0) this.broadcastGate(inst);
+      return;
+    }
     const t0 = performance.now();
     inst.tick++;
     // Fixed dt: sim time advances by exactly one tick regardless of wall clock.
@@ -1031,9 +1543,112 @@ export class GameServer {
           floor: inst.state.floor,
           mode: inst.state.mode,
           runKind: inst.state.runKind,
+          // PER-RULE PARTICIPATION AND WIN RATE (NICHE.md §7): the rule the
+          // sim actually ran (state, never a recompute) and the day whose
+          // draw dealt it — the two keys the pull-a-bad-rule query needs.
+          dailyRule: inst.state.dailyRule ?? null,
+          day: dayFromDailyCode(inst.code),
           elapsed: Math.round(inst.state.elapsed),
           players: inst.state.players.map(buildSummary),
         }, Date.now());
+        // THE CRAWL LEDGER (4.3): every seat's run end is a deposit, keyed to
+        // its account. The lines go back to THAT seat only (a party hearing
+        // one player's paperwork is noise), on the same events channel the
+        // sim's announcements ride.
+        if (this.db) {
+          const now = Date.now();
+          for (const c of inst.clients) {
+            if (!c.bound || c.ws.readyState !== WebSocket.OPEN) continue;
+            const p = inst.state.players.find((pl) => pl.id === c.playerId);
+            if (!p) continue;
+            const run = ledgerRunFrom({
+              status: inst.state.status, floor: p.floorNo ?? inst.state.floor,
+              day: dayFromDailyCode(inst.code),
+              player: buildSummary(p) as Parameters<typeof ledgerRunFrom>[0]["player"],
+            });
+            if (!run) continue;
+            const deposits = this.db.ledger.applyRun(c.accountId, run, now);
+            if (deposits.length === 0) continue;
+            for (const line of deposits) {
+              if (/CONTRACT COMPLETE|MILESTONE/.test(line)) {
+                this.db.logEvent("ledger_deposit", inst.code, c.accountId, { line }, now);
+              }
+            }
+            c.ws.send(JSON.stringify({
+              t: "events", events: deposits,
+              announcements: deposits.map((text) => ({ text, kind: "progress", priority: "normal" })),
+              hits: [], bossEvents: [],
+            }));
+          }
+        }
+        // DEATH IS A DOOR (4.7): a guaranteed superlative per seat at race
+        // end — four seats, four different headlines. Present clients hear
+        // them on the announcement rail; a seat with no live connection
+        // (conceded and left, or dropped) gets its line BANKED for the next
+        // session — leaving early costs nothing, the race forgets nobody.
+        if (inst.state.mode === "rivals" && inst.state.players.length >= 2) {
+          const seats: SeatSummary[] = inst.state.players.map((p) => ({
+            id: p.id, name: p.name,
+            won: inst.state.winnerId === p.id,
+            floor: p.safeRoom ? p.safeRoom.nextFloor : p.floorNo,
+            kills: p.kills,
+            damageDealt: Math.round(p.damageDealt),
+            damageTaken: Math.round(p.damageTaken),
+            gold: p.gold, level: p.level,
+            conceded: !!p.conceded,
+          }));
+          const supers = raceSuperlatives(seats);
+          for (const seat of seats) {
+            const line = supers.get(seat.id);
+            if (!line) continue;
+            inst.state.announcements.push({
+              text: `${seat.name}: ${line}`, kind: "show", priority: "normal",
+            });
+          }
+          const crewId = crewIdFromCode(inst.code);
+          if (this.db) {
+            const now = Date.now();
+            const live = new Set(
+              inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN).map((c) => c.playerId),
+            );
+            const accountOf = new Map<number, string>(inst.departed);
+            for (const m of this.db.memberSeats(inst.code)) accountOf.set(m.playerId, m.accountId);
+            for (const seat of seats) {
+              const acct = accountOf.get(seat.id);
+              const line = supers.get(seat.id);
+              if (acct && line && !live.has(seat.id)) {
+                this.db.addHeadline(acct, headlineLine(seat.name, line), now);
+              }
+              // A CREW-coded race is the one place "who races with this crew"
+              // is observable: one row per seated account (kind crew_seat) is
+              // what lets the flip ping carry the crew's OWN board line (4.6
+              // event 4) without the crew row ever holding a member list.
+              // FORGET ME's usage_events anonymization erases the link.
+              if (crewId && acct) {
+                this.db.logEvent("crew_seat", inst.code, acct, { crewId }, now);
+              }
+            }
+          }
+          // THE CREW WIRE, event 5 (NICHE.md 4.6): a race run under a crew's
+          // code prefix recaps to that crew's channel — winner headline plus
+          // every seat's superlative, CONCEDED SEATS INCLUDED, which is how a
+          // racer who walked at floor 3 still gets their line an hour later
+          // (4.7: the race refuses to forget you).
+          if (crewId && this.crewWire) {
+            const winner = seats.find((s) => s.won);
+            const t = Math.round(inst.state.elapsed);
+            const clock = `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+            const ate = seats.length - (winner ? 1 : 0);
+            const headline = winner
+              ? `${winner.name.toUpperCase()} TOOK THE DUNGEON — ${ate} CRAWLER${ate === 1 ? "" : "S"} ATE FLOOR. ${clock}.`
+              : `THE DUNGEON TOOK THE RACE — ${seats.length} CRAWLER${seats.length === 1 ? "" : "S"} ATE FLOOR. ${clock}.`;
+            this.crewWire.raceRecap(
+              crewId, headline,
+              seats.map((s) => `${s.name}: ${supers.get(s.id) ?? "PRESENT"}${s.conceded ? " (CONCEDED)" : ""}`),
+              inst.code,
+            );
+          }
+        }
         // A secured RIVALS contract goes on the CONTRACTS board SERVER-SIDE —
         // the one score the authoritative sim vouches for itself (1.1).
         //
@@ -1043,8 +1658,7 @@ export class GameServer {
         // genuinely authoritative row in the product was wearing the label
         // reserved for forgeries. It goes to CompetitiveStore as a VERIFIED,
         // era-stamped row with no proof id: nobody recorded a party run, so
-        // WATCH and RACE stay inert with a reason, the way an aged-out proof
-        // does — but the row is sealed, because the server ran it.
+        // there is no film — but the row is sealed, because the server ran it.
         if (inst.state.mode === "rivals" && inst.state.status === "won" && inst.state.winnerId != null) {
           const winner = inst.state.players.find((p) => p.id === inst.state.winnerId);
           const seat = inst.clients.find((c) => c.playerId === inst.state.winnerId);
@@ -1119,6 +1733,49 @@ export class GameServer {
     if (ms > this.tickMsMax) this.tickMsMax = ms;
     this.metrics.count("dcc_ticks_total");
     this.metrics.count("dcc_tick_ms_total", ms);
+  }
+
+  /** THE STARTING GUN: fire when every connected seat is ready or the
+   *  countdown expires. Firing clears the gate, wipes any intents that were
+   *  buffered while held (second zero means nobody pre-loaded a sprint), and
+   *  lets the System call the start. */
+  private pumpGate(inst: Instance): void {
+    const gate = inst.gate;
+    if (!gate) return;
+    const live = inst.clients.filter((c) => c.ws.readyState === WebSocket.OPEN);
+    const allReady = live.length > 0 && live.every((c) => gate.ready.has(c.playerId));
+    if (!allReady && Date.now() < gate.deadline) return;
+    inst.gate = null;
+    inst.intents = {};
+    inst.state.announcements.push({
+      text: "THE GUN. The gate is open — descend. The System reminds all "
+        + "parties that the floor collapses at its own pace, not yours.",
+      kind: "boss", priority: "high",
+    });
+    this.broadcast(inst, { t: "gate", started: true, seats: [], msLeft: 0 });
+    this.flushTransients(inst);
+  }
+
+  /** Seat list + countdown for the held race — the READY screen's data. */
+  private broadcastGate(inst: Instance): void {
+    const gate = inst.gate;
+    if (!gate) return;
+    const seats = inst.clients
+      .filter((c) => c.ws.readyState === WebSocket.OPEN)
+      .map((c) => ({
+        name: inst.state.players.find((p) => p.id === c.playerId)?.name ?? "?",
+        ready: gate.ready.has(c.playerId),
+      }));
+    this.broadcast(inst, {
+      t: "gate", seats,
+      msLeft: Math.max(0, gate.deadline - Date.now()),
+      cap: capFor(inst.state),
+      // TODAY'S RULE ON THE READY CARD (NICHE.md §4.8): the gate is a modal,
+      // modals hide the banner rail, and the hold outlives the banner anyway
+      // — so the one surface every racer reads at second zero carries the
+      // rule itself. "Today's rule is today's meta."
+      rule: inst.state.dailyRule ?? null,
+    });
   }
 
   /** Ship pending transients (events/announcements/hits) to the party and

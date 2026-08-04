@@ -1,6 +1,8 @@
 import { createRequire } from "node:module";
 import type Database from "better-sqlite3";
 import { CompetitiveStore } from "./competitive";
+import { LedgerStore } from "./ledger";
+import { CrewStore } from "./crewWire";
 
 // PERSISTENCE.md P1: SQLite on the Fly volume. One file (DB_FILE, prod:
 // /data/dcc.sqlite) holds accounts, party membership, and per-character saves,
@@ -96,6 +98,16 @@ CREATE TABLE IF NOT EXISTS account_identities (
   PRIMARY KEY (provider, provider_id)
 );
 CREATE INDEX IF NOT EXISTS idx_identities_account ON account_identities (account_id);
+-- DEATH IS A DOOR (NICHE.md 4.7): a conceded/absent racer's superlative,
+-- computed at race end and delivered at their next session — "the race
+-- refusing to forget you". Read-once rows (takeHeadlines deletes on read).
+CREATE TABLE IF NOT EXISTS account_headlines (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id TEXT NOT NULL,
+  text       TEXT NOT NULL,
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_headlines_account ON account_headlines (account_id);
 -- Career aggregates per account (crawler profiles). Bumped on run submits.
 CREATE TABLE IF NOT EXISTS account_stats (
   account_id TEXT PRIMARY KEY,
@@ -113,6 +125,11 @@ export class PersistDb {
   /** Runs, proofs, ladders, events, CP (COMPETITIVE.md MUST-4). Same file,
    *  same transaction scope, so FORGET ME can erase a career atomically. */
   readonly competitive: CompetitiveStore;
+  /** THE CRAWL LEDGER (NICHE.md 4.3): contracts, mastery stamps, the streak. */
+  readonly ledger: LedgerStore;
+  /** THE CREW WIRE (NICHE.md 4.6): named crews — webhook + optional standing
+   *  window. A channel, never a member list (no individual tracking). */
+  readonly crews: CrewStore;
 
   constructor(db: Database.Database) {
     this.db = db;
@@ -125,6 +142,8 @@ export class PersistDb {
     // with no downtime and no data movement.
     db.prepare("INSERT OR IGNORE INTO meta (key, value) VALUES ('schema_version', '1')").run();
     this.competitive = new CompetitiveStore(db);
+    this.ledger = new LedgerStore(db);
+    this.crews = new CrewStore(db);
     db.prepare("INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_version', '2')").run();
   }
 
@@ -168,6 +187,28 @@ export class PersistDb {
     return rows.map((r) => ({ accountId: r.account_id, playerId: r.player_id }));
   }
 
+  /** THE STARTING GUN's restart honesty: has any member of this party saved
+   *  progress past floor 1? False = the race never really started (or only
+   *  ever stood at the gate), so a regenerated instance may hold it again.
+   *  True = mid-race restart; re-firing a gun into floor 7 would be absurd. */
+  partyUnderway(code: string): boolean {
+    const rows = this.db.prepare(
+      "SELECT save_json FROM party_members WHERE party_code = ?",
+    ).all(code) as { save_json: string }[];
+    for (const r of rows) {
+      try {
+        const save = JSON.parse(r.save_json) as { floor?: number; player?: { level?: number } };
+        // Depth is the clean signal; level covers rivals states whose classic
+        // floor slot lags the racers' personal floors.
+        if ((save.floor ?? 1) > 1 || (save.player?.level ?? 1) > 2) return true;
+      } catch {
+        // Unreadable save: treat as underway — never re-gate what we can't read.
+        return true;
+      }
+    }
+    return false;
+  }
+
   upsertMember(code: string, accountId: string, playerId: number, saveJson: string, now: number): void {
     this.db.prepare(
       `INSERT INTO party_members (party_code, account_id, player_id, save_json, updated_at)
@@ -209,6 +250,35 @@ export class PersistDb {
     ).run(code, version, snapshot, now);
   }
 
+  /** DEATH IS A DOOR (NICHE.md 4.7): a conceded racer's seat is freed — the
+   *  membership row goes, so this account neither reclaims the corpse on a
+   *  rejoin nor blocks the code's seat count. The in-sim body stays where it
+   *  fell (the race's story keeps it; the save does not). */
+  deleteMember(code: string, accountId: string): void {
+    this.db.prepare(
+      "DELETE FROM party_members WHERE party_code = ? AND account_id = ?",
+    ).run(code, accountId);
+  }
+
+  /** Bank a race headline for delivery at the account's next session (4.7:
+   *  leaving early costs nothing — the superlative still finds you). */
+  addHeadline(accountId: string, text: string, now: number): void {
+    this.db.prepare(
+      "INSERT INTO account_headlines (account_id, text, created_at) VALUES (?, ?, ?)",
+    ).run(accountId, text, now);
+  }
+
+  /** Deliver-and-forget: the next session reads its headlines exactly once.
+   *  Rows older than a week are stale gossip and get dropped unread. */
+  takeHeadlines(accountId: string, now: number): string[] {
+    const rows = this.db.prepare(
+      "SELECT id, text, created_at FROM account_headlines WHERE account_id = ? ORDER BY id",
+    ).all(accountId) as { id: number; text: string; created_at: number }[];
+    if (rows.length === 0) return [];
+    this.db.prepare("DELETE FROM account_headlines WHERE account_id = ?").run(accountId);
+    return rows.filter((r) => now - r.created_at < 7 * 24 * 3600 * 1000).map((r) => r.text);
+  }
+
   /** The run ended (won/wiped): forget the campaign so the next join under
    *  this code starts a fresh dungeon instead of resuming a finished one. */
   clearParty(code: string): void {
@@ -222,6 +292,20 @@ export class PersistDb {
     this.db.prepare(
       "INSERT INTO usage_events (ts, kind, party_code, account_id, data) VALUES (?, ?, ?, ?, ?)",
     ).run(now, kind, partyCode, accountId, JSON.stringify(data));
+  }
+
+  /** Accounts seen racing under a crew's CREW-<id>- codes (usage_events kind
+   *  "crew_seat", written at race end) — how the wire finds "your crew's
+   *  daily board line" (NICHE.md 4.6 event 4) WITHOUT the crew row ever
+   *  holding a member list: the crew stays a channel, and "the crew's
+   *  crawlers" is derived from who actually raced its codes. FORGET ME's
+   *  anonymization (account_id = NULL) removes an account from this view. */
+  crewRacerAccounts(crewId: string, sinceMs: number): string[] {
+    const rows = this.db.prepare(
+      `SELECT DISTINCT account_id FROM usage_events
+       WHERE kind = 'crew_seat' AND ts >= ? AND party_code LIKE ? AND account_id IS NOT NULL`,
+    ).all(sinceMs, `CREW-${crewId}-%`) as { account_id: string }[];
+    return rows.map((r) => r.account_id);
   }
 
   /** Read usage events (newest first) — analysis scripts and tests. */
@@ -308,9 +392,11 @@ export class PersistDb {
     const names = [...new Set([...this.competitive.displayNamesOf(accountId), ...alsoNames])];
     this.db.transaction(() => {
       this.competitive.deleteAccount(accountId);
+      this.ledger.deleteAccount(accountId);
       this.db.prepare("DELETE FROM account_identities WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_stats WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM account_tips WHERE account_id = ?").run(accountId);
+      this.db.prepare("DELETE FROM account_headlines WHERE account_id = ?").run(accountId);
       this.db.prepare("DELETE FROM party_members WHERE account_id = ?").run(accountId);
       // Telemetry is ANONYMIZED rather than deleted: usage_events is the
       // balance record (never swept), and the only personal thing in it is

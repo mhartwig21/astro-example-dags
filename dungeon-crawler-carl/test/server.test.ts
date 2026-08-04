@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
-import { GameServer, seedFromCode, MAX_PARTY_SIZE } from "../src/server/gameServer";
+import { GameServer, seedFromCode, dayFromDailyCode, MAX_PARTY_SIZE, HEARTBEAT_INTERVAL_MS } from "../src/server/gameServer";
+import { dailySeed } from "../src/sim/daily";
+import { dailyRuleFor } from "../src/sim/dailyRules";
 import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers, mergeSlowState } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
@@ -181,12 +183,20 @@ describe("snapshot (serialize/deserialize)", () => {
 
 // ---- Phase 4: authoritative server with two simulated clients ----
 
+interface GateFrame {
+  seats: { name: string; ready: boolean }[];
+  msLeft: number;
+  started?: boolean;
+}
+
 interface TestClient {
   ws: WebSocket;
   playerId: number;
+  token: string; // the account bearer id echoed in the welcome
   lastSnap: GameState | null;
   snaps: { full: boolean; bytes: number }[];
   events: string[];
+  gates: GateFrame[]; // starting-gun frames (rivals pre-run hold)
   send: (msg: unknown) => void;
   close: () => void;
 }
@@ -197,9 +207,11 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
     const client: TestClient = {
       ws,
       playerId: -1,
+      token: "",
       lastSnap: null,
       snaps: [],
       events: [],
+      gates: [],
       send: (msg) => ws.send(JSON.stringify(msg)),
       close: () => ws.close(),
     };
@@ -222,6 +234,7 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
       const msg = JSON.parse(String(raw));
       if (msg.t === "welcome") {
         client.playerId = msg.playerId;
+        client.token = String(msg.token ?? "");
         client.lastSnap = absorb(msg.snapshot, true);
         resolve(client);
       } else if (msg.t === "snap") {
@@ -229,6 +242,8 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
         client.lastSnap = absorb(msg.snapshot, msg.full === true) ?? client.lastSnap;
       } else if (msg.t === "events") {
         client.events.push(...msg.events, ...msg.announcements.map((a: { text: string }) => a.text));
+      } else if (msg.t === "gate") {
+        client.gates.push(msg as GateFrame);
       }
     });
     ws.on("error", reject);
@@ -354,7 +369,9 @@ describe("authoritative server", () => {
     const host = await connect(port, "OPEN-1", "Hostella", false, true);
 
     const entry = await waitForOpenParty(port, "OPEN-1", true);
-    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1 });
+    // `mode` arrived with THE FRONT DOOR (NICHE.md 4.5): the list now also
+    // carries forming rivals races, so rows say which door they are.
+    expect(entry).toEqual({ code: "OPEN-1", players: 1, cap: MAX_PARTY_SIZE, floor: 1, mode: "coop" });
     expect((await openParties(port)).some((p) => p.code === "PRIV-1")).toBe(false);
 
     // A stranger joins straight off the listed code and lands in the same party.
@@ -388,6 +405,90 @@ describe("authoritative server", () => {
     const n = bystander.snaps.length;
     await waitFor(() => bystander.snaps.length > n);
     bystander.close();
+  });
+
+  it("THE STARTING GUN: a fresh rivals race holds at second zero until every seat is ready", async () => {
+    const a = await connect(port, "GUN-1", "Carl", true);
+    const b = await connect(port, "GUN-1", "Donut");
+    // Held: gate frames flow (seat list + countdown), the sim does not step —
+    // no recurring snapshots, elapsed pinned at 0.
+    await waitFor(() => {
+      const holds = a.gates.filter((x) => !x.started);
+      const g = holds[holds.length - 1];
+      return !!g && g.seats.length === 2 && b.gates.some((x) => x.seats.length === 2);
+    });
+    expect(a.snaps.length).toBe(0); // no sim ticks broadcast while held
+    const holds = a.gates.filter((x) => !x.started);
+    const held = holds[holds.length - 1];
+    expect(held.msLeft).toBeGreaterThan(0);
+    expect(held.seats.map((s: { ready: boolean }) => s.ready)).toEqual([false, false]);
+    // A private-code race is the base game: the READY card shows no rule.
+    expect((held as { rule?: string | null }).rule ?? null).toBeNull();
+    // Movement buffered at the gate must not smuggle a head start.
+    a.send({ t: "intent", intent: { move: { x: 1, y: 0 }, attack: false, useStairs: false } });
+    // One ready is not a gun; readiness is visible to the other seat.
+    a.send({ t: "ready" });
+    await waitFor(() => b.gates.some((g) => !g.started && g.seats.some((s) => s.ready)));
+    expect(a.gates.some((g) => g.started)).toBe(false);
+    // Second ready fires it: both clients see the gun and the sim starts
+    // stepping from second zero for everyone.
+    b.send({ t: "ready" });
+    await waitFor(() => a.gates.some((g) => g.started) && b.gates.some((g) => g.started));
+    await waitFor(() => a.snaps.length >= 2 && (a.lastSnap?.elapsed ?? 0) > 0);
+    expect(a.lastSnap!.elapsed).toBeLessThan(3); // started at zero, not mid-race
+    // The System called the start on the announcement rail.
+    expect(a.events.some((e) => /THE GUN/i.test(e))).toBe(true);
+    a.close();
+    b.close();
+  });
+
+  it("THE STARTING GUN: the countdown expiring fires without unanimous ready", async () => {
+    // Own server so the gate can be milliseconds long instead of a minute.
+    const fast = new GameServer(0, undefined, undefined, undefined, HEARTBEAT_INTERVAL_MS, 350);
+    await fast.ready();
+    const c = await connect(fast.port, "GUN-2", "Slowpoke", true);
+    await waitFor(() => c.gates.some((g) => g.started));
+    await waitFor(() => (c.lastSnap?.elapsed ?? 0) > 0);
+    c.close();
+    fast.close();
+  });
+
+  it("THE STARTING GUN: co-op parties are never gated", async () => {
+    const c = await connect(port, "GUN-3", "Carl"); // co-op: ticks immediately
+    await waitFor(() => c.snaps.length >= 2);
+    expect(c.gates.length).toBe(0);
+    c.close();
+  });
+
+  it("THE LIVE DAILY: a DAILY-coded rivals race runs that day's dungeon under that day's rule", async () => {
+    const day = "2026-08-04";
+    expect(dayFromDailyCode(`DAILY-${day}-AB12`)).toBe(day);
+    expect(dayFromDailyCode("PARTY-1")).toBeNull();
+    expect(dayFromDailyCode("DAILY-9999-99-99-X")).toBeNull(); // nonsense dates fall back to code seeding
+    const c = await connect(port, `DAILY-${day}-AB12`, "Carl", true);
+    expect(c.lastSnap!.mode).toBe("rivals");
+    expect(c.lastSnap!.seed).toBe(dailySeed(day)); // the dungeon IS the day's
+    expect(c.lastSnap!.dailyRule).toBe(dailyRuleFor(day)); // and the rule rides the wire
+    // The System announced the rule at second zero (welcome flush).
+    await waitFor(() => c.events.some((e) => /TODAY'S RULE/.test(e)));
+    // TODAY'S RULE ON THE READY CARD (NICHE.md §4.8): the gate is a modal and
+    // modals hide the banner rail, so the gate frames themselves carry the
+    // rule — the one surface every racer reads at second zero.
+    await waitFor(() => c.gates.some((g) => !g.started && (g as { rule?: string | null }).rule === dailyRuleFor(day)));
+    // A LATE JOINER of the held race still gets the rule DURABLY: the private
+    // copy rides both channels — the banner for the moment, the event for the
+    // #hud-log — because the gate outlives the banner (the critic's repro:
+    // joiner polled 25s, rule text never visible, nothing in the log after).
+    const late = await connect(port, `DAILY-${day}-AB12`, "Donut");
+    await waitFor(() => late.events.some((e) => /TODAY'S RULE/.test(e)));
+    await waitFor(() => late.gates.some((g) => !g.started && (g as { rule?: string | null }).rule === dailyRuleFor(day)));
+    late.close();
+    c.close();
+    // A co-op party wearing the prefix is NOT a daily — the rush is a race.
+    const coop = await connect(port, `DAILY-${day}-COOP`, "Donut");
+    expect(coop.lastSnap!.seed).toBe(seedFromCode(`DAILY-${day}-COOP`));
+    expect(coop.lastSnap!.dailyRule ?? null).toBeNull();
+    coop.close();
   });
 
   it("RIVALS: personal snapshots carry the race standings and personal shops", async () => {
@@ -604,5 +705,177 @@ describe("release infra: all-time boards, hygiene, OAuth (mock provider)", () =>
   it("tampered OAuth state is rejected", async () => {
     const cb = await fetch(`http://127.0.0.1:${port}/auth/callback/mock?code=xyz&state=forged.sig`, { redirect: "manual" });
     expect(new URL(cb.headers.get("location")!).hash).toContain("autherr");
+  });
+});
+
+describe("POST /telemetry: the funnel's rungs land in usage_events (NICHE.md 4.2 + §7)", () => {
+  let server: GameServer;
+  let port: number;
+  let dbFile: string;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    dbFile = join(mkdtempSync(join(tmpdir(), "dcc-telemetry-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => server.close());
+
+  const post = (body: unknown) => fetch(`http://127.0.0.1:${port}/telemetry`, {
+    method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body),
+  });
+
+  it("accepts every funnel kind and keys it to the account", async () => {
+    const token = "funnel-test-token-1234";
+    for (const [kind, data] of [
+      ["card_open", { seed: 42, cold: true, mobile: false, daily: false }],
+      ["first_input", { msSinceOpen: 812 }],
+      ["run_start", { seed: 42, kind: "random", fromCard: true }],
+      ["run_end", { status: "dead", floor: 3 }],
+      ["card_copy", { mode: "solo", seed: 42 }],
+      ["door", { act: "runback", seed: 42 }],
+    ] as const) {
+      const r = await post({ kind, token, data });
+      expect(r.status, kind).toBe(200);
+    }
+    const events = server.db!.listEvents();
+    const kinds = events.map((e) => e.kind);
+    for (const k of ["card_open", "first_input", "run_start", "run_end", "card_copy", "door"]) {
+      expect(kinds).toContain(k);
+    }
+    // Keyed by account: the §7 funnel (cold open → first run → second run
+    // within 24h) is a per-account query, so the token must survive the trip.
+    expect(events.every((e) => e.accountId === token)).toBe(true);
+    // The cold flag — the cohort the growth thesis is measured on — survives too.
+    const open = events.find((e) => e.kind === "card_open")!;
+    expect((open.data as { cold: boolean }).cold).toBe(true);
+  });
+
+  it("rejects kinds outside the allowlist — telemetry is not a free logging API", async () => {
+    expect((await post({ kind: "evil", token: "t", data: {} })).status).toBe(400);
+    expect((await post({ kind: 42, token: "t", data: {} })).status).toBe(400);
+  });
+
+  it("THE CRAWL LEDGER (4.3): a solo run_end deposits, the response says so, /ledger shows it", async () => {
+    const token = "ledger-test-token-1234";
+    // A DEATH on floor 4 — the median outcome — completes SEE THE SEWERS.
+    const r = await post({
+      kind: "run_end", token,
+      data: {
+        status: "dead", floor: 4, mode: "solo", runKind: "race", day: null,
+        players: [{
+          name: "Carl", level: 5, slots: ["melee", "bolt", null, null], ultimate: null,
+          kills: 12, damageTaken: 300, gold: 40, glyphs: ["swiftness"],
+        }],
+      },
+    });
+    expect(r.status).toBe(200);
+    const j = (await r.json()) as { ok: boolean; deposits: string[] };
+    expect(j.deposits.some((l) => /CONTRACT COMPLETE — SEE THE SEWERS/.test(l))).toBe(true);
+    expect(j.deposits.some((l) => /MASTERY STAMPS?/.test(l))).toBe(true);
+    // The L-panel's window onto the same rows.
+    const view = (await (await fetch(`http://127.0.0.1:${port}/ledger?token=${token}`)).json()) as {
+      ok: boolean; titles: string[]; stamps: string[];
+      contracts: { id: string }[];
+    };
+    expect(view.ok).toBe(true);
+    expect(view.titles).toContain("TOURIST");
+    expect(view.stamps).toContain("ability:melee");
+    expect(view.stamps).toContain("glyph:swiftness");
+    expect(view.contracts.length).toBe(3);
+    expect(view.contracts.map((c) => c.id)).not.toContain("sewers_tourist");
+    // Completions land in usage_events for the §7 D8-cohort query.
+    expect(server.db!.listEvents("ledger_deposit").length).toBeGreaterThan(0);
+    // No token = no account: the endpoint says so instead of inventing one.
+    const anon = (await (await fetch(`http://127.0.0.1:${port}/ledger`)).json()) as { ok: boolean };
+    expect(anon.ok).toBe(false);
+  });
+});
+
+describe("DEATH IS A DOOR over the wire (NICHE.md 4.7)", () => {
+  let server: GameServer;
+  let port: number;
+
+  beforeAll(async () => {
+    const { mkdtempSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dbFile = join(mkdtempSync(join(tmpdir(), "dcc-door-")), "test.sqlite");
+    server = new GameServer(0, undefined, undefined, dbFile);
+    await server.ready();
+    port = server.port;
+  });
+
+  afterAll(() => server.close());
+
+  it("concede frees the seat, goes on the record, and the headline still finds the quitter", async () => {
+    const a = await connect(port, "DOOR-1", "Carl", true);
+    const b = await connect(port, "DOOR-1", "Donut");
+    // Fire the starting gun so the race is live.
+    a.send({ t: "ready" });
+    b.send({ t: "ready" });
+    await waitFor(() => a.gates.some((g) => g.started));
+    const instances = (server as unknown as {
+      instances: Map<string, { state: GameState; clients: { playerId: number }[] }>;
+    }).instances;
+    const inst = instances.get("DOOR-1")!;
+
+    // Down Donut (stands in for any monster doing it), then concede.
+    const { handlePlayerDeath } = await import("../src/sim/game");
+    const donut = inst.state.players.find((p) => p.id === b.playerId)!;
+    handlePlayerDeath(inst.state, donut, "test blow");
+    await waitFor(() => {
+      const meta = b.lastSnap?.rivals?.find((r) => r.id === b.playerId);
+      return !!meta && !meta.alive && meta.downedT > 0;
+    });
+    b.send({ t: "concede" });
+    // The sim fact reaches every client: conceded, clock stopped, race alive.
+    await waitFor(() => {
+      const meta = a.lastSnap?.rivals?.find((r) => r.id === b.playerId);
+      return !!meta && meta.conceded === true;
+    });
+    expect(inst.state.status).toBe("playing");
+    expect(donut.conceded).toBe(true);
+    expect(donut.downedT).toBe(0);
+    // The seat is FREED: the membership row is gone, so this account neither
+    // reclaims the corpse nor blocks the code.
+    expect(server.db!.getMember("DOOR-1", b.token)).toBeNull();
+    // The §7 record: a concede row keyed to the account, with the stomped split.
+    const conc = server.db!.listEvents("concede");
+    expect(conc.length).toBe(1);
+    expect(conc[0].accountId).toBe(b.token);
+    expect((conc[0].data as { floorsBehind: number }).floorsBehind).toBeGreaterThanOrEqual(0);
+
+    // The quitter closes the tab — 4.7's exact case. Then the race ends.
+    b.close();
+    await waitFor(() => inst.clients.length === 1);
+    inst.state.winnerId = a.playerId;
+    inst.state.status = "won";
+    // Present seats hear the superlatives on the announcement rail...
+    await waitFor(() => a.events.some((e) => /TOOK THE DUNGEON/.test(e)));
+    // ...and the absent conceded seat's line is banked, read-once, for the
+    // next session: delivered with the doc's exact framing, then gone.
+    const url = `http://127.0.0.1:${port}/headlines?token=${encodeURIComponent(b.token)}`;
+    const first = (await (await fetch(url)).json()) as { headlines: string[] };
+    expect(first.headlines.length).toBe(1);
+    expect(first.headlines[0]).toMatch(/THE SYSTEM, RE: DONUT'S LAST RACE — DIED EARLY, DIED SPECTACULARLY:/);
+    const second = (await (await fetch(url)).json()) as { headlines: string[] };
+    expect(second.headlines).toEqual([]);
+    a.close();
+  });
+
+  it("concede outside its door does nothing: alive rivals and co-op parties keep their state", async () => {
+    const c = await connect(port, "DOOR-2", "Carl"); // co-op
+    c.send({ t: "concede" });
+    await new Promise((r) => setTimeout(r, 150));
+    const instances = (server as unknown as { instances: Map<string, { state: GameState }> }).instances;
+    const inst = instances.get("DOOR-2")!;
+    expect(inst.state.players[0].conceded ?? false).toBe(false);
+    expect(server.db!.listEvents("concede").length).toBe(1); // still just DOOR-1's
+    c.close();
   });
 });

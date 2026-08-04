@@ -44,7 +44,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `DESIGN.md` | Full design: pillars, systems (5.x per mechanic), architecture, directory layout, roadmap |
 | `README.md` | Player-facing intro + how to run |
 | `DEPLOY.md` | Production architecture, Fly.io ops, measured capacity, GCP migration plan |
-| `COMPETITIVE.md` | The social/competitive layer: the replay-verification spine (measured), ladders/seasons, ghosts, career identity, the post-run screen, and the scoped migration map |
+| `COMPETITIVE.md` | The social/competitive layer: the replay-verification spine (measured), ladders/seasons, career identity, the post-run screen, and the scoped migration map. (The ghost-racing layer it once specced is REMOVED — NICHE.md §5 bans it; replays are verification plumbing only) |
 | `PERSISTENCE.md` | Server-side persistence (SQLite on the Fly volume): accounts + character saves are LIVE; world hibernate/restore is the P2 plan |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
@@ -109,10 +109,10 @@ hosts:
   main.ts/main3d.ts hosts (above); main3d.ts also owns ALL UI panels, and the
                     competitive screens: THE VERDICT (post-run), THE STANDINGS
                     (contracts/all-time/bands/rivals), THE CRAWLER (career),
-                    the ghost rail chip, and the submit-consent card
+                    and the submit-consent card
   src/ui/social.ts  the arithmetic those screens must not get wrong: the grade
                     and its cold-start fallback, the named death, band splits,
-                    seal/era chips, challenge + build codes, ghost lerp
+                    seal/era chips, challenge + build codes
   src/server/       gameServer: parties, intents in, snapshots out, /health
   src/net/          client side of the same
 presentation:

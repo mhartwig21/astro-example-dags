@@ -3,7 +3,7 @@
  *
  *   POST /auth/anon            server-issued anonymous token (2.7.2)
  *   POST /runs                 submit a proof
- *   GET  /runs/:id             metadata + artifact, for ghosts and replay
+ *   GET  /runs/:id             metadata (the artifact is no longer distributed)
  *   POST /runs/:id/private     owner-only distribution toggle (8.1)
  *   GET  /boards/:kind         all-time and per-event ladders
  *   GET  /bands/:n             per-band splits board (3.3)
@@ -15,7 +15,7 @@
  * Everything here is bare Node: no framework, no router library, no session
  * store. The trust model is stated once, at the top of the submit path, and
  * enforced there rather than sprinkled: an ANONYMOUS crawler can play, keep a
- * local career, read every board, race every ghost and submit a CLAIMED row;
+ * local career, read every board and submit a CLAIMED row;
  * only a LINKED identity can spend the box CPU on verification or earn CP.
  * The ask lands at the one moment it is obviously worth paying - the first time
  * a run is good enough to be worth sealing.
@@ -72,6 +72,10 @@ export interface CompetitiveApiOptions {
   /** Rules eras this build can execute. One today; four once sim-eras ships. */
   eras?: string[];
   now?: () => number;
+  /** THE FLIP HOUR (NICHE.md §4.5): which UTC hour begins the daily. A lobby
+   *  config, threaded here so the daily EVENT flips with the rush surface —
+   *  two "todays" on one server is the dishonesty the config exists to end. */
+  flipHourUtc?: number;
 }
 
 interface SubmitOutcome {
@@ -100,6 +104,8 @@ export class CompetitiveApi {
   readonly queue: VerifyQueue;
   private eras: string[];
   private now: () => number;
+  /** Daily flip hour (NICHE.md §4.5) — see CompetitiveApiOptions. */
+  readonly flipHourUtc: number;
   private buckets = new Map<string, { tokens: number; at: number }>();
   /** Accounts cooling down after a rejection - a false claim costs time. */
   private cooldown = new Map<string, number>();
@@ -113,10 +119,11 @@ export class CompetitiveApi {
     // KEYED TO MODULES, NOT TO STRINGS (2.6f). Whatever the deployment asks
     // for, an era with no sim behind it can only ever produce a silent desync,
     // so it is dropped here as well as in the worker - and the same narrowed
-    // list is what the wire's `playable` flag is computed from, so the client
-    // is never offered a ghost the box cannot replay.
+    // list is what the wire's `playable` flag is computed from, so a row never
+    // claims an executability the box does not have.
     this.eras = executableEras(o.eras);
     this.now = o.now ?? Date.now;
+    this.flipHourUtc = o.flipHourUtc ?? 0;
     // The queue is built HERE, with this API as its hooks, so there is exactly
     // one object that knows how a verdict becomes a row.
     this.queue = new VerifyQueue({
@@ -284,7 +291,7 @@ export class CompetitiveApi {
 
   /** Make sure today contracts exist, pinned to the era that created them. */
   private ensureEvents(nowMs: number): { daily: EventSpec; weekly: EventSpec } {
-    const daily = dailyEvent(nowMs);
+    const daily = dailyEvent(nowMs, this.flipHourUtc);
     const weekly = weeklyEvent(nowMs);
     for (const e of [daily, weekly]) {
       this.store.upsertEvent({ ...e, rulesHash: RULES_HASH });
@@ -343,6 +350,24 @@ export class CompetitiveApi {
       }
       if (now > evt.closesAt + 3600_000) return { error: "that contract has closed" };
       if (h.seed !== evt.seed) return { error: "seed does not match the event" };
+      // TODAY'S RULE IS THE EVENT'S, NEVER THE HEADER'S (NICHE.md §4.8).
+      // The header's `dailyRule` decides which game the verifier replays, so
+      // an unchecked header let a doctored client record the daily seed under
+      // whatever rule swept easiest — base game on an OVERSTAFFED day, RUSH
+      // HOUR's fat gold on a base day — pass byte-exact verification, and
+      // take a SEALED row on a board where every honest client played the
+      // pinned rule. Same class of refusal as the seed mismatch: this run,
+      // whatever it is, was not played under this contract.
+      const pinnedRule = evt.dailyRule ?? null;
+      if ((h.dailyRule ?? null) !== pinnedRule) {
+        return {
+          error: "today's rule does not match the contract — this "
+            + (evt.kind === "daily" ? "daily" : "contract") + " was dealt "
+            + (pinnedRule ? pinnedRule.toUpperCase().replace("_", " ") : "the base game")
+            + " and the run was recorded under "
+            + (h.dailyRule ? String(h.dailyRule).toUpperCase().replace("_", " ") : "the base game"),
+        };
+      }
       eventSeed = evt.seed;
 
       // THE TICKET HAS TO FIT THE RUN (3.2A). A signature alone proves only
@@ -423,6 +448,21 @@ export class CompetitiveApi {
     // is precisely the pattern 2.5 step 2 says it fixed for test starts.
     const ruleset = rulesetRefusal(h);
     if (ruleset) return refuse(ruleset);
+    // A RULED RUN COUNTS ON ITS DAY'S CONTRACT OR NOWHERE (NICHE.md §4.8:
+    // "solo runs, private races and the balance contract all measure the base
+    // game unless a rule is explicitly dealt in"). Without this line the
+    // museum boards — DEEPEST, KILLS, FASTEST, which state no event and no
+    // rule — would take verified rows from whichever rotation member sweeps
+    // easiest, self-dealt: OVERSTAFFED's second elite per floor alone would
+    // let a kills row outbid every base-game run honestly played. The row is
+    // kept and told plainly; it holds no rank.
+    if (!eventId && h.dailyRule != null) {
+      return refuse(
+        "recorded under TODAY'S RULE (" + String(h.dailyRule).toUpperCase().replace("_", " ")
+        + ") with no contract attached — a ruled run counts on its day's contract, and the "
+        + "all-time boards measure the base game",
+      );
+    }
     if (!this.eras.includes(h.rulesHash)) {
       // NOT rejected. The row keeps whatever stamp it earned and the player is
       // told plainly, and offered a re-run - the seed is in the artifact, and
@@ -704,6 +744,9 @@ export class CompetitiveApi {
           const stored = this.store.getEvent(e.id);
           return {
             ...e, frozen: !!stored?.frozen, rulesHash: stored?.rulesHash ?? RULES_HASH,
+            // The STORED pin wins over the live recompute, always — the pin is
+            // the truth a rotation-growing deploy cannot re-deal (§4.8).
+            dailyRule: stored ? stored.dailyRule : e.dailyRule,
             entrants: this.store.eventEntrants(e.id),
           };
         };
@@ -739,6 +782,11 @@ export class CompetitiveApi {
       this.json(res, 200, {
         eventId: evt.id, seed: evt.seed, attemptNo,
         ticket: this.tokens.issueTicket(evt.id, token, attemptNo, now),
+        // THE PINNED RULE RIDES THE TICKET (NICHE.md §4.8): the client deals
+        // the run from THIS value, never from its own dailyRuleFor — the
+        // submit path refuses any header that disagrees with the pin, so the
+        // door and the exit have to be reading the same row.
+        dailyRule: evt.dailyRule ?? null,
         linked,
         scoresCp: attemptNo === 1 && linked,
         unlinkedReason: linked ? null
@@ -778,7 +826,7 @@ export class CompetitiveApi {
       return true;
     }
 
-    // GET /runs/:id - metadata, and the artifact for ghosts and replay.
+    // GET /runs/:id - metadata for the verdict poll and the boards.
     const one = MATCH_RUN.exec(path);
     if (one && req.method === "GET") {
       if (!this.allowRead(ip)) { this.json(res, 429, { error: "slow down" }); return true; }
@@ -787,41 +835,18 @@ export class CompetitiveApi {
       const token = q.get("token") ?? "";
       const owner = this.tokens.isUsable(token) && token === run.accountId;
       // A private run RANKS but is never distributed: 404 to everyone but its
-      // owner, never served as a ghost, never offered as RACE THE LEADER.
+      // owner.
       if (run.private && !owner) { this.json(res, 404, { error: "not found" }); return true; }
       if (q.get("proof") === "1") {
-        // A RUN THE SERVER REFUSED IS NOT A GHOST. The proof was served with
-        // no state check at all, so a challenge link built from a `claimed` or
-        // `rejected` run handed a stranger a raceable rival the server had
-        // explicitly declined to certify - and 2.6f's whole point is that the
-        // refusal is STATED. The owner can still pull their own artifact back.
-        if (run.state !== "verified" && !owner) {
-          this.json(res, 409, {
-            error: run.state === "rejected"
-              ? "REFUSED ON VERIFICATION - the replay did not produce the claimed run, so it is not raceable"
-              : "UNPROVEN - only runs the server re-executed are handed out as ghosts",
-            rulesHash: run.rulesHash, playable: false,
-          });
-          return true;
-        }
-        const proof = run.proofId ? this.store.getProof(run.proofId) : null;
-        if (!proof) {
-          this.json(res, 410, {
-            error: "the proof has aged out of retention",
-            rulesHash: run.rulesHash, playable: false,
-          });
-          return true;
-        }
-        const playable = this.eras.includes(proof.rulesHash);
-        res.writeHead(200, {
-          "content-type": "application/octet-stream",
-          "content-encoding": "gzip",
-          "cache-control": "public, max-age=86400",
-          "x-dcc-rules-hash": proof.rulesHash,
-          "x-dcc-playable": playable ? "1" : "0",
-          ...CORS,
+        // COMPATIBILITY SHIM. Proof download existed to hand out ghost rivals,
+        // and the ghost layer is removed (NICHE.md §5: replays are
+        // verification plumbing, never presentation). Old clients may still
+        // ask; they get a polite 410 and a sentence, never a 500. The proof
+        // itself is retained server-side - it is the evidence a seal rests on.
+        this.json(res, 410, {
+          error: "GHOST RACING WAS RETIRED - proofs stay on the server as verification evidence and are no longer distributed",
+          rulesHash: run.rulesHash, playable: false,
         });
-        res.end(proof.bytes);
         return true;
       }
       // WHAT THIS ROW ACTUALLY HOLDS. The verdict screen weights its seal on
@@ -855,7 +880,7 @@ export class CompetitiveApi {
         return true;
       }
       const eventParam = q.get("event");
-      const eventId = eventParam === "daily" ? dailyEvent(now).id
+      const eventId = eventParam === "daily" ? dailyEvent(now, this.flipHourUtc).id
         : eventParam === "weekly" ? weeklyEvent(now).id
           : eventParam;
       const archetype = q.get("archetype");
@@ -992,8 +1017,8 @@ export class CompetitiveApi {
       playable: !!r.rulesHash && this.eras.includes(r.rulesHash) && !!r.proofId && !r.private,
       // WHY THERE IS NO FILM, TOLD APART FROM "IT AGED OUT" (blocker 18). A
       // RIVALS row is inserted verified with `proofId = null` - the film never
-      // existed, because nobody records a party run - and `playability()` fell
-      // through to "the proof has aged out of retention", which is a false
+      // existed, because nobody records a party run - and the client used to
+      // fall through to "the proof has aged out of retention", a false
       // statement to the player in the one product whose pitch is that it does
       // not make them. `proof_id` is never cleared by retention (sweepProofs
       // only drops the bytes), so a null id means the row NEVER had a film.
@@ -1073,7 +1098,7 @@ export class CompetitiveApi {
     for (const e of ladder) {
       if (!rival || Math.abs(e.cp - mine) < Math.abs(rival.cp - mine)) rival = e;
     }
-    const daily = dailyEvent(now);
+    const daily = dailyEvent(now, this.flipHourUtc);
     const theirs = rival
       ? this.store.board({ kind: "deepest", eventId: daily.id, verifiedOnly: true, limit: 100 })
         .find((r) => r.accountId === rival.accountId) ?? null

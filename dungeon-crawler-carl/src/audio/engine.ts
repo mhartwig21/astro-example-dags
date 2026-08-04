@@ -33,9 +33,56 @@ export interface AudioSink {
   // moment in the run, and it only lands if the music gets out of the way.
   // 1 = normal, 0 = silent. Optional, like muffle.
   duck?(level: number): void;
+  // Music r1: is this clip decoded and playable? The director uses it to
+  // fall back per-band (a band bed that failed to load degrades to the
+  // generic dungeon ambience instead of silence). Optional — sinks without
+  // it are treated as having everything, which keeps the director's choice
+  // deterministic in tests.
+  has?(id: SoundId): boolean;
 }
 
 const STORE_KEY = "dcc:audio:v1";
+
+// ---- Debug instrumentation (?debug=1 only — see SOUNDPLAN.md §5) ----------
+// Nobody in the build loop can hear, so audio quality claims must be numbers.
+// This hook is the in-game half of that: a ring of recent play() calls
+// (including throttled attempts) plus running time-domain peaks measured at
+// the compressor INPUT (headroom) and the compressor OUTPUT (hard clipping).
+// tools/audio/probe.mjs drives a staged fight and asserts against it.
+
+export interface PlayRecord {
+  id: string;
+  at: number; // performance.now() at trigger
+  ctxAt: number; // AudioContext.currentTime at trigger
+  gain: number; // effective gain (manifest volume x opts.gain)
+  rate: number; // effective playback rate
+  throttled?: boolean; // the spam guard swallowed this attempt (no sound)
+  // The engine was unable to play at all (distinct from throttling): the
+  // director DID fire — impact-sync analysis must not count these as misses.
+  skipped?: "noctx" | "nobuf" | "muted" | "suspended";
+}
+
+export interface AudioDebugHook {
+  /** Recent play attempts, oldest first (ring capped at 512). */
+  plays: PlayRecord[];
+  /** Running max |sample| at the compressor input since the last reset. */
+  peakPre(): number;
+  /** Running max |sample| at the compressor output (the honest clip test). */
+  peakPost(): number;
+  resetPeaks(): void;
+  /** Decoded clip ids (missing files never appear here). */
+  buffers(): string[];
+  currentMusic(): string | null;
+  musicBusGain(): number;
+  /** The announcer sidechain's current music/sfx duck gains (§2.3 probe). */
+  musicDuckGain(): number;
+  sfxDuckGain(): number;
+  /** Fire a clip on demand (probe-only: the §5 duck test needs a stinger
+   *  at a knowable instant, not whenever the sim next announces). */
+  trigger(id: SoundId, opts?: PlayOpts): void;
+  ctxState(): string;
+  ctxTime(): number;
+}
 
 interface AudioPrefs {
   muted: boolean;
@@ -62,12 +109,29 @@ export class AudioEngine implements AudioSink {
   private ctx: AudioContext | null = null;
   private master: GainNode | null = null;
   private muffleNode: BiquadFilterNode | null = null;
-  private buses: Partial<Record<"sfx" | "music" | "ui", GainNode>> = {};
+  private buses: Partial<Record<"sfx" | "music" | "ui" | "announcer", GainNode>> = {};
+  // §2.3 sidechain: announcer plays ride these down (music -6dB, sfx -3dB,
+  // 80ms attack / 600ms release). Separate nodes from the bus gains so the
+  // APPROACH duck (which owns buses.music.gain) and the sidechain never
+  // fight over one AudioParam's schedule.
+  private duckMusic: GainNode | null = null;
+  private duckSfx: GainNode | null = null;
+  private duckReleaseAt = 0; // ctx-time the current announcer duck lets go
+  private approachLevel = 1; // last director duck() level (the tie rule)
   private buffers = new Map<SoundId, AudioBuffer>();
   private lastPlayed = new Map<SoundId, number>();
   private current: { id: SoundId; gain: GainNode; src: AudioBufferSourceNode } | null = null;
   private pendingMusic: SoundId | null = null; // requested before unlock/decode
   private prefs = loadPrefs();
+  private compressor: DynamicsCompressorNode | null = null;
+  private dbg: {
+    plays: PlayRecord[];
+    peakPre: number;
+    peakPost: number;
+    anPre: AnalyserNode | null;
+    anPost: AnalyserNode | null;
+    buf: Float32Array<ArrayBuffer>;
+  } | null = null;
 
   /** Fetch + decode every manifest clip that exists; missing files stay silent.
    * onProgress reports clips SETTLED (decoded or missing-and-skipped) so the
@@ -103,6 +167,11 @@ export class AudioEngine implements AudioSink {
     return this.prefs.muted;
   }
 
+  /** True once the clip is decoded (missing/undecodable files never are). */
+  has(id: SoundId): boolean {
+    return this.buffers.has(id);
+  }
+
   toggleMute(): boolean {
     this.prefs.muted = !this.prefs.muted;
     this.applyMaster();
@@ -120,11 +189,24 @@ export class AudioEngine implements AudioSink {
   play(id: SoundId, opts: PlayOpts = {}): void {
     const ctx = this.ctx;
     const buf = this.buffers.get(id);
-    if (!ctx || !buf || this.prefs.muted || ctx.state !== "running") return;
+    if (!ctx || !buf || this.prefs.muted || ctx.state !== "running") {
+      if (this.dbg) {
+        const why = !ctx ? "noctx" : !buf ? "nobuf" : this.prefs.muted ? "muted" : "suspended";
+        const d = this.dbg;
+        d.plays.push({ id, at: performance.now(), ctxAt: ctx?.currentTime ?? 0, gain: 0, rate: 0, skipped: why });
+        if (d.plays.length > 4096) d.plays.splice(0, d.plays.length - 4096);
+      }
+      return;
+    }
     const def: SoundDef = AUDIO_MANIFEST[id];
     const now = performance.now();
     const last = this.lastPlayed.get(id) ?? -Infinity;
-    if (!opts.force && now - last < (def.throttleMs ?? 70)) return; // combat spam guard
+    if (!opts.force && now - last < (def.throttleMs ?? 70)) {
+      // Swallowed by the spam guard. The debug ring still records the attempt
+      // so the probe can PROVE rate limiting (attempts > plays, spacing >= throttle).
+      this.record(id, now, 0, 0, true);
+      return;
+    }
     this.lastPlayed.set(id, now);
 
     const src = ctx.createBufferSource();
@@ -145,6 +227,35 @@ export class AudioEngine implements AudioSink {
     src.connect(gain);
     head.connect(this.buses[def.bus]!);
     src.start();
+    // §2.3: the show talks over the dungeon — an announcer play sidechains
+    // music/sfx down for its own duration.
+    if (def.bus === "announcer") this.sidechain(buf.duration / src.playbackRate.value);
+    this.record(id, now, gain.gain.value, src.playbackRate.value);
+  }
+
+  /** §2.3 announcer sidechain: music -6dB, sfx -3dB; 80ms attack, 600ms
+   *  release after the stinger ends. Overlapping stingers extend the hold.
+   *  Tie rule: at most ONE duck source — while the APPROACH duck rides the
+   *  music bus below 0.5 (deeper than -6dB), the sidechain stays out of the
+   *  way rather than stacking multiplicatively on top of it. */
+  private sidechain(holdSec: number): void {
+    const ctx = this.ctx;
+    if (!ctx || !this.duckMusic || !this.duckSfx) return;
+    if (this.approachLevel < 0.5) return; // approach duck owns the room
+    const now = ctx.currentTime;
+    const release = Math.max(now + holdSec, this.duckReleaseAt);
+    this.duckReleaseAt = release;
+    for (const [node, level] of [
+      [this.duckMusic, 0.5], // -6dB
+      [this.duckSfx, 0.708], // -3dB
+    ] as const) {
+      const g = node.gain;
+      const cur = g.value;
+      g.cancelScheduledValues(now);
+      g.setValueAtTime(cur, now);
+      g.setTargetAtTime(level, now, 0.027); // ~80ms to within 5%
+      g.setTargetAtTime(1, release, 0.2); // ~600ms release tail
+    }
   }
 
   /** Switch the looping music bed (crossfade); null fades music out. */
@@ -182,6 +293,7 @@ export class AudioEngine implements AudioSink {
     gain.connect(this.buses[def.bus]!);
     src.start();
     this.current = { id, gain, src };
+    this.record(`music:${id}`, performance.now(), def.volume ?? 1, 1);
   }
 
   /** BULLET TIME underwater sweep: low-pass the whole mix down to ~700Hz,
@@ -196,7 +308,8 @@ export class AudioEngine implements AudioSink {
   duck(level: number): void {
     const bus = this.buses.music;
     if (!this.ctx || !bus) return;
-    bus.gain.setTargetAtTime(Math.max(0, Math.min(1, level)), this.ctx.currentTime, 0.5);
+    this.approachLevel = Math.max(0, Math.min(1, level));
+    bus.gain.setTargetAtTime(this.approachLevel, this.ctx.currentTime, 0.5);
   }
 
   // ---- internals ----
@@ -211,6 +324,7 @@ export class AudioEngine implements AudioSink {
     const ctx = new Ctor();
     const compressor = ctx.createDynamicsCompressor();
     compressor.connect(ctx.destination);
+    this.compressor = compressor;
     // Master low-pass sits open (20kHz = inaudible) until Bullet Time sweeps
     // it down; a filter in the chain is cheaper than re-patching the graph.
     this.muffleNode = ctx.createBiquadFilter();
@@ -219,9 +333,14 @@ export class AudioEngine implements AudioSink {
     this.muffleNode.connect(compressor);
     this.master = ctx.createGain();
     this.master.connect(this.muffleNode);
-    for (const bus of ["sfx", "music", "ui"] as const) {
+    // Sidechain duck nodes sit between the duckable buses and master (§2.3).
+    this.duckMusic = ctx.createGain();
+    this.duckMusic.connect(this.master);
+    this.duckSfx = ctx.createGain();
+    this.duckSfx.connect(this.master);
+    for (const bus of ["sfx", "music", "ui", "announcer"] as const) {
       const g = ctx.createGain();
-      g.connect(this.master);
+      g.connect(bus === "music" ? this.duckMusic : bus === "sfx" ? this.duckSfx : this.master);
       this.buses[bus] = g;
     }
     this.applyMaster();
@@ -249,5 +368,77 @@ export class AudioEngine implements AudioSink {
     } catch {
       /* best-effort */
     }
+  }
+
+  // ---- debug instrumentation (SOUNDPLAN.md §5; wired to __dcc.audio) ----
+
+  private record(id: string, at: number, gain: number, rate: number, throttled?: boolean): void {
+    const d = this.dbg;
+    if (!d) return;
+    d.plays.push({ id, at, ctxAt: this.ctx?.currentTime ?? 0, gain, rate, ...(throttled ? { throttled } : {}) });
+    // 4096: a 10s staged brawl generates ~600 attempts; a ring that trims
+    // mid-probe silently fabricates "missed" impact-sync matches (measured).
+    if (d.plays.length > 4096) d.plays.splice(0, d.plays.length - 4096);
+  }
+
+  /**
+   * Debug-only (?debug=1): analyser taps + play ring. Idempotent; costs
+   * nothing until called (record() is a null check per play otherwise).
+   * Peaks are RUNNING MAXIMA sampled per animation frame — at 60fps a 2048-
+   * sample window (~43ms at 48kHz) overlaps every frame, so no transient
+   * between polls is missed.
+   */
+  debugHook(): AudioDebugHook {
+    if (!this.dbg) {
+      this.dbg = { plays: [], peakPre: 0, peakPost: 0, anPre: null, anPost: null, buf: new Float32Array(2048) };
+      const ctx = this.ensureContext();
+      if (ctx && this.master && this.compressor) {
+        const mk = () => {
+          const an = ctx.createAnalyser();
+          an.fftSize = 2048;
+          return an;
+        };
+        // Pre = compressor input (post-master, post-muffle): the headroom
+        // contract. Post = compressor output: the hard-clip test.
+        this.dbg.anPre = mk();
+        this.dbg.anPost = mk();
+        this.muffleNode!.connect(this.dbg.anPre);
+        this.compressor.connect(this.dbg.anPost);
+        const poll = () => {
+          const d = this.dbg;
+          if (!d || !d.anPre || !d.anPost) return;
+          d.anPre.getFloatTimeDomainData(d.buf);
+          for (let i = 0; i < d.buf.length; i++) {
+            const a = Math.abs(d.buf[i]);
+            if (a > d.peakPre) d.peakPre = a;
+          }
+          d.anPost.getFloatTimeDomainData(d.buf);
+          for (let i = 0; i < d.buf.length; i++) {
+            const a = Math.abs(d.buf[i]);
+            if (a > d.peakPost) d.peakPost = a;
+          }
+          requestAnimationFrame(poll);
+        };
+        requestAnimationFrame(poll);
+      }
+    }
+    const d = this.dbg;
+    return {
+      plays: d.plays,
+      peakPre: () => d.peakPre,
+      peakPost: () => d.peakPost,
+      resetPeaks: () => {
+        d.peakPre = 0;
+        d.peakPost = 0;
+      },
+      buffers: () => [...this.buffers.keys()],
+      currentMusic: () => this.current?.id ?? null,
+      musicBusGain: () => this.buses.music?.gain.value ?? 0,
+      musicDuckGain: () => this.duckMusic?.gain.value ?? 1,
+      sfxDuckGain: () => this.duckSfx?.gain.value ?? 1,
+      trigger: (id, opts) => this.play(id, opts),
+      ctxState: () => this.ctx?.state ?? "none",
+      ctxTime: () => this.ctx?.currentTime ?? 0,
+    };
   }
 }

@@ -7,9 +7,10 @@ import { openDb, type PersistDb } from "../src/server/db";
 import { CompetitiveApi } from "../src/server/competitiveApi";
 import { TokenService } from "../src/server/tokens";
 import { InlineExecutor } from "../src/server/verifyExecutor";
-import { cpFor, dailyEvent, seasonIdFor, standingFor, TIER_MIN_ACCOUNTS } from "../src/server/season";
+import { cpFor, dailyEvent, seasonIdFor, standingFor, TIER_MIN_ACCOUNTS, weeklyEvent } from "../src/server/season";
 import { encodeProof, decodeProof, REPLAY_DT, type RunProof } from "../src/sim/replay";
 import { RULES_HASH } from "../src/sim/rulesHash";
+import type { DailyRuleId } from "../src/sim/dailyRules";
 import { recordBotRun } from "../tools/replaycheck";
 
 // COMPETITIVE.md: the verified-run layer end to end. Every test here is one of
@@ -19,13 +20,16 @@ import { recordBotRun } from "../tools/replaycheck";
 
 const DAY_MS = 86_400_000;
 
-/** Bot runs are the expensive part; record a few once and reuse the bytes. */
+/** Bot runs are the expensive part; record a few once and reuse the bytes.
+ *  `rule` deals TODAY'S RULE into the recording (NICHE.md §4.8) — a daily
+ *  contract entry has to be the ruled game, because the submit path refuses
+ *  a header off the event's pinned rule. */
 const cache = new Map<string, { proof: RunProof; bytes: Uint8Array }>();
-function run(seed: number, floors = 3): { proof: RunProof; bytes: Uint8Array } {
-  const key = seed + ":" + floors;
+function run(seed: number, floors = 3, rule: DailyRuleId | null = null): { proof: RunProof; bytes: Uint8Array } {
+  const key = seed + ":" + floors + ":" + (rule ?? "base");
   let hit = cache.get(key);
   if (!hit) {
-    const rec = recordBotRun(seed, floors);
+    const rec = recordBotRun(seed, floors, 400000, rule);
     hit = { proof: rec.proof, bytes: encodeProof(rec.proof) };
     cache.set(key, hit);
   }
@@ -213,7 +217,9 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
   function ticketedProof(accountId: string, attempt: number, floors = 3): Uint8Array {
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
-    const { proof } = run(evt.seed, floors);
+    // The honest client plays the PINNED rule (§4.8) — record the ruled game;
+    // recordBotRun stamps the header, and the replay executes the same rule.
+    const { proof } = run(evt.seed, floors, evt.dailyRule);
     proof.header.eventId = evt.id;
     proof.header.ticket = H.tokens.issueTicket(evt.id, accountId, attempt, signedAgo(proof));
     return reseal(proof);
@@ -237,6 +243,7 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
     const { proof } = run(101, 2);
     proof.header.eventId = evt.id;
     proof.header.seed = evt.seed;
+    proof.header.dailyRule = evt.dailyRule ?? undefined; // match the pin; the refusal under test is the TICKET's
     const out = await H.api.submit(reseal(proof), "acct-e2", "Carl", "3.3.3.4");
     if ("error" in out) throw new Error("unexpected error: " + out.error);
     expect(out.queued).toBe(false);
@@ -289,7 +296,7 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
     H.link("acct-t2");
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
-    const { proof } = run(evt.seed, 2);
+    const { proof } = run(evt.seed, 2, evt.dailyRule);
     proof.header.eventId = evt.id;
     // Signed two hours ago: the window holds one run, not an afternoon of them.
     proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-t2", 1, H.now - 2 * 3600_000);
@@ -306,7 +313,7 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
     H.link("acct-t3");
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
-    const { proof } = run(evt.seed, 3);
+    const { proof } = run(evt.seed, 3, evt.dailyRule);
     proof.header.eventId = evt.id;
     proof.header.ticket = H.tokens.issueTicket(evt.id, "acct-t3", 1, H.now); // signed "just now"
     const out = await H.api.submit(reseal(proof), "acct-t3", "Carl", "7.0.0.3");
@@ -470,7 +477,7 @@ describe("privacy (COMPETITIVE.md 8.1) and FORGET ME", () => {
     // It takes its rightful place on the board...
     const board = H.api.store.board({ kind: "deepest", verifiedOnly: true });
     expect(board.some((r) => r.id === out.runId)).toBe(true);
-    // ...and is never offered as a ghost.
+    // ...and the wire's `playable` flag stays honest about distribution.
     expect(H.api.publicRun(row).playable).toBe(false);
     // The toggle is owner-only.
     expect(H.api.store.setPrivate(out.runId, "someone-else", false)).toBe(false);
@@ -482,11 +489,11 @@ describe("privacy (COMPETITIVE.md 8.1) and FORGET ME", () => {
     H.link("acct-del");
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
-    const { proof } = run(evt.seed, 3);
+    const { proof } = run(evt.seed, 3, evt.dailyRule);
     proof.header.eventId = evt.id;
     proof.header.ticket = H.tokens.issueTicket(
       evt.id, "acct-del", 1, H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
-    const out = await H.api.submit(encodeProof(proof), "acct-del", "Ghost", "1.2.3.10");
+    const out = await H.api.submit(encodeProof(proof), "acct-del", "Wraith", "1.2.3.10");
     if ("error" in out) throw new Error(out.error);
     await H.api.queue.drain();
 
@@ -847,24 +854,23 @@ describe("the wire path the browser actually uses", () => {
     const row = H.api.store.getRun(out.runId)!;
     expect(row.rejectReason).toBeNull();
     expect(row.state).toBe("verified");
-    // And the stored proof is a single-gzip artifact the ghost path can read.
+    // And the stored proof is a single-gzip artifact the verifier can read.
     const proof = H.db.competitive.getProof(row.proofId!)!;
     expect(proof.bytes[0]).toBe(0x1f);
   }, 60_000);
 
-  it("a run the server did NOT certify is never handed out as a ghost", async () => {
-    // COMPETITIVE.md 2.6f: a refusal is STATED, never silent. GET /runs/:id
-    // ?proof=1 served the artifact with no state check at all, so a challenge
-    // code built from a `claimed` or `rejected` run handed a stranger a
-    // raceable rival the server had explicitly declined to certify.
+  it("the retired proof-download endpoint answers 410, politely, never a 500", async () => {
+    // Ghost racing is removed (NICHE.md §5): proofs are verification evidence,
+    // not a distribution surface. Old clients may still ask - the compat shim
+    // states the retirement instead of erroring, and the artifact stays on the
+    // server because the seal rests on it.
     H.link("acct-gate");
-    const { proof } = run(101, 3);
-    proof.claim.kills += 999; // a lie the replay will not reproduce
-    const out = await H.api.submit(reseal(proof), "acct-gate", "Liar", "1.2.3.40");
+    const { bytes } = run(101, 3);
+    const out = await H.api.submit(bytes, "acct-gate", "Sealed", "1.2.3.40");
     if ("error" in out) throw new Error(out.error);
     await H.api.queue.drain();
     const row = H.api.store.getRun(out.runId)!;
-    expect(row.state).toBe("rejected");
+    expect(row.state).toBe("verified");
     expect(H.db.competitive.getProof(row.proofId!)).not.toBeNull(); // the film still exists
 
     const ask = async (token?: string): Promise<{ status: number; body: string }> => {
@@ -881,11 +887,26 @@ describe("the wire path the browser actually uses", () => {
       return { status, body: chunks.join("") };
     };
 
+    // A sealed public run, its owner, a stranger: nobody is served the film.
     const stranger = await ask();
-    expect(stranger.status).toBe(409);
-    expect(stranger.body).toContain("REFUSED ON VERIFICATION");
-    // The owner can still pull their own artifact back.
-    expect((await ask("acct-gate")).status).toBe(200);
+    expect(stranger.status).toBe(410);
+    expect(stranger.body).toContain("RETIRED");
+    expect((await ask("acct-gate")).status).toBe(410);
+    // The metadata route is untouched - the verdict poll still works.
+    const meta = await (async () => {
+      const chunks: string[] = [];
+      let status = 0;
+      const res = {
+        writeHead(code: number) { status = code; return res; },
+        setHeader() { /* no-op */ },
+        end(b?: unknown) { if (b) chunks.push(String(b)); },
+      } as unknown as import("node:http").ServerResponse;
+      await H.api.handle({ method: "GET", url: `/runs/${out.runId}`, headers: {}, socket: {} } as
+        unknown as import("node:http").IncomingMessage, res);
+      return { status, body: chunks.join("") };
+    })();
+    expect(meta.status).toBe(200);
+    expect(meta.body).toContain(out.runId);
   }, 60_000);
 
   it("the worker executor and the inline one produce the same verdict", async () => {
@@ -1033,6 +1054,112 @@ describe("a capability failure is UNVERIFIABLE, never REJECTED (2.6d)", () => {
   }, 60_000);
 });
 
+describe("TODAY'S RULE is the event's, never the header's (NICHE.md §4.8)", () => {
+  // The attack this kills: the header's `dailyRule` decides which game the
+  // verifier replays, so an unchecked header let a doctored client record
+  // today's daily seed under whatever rule sweeps easiest, pass byte-exact
+  // verification, and take a SEALED row on a board where every honest client
+  // played the pinned rule — the self-reported-difficulty hole, on the one
+  // surface whose pitch is "results the server can prove".
+  function ticketFor(accountId: string, proof: RunProof, eventId: string): void {
+    proof.header.eventId = eventId;
+    proof.header.ticket = H.tokens.issueTicket(
+      eventId, accountId, 1, H.now - Math.round(proof.header.ticks * REPLAY_DT * 1000) - 1000);
+  }
+
+  it("a base-game recording of a ruled day's seed is refused at the door", async () => {
+    H.link("acct-r1");
+    const evt = dailyEvent(H.now);
+    // Load-bearing precondition: the rotation is live and today deals a rule.
+    expect(evt.dailyRule).not.toBeNull();
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 2); // base game — the doctored client's chosen difficulty
+    ticketFor("acct-r1", proof, evt.id);
+    const out = await H.api.submit(reseal(proof), "acct-r1", "Doctored", "8.1.1.1");
+    expect("error" in out && out.error).toContain("today's rule does not match");
+    // Nothing was stored and no CPU was spent — same class as a seed mismatch.
+    expect(H.api.store.runsByAccount("acct-r1", 10)).toEqual([]);
+  }, 60_000);
+
+  it("a header claiming a rule the day did not deal is refused the same way", async () => {
+    H.link("acct-r2");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const wrong: DailyRuleId = evt.dailyRule === "rush_hour" ? "hair_trigger" : "rush_hour";
+    const { proof } = run(evt.seed, 2, wrong);
+    ticketFor("acct-r2", proof, evt.id);
+    const out = await H.api.submit(reseal(proof), "acct-r2", "Doctored", "8.1.1.2");
+    expect("error" in out && out.error).toContain("today's rule does not match");
+  }, 60_000);
+
+  it("the honest ruled run verifies and takes the daily board", async () => {
+    H.link("acct-r3");
+    const evt = dailyEvent(H.now);
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    const { proof } = run(evt.seed, 2, evt.dailyRule);
+    ticketFor("acct-r3", proof, evt.id);
+    const out = await H.api.submit(reseal(proof), "acct-r3", "Honest", "8.1.1.3");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(true);
+    await H.api.queue.drain();
+    expect(H.api.store.getRun(out.runId)!.state).toBe("verified");
+    expect(H.api.store.board({ kind: "deepest", eventId: evt.id, verifiedOnly: true })
+      .some((r) => r.id === out.runId)).toBe(true);
+  }, 60_000);
+
+  it("the PIN outranks a live recompute: a grown rotation cannot re-deal today", async () => {
+    // The deploy hazard: dailyRuleFor is modulo the rotation length, so
+    // growing DAILY_RULE_ROTATION would re-deal the CURRENT day mid-day and
+    // split the board across two rules. The event row pinned at creation is
+    // the truth; a second upsert (a later ensureEvents) must not move it,
+    // and submit must check the ROW, not the calendar.
+    H.link("acct-r4");
+    const evt = dailyEvent(H.now);
+    const pinned: DailyRuleId = evt.dailyRule === "overstaffed" ? "rush_hour" : "overstaffed";
+    // The row as "yesterday's build" pinned it, before the rotation grew...
+    H.db.competitive.upsertEvent({ ...evt, dailyRule: pinned, rulesHash: RULES_HASH });
+    // ...and today's ensureEvents-shaped upsert does not re-deal it.
+    H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
+    expect(H.db.competitive.getEvent(evt.id)!.dailyRule).toBe(pinned);
+
+    // The live recompute's rule is refused — the board stays one game...
+    const recomputed = run(evt.seed, 2, evt.dailyRule);
+    ticketFor("acct-r4", recomputed.proof, evt.id);
+    const refused = await H.api.submit(reseal(recomputed.proof), "acct-r4", "Late", "8.1.1.4");
+    expect("error" in refused && refused.error).toContain("today's rule does not match");
+
+    // ...and the pinned rule verifies, replayed under the pin.
+    const honest = run(evt.seed, 2, pinned);
+    ticketFor("acct-r4", honest.proof, evt.id);
+    const out = await H.api.submit(reseal(honest.proof), "acct-r4", "Early", "8.1.1.4");
+    if ("error" in out) throw new Error(out.error);
+    await H.api.queue.drain();
+    expect(H.api.store.getRun(out.runId)!.state).toBe("verified");
+  }, 90_000);
+
+  it("a ruled run with no contract attached holds no rank on the museum", async () => {
+    // OVERSTAFFED alone deals a second elite per floor — free kills against
+    // every base-game row on the all-time KILLS board. A ruled run counts on
+    // its day's contract or nowhere; the row is kept, told plainly, unranked.
+    H.link("acct-r5");
+    const { proof } = run(101, 3, "overstaffed");
+    const out = await H.api.submit(reseal(proof), "acct-r5", "Freelancer", "8.1.1.5");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(false);
+    expect(out.reason).toContain("counts on its day's contract");
+    expect(H.api.store.getRun(out.runId)!.state).toBe("claimed");
+    expect(H.api.store.board({ kind: "kills", verifiedOnly: true })
+      .some((r) => r.id === out.runId)).toBe(false);
+  }, 60_000);
+
+  it("the weekly contract pins the base game", () => {
+    const wk = weeklyEvent(H.now);
+    expect(wk.dailyRule).toBeNull();
+    H.db.competitive.upsertEvent({ ...wk, rulesHash: RULES_HASH });
+    expect(H.db.competitive.getEvent(wk.id)!.dailyRule).toBeNull();
+  });
+});
+
 describe("the museum is not free-seeds-only (COMPETITIVE.md 3.2B)", () => {
   it("a sealed contract run appears on the all-time board the seal names", async () => {
     // `eventId: null` compiled to `event_id IS NULL`, and /boards/:kind with no
@@ -1043,7 +1170,7 @@ describe("the museum is not free-seeds-only (COMPETITIVE.md 3.2B)", () => {
     H.link("acct-museum");
     const evt = dailyEvent(H.now);
     H.db.competitive.upsertEvent({ ...evt, rulesHash: RULES_HASH });
-    const { proof } = run(evt.seed, 3);
+    const { proof } = run(evt.seed, 3, evt.dailyRule);
     proof.header.eventId = evt.id;
     proof.header.ticket = H.tokens.issueTicket(
       evt.id, "acct-museum", 1,
@@ -1077,13 +1204,13 @@ describe("FORGET ME reaches the rows that have no account", () => {
     // gap", re-opened by the migration that was supposed to close it.
     const store = H.db.competitive;
     const n = store.importLegacyBoard([
-      { name: "Ghosted", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
+      { name: "Departed", floor: 7, won: false, timeSec: 300, kills: 40, at: H.now },
       { name: "Kept", floor: 5, won: false, timeSec: 200, kills: 20, at: H.now },
     ], 60);
     expect(n).toBe(2);
-    expect(store.deleteByDisplayNames(["ghosted"])).toBe(1); // case-insensitive
+    expect(store.deleteByDisplayNames(["departed"])).toBe(1); // case-insensitive
     const left = store.board({ kind: "deepest", limit: 50 });
-    expect(left.some((r) => r.displayName === "Ghosted")).toBe(false);
+    expect(left.some((r) => r.displayName === "Departed")).toBe(false);
     expect(left.some((r) => r.displayName === "Kept")).toBe(true);
   });
 });

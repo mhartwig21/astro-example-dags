@@ -1,0 +1,38 @@
+[
+ [
+  "abil ach refit 1366x768",
+  {
+   "paneClient": 495,
+   "paneScroll": 495,
+   "overflowY": 0,
+   "columns": 3,
+   "cards": 13,
+   "docOverX": 0,
+   "docOverY": 0
+  }
+ ],
+ [
+  "abil ach refit 1600x900",
+  {
+   "paneClient": 547,
+   "paneScroll": 547,
+   "overflowY": 0,
+   "columns": 3,
+   "cards": 13,
+   "docOverX": 0,
+   "docOverY": 0
+  }
+ ],
+ [
+  "abil ach refit 2560x1440",
+  {
+   "paneClient": 368,
+   "paneScroll": 368,
+   "overflowY": 0,
+   "columns": 5,
+   "cards": 13,
+   "docOverX": 0,
+   "docOverY": 0
+  }
+ ]
+]

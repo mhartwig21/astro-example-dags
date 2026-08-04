@@ -305,11 +305,15 @@ describe("balance bot: the deep dungeon stays hard (difficulty floor)", () => {
     };
     // Floor 12 (last pre-ramp floor): base curve only, no deep term.
     expect(gruntAt(12)).toBeLessThan(base(12) * 1.03);
-    // Floor 14: deep term is 1.06^2 ≈ 1.124 on top of the base curve.
+    // Floor 14: deep term is deepScaleCompound^2 on top of the base curve
+    // (1.035^2 ≈ 1.071 after the step-0 retune, 2026-08-04 — the ramp was
+    // backed off with the rest of the difficulty stack when 48-seed sweeps
+    // measured 2-4% full-run win rate; the assertion stays structural:
+    // ramped floors must exceed the base curve, pre-ramp floors must not).
     expect(
       gruntAt(14),
       "floor-14 grunt HP does not exceed the base curve — the deep ramp is missing",
-    ).toBeGreaterThan(base(14) * 1.08);
+    ).toBeGreaterThan(base(14) * 1.05);
   });
 
   it("deep elites lean into RESIST affixes (armored/warded bias past the ramp)", () => {

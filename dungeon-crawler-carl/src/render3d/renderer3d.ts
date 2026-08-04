@@ -31,7 +31,7 @@ import { FogOfWar } from "./fogOfWar";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
 import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight, type BakeStain } from "./lightGrid";
-import { FxParticles, TEX_FLICKER } from "./fxParticles";
+import { FxParticles, TEX_FLICKER, type FxPalette } from "./fxParticles";
 import { SwingArcs, TrailRibbons } from "./fxTrails";
 import {
   QUALITY_PRESETS, QUALITY_ORDER, QualityAutoTuner, autoTuneFrozen, guessQuality,
@@ -54,7 +54,7 @@ export interface QualityNotice {
   /** Mean frame time of the window that triggered it — the evidence. */
   readonly meanMs: number;
 }
-import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeDissolving } from "./fx";
+import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeFissureMat, makeAnchorMat, makeDissolving } from "./fx";
 import { BossFx } from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
@@ -987,6 +987,22 @@ export class Renderer3D {
           // trees stay living green-blue, dark brick stays warm — not concrete.
           "  vec3 wChroma = mix(vec3(1.0), clamp(wAlb0 / max(dot(wAlb0, vec3(0.299, 0.587, 0.114)), 0.03), 0.0, 2.4), 0.55);\n" +
           "  wlFogSil = uWlMurk * wChroma * (wMurk * wFog * wDepth);\n" +
+          // FORM IN THE DARK (appearance r2 major #3). The depth crush above is
+          // right about TEXTURE — repeating tile hash must die with distance —
+          // but it killed SHAPE with it: wDepthPre is squared, so past ~6 walk
+          // tiles every wall block collapsed into the same navy value as the
+          // floor void and 40-60% of a walk frame read as empty slab. LoL's
+          // dark corners stay interesting because the dark still contains
+          // MASSES. So a second, structure-only term survives further out:
+          // keyed to geometry HEIGHT (floors at y~0 get none — the void stays
+          // a void) with extra on upward faces, so raised blocks read as a
+          // faint top-lit skyline. It falls off exponentially (~e^-0.05d, vs
+          // the crush's square) and carries NO albedo hash — value only, in
+          // the murk hue over the surface's own cooled chroma, so it can
+          // never re-introduce the tiling-blob failure the crush fixed.
+          "  float wFormFall = exp(-0.05 * max(wD - 2.5, 0.0));\n" +
+          "  float wForm = smoothstep(0.25, 1.35, vWlPos.y) * (0.55 + 0.45 * wUp) * (0.80 + 0.30 * wNz);\n" +
+          "  wlFogSil += uWlMurk * wChroma * (wForm * wFog * wFormFall * 0.75);\n" +
           // ---- ATMOSPHERE: THE DARKNESS GETS A HUE ----
           //
           // Measured on the shipping build: ONE hue cluster spanning a 45-degree
@@ -1557,25 +1573,26 @@ export class Renderer3D {
 
   // Party rendering: one mesh per player id. The camera follows localPlayerId.
   private playerMeshes = new Map<number, THREE.Group>();
-  private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (ghost copies)
-  /**
-   * THE RIVAL GHOST (COMPETITIVE.md 4.1). A rival's proof replayed beside you
-   * is the cheapest multiplayer this game will ever ship, and it is only
-   * multiplayer if you can SEE it. A split delta in the corner is a number; a
-   * translucent crawler rounding the corner ahead of you is a race.
-   *
-   * It is a TRAJECTORY, never a shared world: no collision, no loot, no
-   * damage, no lighting contribution. The pose is pushed in from the host each
-   * frame (it comes off a precomputed keyframe track, not a second sim).
-   */
-  private ghostMesh: THREE.Group | null = null;
-  private ghostPose: { x: number; y: number; onFloor: boolean } | null = null;
-  private ghostSkin = "";
+  // PLAYER ANCHOR RING (FX r2): the LoL player circle — a persistent
+  // kit-colored ground ring under the LOCAL crawler only. OFF BY DEFAULT
+  // (owner call): the persistent circle is a MOBA convention — Diablo 4 and
+  // PoE2 ground the character with shadow and lighting alone, and that is
+  // this game's register. It survives as an opt-in accessibility/readability
+  // toggle in the SYSTEM panel, because losing yourself in a 12-body pile is
+  // a real problem for some players even if the default answer is the
+  // contact shadow and rim, not a decal.
+  // (The rival-ghost block that used to live beside this is gone — the owner
+  // removed the ghost layer; NICHE.md §5 bans it.)
+  private anchorRing: THREE.Mesh | null = null;
+  private anchorHex = 0;
+  private anchorRingOn = false;
 
-  /** Host hook: where the rival is this frame, or null for no ghost. */
-  setGhost(pose: { x: number; y: number; onFloor: boolean } | null): void {
-    this.ghostPose = pose;
+  /** SYSTEM-panel toggle: show the kit-colored ring under the local crawler. */
+  setAnchorRing(on: boolean): void {
+    this.anchorRingOn = on;
+    if (!on && this.anchorRing) this.anchorRing.visible = false;
   }
+  private decoyMeshes = new Map<number, THREE.Group>(); // stunt doubles (faded copies)
   // Containers that may spawn knocked on their side (place() tipped variants).
   private static TIPPABLE = new Set([
     "barrel_small", "barrel_large", "keg", "keg_decorated", "pot_large", "box_small", "trunk_small_A",
@@ -1653,6 +1670,30 @@ export class Renderer3D {
   }[] = [];
   /** One InstancedMesh per (geometry, material, shadow flags) — see PropBatch. */
   private propBatches: PropBatch[] = [];
+  // ---- FOLIAGE BRUSH (appearance r1: the world reacts to being walked
+  // through). Walkable-tile grass/bush/mushroom props register here at
+  // place() time; a body moving within reach kicks a damped spring and the
+  // piece tilts away, oscillates once, and settles. Writes ride the exact
+  // machinery the fog reveal already pays for (updateMatrix + propLeafWrite),
+  // and only SPRUNG pieces pay anything — an idle meadow costs zero.
+  private static BRUSH_KEY = /grass|bush|mushroom|fern|flower/i;
+  private brushProps: {
+    e: Renderer3D["propEntries"][number]; x: number; z: number;
+    baseQ: THREE.Quaternion;
+    ax: number; az: number; // unit push direction (world xz)
+    a: number; v: number; // spring angle (rad) + angular velocity
+  }[] = [];
+  private brushGrid = new Map<number, number[]>(); // tile -> brushProps indices
+  private brushGridW = 0;
+  private brushActive = new Set<number>();
+  // Last seen position per mover ("p:" ids >= 0, monsters bitwise-NOT) so a
+  // brush impulse scales with the distance actually covered this frame.
+  private brushMovers = new Map<number, { x: number; z: number }>();
+  private brushQ = new THREE.Quaternion();
+  private brushAxis = new THREE.Vector3();
+  // Stride dust cadence per player id — mirrors the audio director's STRIDE
+  // so the puff and the footfall land together (AV cohesion).
+  private strideFx = new Map<number, { acc: number; n: number }>();
   private stairsObj: THREE.Object3D | null = null;
   private stairsTile = -1;
   // Same-world rebuild tracking (survives scheduleAssetRefresh's builtFloor
@@ -1683,6 +1724,7 @@ export class Renderer3D {
   private fadeProps: {
     obj: THREE.Object3D; mats: THREE.Material[]; life: number; max: number;
     spin: number; grow: number; s0: number; pop: boolean;
+    yMul: number; // footprint height cap (see spawnFadeProp): 1 = uncapped
   }[] = [];
   // Level-up ring (D4-style halo): fire-and-forget, host-local — not tied to
   // sim state, unlike the persistent pingRings/reviveRings pools. One ring
@@ -1718,8 +1760,29 @@ export class Renderer3D {
   // airstrikes kick — and trauma decays linearly so shakes settle fast.
   private trauma = 0;
   private static SHAKE_MAX = 0.5; // world-unit amplitude at full trauma
+  // THE ARRIVAL SETTLE (appearance r1: transitions flow, not cut). Seconds
+  // left of the floor-arrival beat: the frame opens ~9% wide and eases home,
+  // so a descent LANDS — with the shock ring, dust, shake and the descend
+  // thunk all on the arrival frame — instead of hard-swapping worlds.
+  private arrival = 0;
+  private static ARRIVAL_T = 0.9;
   private addTrauma(amount: number): void {
     this.trauma = Math.min(1, this.trauma + amount);
+  }
+  // CAMERA WEIGHT ON BIG HITS (appearance r2 major #6). Across twelve fight
+  // burst frames including a 2155 crit, the impact read on the TARGET (flash,
+  // gibs, shake dust) but never in the LENS: trauma jitters the camera's
+  // position, which vsync and the iso distance largely launder out, and
+  // nothing ever touched the FRAME ITSELF. So big hits now also kick a
+  // punch-in: an instant ~0-4.5% zoom step that releases over ~200 ms
+  // (attack-instant, linear release — the asymmetry is what reads as a hit
+  // rather than a zoom). It rides projHalfHeight() beside the boss borrow and
+  // the aim widen, so the safe-area clamp stays in agreement by construction.
+  // Presentation only; the sim never learns the camera moved.
+  private hitPunch = 0;
+  private static PUNCH_ZOOM = 0.045; // fraction of half-height at full punch
+  private addHitPunch(amount: number): void {
+    this.hitPunch = Math.min(1, this.hitPunch + amount);
   }
   private particles: {
     mesh: THREE.Mesh;
@@ -2116,11 +2179,57 @@ export class Renderer3D {
     this.fxp.embers(fx, fz, hex, 2, 0.45);
   }
 
-  /** CAST ANTICIPATION (round 2): a ~140ms converge-then-flash on the caster —
-   * motes gather into the hands, then a delayed hand-flash pops right as the
-   * ability's own FX fire. Pure staging over the cast edge; no timing change. */
-  private castGather(anchor: THREE.Object3D, hex: number): void {
-    this.fxp.gatherBurst(anchor.position.x, 1.0, anchor.position.z, hex);
+  // CAST COMMIT (FX r2). The old castGather (converge-then-flash) staged its
+  // peak ~110ms AFTER the instant-cast ability had already fired, and only on
+  // four of the fourteen ability edges — verified through the real input path
+  // as "no cast read on any ability at gameplay zoom". Every cast edge now
+  // fires ONE loud commit kit at the hands (brightest frame at t=0, aimed
+  // muzzle streaks, recoil motes, a real light pop and a recoil trauma tick).
+  // Palettes are the abilities' own school hues (FX_PAL) so the commit and
+  // its consequence speak one color.
+  private static CAST_FX: [string, keyof typeof FX_PAL, boolean][] = [
+    // [ability, palette, big]
+    ["nova", "nova", false],
+    ["overcharge", "crit", false],
+    ["stance", "brace", false],
+    ["orbit", "gold", false],
+    ["crowdsurf", "pin", false],
+    ["stuntdouble", "gold", false],
+    ["bulwark", "brace", false],
+    ["cables", "pin", false],
+    ["injunction", "stay", false],
+    ["airstrike", "airstrike", true],
+    ["cataclysm", "cataclysm", true],
+    ["bullettime", "gold", true],
+  ];
+  private fxPrevCast = new Map<number, Record<string, number>>();
+  /** Fire commit kits for every ability whose cooldown ROSE this frame.
+   * Runs for rigged and procedural bodies alike (the read must not depend on
+   * which animation path won). Bolt is handled here too — its palette
+   * depends on the weapon class (arcane conjures violet, everything else
+   * throws ember). */
+  private castCommitEdges(pl: Player, mesh: THREE.Object3D): void {
+    const prev = this.fxPrevCast.get(pl.id) ?? {};
+    const cds = pl.cd as Partial<Record<string, number>>;
+    if (pl.alive) {
+      const commit = (pal: FxPalette, big: boolean): void => {
+        const hx = mesh.position.x + pl.facing.x * 0.45;
+        const hz = mesh.position.z + pl.facing.y * 0.45;
+        this.fxp.castCommit(hx, 1.0, hz, pal, pl.facing);
+        this.spawnFxLight(hx, hz, pal.mid, big ? 2.0 : 1.3, big ? 0.22 : 0.15, 1.05);
+        this.addTrauma(big ? 0.1 : 0.05); // the recoil read
+      };
+      for (const [ab, palKey, big] of Renderer3D.CAST_FX) {
+        if ((cds[ab] ?? 0) > (prev[ab] ?? 0) + 1e-6) commit(FX_PAL[palKey], big);
+      }
+      if ((cds.bolt ?? 0) > (prev.bolt ?? 0) + 1e-6) {
+        const wc = weaponClassOf(pl.equipment.weapon);
+        commit(wc === "arcane" ? FX_PAL.magic : FX_PAL.strike, false);
+      }
+    }
+    const snap: Record<string, number> = {};
+    for (const k in cds) snap[k] = cds[k as keyof typeof cds] ?? 0;
+    this.fxPrevCast.set(pl.id, snap);
   }
 
   // LOOK EXPERIMENT (iso.html?look=lived&view=close): "lived" densifies the
@@ -2272,6 +2381,11 @@ export class Renderer3D {
     this.scene.add(this.fxp.group, this.swingArcs.group, this.ribbons.group, this.decals.group, this.shocks.group, this.aoe.group);
     this.scene.add(this.bossFx.group);
     this.ribbons.setCamDir(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
+    // Combat FX r1: the impact kit and the swing arc spawn nudged toward the
+    // camera so the CONTACT frame reads instead of being depth-tested away
+    // inside the struck body (see fxParticles/fxTrails setCamBias notes).
+    this.fxp.setCamBias(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
+    this.swingArcs.setCamBias(THEME.camDir.x, THEME.camDir.y, THEME.camDir.z);
 
     // Post chain. HalfFloat keeps the pipeline HDR until OutputPass tone-maps.
     // A DepthTexture rides along so the RenderPass's depth SURVIVES the frame
@@ -2480,7 +2594,6 @@ export class Renderer3D {
     this.playerMeshes.clear();
     for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
     this.decoyMeshes.clear();
-    if (this.ghostMesh) { this.scene.remove(this.ghostMesh); this.ghostMesh = null; }
     for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
     this.breakableMeshes.clear();
     for (const mesh of this.monsters.values()) this.scene.remove(mesh);
@@ -2671,6 +2784,30 @@ export class Renderer3D {
         }
       }
     }
+    // THE HERO OCCLUSION GHOST'S PROGRAM (appearance r2). The buried-crawler
+    // x-ray is MeshBasicMaterial + USE_SKINNING with toneMapped off — a
+    // permutation nothing else in the scene uses, created at build time but
+    // INVISIBLE until the first real burial, so prewarm's traverseVisible
+    // never compiled it and the first 18-body pile minted it mid-fight
+    // (caught by [shader-guard] in the r2 capture session). One sub-pixel
+    // twin here pays for it behind the loading screen.
+    {
+      const gmat = new THREE.MeshBasicMaterial({
+        color: 0x4fd1ff, transparent: true, opacity: 0.5, depthWrite: false, fog: false,
+      });
+      gmat.toneMapped = false;
+      gmat.depthTest = false;
+      const bone = new THREE.Bone();
+      const sm = new THREE.SkinnedMesh(skinGeo, gmat);
+      sm.add(bone);
+      sm.bind(new THREE.Skeleton([bone]));
+      const g = new THREE.Group();
+      g.add(sm);
+      g.scale.setScalar(0.003);
+      g.position.set(fx, 0.5, fz);
+      this.scene.add(g);
+      out.push(g);
+    }
     // The geometries and the 1x1 stand-in texture are only needed while the zoo
     // is resident; the caller releases them (see prewarm). The MATERIALS are
     // deliberately never disposed — three.js refcounts programs and destroys
@@ -2853,6 +2990,23 @@ export class Renderer3D {
    * quarter of the poll traffic.
    */
   matSweepEvery = 4;
+
+  /**
+   * Ask the catcher to sweep at the END OF THIS FRAME, cadence be damned.
+   *
+   * THE CADENCE'S RESIDUE IS THE BURST FRAMES (appearance r2, major #8). At
+   * matSweepEvery=4 a material can be created and then DRAWN for up to three
+   * frames before the sweep that would have parked it — and materials are not
+   * minted uniformly: they arrive in bursts on exactly the frames that build
+   * things (a floor rebuild on descent, a fresh body kind entering the
+   * reconcile). Those construction paths call this, so the window for them is
+   * zero at the cost of one WeakSet-probe traverse on frames that were
+   * already paying for construction. The steady-state poll-traffic trade that
+   * chose 4 over 1 is untouched.
+   */
+  private matSweepNow(): void {
+    this.matSweepTick = this.matSweepEvery - 1;
+  }
 
   private sweepNewMaterials(): void {
     if (!this.matSweepArmed || this.matSweepBusy) return;
@@ -3207,6 +3361,9 @@ export class Renderer3D {
       }
     });
     if (m.animations.length) this.attachClipAnimator(g, m.animations);
+    // Any frame that instantiates a model may mint material permutations
+    // (shading/flash clones follow); make sure this frame's sweep runs.
+    this.matSweepNow();
     return g;
   }
 
@@ -3353,6 +3510,15 @@ export class Renderer3D {
       if (!next || (current === name && !force)) return;
       const prev = actions[current];
       next.reset().play();
+      // THE RANKS BREATHE OUT OF STEP (appearance r2 major #5). reset() puts
+      // every loop at time 0, and every mixer is fed the same dt — so a rank
+      // of toy soldiers or a room of idling skeletons that entered "idle" on
+      // the same frame held IDENTICAL poses forever, which is what the
+      // motion-burst frames photographed as statues. Looping clips now start
+      // at this rig's own golden-ratio phase, so a crowd playing one clip is
+      // a crowd of individuals. One-shots are untouched: an attack must start
+      // at its wind-up, not somewhere inside it.
+      if (LOOPING.has(name)) next.time = animPhase * (durations[name] ?? 0);
       if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
       current = name;
       if (!LOOPING.has(name)) busy = durations[name];
@@ -3472,16 +3638,15 @@ export class Renderer3D {
       } else if (cdRose("bolt")) {
         // The cast matches the weapon: casters conjure, melee crawlers THROW.
         const wc = weaponClassOf(pl.equipment.weapon);
-        if (wc === "arcane") { playFirst("spellshoot", "shoot", "attack"); this.castGather(mesh, 0xa06bff); }
+        if (wc === "arcane") playFirst("spellshoot", "shoot", "attack");
         else if (wc === "ballistic" || wc === null) playFirst("shoot", "attack");
         else playFirst("throw", "shoot", "attack");
       }
-      else if (cdRose("nova")) { playFirst("cast_raise", "attack"); this.castGather(mesh, 0x8fd8ff); }
-      else if (cdRose("overcharge")) { playFirst("cast_long", "cast_raise"); this.castGather(mesh, 0xd98e4a); }
+      else if (cdRose("nova")) playFirst("cast_raise", "attack");
+      else if (cdRose("overcharge")) playFirst("cast_long", "cast_raise");
       else if (cdRose("stance")) playFirst("block");
       else if (cdRose("airstrike") || cdRose("cataclysm") || cdRose("bullettime")) {
         playFirst("cast_summon", "cast_raise");
-        this.castGather(mesh, cdRose("cataclysm") ? 0xff8a3c : 0xffc860);
       }
       else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
     }
@@ -3911,8 +4076,15 @@ export class Renderer3D {
     // the far end of the skillshot for the crawler's own feet, and on a 342 px
     // phone you need both in one picture to aim at all.
     const aimWide = 1 + Math.min(0.22, this.aimLead * 0.052);
+    // THE ARRIVAL SETTLE: a fresh floor opens ~9% wide and eases home over
+    // ~0.9s (quadratic, so the last half is nearly still) — the descent
+    // reads as a landing instead of a hard cut between worlds.
+    const at = this.arrival / Renderer3D.ARRIVAL_T;
+    const arrive = 1 + 0.09 * at * at;
+    // The hit punch-in (see addHitPunch): instant kick, ~200 ms release.
+    const punch = 1 - Renderer3D.PUNCH_ZOOM * this.hitPunch;
     return THEME.camOrthoHalfHeight * (this.viewClose ? 0.67 : 1) *
-      this.bossFx.zoom * aimWide;
+      this.bossFx.zoom * aimWide * arrive * punch;
   }
 
   private applyProjection(): void {
@@ -3958,6 +4130,47 @@ export class Renderer3D {
   /** The render skin id for a player: their campfire pick, else the seeded look. */
   static skinIdFor(pl: { id: number; skin?: string }, seed: number): string {
     return pl.skin && `c:${pl.skin}` in Renderer3D.SKIN_MODEL ? `c:${pl.skin}` : heroSkin(seed, pl.id);
+  }
+
+  /**
+   * THE BURIAL GOVERNOR for the hero occlusion ghost (blocker #1). The ghost
+   * pass (buildPlayerMesh) can only answer "is this fragment covered", not
+   * "covered by WHOM", and the hero's own head covers his own torso in every
+   * frame — so the material rests at opacity 0 and this object-level test
+   * fades it in only while live bodies are actually stacked on the crawler:
+   * two-plus non-dormant monsters either interpenetrating his tile or
+   * standing between him and the camera inside melee range. Eased at ~6/s so
+   * a mob stepping past causes a flicker of nothing.
+   */
+  private updateHeroGhost(mesh: THREE.Group, pl: Player, state: GameState, dt: number): void {
+    const gmat = mesh.userData.ghostMat as THREE.MeshBasicMaterial | undefined;
+    const ghosts = mesh.userData.ghostMeshes as THREE.Object3D[] | undefined;
+    if (!gmat || !ghosts || ghosts.length === 0) return;
+    let cover = 0;
+    if (pl.alive) {
+      const cx = this.camera.position.x - mesh.position.x;
+      const cz = this.camera.position.z - mesh.position.z;
+      const cl = Math.hypot(cx, cz) || 1;
+      const ux = cx / cl, uz = cz / cl;
+      for (const m of state.monsters) {
+        if (m.hp <= 0 || m.dormant) continue;
+        const dx = m.pos.x - pl.pos.x, dz = m.pos.y - pl.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 > 6.76) continue; // 2.6^2 — beyond this nothing overlaps the body
+        const d = Math.sqrt(d2);
+        const along = dx * ux + dz * uz; // ground component toward the camera
+        if (d < 0.85 || (along > 0.25 && along > d * 0.55)) cover++;
+        if (cover >= 2) break;
+      }
+    }
+    const want = cover >= 2 ? 0.55 : 0;
+    const cur = (mesh.userData.ghostOp as number) ?? 0;
+    const next = Math.abs(want - cur) < 0.004 ? want : cur + (want - cur) * Math.min(1, dt * 6);
+    if (next === cur && (next > 0) === ghosts[0].visible) return;
+    mesh.userData.ghostOp = next;
+    gmat.opacity = next;
+    const on = next > 0.004;
+    for (const g of ghosts) g.visible = on;
   }
 
   private buildPlayerMesh(skin: string): THREE.Group {
@@ -4036,6 +4249,87 @@ export class Renderer3D {
         dirG.add(dsh);
         model.add(dirG);
         model.userData.dirShadow = dirG;
+      }
+      // THE CRAWLER NEVER DISAPPEARS (appearance r2 BLOCKER #1). In an
+      // 18-body pack the hero is bodily COVERED — rim light, accent trim and
+      // the kick light are all surface treatments, and a surface you cannot
+      // see cannot carry a read. LoL never loses the player because the
+      // player's read does not depend on line of sight. So the hero gets the
+      // ARPG occlusion pass (D4/PoE rule): a second draw of the skinned body
+      // in the skin's accent color with depthFunc GREATER — it renders ONLY
+      // where something already wrote nearer depth, i.e. exactly the pixels
+      // where the crawler is buried. Unoccluded frames pay nothing visible
+      // (zero fragments pass), and the pile turns into a colored silhouette
+      // of your own pose moving inside it.
+      //
+      // ONLY SKINNED MESHES: the body is the rig's skinned surface; weapon /
+      // shield attachment nodes are rigid meshes whose visibility applyLoadout
+      // toggles per-equipment, and a ghost of a hidden arsenal would float.
+      // Sharing the skeleton keeps the silhouette on-pose for free. Material
+      // is MeshBasicMaterial (skips every std-material traversal: character
+      // shading, hit flash, dissolve all test isMeshStandardMaterial) and the
+      // meshes carry noAO like the other non-body helpers.
+      //
+      // GATED ON ACTUALLY BEING BURIED — capture caught why. A depth test
+      // cannot tell "a mob covers the crawler" from "the crawler's own torso
+      // sits behind his own head": the first capture of this pass had the
+      // hero's head permanently ballooned white by his own ghost's rear
+      // parts, in an empty corridor. So the ghost rests at opacity 0 and the
+      // per-frame player loop fades it in only while the object-level burial
+      // test says bodies are stacked on the crawler (see updateHeroGhost) —
+      // exactly the frames the silhouette exists for, and the only frames
+      // where self-overlap glow is invisible because the body is covered.
+      {
+        // NORMAL blending, saturated accent, not an additive wash: the first
+        // capture ran this additive at 0.3 and the silhouette disappeared
+        // into the pile's own colors — a burial read has to REPLACE the
+        // occluder's pixels with the hero's color (the D4 treatment), not
+        // brighten them.
+        const gmat = new THREE.MeshBasicMaterial({
+          color: new THREE.Color(shade.accent),
+          transparent: true,
+          opacity: 0,
+          depthWrite: false,
+          fog: false,
+        });
+        // Bypass the ACES grade: the buried-frame scene is torch-warm and
+        // pink-lit, and a tone-mapped mid-cyan at 0.5 measured invisible in
+        // capture. The silhouette is UI-grade information, like the plates.
+        gmat.toneMapped = false;
+        // FULL-SHAPE X-RAY, not a depth-Greater residue. Two captures proved
+        // the per-fragment version illegible: with the hero half-covered the
+        // pass produces scattered patches behind whichever bodies happen to
+        // overlap, and 0.55 cyan patches vanish inside a pink-lit brawl. The
+        // burial governor already guarantees this only draws on frames where
+        // the body is genuinely covered, so the honest read is the LoL/D4
+        // one — the crawler's whole pose, flat accent, straight through the
+        // pile. Visible slivers still show through at 1-minus-opacity.
+        gmat.depthTest = false;
+        const bodies: THREE.SkinnedMesh[] = [];
+        model.traverse((o) => {
+          const m = o as THREE.SkinnedMesh;
+          if (m.isSkinnedMesh && !m.userData.noAO) bodies.push(m);
+        });
+        const ghosts: THREE.SkinnedMesh[] = [];
+        for (const m of bodies) {
+          const ghost = new THREE.SkinnedMesh(m.geometry, gmat);
+          ghost.bind(m.skeleton, m.bindMatrix);
+          ghost.bindMode = m.bindMode;
+          ghost.position.copy(m.position);
+          ghost.quaternion.copy(m.quaternion);
+          ghost.scale.copy(m.scale);
+          ghost.renderOrder = 6; // after the pile has written its depth
+          ghost.castShadow = false;
+          ghost.receiveShadow = false;
+          ghost.frustumCulled = m.frustumCulled;
+          ghost.userData.noAO = true;
+          ghost.userData.heroGhost = true;
+          ghost.visible = false;
+          m.parent?.add(ghost);
+          ghosts.push(ghost);
+        }
+        model.userData.ghostMat = gmat;
+        model.userData.ghostMeshes = ghosts;
       }
       model.userData.skinId = skin;
       return model;
@@ -4693,6 +4987,7 @@ export class Renderer3D {
     // via floorBand (same as Race) — and now that Roam's tribe identity also
     // tracks floorBand (roamTribeId), visuals and tribe always agree.
     const theme: FloorTheme = themeForFloor(state.floor);
+    this.dangerCrimson = theme.dangerCrimson === true;
     // Impact dust inherits the floor's ambient color (audit r3): kicked-up
     // grit on an ice floor reads cold, on an ember floor reads ashen.
     this.dustTint = new THREE.Color(theme.floorTint)
@@ -5395,6 +5690,12 @@ export class Renderer3D {
     this.stairsObj = gate;
     this.stairsTile = Math.floor(map.stairs.y) * map.w + Math.floor(map.stairs.x);
     this.propEntries = []; // reset BEFORE the stamps below register into it
+    // Foliage brush state belongs to the old floor's props.
+    this.brushProps = [];
+    this.brushGrid.clear();
+    this.brushGridW = map.w;
+    this.brushActive.clear();
+    this.brushMovers.clear();
     // CRAFTED ROOM props: each stamp the mapgen recorded places its
     // template's cosmetic dressing (the WALLS are already real tiles; these
     // are the barrels and clutter that make the design read). Footprint-
@@ -5501,7 +5802,22 @@ export class Renderer3D {
       );
       if (!tipped) obj.rotation.y = opts.rot ?? frng() * Math.PI * 2;
       this.floorGroup.add(obj);
-      this.propEntries.push({ obj, tile: Math.floor(y) * map.w + Math.floor(x) });
+      const entry = { obj, tile: Math.floor(y) * map.w + Math.floor(x) };
+      this.propEntries.push(entry);
+      // FOLIAGE BRUSH: undergrowth on walkable tiles reacts to being walked
+      // through. Keyed on the prop KEY, so every band that grows anything —
+      // the Garden's meadows, the Sewers' overgrown weeds, a Ruins fern —
+      // joins the system for free.
+      if (Renderer3D.BRUSH_KEY.test(key)) {
+        const bi = this.brushProps.length;
+        this.brushProps.push({
+          e: entry, x: obj.position.x, z: obj.position.z,
+          baseQ: obj.quaternion.clone(), ax: 1, az: 0, a: 0, v: 0,
+        });
+        const bt = Math.floor(obj.position.z) * map.w + Math.floor(obj.position.x);
+        const cell = this.brushGrid.get(bt);
+        if (cell) cell.push(bi); else this.brushGrid.set(bt, [bi]);
+      }
       return true;
     };
 
@@ -7243,7 +7559,11 @@ export class Renderer3D {
         const ringS = ((ring!.userData.baseScale as number) ?? 1) * Math.max(0.05, radius * eased);
         // Generated ring meshes can be TALL — clamp world height so the
         // shockwave hugs the ground instead of ballooning over the fight.
-        if (ring!.userData.model) ring!.scale.set(ringS, Math.min(ringS * 0.3, 1.3), ringS);
+        // r2 tightened 0.3x/1.3 -> 0.1x/0.42 while chasing G-fault-0's "tall
+        // gold rectangle" (which turned out to be a camera-aligned charge
+        // LANE — see makeLaneMat's ground note); the tighter clamp stays, a
+        // ground shock is a ground shape at every radius.
+        if (ring!.userData.model) ring!.scale.set(ringS, Math.min(ringS * 0.1, 0.42), ringS);
         else ring!.scale.setScalar(ringS);
         if (ring!.userData.model) ring!.rotation.y += 0.05; // slow rune spin (mesh only)
         for (const mat of ring!.userData.mats as THREE.Material[]) {
@@ -7352,6 +7672,7 @@ export class Renderer3D {
       for (const d of this.dying) this.scene.remove(d.mesh);
       this.dying = [];
       this.buildFloor(state);
+      this.matSweepNow(); // a rebuild is a material burst; sweep it this frame
     }
     if (state.exploredVersion !== this.lastExploredVersion) {
       this.lastExploredVersion = state.exploredVersion;
@@ -7392,6 +7713,15 @@ export class Renderer3D {
         this.spawnGlow(p.pos.x, 0.4 + i * 0.35, p.pos.y, 0xf5e6bf, 0.65, 0.5);
       }
       this.spawnFxLight(p.pos.x, p.pos.y, 0xc9a24b, 9, 0.7, 1.1);
+      // THE ARRIVAL SETTLE: the party LANDS on the new floor. The frame
+      // starts a notch wide and eases home (projHalfHeight), the ground
+      // answers with a shock ring + kicked dust, and the trauma tick puts
+      // the thud of the descent on the same frame as its `descend` sound.
+      this.arrival = Renderer3D.ARRIVAL_T;
+      this.shocks.spawn(p.pos.x, p.pos.y, 0xc9a24b, 2.6, 0.5);
+      this.fxp.dust(p.pos.x, 0.15, p.pos.y, 10, this.dustTint);
+      this.addTrauma(0.3);
+      this.bloomKick = Math.min(1.4, this.bloomKick + 0.28);
     }
 
     // Players: reconcile mesh pool + animate each.
@@ -7434,13 +7764,40 @@ export class Renderer3D {
         if (dirG) dirG.rotation.y = -mesh.rotation.y;
       }
       mesh.visible = true;
+      // The local crawler's anchor ring rides the smoothed mesh position.
+      if (pl === p && this.anchorRingOn) { // p = the camera-owner (localPlayerId, else first)
+        const hex = Renderer3D.SKIN_ACCENT[skin] ?? 0x4fd1ff;
+        if (!this.anchorRing || this.anchorHex !== hex) {
+          if (this.anchorRing) this.scene.remove(this.anchorRing);
+          this.anchorRing = new THREE.Mesh(TELEGRAPH_GEO, makeAnchorMat(hex));
+          this.anchorRing.renderOrder = 5; // above decals/pools, under telegraphs
+          this.anchorRing.userData.noAO = true;
+          this.anchorRing.scale.setScalar(0.85);
+          this.scene.add(this.anchorRing);
+          this.anchorHex = hex;
+        }
+        this.anchorRing.visible = pl.alive;
+        this.anchorRing.position.set(mesh.position.x, 0.045, mesh.position.z);
+        (this.anchorRing.material as THREE.ShaderMaterial).uniforms.uTime.value = time;
+      }
+      this.updateHeroGhost(mesh, pl, state, dt);
       this.applyLoadout(mesh, pl);
-      // Weapon trail on the melee swing edge (attackSwing jumps up).
+      // Weapon trail on the melee swing edge (attackSwing jumps up), plus a
+      // compact commit glint at the hands — the swing's t=0 evidence must be
+      // ON THE ACTOR even when the crescent is buried in the crowd.
       {
         const prevSw = this.meleePrevSwing.get(pl.id) ?? 0;
-        if (pl.alive && pl.attackSwing > prevSw + 1e-6) this.spawnMeleeTrail(mesh, pl.id);
+        if (pl.alive && pl.attackSwing > prevSw + 1e-6) {
+          this.spawnMeleeTrail(mesh, pl.id);
+          this.fxp.castCommit(
+            mesh.position.x + pl.facing.x * 0.5, 0.95,
+            mesh.position.z + pl.facing.y * 0.5,
+            FX_PAL.strike, pl.facing, 0.62);
+        }
         this.meleePrevSwing.set(pl.id, pl.attackSwing);
       }
+      // Cast commit kits: every ability edge reads AT the caster (FX r2).
+      this.castCommitEdges(pl, mesh);
       // Animation velocity comes from the SMOOTHED mesh (which moves every
       // frame), EMA'd over ~100ms. Raw sim deltas are ZERO on render frames
       // between 60Hz sim steps (and between 15Hz net snapshots), so speed read
@@ -7454,6 +7811,31 @@ export class Renderer3D {
         this.animateRiggedPlayer(mesh, pl, plSpeed, move, dt);
       } else {
         this.animatePlayer(mesh, pl.alive, plSpeed, pl.attackSwing, time);
+      }
+      // THE GROUND ANSWERS THE STRIDE (appearance r1): each footfall kicks a
+      // pinch of the floor's own dust at the trailing foot, alternating
+      // sides, on the same distance cadence the audio director walks — so
+      // the puff, the footstep clip and the actual footplant read as one
+      // event. Two pooled particles per step: ~7/s at full sprint, nothing.
+      {
+        let st = this.strideFx.get(pl.id);
+        if (!st) { st = { acc: 0, n: pl.id % 2 }; this.strideFx.set(pl.id, st); }
+        if (!pl.alive || plSpeed < 0.6) {
+          st.acc = 0;
+        } else {
+          st.acc += plSpeed * dt;
+          if (st.acc >= 1.15) {
+            st.acc %= 1.15;
+            st.n++;
+            const inv = 1 / plSpeed;
+            const fx = move.x * inv, fz = move.y * inv; // unit travel direction
+            const side = st.n % 2 === 0 ? 0.13 : -0.13;
+            this.fxp.dust(
+              mesh.position.x - fx * 0.2 - fz * side, 0.05,
+              mesh.position.z - fz * 0.2 + fx * side,
+              2, this.dustTint);
+          }
+        }
       }
       // Extradition/Slurp stow timer: hide the held weapon while the hands
       // work the chain or the bottle, restore it the moment the act is done.
@@ -7536,6 +7918,7 @@ export class Renderer3D {
         this.weaponStow.delete(id);
         this.potionShow.delete(id);
         this.playerFxTick.delete(id);
+        this.strideFx.delete(id);
         const hexm = this.hexMarks.get(id);
         if (hexm) { this.scene.remove(hexm); this.hexMarks.delete(id); }
       }
@@ -7573,76 +7956,6 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.decoyMeshes) {
       if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
-    }
-
-    // THE GHOST, IN THE ROOM. Same body as the crawler it came from, drained of
-    // colour and half there: it has to read as a rival at a glance and never as
-    // something you can hit. It renders only while it shares your floor - a
-    // rival two floors down is information for the rail chip, not a marker
-    // floating through a wall.
-    {
-      const gp = this.ghostPose;
-      if (gp && gp.onFloor) {
-        const skin = Renderer3D.skinIdFor(p, state.seed);
-        if (this.ghostMesh && this.ghostSkin !== skin) {
-          this.scene.remove(this.ghostMesh);
-          this.ghostMesh = null;
-        }
-        if (!this.ghostMesh) {
-          const mesh = this.buildPlayerMesh(skin);
-          mesh.traverse((o) => {
-            const mm = o as THREE.Mesh;
-            if (!mm.isMesh || !mm.material) return;
-            const mats = (Array.isArray(mm.material) ? mm.material : [mm.material]).map((mat) => {
-              const g = mat.clone() as THREE.MeshStandardMaterial;
-              g.transparent = true;
-              g.opacity = 0.45;
-              g.depthWrite = false; // a see-through body must not punch the depth buffer
-              if (g.color) {
-                // Desaturate to its own luminance, then pull it cold. A grey
-                // crawler in a warm torchlit dungeon reads as "not really here"
-                // without needing an outline shader.
-                const l = g.color.r * 0.299 + g.color.g * 0.587 + g.color.b * 0.114;
-                g.color.setRGB(l * 0.72, l * 0.78, l * 0.92);
-              }
-              if (g.emissive) g.emissive.setRGB(0.05, 0.07, 0.11);
-              if (g.map !== undefined) g.metalness = 0;
-              g.roughness = 1;
-              return g;
-            });
-            mm.material = Array.isArray(mm.material) ? mats : mats[0];
-            mm.castShadow = false;
-            mm.receiveShadow = false;
-          });
-          (mesh.userData.play as ((n: string) => void) | undefined)?.("run");
-          // A GROUND MARKER, because a 34%-opacity cold body in a torchlit
-          // room reads as a lighting artifact. The ring is the cue that says
-          // "something is standing there" from across an arena; the projected
-          // nameplate (main3d: updateGhostPlate) says WHO.
-          const ring = new THREE.Mesh(
-            new THREE.RingGeometry(0.42, 0.56, 40).rotateX(-Math.PI / 2),
-            new THREE.MeshBasicMaterial({
-              color: 0x8fc0e8, transparent: true, opacity: 0.5,
-              depthWrite: false, side: THREE.DoubleSide,
-            }),
-          );
-          ring.position.y = 0.03;
-          ring.renderOrder = 2;
-          mesh.add(ring);
-          mesh.position.set(gp.x, 0, gp.y);
-          this.scene.add(mesh);
-          this.ghostMesh = mesh;
-          this.ghostSkin = skin;
-        }
-        const gm = this.ghostMesh;
-        const dx = gp.x - gm.position.x, dz = gp.y - gm.position.z;
-        if (dx * dx + dz * dz > 4e-4) this.turnTo(gm, Math.atan2(dx, dz), dt);
-        this.smoothTo(gm, gp.x, 0, gp.y, dt);
-        gm.visible = true;
-        (gm.userData.animTick as ((d: number) => void) | undefined)?.(dt);
-      } else if (this.ghostMesh) {
-        this.ghostMesh.visible = false;
-      }
     }
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
@@ -8023,7 +8336,38 @@ export class Renderer3D {
           ud.revealed = true; // don't double-awaken on the reveal that follows
           ud.wasDormant = true;
           playM(mon.kind === "greeter" ? "dormant_stand" : "dormant_floor");
+          // SET DRESSING THAT IS SECRETLY ALIVE STAYS SECRETLY ALIVE — but not
+          // STONE (appearance r2 major #5): the Inactive poses are single held
+          // frames, so a showroom rank photographed identically across every
+          // burst frame. A body pretending to be an object still breathes:
+          // standing units get a slow sub-degree sway plus a rare mechanical
+          // settle-tick (a wind-up toy holding still, not a statue), floor
+          // bones stay dead — bones are allowed to be bones. Per-id phase so a
+          // rank never moves in unison; amplitudes sit at the edge of notice,
+          // because the trap must stay a trap while the room reads inhabited.
+          if (mon.kind === "greeter" || mon.kind === "toysoldier") {
+            if (ud.dormYaw === undefined) {
+              ud.dormYaw = mesh.rotation.y;
+              ud.dormSy = mesh.scale.y;
+            }
+            const ph = (mon.id % 61) * 0.618;
+            // Breath: ~1.2% of height, ~4 s period.
+            mesh.scale.y = (ud.dormSy as number) * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
+            // The settle-tick: every ~5-8 s (per id) a quick 3-degree head
+            // check that eases out over ~0.4 s. Smooth pulse, no RNG.
+            const period = 5 + (mon.id % 4);
+            const cyc = (time + ph * period) % period;
+            const tick = Math.max(0, 1 - cyc / 0.4);
+            mesh.rotation.y = (ud.dormYaw as number) +
+              0.016 * Math.sin(time * 0.45 + ph) +
+              0.05 * tick * tick * Math.sin(ph * 9.7);
+          }
         } else {
+        if (ud.dormYaw !== undefined) {
+          // Sprung: hand the body back to the live path exactly as it was.
+          mesh.scale.y = ud.dormSy as number;
+          ud.dormYaw = undefined;
+        }
         if (ud.wasDormant) {
           ud.wasDormant = false;
           playFirstM("awaken", "hit"); // SPRUNG: rise/jolt out of the pose
@@ -8180,9 +8524,9 @@ export class Renderer3D {
         strip.scale.set(len, width, 1);
         strip.rotation.y = -Math.atan2(laneDir.y, laneDir.x);
         const prog = 1 - mon.windup / Math.max(mon.windupTotal, 1e-3);
-        const laneHex =
+        const laneHex = this.dangerHex(
           mon.windupKind === "hook" ? 0x7cc95a :
-          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e;
+          mon.windupKind === "lunge" ? 0xd4c94f : 0xff9a2e);
         const mat = strip.material as THREE.ShaderMaterial;
         (mat.uniforms.uColor.value as THREE.Color).setHex(laneHex);
         mat.uniforms.uProg.value = prog;
@@ -8267,7 +8611,7 @@ export class Renderer3D {
           mon.windupKind === "pull" ? ASK_PAL.arena.mid :
           mon.kind === "boss" ? ASK_PAL[bossFamily(mon.bossId)].mid : 0xff5030;
         const tm = tel.userData.telMat as THREE.ShaderMaterial;
-        (tm.uniforms.uColor.value as THREE.Color).setHex(telColor);
+        (tm.uniforms.uColor.value as THREE.Color).setHex(this.dangerHex(telColor));
         tm.uniforms.uProg.value = prog;
         tm.uniforms.uTime.value = time + mon.id * 0.7; // desync neighboring tells
         tm.uniforms.uBoss.value = mon.kind === "boss" || mon.elite ? 1 : 0;
@@ -8634,11 +8978,22 @@ export class Renderer3D {
               ? (hz.ability === "nova" ? FX_PAL.pull.rim : FX_PAL.cataclysm.rim) // yours: void rift vs magma
               :
             0x7fb832; // acid
-          ring = new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(bodyHex));
+          if (hz.kind === "fissure") {
+            // FAULT LINE r2: the ultimate's sustain gets AUTHORED broken
+            // ground (jagged crack lines + molten core), not the generic
+            // pool wash — see makeFissureMat's note.
+            const fpal = hz.ability === "nova" ? FX_PAL.pull : FX_PAL.cataclysm;
+            ring = new THREE.Mesh(TELEGRAPH_GEO, makeFissureMat(fpal.rim, fpal.mid, hz.id));
+            ring.userData.fissure = true;
+            ring.userData.emberHex = fpal.mid;
+          } else {
+            ring = new THREE.Mesh(TELEGRAPH_GEO, makePoolMat(bodyHex));
+          }
           ring.userData.pool = true;
         } else {
           const mat = makeTelegraphMat();
-          (mat.uniforms.uColor.value as THREE.Color).setHex(hz.flavor === "flame" ? 0xff7733 : 0xff4628);
+          (mat.uniforms.uColor.value as THREE.Color).setHex(
+            this.dangerHex(hz.flavor === "flame" ? 0xff7733 : 0xff4628));
           ring = new THREE.Mesh(TELEGRAPH_GEO, mat);
         }
         ring.renderOrder = 4;
@@ -8662,6 +9017,14 @@ export class Renderer3D {
         }
       }
       ring.visible = inVision(hz.pos);
+      // The fissure smolders: sparse embers rise off the crack lines for as
+      // long as the ground is broken — molten, not painted.
+      if (ring.userData.fissure && ring.visible && Math.random() < dt * 6) {
+        this.fxp.embers(
+          hz.pos.x + (Math.random() - 0.5) * hz.radius * 1.1,
+          hz.pos.y + (Math.random() - 0.5) * hz.radius * 1.1,
+          ring.userData.emberHex as number, 1, 0.5);
+      }
       // Fire-flavored blasts shed a few live embers while they arm — the
       // patch reads as burning ground, not painted ground.
       if (!pool && hz.flavor === "flame" && ring.visible && Math.random() < dt * 7) {
@@ -9142,6 +9505,7 @@ export class Renderer3D {
     if (this.bloomBase < 0) this.bloomBase = this.bloom.strength;
     if (this.bloomBaseRadius < 0) this.bloomBaseRadius = this.bloom.radius;
     this.bloomKick = Math.max(0, this.bloomKick - dt * 4.2);
+    this.arrival = Math.max(0, this.arrival - dt); // the landing settles
     // GLARE GOVERNOR. The kick comment below used to say "a big kick used to
     // fog the whole quadrant" — acceptance then photographed the whole FRAME
     // fogged, because the kick was never the only thing feeding the pass. What
@@ -9161,6 +9525,8 @@ export class Renderer3D {
 
     // Camera follows the player from the fixed iso direction, plus trauma shake.
     this.trauma = Math.max(0, this.trauma - dt * 1.6);
+    // The punch-in releases in ~200 ms (attack was instant at the hit).
+    this.hitPunch = Math.max(0, this.hitPunch - dt * 5);
     const amp = this.trauma * this.trauma * Renderer3D.SHAKE_MAX;
     const sx = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
     const sz = amp > 0 ? (Math.random() * 2 - 1) * amp : 0;
@@ -9375,6 +9741,7 @@ export class Renderer3D {
 
     // Camera courtesy: shrink foliage that hides the action (open-air only).
     this.updateCanopy(state, ax, az, dt);
+    this.updateFoliageBrush(state, ax, az, dt);
 
     // LAST, because it must see everything this frame added. Anything carrying
     // a material the game has never drawn is parked off-camera and compiled
@@ -9450,6 +9817,86 @@ export class Renderer3D {
     for (const mesh of dirty) mesh.instanceMatrix.needsUpdate = true;
   }
 
+  /**
+   * FOLIAGE BRUSH (appearance r1). Bodies moving through registered
+   * undergrowth kick a damped spring: the piece tilts away along the push
+   * direction, swings back once, settles. All presentation: the write path is
+   * the same updateMatrix + propLeafWrite the fog reveal uses, and only
+   * pieces with a live spring (brushActive) pay per-frame cost.
+   */
+  private updateFoliageBrush(state: GameState, ax: number, az: number, dt: number): void {
+    if (this.brushProps.length === 0) return;
+    // 1) Impulses from movers: living players, plus monsters near the frame.
+    const kick = (id: number, x: number, z: number): void => {
+      const prev = this.brushMovers.get(id);
+      this.brushMovers.set(id, { x, z });
+      if (!prev) return;
+      const mx = x - prev.x, mz = z - prev.z;
+      const moved = Math.hypot(mx, mz);
+      if (moved < 0.02 || moved > 1.2) return; // idle or teleport
+      const bx = Math.floor(x), bz = Math.floor(z);
+      for (let dz = -1; dz <= 1; dz++) {
+        for (let dxx = -1; dxx <= 1; dxx++) {
+          const cell = this.brushGrid.get((bz + dz) * this.brushGridW + (bx + dxx));
+          if (!cell) continue;
+          for (const bi of cell) {
+            const b = this.brushProps[bi];
+            const rx = b.x - x, rz = b.z - z;
+            const d = Math.hypot(rx, rz);
+            if (d > 0.55) continue;
+            // Push away from the body; a piece dead-underfoot inherits the
+            // travel direction instead of dividing by zero.
+            const inv = d > 1e-3 ? 1 / d : 0;
+            b.ax = inv ? rx * inv : mx / moved;
+            b.az = inv ? rz * inv : mz / moved;
+            // Speed-scaled, capped: a sprint parts the grass, a shuffle stirs it.
+            b.v = Math.min(6, b.v + 3 + (moved / dt) * 0.35);
+            this.brushActive.add(bi);
+          }
+        }
+      }
+    };
+    for (const pl of state.players) if (pl.alive) kick(pl.id, pl.pos.x, pl.pos.y);
+    for (const mo of state.monsters) {
+      if (mo.hp <= 0 || mo.dormant) continue;
+      if (Math.abs(mo.pos.x - ax) > 14 || Math.abs(mo.pos.y - az) > 10) continue;
+      kick(~mo.id, mo.pos.x, mo.pos.y);
+    }
+    // 2) Integrate live springs; settle back to the exact base pose.
+    if (this.brushActive.size === 0) return;
+    const STIFF = 170, DAMP = 6.5, MAXA = 0.42;
+    let wroteBatch = false;
+    for (const bi of this.brushActive) {
+      const b = this.brushProps[bi];
+      b.v += (-STIFF * b.a - DAMP * b.v) * dt;
+      b.a += b.v * dt;
+      if (Math.abs(b.a) < 0.008 && Math.abs(b.v) < 0.05) {
+        b.a = 0; b.v = 0;
+        this.brushActive.delete(bi);
+      }
+      const ang = Math.max(-MAXA, Math.min(MAXA, b.a));
+      const o = b.e.obj;
+      // Tilt about the ground anchor: rotation axis is horizontal,
+      // perpendicular to the push direction (about (az, 0, -ax) tips +y
+      // toward +push). Base pose restored exactly at settle (a == 0).
+      o.quaternion.copy(b.baseQ).premultiply(
+        this.brushQ.setFromAxisAngle(this.brushAxis.set(b.az, 0, -b.ax), ang));
+      o.updateMatrix();
+      o.updateMatrixWorld(true);
+      if (b.e.leaves && b.e.shown) {
+        for (const leaf of b.e.leaves) this.propLeafWrite(leaf);
+        wroteBatch = true;
+      }
+    }
+    // updateFogTint's dirty flush already ran this frame — flush our own
+    // writes now so the sway shows this frame, not next.
+    if (wroteBatch) {
+      for (const bt of this.propBatches) {
+        if (bt.dirty) { bt.dirty = false; bt.mesh.instanceMatrix.needsUpdate = true; }
+      }
+    }
+  }
+
   /** Procedural animation for a placeholder player mesh (walk bob, attack lunge, death). */
   private animatePlayer(mesh: THREE.Group, alive: boolean, speed: number, attackSwing: number, time: number): void {
     const body = mesh.userData.body as THREE.Mesh | undefined;
@@ -9483,6 +9930,23 @@ export class Renderer3D {
       if (body) body.rotation.z = 0;
       if (weapon) weapon.rotation.x = restX;
     }
+  }
+
+  // HUE-COMPETITION GUARD (FX r2 #6): on bands whose dressing owns the warm
+  // slice (theme.dangerCrimson — the IRONWORKS' molten seams and red crates),
+  // the GENERIC warm telegraph hexes remap to crimson-magenta, a slice the
+  // environment never uses. Literal-keyed so boss ASK golds and the cool
+  // tells (heal green, hex violet, frost) can never drift through a hue test.
+  private dangerCrimson = false;
+  private static DANGER_REMAP = new Map<number, number>([
+    [0xff5030, 0xff2456], // generic strike disc
+    [0xff2020, 0xff1f50], // slam
+    [0xff7733, 0xff3d6a], // fuse / flame blast
+    [0xff9a2e, 0xff4f7a], // charge lane
+    [0xff4628, 0xff2456], // hazard blast disc
+  ]);
+  private dangerHex(hex: number): number {
+    return this.dangerCrimson ? Renderer3D.DANGER_REMAP.get(hex) ?? hex : hex;
   }
 
   /** Claim the right to spawn a FULL impact flash at (x,z): returns false if
@@ -9599,6 +10063,25 @@ export class Renderer3D {
         this.fxp.sparks(h.pos.x, 0.7, h.pos.y, 0xe2574c, 7, h.dir);
         this.fxp.dust(h.pos.x, 0.2, h.pos.y, 2, this.dustTint);
       }
+      // THE ATTACK READS, NOT JUST ITS NUMBER (FX r2 #5): incoming hits used
+      // to be carried entirely by the red numeral. A short crimson slash —
+      // 3 stretched streaks sweeping ALONG the attack direction through the
+      // crawler — gives the enemy swing a visible stroke of its own.
+      if (h.kind === "player" && h.dir) {
+        const dl = Math.hypot(h.dir.x, h.dir.y) || 1;
+        const dx = h.dir.x / dl, dz = h.dir.y / dl;
+        for (let i = 0; i < 3; i++) {
+          const off = (i - 1) * 0.22;
+          this.fxp.spawn({
+            x: h.pos.x - dx * 0.8 - dz * off, y: 0.85 + (Math.random() - 0.5) * 0.25,
+            z: h.pos.y - dz * 0.8 + dx * off,
+            vx: dx * (11 + Math.random() * 3), vz: dz * (11 + Math.random() * 3),
+            life: 0.13, size0: 0.2, size1: 0.06,
+            col0: 0xff8a70, col1: 0xc22818,
+            stretch: 3.0, fadeIn: 0.01, dim: 0.9,
+          });
+        }
+      }
       // Killing blows pop: a fatter, impact-directed burst + an extra shake kick.
       const n = (h.kind === "crit" ? 14 : 8) + (h.killed ? 10 : 0) + (h.overkill ? 10 : 0);
       this.spawnBurst(h.pos.x, h.pos.y, color, n, h.dir);
@@ -9629,18 +10112,32 @@ export class Renderer3D {
           });
         }
         if (h.overkill) this.shocks.spawn(h.pos.x, h.pos.y, hot, 1.8, 0.4);
+        // Every kill stamps a ground shock (FX r2 #3): the contact frame of
+        // a killing blow reads at t=0 even when the flash card is occluded.
+        else if (h.kind !== "crit") this.shocks.spawn(h.pos.x, h.pos.y, hot, 1.15, 0.24);
       }
       if (h.kind === "player") this.addTrauma(0.55); // taking damage should register
       if (h.kind === "crit") this.addTrauma(0.3);
       if (h.killed && h.kind !== "player") this.addTrauma(0.25);
+      // The lens answers the big beats (appearance r2 #6): crits, kills and
+      // taking a real hit each kick the punch-in. Chip damage adds nothing —
+      // the channel only opens on the hits the sim already calls moments.
+      if (h.kind === "player") this.addHitPunch(0.55);
+      if (h.kind === "crit") this.addHitPunch(0.6);
+      if (h.killed && h.kind !== "player") this.addHitPunch(0.4);
       if (h.overkill && h.kind !== "player") {
         this.addTrauma(0.2);
+        this.addHitPunch(0.5);
         // The corpse this kill removes (next reconcile) gets launched.
         this.overkillMarks.push({ x: h.pos.x, y: h.pos.y, dir: h.dir, t: 0.5 });
       }
       // Big deaths flash real light into the world (small kills stay cheap).
+      // r1 trim: 4.5 over half a second read as a bonfire that outlived the
+      // kill (and with the old late-peaking envelope, arrived after it) — the
+      // punctuation is the SNAP, so the peak comes down a step and the decay
+      // is shorter. The overkill hit-stop + corpse launch carry the weight.
       if (h.killed && h.kind !== "player" && (h.overkill || h.kind === "crit")) {
-        this.spawnFxLight(h.pos.x, h.pos.y, color, h.overkill ? 4.5 : 2.8, h.overkill ? 0.5 : 0.32);
+        this.spawnFxLight(h.pos.x, h.pos.y, color, h.overkill ? 3.6 : 2.6, h.overkill ? 0.38 : 0.3);
       }
     }
   }
@@ -9708,11 +10205,19 @@ export class Renderer3D {
     const obj = this.modelInstance(key);
     if (!obj) return; // asset absent: the glow puffs carry the moment alone
     let base = 1;
+    let yCap = Infinity;
     if (opts?.footprint) {
       const size = new THREE.Box3().setFromObject(obj).getSize(new THREE.Vector3());
       base = 2 / Math.max(size.x, size.z, 1e-3);
+      // GROUND SHAPES STAY GROUND SHAPES (FX r2 #4). footprint normalizes
+      // x/z only, so a generated mesh that is TALLER than wide (the Meshy
+      // detonation/blast stars) kept its full height and photographed as a
+      // tall gold RECTANGLE at the Fault Line detonation (G-fault-0 — read
+      // as a glitched UI card). Cap the world height at ~0.6u.
+      yCap = 0.6 / Math.max(size.y, 1e-3);
     }
     obj.scale.setScalar(base * scale);
+    if (obj.scale.y > yCap) obj.scale.y = yCap;
     obj.position.set(x, y, z);
     const mats: THREE.Material[] = [];
     obj.traverse((o) => {
@@ -9732,6 +10237,7 @@ export class Renderer3D {
     this.fadeProps.push({
       obj, mats, life: 0, max, spin: opts?.spin ?? 4, grow: opts?.grow ?? 0,
       s0: base * scale, pop: opts?.pop ?? false,
+      yMul: Math.min(1, yCap / Math.max(base * scale, 1e-6)),
     });
   }
 
@@ -9848,8 +10354,16 @@ export class Renderer3D {
       if (s.life >= s.max) { s.light.intensity = 0; continue; }
       anyLive = true;
       s.life += dt;
-      const t = Math.min(1, s.life / s.max);
-      const env = t < 0.12 ? t / 0.12 : (1 - (t - 0.12) / 0.88) ** 2;
+      // ATTACK IS ABSOLUTE, NOT A FRACTION (combat FX r1). `t/0.12` meant a
+      // 0.5s overkill light reached peak 60ms AFTER the blow — the filmstrip
+      // showed the frame BRIGHTENING through the whole 200ms window while the
+      // contact frame itself sat dark, which is the LoL rhythm inverted. A
+      // light now snaps up within ~30ms whatever its length, and spends the
+      // rest decaying — impact first, afterglow second.
+      const riseS = Math.min(0.03, s.max * 0.12);
+      const env = s.life < riseS
+        ? s.life / riseS
+        : (1 - (s.life - riseS) / Math.max(s.max - riseS, 1e-4)) ** 2;
       // Fire flicker on the decay: the floor pool breathes like burning
       // aftermath instead of holding a flat neutral ellipse (critic r2).
       const flick = 0.84 + 0.16 * Math.sin(s.life * 43 + s.peak * 13);
@@ -9981,6 +10495,7 @@ export class Renderer3D {
         s *= 0.6 + 0.4 * k + 0.28 * Math.sin(k * Math.PI); // punch past, settle back
       }
       fp.obj.scale.setScalar(s);
+      fp.obj.scale.y = s * fp.yMul; // footprint props stay ground shapes
       const t = fp.life / fp.max;
       for (const mat of fp.mats) (mat as THREE.MeshBasicMaterial).opacity = 1 - t * t;
       this.fadeProps[w++] = fp;
