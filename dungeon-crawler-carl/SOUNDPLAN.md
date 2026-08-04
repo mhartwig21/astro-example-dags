@@ -146,6 +146,14 @@ Headroom contract: with a bed at target plus a 20-hit brawl, the level at the
 master compressor input stays under 0 dBFS and the OUTPUT never hard-clips —
 verified by the §5 brawl probe, not asserted.
 
+**Phase C re-level list** (files still decoding over/near full scale but
+one-at-a-time + throttled, so not brawl-critical; measured SFX r2):
+`door_unlock` +3.7 dBFS, `descend` +3.1, `gold` +2.5, `lootbox` +1.5,
+`announce` -0.9, `bolt` -0.8, `death` -0.5, `heal` -0.6, `warning` -1.0.
+The brawl-critical set (hit/crit/player_hurt/nova) was re-leveled in r2 to
+≤ -3 dBFS; collapse.ogg's level (mom -5.2, family target -20) is also
+phase C's.
+
 ### 2.3 Ducking matrix (who yields to whom)
 
 | Trigger | Ducks | Amount / shape |
@@ -246,8 +254,13 @@ Measured today: public/audio = **24.7MB raw** (music 24.2, sfx 0.5).
 Even if every bed comes out double the estimate, net stays ≈ +8.5MB < 10MB.
 The re-encode pass lands FIRST so the budget is banked before beds arrive.
 Report the measured delta (before/after `du` + gz) in the phase-final commit.
-Audio still loads on idle after playability (perf-round decision) — nothing
-here touches boot.
+**Boot reality (corrected r2 — the earlier "loads on idle" line here was
+doc drift)**: main3d.ts SIGNAL ACQUISITION front-loads ALL audio inside the
+boot card (`audio.load()` is 20% of the boot progress weight; measured 2.0s
+of an 8.0s local boot). That is a focus-era, pre-branch decision, not this
+track's — but it means audio payload IS boot time, so the 10MB budget is
+also a boot budget. If a future perf round re-litigates it, the silent-
+fallback engine already tolerates late decode (`pendingMusic` retries).
 
 ### 4.4 Phasing
 
