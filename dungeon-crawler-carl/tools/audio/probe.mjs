@@ -83,9 +83,19 @@ try {
       const s = window.__dcc.state;
       if (s && s.elapsed !== P.lastElapsed) {
         P.lastElapsed = s.elapsed;
-        const combat = s.hits.filter((h) => !h.effect && (h.kind === "enemy" || h.kind === "crit" || h.kind === "player"));
+        // Mirror the director's earshot rule (EARSHOT=24 tiles): a hit the
+        // director is designed to skip is not a missed sound.
+        const me = s.players[0];
+        const combat = s.hits.filter((h) => !h.effect
+          && (h.kind === "enemy" || h.kind === "crit" || h.kind === "player")
+          && me && Math.hypot(h.pos.x - me.pos.x, h.pos.y - me.pos.y) <= 24);
         if (combat.length > 0) {
-          P.hitFrames.push({ t: performance.now(), n: combat.length, kinds: combat.map((h) => h.kind + (h.killed ? "!" : "")) });
+          // Timestamp with the rAF vsync time `t`, NOT performance.now():
+          // this callback runs after the game's (same frame turn), and a slow
+          // render inside that turn (shader compile, GC) would smear
+          // performance.now() hundreds of ms past the play() calls — measured
+          // as a phantom 231ms "missed impact" exactly once per run.
+          P.hitFrames.push({ t, n: combat.length, kinds: combat.map((h) => h.kind + (h.killed ? "!" : "")) });
         }
       }
       requestAnimationFrame(loop);
@@ -135,8 +145,9 @@ try {
   const { probe, plays, peakPre, peakPost } = data;
   const frameDur = (probe.t1 - probe.t0) / Math.max(1, probe.frames - 1);
   const winMs = 2 * frameDur;
-  const audible = plays.filter((p) => !p.throttled);
-  const attempts = plays; // throttled + audible
+  const audible = plays.filter((p) => !p.throttled && !p.skipped);
+  const attempts = plays; // audible + throttled + engine-skipped (director fired in all three)
+  const skips = plays.filter((p) => p.skipped);
 
   // 1) impact sync: every observed combat-hit frame has a combat-clip ATTEMPT
   // within 2 frames (the director fired; the engine may legally swallow).
@@ -151,7 +162,15 @@ try {
       synced++;
       if (best > worst) worst = best;
     } else {
-      misses.push({ t: hf.t, best: Number.isFinite(best) ? Math.round(best) : null, kinds: hf.kinds });
+      misses.push({
+        t: hf.t,
+        best: Number.isFinite(best) ? Math.round(best) : null,
+        kinds: hf.kinds,
+        // Forensics: what the engine DID record around this moment.
+        near: plays
+          .filter((p) => Math.abs(p.at - hf.t) < 400)
+          .map((p) => `${Math.round(p.at - hf.t)}ms ${p.id}${p.throttled ? "(thr)" : ""}${p.skipped ? `(${p.skipped})` : ""}`),
+      });
     }
   }
 
@@ -189,6 +208,9 @@ try {
       worstMs: Math.round(worst),
       misses: misses.slice(0, 5),
     },
+    engineSkips: skips.length
+      ? skips.reduce((m, p) => ((m[p.skipped] = (m[p.skipped] ?? 0) + 1), m), {})
+      : undefined,
     headroom: {
       peakCompressorIn: Number(peakPre.toFixed(3)),
       peakCompressorOut: Number(peakPost.toFixed(3)),

@@ -51,6 +51,9 @@ export interface PlayRecord {
   gain: number; // effective gain (manifest volume x opts.gain)
   rate: number; // effective playback rate
   throttled?: boolean; // the spam guard swallowed this attempt (no sound)
+  // The engine was unable to play at all (distinct from throttling): the
+  // director DID fire — impact-sync analysis must not count these as misses.
+  skipped?: "noctx" | "nobuf" | "muted" | "suspended";
 }
 
 export interface AudioDebugHook {
@@ -161,7 +164,15 @@ export class AudioEngine implements AudioSink {
   play(id: SoundId, opts: PlayOpts = {}): void {
     const ctx = this.ctx;
     const buf = this.buffers.get(id);
-    if (!ctx || !buf || this.prefs.muted || ctx.state !== "running") return;
+    if (!ctx || !buf || this.prefs.muted || ctx.state !== "running") {
+      if (this.dbg) {
+        const why = !ctx ? "noctx" : !buf ? "nobuf" : this.prefs.muted ? "muted" : "suspended";
+        const d = this.dbg;
+        d.plays.push({ id, at: performance.now(), ctxAt: ctx?.currentTime ?? 0, gain: 0, rate: 0, skipped: why });
+        if (d.plays.length > 4096) d.plays.splice(0, d.plays.length - 4096);
+      }
+      return;
+    }
     const def: SoundDef = AUDIO_MANIFEST[id];
     const now = performance.now();
     const last = this.lastPlayed.get(id) ?? -Infinity;
@@ -306,7 +317,9 @@ export class AudioEngine implements AudioSink {
     const d = this.dbg;
     if (!d) return;
     d.plays.push({ id, at, ctxAt: this.ctx?.currentTime ?? 0, gain, rate, ...(throttled ? { throttled } : {}) });
-    if (d.plays.length > 512) d.plays.splice(0, d.plays.length - 512);
+    // 4096: a 10s staged brawl generates ~600 attempts; a ring that trims
+    // mid-probe silently fabricates "missed" impact-sync matches (measured).
+    if (d.plays.length > 4096) d.plays.splice(0, d.plays.length - 4096);
   }
 
   /**
