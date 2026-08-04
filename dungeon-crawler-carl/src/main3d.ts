@@ -7419,7 +7419,7 @@ function showTutorialCard(a: Announcement): void {
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
-    `<div class="tut-head"><i class="dia"></i> SYSTEM — COURTESY EXPLANATION</div>` +
+    `<div class="tut-head"><i class="dia"></i> SYSTEM<span class="tut-hx"> — COURTESY EXPLANATION</span></div>` +
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -7441,8 +7441,13 @@ function showTutorialCard(a: Announcement): void {
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
   tutorialShownAt = performance.now();
-  // Auto-dismiss: a courtesy, not a squatter (r2: 6-8s, or any input).
-  tutorialAutoTimer = window.setTimeout(dismiss, 7000);
+  // Auto-dismiss: a courtesy, not a squatter (r2: or any input). The hold
+  // scales with the line — 7s flat gave the ONRAMP's 170-char teaching lines
+  // ~24 chars/s, faster than anyone reads a System clause on a phone.
+  tutorialAutoTimer = window.setTimeout(
+    dismiss,
+    Math.min(14000, Math.max(7000, 55 * body.length)),
+  );
 }
 
 // Any input clears the courtesy card (r2) — with a short grace so the key
@@ -10180,8 +10185,16 @@ function updateDowned(s: GameState): void {
   if (s.mode !== "rivals" || p.alive === true) {
     downedEl.style.display = "none";
     delete downedEl.dataset.mode;
+    document.body.classList.remove("downed");
     return;
   }
+  // While either death-moment card is up, the headline banner stands down on
+  // touch (body.downed — CSS, same grammar as body.bossplate): the System's
+  // dispute line was measured bleeding through the card into the countdown.
+  document.body.classList.toggle(
+    "downed",
+    p.conceded === true || (p.downedT ?? 0) > 0,
+  );
   if (p.conceded) {
     // The seat is freed; the doors lead back IN. QUEUE AGAIN arrives with the
     // public queue (4.5) — no door is rendered to a room that doesn't exist.

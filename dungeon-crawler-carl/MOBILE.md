@@ -289,6 +289,65 @@ recap/sharesheet rails render desktop-identical by construction.
 
 ---
 
+## ROUND 5 (mobile-wr r2) — THE SYSTEM'S VOICE WAS BEING CUT OFF MID-WORD
+
+The wr acceptance round (ac-wr-r1) found three majors on the NEW surfaces, all
+presentation, all phone-class. Fixed and verified with real CDP touch on
+iPhone 13 / iPad Pro 11 / Pixel 5: `tools/_mobile/ac_wr_r2.mjs` (24 checks /
+0 FAIL, frames + report under `tools/_mobile/ac-wr-r2/`) plus a full re-run of
+the surfaces battery (`ac_wr_surf2.mjs`, 26 checks / 0 FAIL, `ac-wr-r2-surf/`).
+
+1. **The COURTESY card's two-line clamp was the wound, and it swallowed its
+   own dismiss.** On compact/phone the r4 treatment clamped `.tut-body` to two
+   lines with `overflow: hidden` — measured on a live fresh-crawler run,
+   47px shown of 179px of the ONRAMP's teaching line (73% clipped), the
+   centre plate reading 'BOX. It will not' mid-word — and because GOT IT
+   lived INSIDE the clamped body, the button was painted out of existence
+   while still claiming a 78x44 rect (hit-test: FAIL). The clamp is gone: the
+   card spans the full measured plaque band (--card-w, the 36ch compact cap
+   deleted), a 44px head strip carries the ribbon (abbreviated to SYSTEM via
+   `.tut-hx` on phones) with GOT IT as a permanent 100x44 cell, and the body
+   wraps in full below. **GOT IT docks at the band's LEFT end** — the first
+   fix docked it right and its rect landed exactly on the ☰ glyph chip at
+   (491,35) on a Pixel 5, so the CRAWL LEDGER tap dismissed a courtesy
+   instead; the card's *glass* may cover the centre chips (it is
+   pointer-transparent and taps pass through), its one real *button* may not.
+   Auto-dismiss now scales with the line (55 ms/char, 7-14s). Worst line
+   measured 93px of card on a Pixel 5, nothing scroll-clipped on any class.
+2. **The death moment now owns its pixels.** The high-priority banner
+   (`#headline`, top max(19%,152px)) bled through the 0.9-alpha YOU ARE DOWN
+   card into the countdown, and CONCEDE's bottom sat below the home-indicator
+   inset. On coarse pointers the card is opaque (a modal moment is not
+   chrome), centres in the inset-aware viewport
+   (`calc((100dvh - --sa-b)/2)`), and the two doors sit side by side again —
+   two 187x44 thumb targets beat a stacked pair running off the glass. While
+   it is up, `body.downed` stands the headline AND the courtesy card down
+   (visibility, coarse-only) — same standdown grammar as `body.bossplate`.
+   Measured: card 420x171 fully inside the glass on both phone and tablet,
+   banner live in the DOM with `visibility: hidden`, CONCEDE lands by touch,
+   SEAT FREED, RUN IT BACK unaffected.
+3. **The standings chip hangs from the measured plaque fact.** `#party` sat
+   at a constant top (96/78px) while the plaque and XP under-rail breathe with
+   content — measured 3659px² of collision with the plate on an iPad Pro 11
+   and a visible collision mid-race on an iPhone 13. Phone classes dock it at
+   `--xp-top + 14`; tablets at `--xp-top + 158`, under the minimap puck that
+   owns their right rail. Zero intersection with plate, rail and minimap on
+   all three devices, mid-race.
+
+**The desktop track owes one fix** (BACKLOG.md 1b, NOT this branch): slot-1
+melee by SPACE and slot-4 stuntdouble by C cast nothing — no damage, no
+cooldown, no decoy with a monster staged 0.9 tiles out and keys held 1.4s —
+identically on baseline `focus`. `deskdeep.mjs` on this branch: every other
+check PASSES, touch chrome still not injected on a fine pointer.
+
+**Probe lesson kept.** The surfaces battery's perf-row check FAILed while the
+dedicated probe PASSed: its scroll drag ended as a fling and it tapped
+coordinates read 400ms earlier, mid-deceleration. Scroll drags in a probe end
+SETTLED (finger still 240ms before lift, `ac_wr_perfrow.mjs` semantics) and a
+moved row gets one re-aimed tap — a human thumb does both without thinking.
+
+---
+
 **Read §2.0 first.** Two design-critic rounds (6.5, then 7.0 against an 8.0 bar)
 found six places where this document described an intention instead of deciding
 one. §2.0 is the decision register that settles all six with numbers, and it

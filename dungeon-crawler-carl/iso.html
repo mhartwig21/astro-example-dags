@@ -761,6 +761,20 @@
         box-shadow: inset 0 1px 0 rgba(232,221,200,0.1), inset 0 0 0 1px rgba(0,0,0,0.5);
         padding: 4px 14px; font-size: 12px; color: #a99f8c; pointer-events: none; }
       body.phone #party { top: 78px; font-size: 10px; padding: 3px 10px; }
+      /* wr r2: on phone classes the roster chip sat at a fixed 78px while the
+         plaque + XP under-rail it docks beneath breathe with content — during
+         a race it collided with the XP-bar plate top-right
+         (ac-wr-r1/iphone13-deathdoor.png). It now hangs from the same
+         measured fact the rail itself uses (--xp-top = plaque bottom + 4). */
+      body.touch[data-uiclass="compact"] #party,
+      body.touch[data-uiclass="phone"] #party {
+        top: calc(var(--xp-top, 96px) + 14px); right: var(--gut-r, 12px); }
+      /* Tablets measured the same collision (3659px² with the plate on an
+         iPad Pro 11) — but their right rail also carries the minimap puck at
+         --xp-top + 14, 160px scaled 0.85. The roster slides in under it. */
+      body.touch[data-uiclass="tablet-s"] #party,
+      body.touch[data-uiclass="tablet-l"] #party {
+        top: calc(var(--xp-top, 96px) + 158px); right: var(--gut-r, 12px); }
 
       /* Boss encounter: ringside intro splash + persistent top health bar.
          The splash sits BELOW the headline zone (see screen zones above) — a
@@ -1443,28 +1457,46 @@
       body[data-uiclass="compact"] #banner #tb-crawler::before { content: "☰"; }
       body[data-uiclass="compact"] #banner .tb.open .topbtn { opacity: 1; }
       /* THE COURTESY CARD MOVED OUT OF THE STICK ZONE AND NEVER OUT OF THE
-         SIGHT LINE. Measured on an iPhone 13 combat frame: 266x144 = 33% of a
-         750x342 screen, parked over the monster pack, with 6 of 13 on-screen
-         monsters resolving under a non-canvas element, 81% overlap with
-         `#banner` and 89% with `#show` — the HYPE meter the compact class
-         explicitly keeps because "HYPE is a mechanic". Same on a Pixel 5
-         (65% / 69%). And these cards fire constantly.
-         On a phone the card is therefore a TWO-LINE System line inside the
-         read band, with its dismiss inline: it cannot reach the crawler (the
-         keepout starts at 37% of height), it cannot cover the pack, and the
-         full text is one tap away in the derivation sheet. */
-      body[data-uiclass="compact"] #tutorial { max-width: min(36ch, 52vw); }
+         SIGHT LINE — and then the phone treatment CUT THE SYSTEM OFF MID-WORD.
+         The first repair was a two-line clamp with an inline dismiss; measured
+         on a live fresh-crawler run it clipped 73% of the ONRAMP's teaching
+         line (47px shown of 179px scroll on a Pixel 5) and the clamp's hidden
+         overflow swallowed GOT IT itself — 78x44 on the glass, not
+         hit-testable, because the button lived INSIDE the clamped body. The
+         System's voice truncating mid-word ('BOX. It will not') is exactly the
+         style wound the house language forbids, and the ONRAMP's entire
+         purpose is those six lines (NICHE.md 4.4).
+         The card now reads IN FULL on phones: a 44px head strip carries the
+         ribbon (abbreviated to SYSTEM on compact) with GOT IT as a permanent
+         thumb target in its right end, and the body wraps completely below it
+         across the full measured plaque band (--card-w). Worst measured line
+         (170 chars) is 3-4 wrapped lines ≈ 110px of card on a Pixel 5 — glass,
+         pointer-transparent except the button, gone on any gameplay input. */
       body[data-uiclass="compact"] #tutorial .tut,
-      body[data-uiclass="phone"] #tutorial .tut { display: flex; align-items: center;
-        gap: 8px; padding: 6px 8px; }
+      body[data-uiclass="phone"] #tutorial .tut { position: relative; }
+      /* GOT IT docks at the band's LEFT end, not the right: the right half of
+         the band is where the ⚙/☰ glyph chips live on compact, and a
+         top-right button measured EXACTLY over ☰ (both 'tappable' at (491,35)
+         on a Pixel 5 — the CRAWL LEDGER tap opened a courtesy dismissal
+         instead). The card's glass may cover the chips (pointer-transparent,
+         taps pass through); its one real button may not. Left of the band is
+         the FLOOR plaque's 10px gutter — nothing tappable under it, on any
+         device in the matrix, either hand. */
+      body[data-uiclass="compact"] #tutorial .tut-head,
+      body[data-uiclass="phone"] #tutorial .tut-head { min-height: 44px;
+        box-sizing: border-box; padding: 6px 10px 6px 116px;
+        justify-content: flex-end; }
+      body[data-uiclass="compact"] #tutorial .tut-hx,
+      body[data-uiclass="phone"] #tutorial .tut-hx { display: none; }
       body[data-uiclass="compact"] #tutorial .tut-body,
-      body[data-uiclass="phone"] #tutorial .tut-body {
-        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-        overflow: hidden; line-height: 1.35; max-height: 2.7em; flex: 1 1 auto; }
+      body[data-uiclass="phone"] #tutorial .tut-body { line-height: 1.35;
+        padding: 8px 10px; }
       body[data-uiclass="compact"] #tutorial .tut-dismiss,
-      body[data-uiclass="phone"] #tutorial .tut-dismiss { float: none; flex: 0 0 auto;
-        margin-top: 0; min-width: 64px; padding: 0 12px; }
-      body[data-uiclass="compact"] .tut-body { font-size: 11.5px; padding: 8px 10px; }
+      body[data-uiclass="phone"] #tutorial .tut-dismiss { position: absolute;
+        top: 0; left: 0; right: auto; float: none; width: auto; margin: 0;
+        padding: 0 16px; min-width: 100px; min-height: 44px;
+        border-width: 0 1px 1px 0; border-radius: 5px 0 5px 0; }
+      body[data-uiclass="compact"] .tut-body { font-size: 11.5px; }
       body[data-uiclass="phone"] #show .hypebar { width: 200px; }
 
       /* Fat-finger insurance on the menus that are not full panels. */
@@ -4170,6 +4202,37 @@
       #downed .dbtns button.primary { color: #241a08; font-weight: 700;
         background: linear-gradient(180deg, #e4b95c, #c9962f); }
       #downed .dhint { margin-top: 8px; color: #b09a6a; }
+      /* THE DEATH MOMENT ON GLASS (wr r2). Two measured wounds on an
+         iPhone 13: the high-priority banner (#headline, top max(19%,152px))
+         bled straight through the 0.9-alpha card into the countdown and
+         subtitle, and CONCEDE's bottom 14px sat below the home-indicator
+         inset (rect 313x46 at cy 333 on a 342px glass — hit-testable,
+         sloppy at the one surface everyone reads, NICHE.md 4.7).
+         Three decisions: the card goes OPAQUE on touch (a modal moment owns
+         its pixels; glass is for chrome over live play), it centres in the
+         inset-aware viewport instead of hanging from 38%, and while it is up
+         the headline banner STANDS DOWN (body.downed, same standdown grammar
+         as body.bossplate #banner) — the System's dispute line is narrating
+         the same death the card is presenting. The two doors go back to one
+         row: two 44px thumb targets side by side beat a stack that runs off
+         the glass. */
+      @media (pointer: coarse) {
+        #downed { top: calc((100dvh - var(--sa-b, 0px)) / 2);
+          transform: translate(-50%, -50%);
+          width: min(420px, 88vw); box-sizing: border-box; padding: 10px 18px 12px;
+          background: linear-gradient(180deg, rgb(38,14,12), rgb(19,8,7)); }
+        #downed .dtitle { font-size: 16px; }
+        #downed .dcount { font-size: 30px; }
+        #downed .dsub { font-size: 11px; }
+        #downed .dhint { margin-top: 6px; font-size: 10px; }
+        #downed .dbtns { flex-direction: row; margin-top: 10px; }
+        #downed .dbtns button { width: auto; flex: 1; min-height: 44px; }
+        body.downed #headline { visibility: hidden; }
+        /* The courtesy card stands down too — measured bleeding around the
+           death card's top edge on an iPhone 13. One surface at a time at
+           the moment everyone reads. */
+        body.downed #tutorial { visibility: hidden; }
+      }
 
       /* Item hover tooltip (store bag/equipped tiles are icon-only — the
          stats live here). Fixed, cursor-following, never intercepts clicks. */
