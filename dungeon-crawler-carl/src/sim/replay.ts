@@ -28,6 +28,7 @@ import {
   setUltimate, slotAbility, socketGlyph, step, unsocketGlyph,
 } from "./game";
 import { datan2, dcos, dsin, DTAU } from "./dmath";
+import { DAILY_RULES, type DailyRuleId } from "./dailyRules";
 import { RULES_HASH } from "./rulesHash";
 import type { AbilityId } from "./abilities";
 import type { GlyphId } from "./glyphs";
@@ -277,6 +278,10 @@ export interface RunProofHeader {
   /** Signed attempt ticket from POST /events/:id/start (COMPETITIVE.md 3.2A).
    *  The START is observed, which is what makes an attempt count honest. */
   ticket?: string;
+  /** TODAY'S RULE (NICHE.md §4.8): the daily mutator this run was dealt.
+   *  Absent/null = base game. Part of the header because it changes what the
+   *  sim eats — a ruled run replayed without its rule diverges on tick one. */
+  dailyRule?: DailyRuleId | null;
 }
 
 /** What the CLIENT says happened. Checked with zero tolerance against the
@@ -413,6 +418,7 @@ export function validateProofShape(proof: RunProof): string | null {
   if (!Number.isInteger(h.ticks) || h.ticks < 0 || h.ticks > MAX_TICKS) return "tick count out of range";
   if (h.dtNum !== REPLAY_DT_NUM || h.dtDen !== REPLAY_DT_DEN) return "unsupported timestep";
   if (h.startKind !== "fresh" && h.startKind !== "test") return "bad start kind";
+  if (h.dailyRule != null && !(h.dailyRule in DAILY_RULES)) return "unknown daily rule";
   if (!Array.isArray(proof.actions)) return "actions is not an array";
   if (proof.actions.length > MAX_ACTIONS) return "too many actions";
   let last = -1;
@@ -457,6 +463,8 @@ export interface RecorderOptions {
   playerName?: string;
   eventId?: string;
   ticket?: string;
+  /** TODAY'S RULE the run was dealt (see RunProofHeader.dailyRule). */
+  dailyRule?: DailyRuleId | null;
   /** Stop recording past this many ticks (memory guard). 4 B/tick means a
    *  60-minute run is 864 KB; the default ceiling is the artifact cap. */
   maxTicks?: number;
@@ -544,6 +552,7 @@ export class RunRecorder {
         playerName: this.opts.playerName,
         eventId: this.opts.eventId,
         ticket: this.opts.ticket,
+        dailyRule: this.opts.dailyRule ?? undefined,
       },
       frames: rleFrames(this.frames, this.tickN),
       actions: this.acts,
@@ -667,7 +676,7 @@ export class ReplaySession {
     // reproduces exactly and a restored snapshot might not (COMPETITIVE.md 2.1).
     this.state = proof.header.startKind === "test" && proof.header.test
       ? createTestGame(proof.header.test)
-      : createGame(proof.header.seed, proof.header.mode, proof.header.runKind);
+      : createGame(proof.header.seed, proof.header.mode, proof.header.runKind, proof.header.dailyRule ?? null);
     if (proof.header.playerName) this.state.players[0].name = proof.header.playerName;
     this.playerId = this.state.players[0].id;
     this.lastFloor = this.state.floor;

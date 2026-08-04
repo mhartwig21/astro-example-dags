@@ -57,6 +57,7 @@ import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/sa
 
 import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
+import { DAILY_RULES, dailyRuleFor, type DailyRuleId } from "./sim/dailyRules";
 // THE COMPETITIVE LAYER (COMPETITIVE.md). The sim owns the codec and the era
 // gate; net/ owns the wire; ui/social.ts owns the arithmetic. This file owns
 // the screens and the one seam that matters: feeding step() an intent that
@@ -288,7 +289,10 @@ let runProof: RunProof | null = null;
  * the post-run screen prints, because an unsealed run that never explains
  * itself is how a player decides the ladder is rigged.
  */
-function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameState["mode"]): void {
+function beginRecording(
+  seed: number, runKind: GameState["runKind"], mode: GameState["mode"],
+  dailyRule: DailyRuleId | null = null,
+): void {
   rec = null;
   recBlocked = "";
   runTicks = 0;
@@ -328,6 +332,9 @@ function beginRecording(seed: number, runKind: GameState["runKind"], mode: GameS
     clientBuild: RULES_HASH.slice(0, 7),
     eventId: ticket?.eventId,
     ticket: ticket?.ticket,
+    // TODAY'S RULE rides the proof header: a ruled run replayed without its
+    // rule diverges on tick one (sim/replay.ts executes the header's rule).
+    dailyRule,
   });
 }
 
@@ -393,18 +400,23 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   forcedSeed = null;
   consentEl.classList.remove("on"); // a stale offer never survives into a new run
   closeSets();
-  state = createGame(seed, "coop", runKind);
+  // TODAY'S RULE (NICHE.md §4.8): the daily deals one — same rule for every
+  // crawler on that day's dungeon. Non-daily runs are always the base game.
+  const rule = mode.kind === "daily" && mode.day ? dailyRuleFor(mode.day) : null;
+  state = createGame(seed, "coop", runKind, rule);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
-  beginRecording(seed, runKind, state.mode);
+  beginRecording(seed, runKind, state.mode, rule);
   saveRun(state, runMode);
   log.length = 0;
   clearLogFeed();
   pushLogLine(runKind === "roam"
     ? "Roam mode. No clock, no floor 18 — just the next settlement over."
     : mode.kind === "daily"
-    ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon. Only the board remembers.`
+    ? `DAILY CRAWL ${mode.day}. Every crawler gets this dungeon.`
+      + (rule ? ` Today's rule: ${DAILY_RULES[rule].name}.` : "")
+      + " Only the board remembers."
     : `New run. Descend to floor ${CONFIG.finalFloor}.`);
 }
 
@@ -10093,6 +10105,32 @@ async function main(): Promise<void> {
       renderer.localPlayerId = localId;
       pushLogLine("Reconnected. Your run resumes.");
       showAnnouncement({ text: "SIGNAL RESTORED. The dungeon kept your seat.", kind: "flavor", priority: "high" });
+      // A reconnect lands in a REGENERATED instance, never a held one (the
+      // gate is in-memory server state) — clear any stale READY screen.
+      gateEl.classList.remove("on");
+    };
+    // THE STARTING GUN (NICHE.md §4.1): a fresh rivals race arrives held —
+    // seat list + countdown from the server, one READY button back to it.
+    // The gun clears the screen; the sim's first tick happens after it.
+    const gateEl = document.getElementById("rushgate")!;
+    const gateSeatsEl = document.getElementById("rushgate-seats")!;
+    const gateCountEl = document.getElementById("rushgate-count")!;
+    const gateBtn = document.getElementById("rushgate-ready") as HTMLButtonElement;
+    gateBtn.addEventListener("click", () => {
+      net!.ready();
+      gateBtn.disabled = true;
+      gateBtn.textContent = "HOLDING FOR THE FIELD";
+    });
+    net.onGate = (g) => {
+      if (g.started) {
+        gateEl.classList.remove("on");
+        return;
+      }
+      gateEl.classList.add("on");
+      gateCountEl.textContent = String(Math.ceil(g.msLeft / 1000));
+      gateSeatsEl.innerHTML = g.seats.map((s) =>
+        `<div class="gseat"><span>${esc(s.name)}</span>`
+        + `<span class="${s.ready ? "gready" : "gwait"}">${s.ready ? "READY" : "STAGING"}</span></div>`).join("");
     };
     partyChip.style.display = "";
   }

@@ -1,6 +1,8 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import WebSocket from "ws";
-import { GameServer, seedFromCode, MAX_PARTY_SIZE } from "../src/server/gameServer";
+import { GameServer, seedFromCode, dayFromDailyCode, MAX_PARTY_SIZE, HEARTBEAT_INTERVAL_MS } from "../src/server/gameServer";
+import { dailySeed } from "../src/sim/daily";
+import { dailyRuleFor } from "../src/sim/dailyRules";
 import { serialize, deserialize, serializeDynamic, deserializeDynamic, mergeColdPlayers, mergeSlowState } from "../src/sim/snapshot";
 import { createGame, createTestGame, step } from "../src/sim/game";
 import type { GameState, Intent } from "../src/sim/types";
@@ -181,12 +183,19 @@ describe("snapshot (serialize/deserialize)", () => {
 
 // ---- Phase 4: authoritative server with two simulated clients ----
 
+interface GateFrame {
+  seats: { name: string; ready: boolean }[];
+  msLeft: number;
+  started?: boolean;
+}
+
 interface TestClient {
   ws: WebSocket;
   playerId: number;
   lastSnap: GameState | null;
   snaps: { full: boolean; bytes: number }[];
   events: string[];
+  gates: GateFrame[]; // starting-gun frames (rivals pre-run hold)
   send: (msg: unknown) => void;
   close: () => void;
 }
@@ -200,6 +209,7 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
       lastSnap: null,
       snaps: [],
       events: [],
+      gates: [],
       send: (msg) => ws.send(JSON.stringify(msg)),
       close: () => ws.close(),
     };
@@ -229,6 +239,8 @@ function connect(port: number, code: string, name: string, rivals = false, isPub
         client.lastSnap = absorb(msg.snapshot, msg.full === true) ?? client.lastSnap;
       } else if (msg.t === "events") {
         client.events.push(...msg.events, ...msg.announcements.map((a: { text: string }) => a.text));
+      } else if (msg.t === "gate") {
+        client.gates.push(msg as GateFrame);
       }
     });
     ws.on("error", reject);
@@ -388,6 +400,76 @@ describe("authoritative server", () => {
     const n = bystander.snaps.length;
     await waitFor(() => bystander.snaps.length > n);
     bystander.close();
+  });
+
+  it("THE STARTING GUN: a fresh rivals race holds at second zero until every seat is ready", async () => {
+    const a = await connect(port, "GUN-1", "Carl", true);
+    const b = await connect(port, "GUN-1", "Donut");
+    // Held: gate frames flow (seat list + countdown), the sim does not step —
+    // no recurring snapshots, elapsed pinned at 0.
+    await waitFor(() => {
+      const holds = a.gates.filter((x) => !x.started);
+      const g = holds[holds.length - 1];
+      return !!g && g.seats.length === 2 && b.gates.some((x) => x.seats.length === 2);
+    });
+    expect(a.snaps.length).toBe(0); // no sim ticks broadcast while held
+    const holds = a.gates.filter((x) => !x.started);
+    const held = holds[holds.length - 1];
+    expect(held.msLeft).toBeGreaterThan(0);
+    expect(held.seats.map((s: { ready: boolean }) => s.ready)).toEqual([false, false]);
+    // Movement buffered at the gate must not smuggle a head start.
+    a.send({ t: "intent", intent: { move: { x: 1, y: 0 }, attack: false, useStairs: false } });
+    // One ready is not a gun; readiness is visible to the other seat.
+    a.send({ t: "ready" });
+    await waitFor(() => b.gates.some((g) => !g.started && g.seats.some((s) => s.ready)));
+    expect(a.gates.some((g) => g.started)).toBe(false);
+    // Second ready fires it: both clients see the gun and the sim starts
+    // stepping from second zero for everyone.
+    b.send({ t: "ready" });
+    await waitFor(() => a.gates.some((g) => g.started) && b.gates.some((g) => g.started));
+    await waitFor(() => a.snaps.length >= 2 && (a.lastSnap?.elapsed ?? 0) > 0);
+    expect(a.lastSnap!.elapsed).toBeLessThan(3); // started at zero, not mid-race
+    // The System called the start on the announcement rail.
+    expect(a.events.some((e) => /THE GUN/i.test(e))).toBe(true);
+    a.close();
+    b.close();
+  });
+
+  it("THE STARTING GUN: the countdown expiring fires without unanimous ready", async () => {
+    // Own server so the gate can be milliseconds long instead of a minute.
+    const fast = new GameServer(0, undefined, undefined, undefined, HEARTBEAT_INTERVAL_MS, 350);
+    await fast.ready();
+    const c = await connect(fast.port, "GUN-2", "Slowpoke", true);
+    await waitFor(() => c.gates.some((g) => g.started));
+    await waitFor(() => (c.lastSnap?.elapsed ?? 0) > 0);
+    c.close();
+    fast.close();
+  });
+
+  it("THE STARTING GUN: co-op parties are never gated", async () => {
+    const c = await connect(port, "GUN-3", "Carl"); // co-op: ticks immediately
+    await waitFor(() => c.snaps.length >= 2);
+    expect(c.gates.length).toBe(0);
+    c.close();
+  });
+
+  it("THE LIVE DAILY: a DAILY-coded rivals race runs that day's dungeon under that day's rule", async () => {
+    const day = "2026-08-04";
+    expect(dayFromDailyCode(`DAILY-${day}-AB12`)).toBe(day);
+    expect(dayFromDailyCode("PARTY-1")).toBeNull();
+    expect(dayFromDailyCode("DAILY-9999-99-99-X")).toBeNull(); // nonsense dates fall back to code seeding
+    const c = await connect(port, `DAILY-${day}-AB12`, "Carl", true);
+    expect(c.lastSnap!.mode).toBe("rivals");
+    expect(c.lastSnap!.seed).toBe(dailySeed(day)); // the dungeon IS the day's
+    expect(c.lastSnap!.dailyRule).toBe(dailyRuleFor(day)); // and the rule rides the wire
+    // The System announced the rule at second zero (welcome flush).
+    await waitFor(() => c.events.some((e) => /TODAY'S RULE/.test(e)));
+    c.close();
+    // A co-op party wearing the prefix is NOT a daily — the rush is a race.
+    const coop = await connect(port, `DAILY-${day}-COOP`, "Donut");
+    expect(coop.lastSnap!.seed).toBe(seedFromCode(`DAILY-${day}-COOP`));
+    expect(coop.lastSnap!.dailyRule ?? null).toBeNull();
+    coop.close();
   });
 
   it("RIVALS: personal snapshots carry the race standings and personal shops", async () => {
