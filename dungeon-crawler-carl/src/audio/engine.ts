@@ -37,6 +37,38 @@ export interface AudioSink {
 
 const STORE_KEY = "dcc:audio:v1";
 
+// ---- Debug instrumentation (?debug=1 only — see SOUNDPLAN.md §5) ----------
+// Nobody in the build loop can hear, so audio quality claims must be numbers.
+// This hook is the in-game half of that: a ring of recent play() calls
+// (including throttled attempts) plus running time-domain peaks measured at
+// the compressor INPUT (headroom) and the compressor OUTPUT (hard clipping).
+// tools/audio/probe.mjs drives a staged fight and asserts against it.
+
+export interface PlayRecord {
+  id: string;
+  at: number; // performance.now() at trigger
+  ctxAt: number; // AudioContext.currentTime at trigger
+  gain: number; // effective gain (manifest volume x opts.gain)
+  rate: number; // effective playback rate
+  throttled?: boolean; // the spam guard swallowed this attempt (no sound)
+}
+
+export interface AudioDebugHook {
+  /** Recent play attempts, oldest first (ring capped at 512). */
+  plays: PlayRecord[];
+  /** Running max |sample| at the compressor input since the last reset. */
+  peakPre(): number;
+  /** Running max |sample| at the compressor output (the honest clip test). */
+  peakPost(): number;
+  resetPeaks(): void;
+  /** Decoded clip ids (missing files never appear here). */
+  buffers(): string[];
+  currentMusic(): string | null;
+  musicBusGain(): number;
+  ctxState(): string;
+  ctxTime(): number;
+}
+
 interface AudioPrefs {
   muted: boolean;
   volume: number;
@@ -68,6 +100,15 @@ export class AudioEngine implements AudioSink {
   private current: { id: SoundId; gain: GainNode; src: AudioBufferSourceNode } | null = null;
   private pendingMusic: SoundId | null = null; // requested before unlock/decode
   private prefs = loadPrefs();
+  private compressor: DynamicsCompressorNode | null = null;
+  private dbg: {
+    plays: PlayRecord[];
+    peakPre: number;
+    peakPost: number;
+    anPre: AnalyserNode | null;
+    anPost: AnalyserNode | null;
+    buf: Float32Array<ArrayBuffer>;
+  } | null = null;
 
   /** Fetch + decode every manifest clip that exists; missing files stay silent.
    * onProgress reports clips SETTLED (decoded or missing-and-skipped) so the
@@ -124,7 +165,12 @@ export class AudioEngine implements AudioSink {
     const def: SoundDef = AUDIO_MANIFEST[id];
     const now = performance.now();
     const last = this.lastPlayed.get(id) ?? -Infinity;
-    if (!opts.force && now - last < (def.throttleMs ?? 70)) return; // combat spam guard
+    if (!opts.force && now - last < (def.throttleMs ?? 70)) {
+      // Swallowed by the spam guard. The debug ring still records the attempt
+      // so the probe can PROVE rate limiting (attempts > plays, spacing >= throttle).
+      this.record(id, now, 0, 0, true);
+      return;
+    }
     this.lastPlayed.set(id, now);
 
     const src = ctx.createBufferSource();
@@ -145,6 +191,7 @@ export class AudioEngine implements AudioSink {
     src.connect(gain);
     head.connect(this.buses[def.bus]!);
     src.start();
+    this.record(id, now, gain.gain.value, src.playbackRate.value);
   }
 
   /** Switch the looping music bed (crossfade); null fades music out. */
@@ -182,6 +229,7 @@ export class AudioEngine implements AudioSink {
     gain.connect(this.buses[def.bus]!);
     src.start();
     this.current = { id, gain, src };
+    this.record(`music:${id}`, performance.now(), def.volume ?? 1, 1);
   }
 
   /** BULLET TIME underwater sweep: low-pass the whole mix down to ~700Hz,
@@ -211,6 +259,7 @@ export class AudioEngine implements AudioSink {
     const ctx = new Ctor();
     const compressor = ctx.createDynamicsCompressor();
     compressor.connect(ctx.destination);
+    this.compressor = compressor;
     // Master low-pass sits open (20kHz = inaudible) until Bullet Time sweeps
     // it down; a filter in the chain is cheaper than re-patching the graph.
     this.muffleNode = ctx.createBiquadFilter();
@@ -249,5 +298,72 @@ export class AudioEngine implements AudioSink {
     } catch {
       /* best-effort */
     }
+  }
+
+  // ---- debug instrumentation (SOUNDPLAN.md §5; wired to __dcc.audio) ----
+
+  private record(id: string, at: number, gain: number, rate: number, throttled?: boolean): void {
+    const d = this.dbg;
+    if (!d) return;
+    d.plays.push({ id, at, ctxAt: this.ctx?.currentTime ?? 0, gain, rate, ...(throttled ? { throttled } : {}) });
+    if (d.plays.length > 512) d.plays.splice(0, d.plays.length - 512);
+  }
+
+  /**
+   * Debug-only (?debug=1): analyser taps + play ring. Idempotent; costs
+   * nothing until called (record() is a null check per play otherwise).
+   * Peaks are RUNNING MAXIMA sampled per animation frame — at 60fps a 2048-
+   * sample window (~43ms at 48kHz) overlaps every frame, so no transient
+   * between polls is missed.
+   */
+  debugHook(): AudioDebugHook {
+    if (!this.dbg) {
+      this.dbg = { plays: [], peakPre: 0, peakPost: 0, anPre: null, anPost: null, buf: new Float32Array(2048) };
+      const ctx = this.ensureContext();
+      if (ctx && this.master && this.compressor) {
+        const mk = () => {
+          const an = ctx.createAnalyser();
+          an.fftSize = 2048;
+          return an;
+        };
+        // Pre = compressor input (post-master, post-muffle): the headroom
+        // contract. Post = compressor output: the hard-clip test.
+        this.dbg.anPre = mk();
+        this.dbg.anPost = mk();
+        this.muffleNode!.connect(this.dbg.anPre);
+        this.compressor.connect(this.dbg.anPost);
+        const poll = () => {
+          const d = this.dbg;
+          if (!d || !d.anPre || !d.anPost) return;
+          d.anPre.getFloatTimeDomainData(d.buf);
+          for (let i = 0; i < d.buf.length; i++) {
+            const a = Math.abs(d.buf[i]);
+            if (a > d.peakPre) d.peakPre = a;
+          }
+          d.anPost.getFloatTimeDomainData(d.buf);
+          for (let i = 0; i < d.buf.length; i++) {
+            const a = Math.abs(d.buf[i]);
+            if (a > d.peakPost) d.peakPost = a;
+          }
+          requestAnimationFrame(poll);
+        };
+        requestAnimationFrame(poll);
+      }
+    }
+    const d = this.dbg;
+    return {
+      plays: d.plays,
+      peakPre: () => d.peakPre,
+      peakPost: () => d.peakPost,
+      resetPeaks: () => {
+        d.peakPre = 0;
+        d.peakPost = 0;
+      },
+      buffers: () => [...this.buffers.keys()],
+      currentMusic: () => this.current?.id ?? null,
+      musicBusGain: () => this.buses.music?.gain.value ?? 0,
+      ctxState: () => this.ctx?.state ?? "none",
+      ctxTime: () => this.ctx?.currentTime ?? 0,
+    };
   }
 }

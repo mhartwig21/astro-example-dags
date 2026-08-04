@@ -10401,6 +10401,11 @@ if (new URLSearchParams(location.search).has("debug")) {
     get: () => ({
       state,
       renderer,
+      // Audio instrumentation (SOUNDPLAN.md §5): play ring + analyser peaks.
+      // tools/audio/probe.mjs asserts impact sync, brawl headroom, and rate
+      // limiting against this — the difference between claiming the
+      // soundscape works and knowing it.
+      audio: audio.debugHook(),
       // The competitive standing of the run currently on screen: whether it is
       // riding an event ticket, and what the server said about it. Read-only,
       // and the only way an acceptance harness can check that the front door
