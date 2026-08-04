@@ -6163,6 +6163,13 @@ interface DmgLive {
   crit: boolean;
   color: string; // numeral face hex — merges repaint with the same palette
   stagger: number; // ms pop delay: simultaneous hits drum-roll, never clump
+  // Type-size multiplier. Incoming (kind "player") numbers run 0.78: they
+  // were photographed DOMINATING dense fights (1862/2160/1885 in every
+  // floor-15 frame) while the attacks causing them had almost no FX — the
+  // number was playing the enemy's attack, which is backwards. The HP bar,
+  // the crimson body flash and the new incoming-slash streaks carry the
+  // threat read; the numeral is bookkeeping.
+  scale: number;
 }
 const dmgLive: DmgLive[] = [];
 // ONE NUMBER PER TARGET PER BEAT. The window was 520 ms and the merge radius
@@ -6364,7 +6371,7 @@ function dmgShade(hex: string, k: number): string {
 }
 /** Paints the numeral and RETURNS its box at peak pop — the de-overlap test
  *  needs the drawn size, and only this function knows it. */
-function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0): { pop: number; cw: number; ch: number } {
+function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boolean, merges = 0, scale = 1): { pop: number; cw: number; ch: number } {
   let canvas = el.firstElementChild as HTMLCanvasElement | null;
   if (!canvas || canvas.tagName !== "CANVAS") {
     canvas = document.createElement("canvas");
@@ -6377,7 +6384,7 @@ function paintNumeral(el: HTMLDivElement, text: string, color: string, crit: boo
   // crit read as a crit at arm's length and still leave the monster under it
   // visible — the hierarchy (crit ~1.5x the body) is preserved exactly, the
   // absolute scale is not.
-  const px = crit ? 26 : 21;
+  const px = Math.round((crit ? 26 : 21) * scale);
   const pad = crit ? 8 : 7;
   const ctx = canvas.getContext("2d");
   if (!ctx) { el.textContent = text; return { pop: dmgPop(crit, merges), cw: text.length * px * 0.62, ch: px }; }
@@ -6540,7 +6547,7 @@ function spawnDamageNumber(h: HitEvent): void {
         rec.el.style.color = rec.color;
       }
       rec.el.getAnimations().forEach((a) => a.cancel());
-      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges);
+      const pn = paintNumeral(rec.el, dmgText(rec, sign), rec.color, rec.crit, rec.merges, rec.scale);
       const box = dmgMeasure(rec.el, pn.pop, pn.cw, pn.ch, rec.crit ? "c" : "n");
       // RE-ANCHOR AND RE-PLACE ON MERGE. A rolling counter grows a digit at a
       // time (83 -> 854 -> 3872), so the box that was clear when it was two
@@ -6606,8 +6613,10 @@ function spawnDamageNumber(h: HitEvent): void {
     el, key, wx: h.pos.x, wz: h.pos.y, sx: s.x, sy: s.y, bw: 0, bh: 0, row: 0,
     total: h.amount, merges: 0, born: now, crit, color,
     stagger: crit ? 0 : Math.min(dmgLive.length, 4) * 55,
+    scale: h.kind === "player" ? 0.78 : 1, // see DmgLive.scale
   };
-  const pn = paintNumeral(el, dmgText(rec, sign), color, crit);
+  if (h.kind === "player") el.style.opacity = "0.92";
+  const pn = paintNumeral(el, dmgText(rec, sign), color, crit, 0, rec.scale);
   // School resist (armored/warded): the number reads muted so the player
   // learns to swap schools without reading a tooltip. This runs BEFORE the
   // measure — the shield opens a second line box and the reservation has to
@@ -6781,15 +6790,31 @@ function plateOverHud(x: number, y: number): boolean {
 //
 // So plates are now PLACED, nearest-first, exactly like the damage numbers:
 // the closest monster keeps its natural spot and anything that would collide
-// walks upward in PLATE_STACK steps. A plate that cannot find a clear slot in
-// PLATE_STACK_MAX steps is DROPPED if it is resting (ambient information is
-// allowed to lose an argument with legibility) and force-placed if it is
-// engaged (you are being told about a specific fight; that one wins).
+// walks upward in PLATE_STACK steps.
+//
+// THE PACK RULE (appearance r2 BLOCKER #2 — this file's r3 note said
+// "legibility and density are separate problems and both have to be solved
+// or the fix is a swap", and the capture of a real 18-body pack at HIGH
+// proved the r3 cut was a swap after all: every engaged plate was
+// FORCE-PLACED after 5 steps of climbing, so the pile stacked ~14 identical
+// ticks into a 45px tower with the damage numbers landing on top). What LoL
+// actually does in a pile is not "stack all the bars in a column" — bars sit
+// on their units and the pile's interior bars simply lose. So:
+//   - an ENGAGED plate walks at most 2 steps hunting a clear slot. A bar
+//     two-plus steps off its body is no longer over the thing it describes;
+//   - exactly ONE engaged plate per frame may ignore the collision rule: the
+//     NEAREST one (iteration is nearest-first), seated at its NATURAL anchor
+//     — over its own mob, not at the top of a tower. That is the body you
+//     are fighting; the rest of the pile reads as a pile;
+//   - a RESTING plate near two already-placed plates is dropped before it
+//     even hunts: ambient information loses the argument with density.
 const PLATE_STACK = 9; // px per de-overlap step
-const PLATE_STACK_MAX = 5;
+const PLATE_STACK_MAX = 5; // resting plates may hunt this far
+const PLATE_STACK_MAX_ENGAGED = 2; // an engaged bar stays near its body
 const plateBoxes: { x: number; y: number; w: number }[] = [];
 function plateSeat(x: number, y: number, w: number, engaged: boolean): number | null {
-  for (let step = 0; step <= PLATE_STACK_MAX; step++) {
+  const maxSteps = engaged ? PLATE_STACK_MAX_ENGAGED : PLATE_STACK_MAX;
+  for (let step = 0; step <= maxSteps; step++) {
     const cy = y - step * PLATE_STACK;
     let clear = true;
     for (const b of plateBoxes) {
@@ -6797,10 +6822,20 @@ function plateSeat(x: number, y: number, w: number, engaged: boolean): number | 
     }
     if (clear) { plateBoxes.push({ x, y: cy, w }); return cy; }
   }
-  if (!engaged) return null;
-  const cy = y - PLATE_STACK_MAX * PLATE_STACK;
-  plateBoxes.push({ x, y: cy, w });
-  return cy;
+  return null;
+}
+/** The one collision-exempt seat per frame: natural anchor, no climbing. */
+function plateSeatForced(x: number, y: number, w: number): number {
+  plateBoxes.push({ x, y, w });
+  return y;
+}
+/** Placed plates already crowding this anchor's neighborhood. */
+function plateCrowd(x: number, y: number): number {
+  let near = 0;
+  for (const b of plateBoxes) {
+    if (Math.abs(x - b.x) < 52 && Math.abs(y - b.y) < 30) near++;
+  }
+  return near;
 }
 
 function updateMobPlates(s: GameState): void {
@@ -6809,6 +6844,7 @@ function updateMobPlates(s: GameState): void {
   mobPlateSeen.clear();
   plateBoxes.length = 0;
   let shown = 0;
+  let engagedForced = false; // the pack rule's one exempt seat this frame
   const you = s.players.find((pl) => pl.alive) ?? s.players[0];
   const px = you?.pos.x ?? 0, pz = you?.pos.y ?? 0;
   // Nearest first, so the monsters actually in the fight keep their natural
@@ -6849,8 +6885,17 @@ function updateMobPlates(s: GameState): void {
     // are being told about a specific fight and the fight wins — but ambient
     // information must not litter someone else's zone.
     if (!engaged && plateOverHud(sp.x, sp.y)) continue;
-    const seatY = plateSeat(sp.x, sp.y, m.elite ? 68 : engaged ? 40 : 34, engaged);
-    if (seatY === null) continue; // no clear slot and only ambient to say
+    // Density gate (the pack rule): a resting plate does not join a crowd.
+    if (!engaged && plateCrowd(sp.x, sp.y) >= 2) continue;
+    const w = m.elite ? 68 : engaged ? 40 : 34;
+    let seatY = plateSeat(sp.x, sp.y, w, engaged);
+    if (seatY === null && engaged && !engagedForced) {
+      // The nearest contested engaged plate wins its natural spot; every
+      // other bar in the pile loses rather than building the tower.
+      engagedForced = true;
+      seatY = plateSeatForced(sp.x, sp.y, w);
+    }
+    if (seatY === null) continue; // the pile already reads as a pile
     let plate = mobPlateLive.get(m.id);
     if (!plate) {
       plate = mobPlatePool.pop() ?? makeMobPlate();
@@ -10396,13 +10441,18 @@ async function main(): Promise<void> {
       // hang for drama, ordinary kills get a couple of frames. Non-kill CRITS
       // get a single-frame tick (the accumulator cap keeps flurries sane), and
       // OVERKILL blows hang longest — deleting something should feel like it.
+      // Combat FX r1: retuned toward BACKLOG #15.1's approved 60-90ms band for
+      // crits/kill blows. The old 22/35/60ms sat under two 60Hz frames for the
+      // common cases — a freeze nobody perceives is latency, not weight. The
+      // caps are the horde guard and they DON'T move: a flurry saturates at
+      // 120-140ms total exactly as before, it just gets there in fewer hits.
       for (const h of frameHits) {
         if (h.overkill) { hitStop = Math.min(0.14, hitStop + 0.1); continue; }
         if (!h.killed) {
-          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.022);
+          if (h.kind === "crit") hitStop = Math.min(0.12, hitStop + 0.045);
           continue;
         }
-        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.06 : h.kind === "player" ? 0.09 : 0.035));
+        hitStop = Math.min(0.12, hitStop + (h.kind === "crit" ? 0.09 : h.kind === "player" ? 0.09 : 0.06));
       }
 
       saveAcc += dt;
