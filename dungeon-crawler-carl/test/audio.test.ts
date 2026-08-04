@@ -336,6 +336,47 @@ describe("audio director: status cues + band sting (launch polish #3)", () => {
     expect(sink.lastMusic()).toBe("music_dungeon");
   });
 
+  it("cues the element the frame a status LANDS, and only that frame", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    director.frame(state, [], [], p.id); // primes the afflicted set
+    p.statuses = [{ kind: "burn", remaining: 3, magnitude: 2, stacks: 1, tick: 0.5, school: "magic" }];
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("apply_burn");
+    sink.played = [];
+    director.frame(state, [], [], p.id); // still burning — no re-cue
+    expect(sink.ids()).not.toContain("apply_burn");
+  });
+
+  it("does not replay ongoing afflictions on the first frame (load/join)", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    p.statuses = [{ kind: "poison", remaining: 5, magnitude: 1, stacks: 3, tick: 0.5, school: "physical" }];
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).not.toContain("apply_poison");
+  });
+
+  it("cues monster afflictions too, positioned by distance and side", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.monsters.length = 0;
+    const m = {
+      id: 31, kind: "grunt" as const, pos: { x: p.pos.x + 4, y: p.pos.y },
+      hp: 10, maxHp: 10, damage: 5, speed: 0, attackRange: 1, attackCooldown: 0,
+      shootCd: 0, healCd: 0, blinkCd: 0, xp: 5, hitFlash: 0,
+      windup: 0, windupTotal: 0, stagger: 0, poiseDmg: 0,
+      statuses: [] as { kind: "chill"; remaining: number; magnitude: number; stacks: number; tick: number; school: "magic" }[],
+    };
+    state.monsters.push(m);
+    director.frame(state, [], [], p.id);
+    m.statuses.push({ kind: "chill", remaining: 2, magnitude: 0.3, stacks: 1, tick: 0, school: "magic" });
+    director.frame(state, [], [], p.id);
+    const cue = sink.played.find((s) => s.id === "apply_chill");
+    expect(cue).toBeDefined();
+    expect(cue!.opts!.gain!).toBeLessThan(0.9); // attenuated by 4 tiles
+    expect(cue!.opts!.pan!).toBeGreaterThan(0); // +x = screen right
+  });
+
   it("stings the act change when a descent crosses a band boundary", () => {
     const { sink, director, state } = setup();
     const p = state.players[0];
@@ -348,5 +389,64 @@ describe("audio director: status cues + band sting (launch polish #3)", () => {
     state.floor = 4; // 2 -> 4: THE SEWERS open
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toContain("band_sting");
+  });
+});
+
+describe("audio director: breakable smashes (SOUNDPLAN row 5)", () => {
+  it("pops wood when a crate leaves the list, rate-spread deterministically", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.breakables = [{ id: 7, pos: { x: p.pos.x + 2, y: p.pos.y }, key: "crate_large_decorated", hp: 1 }];
+    director.frame(state, [], [], p.id);
+    state.breakables = [];
+    director.frame(state, [], [], p.id);
+    const pop = sink.played.find((s) => s.id === "smash_wood");
+    expect(pop).toBeDefined();
+    expect(pop!.opts!.rate!).toBeGreaterThanOrEqual(0.92);
+    expect(pop!.opts!.rate!).toBeLessThanOrEqual(1.08);
+    expect(sink.ids()).not.toContain("smash_clay");
+  });
+
+  it("shatters ceramics: pot props voice as clay", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.breakables = [{ id: 9, pos: { x: p.pos.x + 1, y: p.pos.y }, key: "pot_a_stew", hp: 1 }];
+    director.frame(state, [], [], p.id);
+    state.breakables = [];
+    director.frame(state, [], [], p.id);
+    expect(sink.ids()).toContain("smash_clay");
+  });
+
+  it("a cracked blocker clicks lighter before its final pop", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    const b = { id: 11, pos: { x: p.pos.x + 1, y: p.pos.y }, key: "bookcase", hp: 2, footprint: [0] };
+    state.breakables = [b];
+    director.frame(state, [], [], p.id);
+    b.hp = 1; // one blow in — it cracks
+    director.frame(state, [], [], p.id);
+    const crack = sink.played.find((s) => s.id === "smash_wood")!;
+    expect(crack).toBeDefined();
+    expect(crack.opts!.rate!).toBeGreaterThan(1.08); // higher pitch = crack voice
+    sink.played = [];
+    state.breakables = [];
+    director.frame(state, [], [], p.id);
+    const pop = sink.played.find((s) => s.id === "smash_wood")!;
+    expect(pop).toBeDefined();
+    expect(pop.opts!.gain!).toBeGreaterThan(crack.opts!.gain!); // the pop is the loud one
+  });
+
+  it("a descent replaces the whole list without a demolition volley", () => {
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    state.breakables = [
+      { id: 21, pos: { x: p.pos.x + 1, y: p.pos.y }, key: "barrel", hp: 1 },
+      { id: 22, pos: { x: p.pos.x + 2, y: p.pos.y }, key: "pot_a", hp: 1 },
+    ];
+    director.frame(state, [], [], p.id);
+    state.floor = 2;
+    state.breakables = [{ id: 40, pos: { x: p.pos.x, y: p.pos.y + 3 }, key: "crate", hp: 1 }];
+    director.frame(state, [], [], p.id);
+    expect(sink.ids().filter((i) => i.startsWith("smash_"))).toHaveLength(0);
   });
 });

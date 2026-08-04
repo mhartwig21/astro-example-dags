@@ -165,6 +165,7 @@ pointers for the audio sources too.
 | `sfx/band_sting.ogg` | [85 Short music jingles](https://opengameart.org/content/85-short-music-jingles) (jingles_PIZZA07) | Kenney | CC0 |
 | `sfx/steps/step_{stone,grass,metal,wet}_{a,b,c}.wav` | Synthesized in-repo by `scripts/gen-footsteps.mjs` (deterministic — rerun the script to reproduce byte-for-byte) | this project | CC0 (own work) |
 | `sfx/swing,tell,kill,crowd,boss_intro.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (seeded/deterministic; measured against SOUNDPLAN §2.2 by `tools/audio/measure.mjs`) | this project | CC0 (own work) |
+| `sfx/apply_{burn,poison,chill}.ogg`, `sfx/smash_{wood,clay}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-world.mjs` (status-apply cues + breakable smash family) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.

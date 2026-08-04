@@ -36,6 +36,19 @@ export const AUDIO_MANIFEST = {
   dot_burn: { url: "/audio/sfx/dot_burn.ogg", bus: "sfx", volume: 0.4, throttleMs: 450 },
   dot_poison: { url: "/audio/sfx/dot_poison.ogg", bus: "sfx", volume: 0.38, throttleMs: 450 },
   dot_chill: { url: "/audio/sfx/dot_chill.ogg", bus: "sfx", volume: 0.4, throttleMs: 600 },
+  // Status APPLY cues (SOUNDPLAN §1.4 row 1): the moment the status LANDS,
+  // distinct from the tick voices above. Generated in-repo
+  // (tools/audio/gen-sfx-world.mjs — deterministic, CC0 own work).
+  apply_burn: { url: "/audio/sfx/apply_burn.ogg", bus: "sfx", volume: 0.55, throttleMs: 300 },
+  apply_poison: { url: "/audio/sfx/apply_poison.ogg", bus: "sfx", volume: 0.55, throttleMs: 300 },
+  apply_chill: { url: "/audio/sfx/apply_chill.ogg", bus: "sfx", volume: 0.55, throttleMs: 300 },
+
+  // Breakable smash family (row 5): pots and crates stop popping silently.
+  // Same generator script; the director picks clay vs wood from the prop key
+  // and adds a hashed rate spread so a storeroom sweep doesn't machine-gun.
+  smash_wood: { url: "/audio/sfx/smash_wood.ogg", bus: "sfx", volume: 0.6, throttleMs: 90 },
+  smash_clay: { url: "/audio/sfx/smash_clay.ogg", bus: "sfx", volume: 0.6, throttleMs: 90 },
+
   // New band every 3 floors: a pizzicato flourish from the same Kenney
   // jingle pack the progression sounds already come from.
   band_sting: { url: "/audio/sfx/band_sting.ogg", bus: "sfx", volume: 0.75, throttleMs: 4000 },

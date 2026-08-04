@@ -32,8 +32,21 @@ const STATUS_SOUNDS: Record<StatusKind, SoundId> = {
   chill: "dot_chill",
 };
 
+// The moment a status LANDS (SOUNDPLAN §1.4 row 1): apply cues, distinct
+// from the tick voices — ignition catch, splat, crystallize. Edge-detected
+// from entity status lists (the sim emits no apply event; the lists are
+// deterministic data, so replays cue identically).
+const STATUS_APPLY_SOUNDS: Record<StatusKind, SoundId> = {
+  burn: "apply_burn",
+  poison: "apply_poison",
+  chill: "apply_chill",
+};
+
 /** Hits farther than this (in tiles) from the local player are inaudible. */
 const EARSHOT = 24;
+
+/** Breakable prop keys that shatter (ceramic/glass) rather than splinter. */
+const CLAY_KEY = /pot|plate|dish|bottle|goblet|mug|vase|jar|potion|glass|gem/;
 
 // Footsteps (appearance r1: the world reacts to being walked through).
 // Every player in earshot strides: distance walked accumulates and each
@@ -125,8 +138,29 @@ export class AudioDirector {
   private ducked = false; // §5.1: the approach duck is riding
   // Footstep stride accumulators, per player id (see STEP_SURFACE above).
   private stride = new Map<number, { x: number; y: number; acc: number; n: number }>();
+  // Status-apply edges: keys "m:<id>:<kind>" / "p:<id>:<kind>" currently
+  // afflicted. A key appearing = the status landed. Primed on first frame so
+  // a mid-run join doesn't replay every ongoing affliction.
+  private afflicted = new Set<string>();
+  // Breakables last seen, by id: gone = smashed (pop), hp dropped = cracked.
+  private crockery = new Map<number, { x: number; y: number; hp: number; clay: boolean }>();
 
   constructor(private sink: AudioSink) {}
+
+  /** One breakable voicing: material clip, positioned, hash-jittered rate
+   *  (deterministic per id — replays sound identical). Cracks (hp chipped,
+   *  still standing) play lighter and higher than the pop. */
+  private smashAt(p: { pos: { x: number; y: number } }, id: number, x: number, y: number, clay: boolean, cracked: boolean): void {
+    const dx = x - p.pos.x, dy = y - p.pos.y;
+    const d = Math.hypot(dx, dy);
+    if (d > EARSHOT) return;
+    const h = Math.imul(id + 1, 2654435761) >>> 0;
+    this.sink.play(clay ? "smash_clay" : "smash_wood", {
+      gain: (cracked ? 0.45 : 1) / (1 + d / 6),
+      pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+      rate: (cracked ? 1.12 : 0.92) + ((h & 0xff) / 255) * 0.16,
+    });
+  }
 
   /**
    * Call once per render frame with the frame's buffered feedback.
@@ -216,6 +250,59 @@ export class AudioDirector {
         });
       }
       for (const id of this.stride.keys()) if (!seen.has(id)) this.stride.delete(id);
+    }
+
+    // Status APPLY cues (row 1): a key appearing in the afflicted set = the
+    // status landed this frame. Primed on the first frame so a mid-run join
+    // or load doesn't replay every ongoing affliction as a fresh cue.
+    {
+      const primed = this.prev !== null;
+      const seen = new Set<string>();
+      const cue = (key: string, kind: StatusKind, x: number, y: number) => {
+        const fresh = !this.afflicted.has(key);
+        seen.add(key);
+        if (!primed || !fresh) return;
+        const dx = x - p.pos.x, dy = y - p.pos.y;
+        const d = Math.hypot(dx, dy);
+        if (d > EARSHOT) return;
+        this.sink.play(STATUS_APPLY_SOUNDS[kind], {
+          gain: 0.9 / (1 + d / 6),
+          pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+        });
+      };
+      for (const pl of state.players) {
+        if (pl.statuses) for (const s of pl.statuses) cue(`p:${pl.id}:${s.kind}`, s.kind, pl.pos.x, pl.pos.y);
+      }
+      for (const m of state.monsters) {
+        if (m.statuses) for (const s of m.statuses) cue(`m:${m.id}:${s.kind}`, s.kind, m.pos.x, m.pos.y);
+      }
+      this.afflicted = seen;
+    }
+
+    // Breakable smashes (row 5): the pot pops the frame it leaves the list,
+    // voiced by material (clay vs wood from the prop key), rate-spread by a
+    // hash of the id so a storeroom sweep isn't a machine gun. A floor
+    // change replaces the whole list — that is a descent, not a demolition.
+    {
+      const floorChanged = !this.prev || this.prev.floor !== state.floor;
+      const seen = new Set<number>();
+      for (const b of state.breakables ?? []) {
+        seen.add(b.id);
+        const known = this.crockery.get(b.id);
+        if (!known || floorChanged) {
+          this.crockery.set(b.id, { x: b.pos.x, y: b.pos.y, hp: b.hp, clay: CLAY_KEY.test(b.key) });
+          continue;
+        }
+        if (b.hp < known.hp) this.smashAt(p, b.id, b.pos.x, b.pos.y, known.clay, true); // cracked
+        known.hp = b.hp;
+        known.x = b.pos.x;
+        known.y = b.pos.y;
+      }
+      for (const [id, c] of this.crockery) {
+        if (seen.has(id)) continue;
+        this.crockery.delete(id);
+        if (!floorChanged) this.smashAt(p, id, c.x, c.y, c.clay, false); // the pop
+      }
     }
 
     // Party pings: one soft System chime per fresh mark, panned toward it.
