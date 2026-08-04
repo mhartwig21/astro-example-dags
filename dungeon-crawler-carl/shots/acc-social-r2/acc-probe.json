@@ -1,0 +1,554 @@
+[
+ [
+  "menu geom 1366x768",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 575,
+    "y": 256,
+    "w": 414,
+    "h": 97
+   },
+   "daily": {
+    "x": 575,
+    "y": 360,
+    "w": 414,
+    "h": 60
+   },
+   "ratioSoloDaily": 1.62,
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 1020,
+     "y": 336,
+     "right": 1071,
+     "w": 52,
+     "textClipped": false
+    },
+    {
+     "t": "DEPTH",
+     "x": 1077,
+     "y": 336,
+     "right": 1129,
+     "w": 52,
+     "textClipped": false
+    },
+    {
+     "t": "TIME",
+     "x": 1134,
+     "y": 336,
+     "right": 1173,
+     "w": 39,
+     "textClipped": false
+    },
+    {
+     "t": "KILLS",
+     "x": 1179,
+     "y": 336,
+     "right": 1223,
+     "w": 44,
+     "textClipped": false
+    },
+    {
+     "t": "RIVALS",
+     "x": 1228,
+     "y": 336,
+     "right": 1282,
+     "w": 54,
+     "textClipped": false
+    }
+   ],
+   "stripBox": {
+    "x": 1020,
+    "right": 1282,
+    "w": 262
+   },
+   "stripScroll": 0,
+   "tabSlack": 0,
+   "allTabsVisible": true,
+   "primaryClip": "PROW",
+   "board": {
+    "x": 1005,
+    "y": 323,
+    "w": 292,
+    "h": 277
+   },
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   }
+  }
+ ],
+ [
+  "menu clips 1366x768",
+  []
+ ],
+ [
+  "menu fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   },
+   "voidBelowViewport": 109,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 1366x768",
+  {
+   "meanLuma": 8.7,
+   "maxLuma": 100,
+   "litFrac": 0.229,
+   "px": 421632
+  }
+ ],
+ [
+  "ladder ack 1366x768",
+  {
+   "ackMs": 19,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 1366x768",
+  {
+   "frame": {
+    "w": 1180,
+    "h": 737
+   },
+   "state": "THE BOARD IS DARK",
+   "hugs": false
+  }
+ ],
+ [
+  "ladder fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1366x768",
+  []
+ ],
+ [
+  "ladder bands frame 1366x768",
+  {
+   "hBefore": 737,
+   "hLoading": 737,
+   "hSettled": 737,
+   "stable": true
+  }
+ ],
+ [
+  "career ack 1366x768",
+  {
+   "ackMs": 71
+  }
+ ],
+ [
+  "career fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1366x768",
+  []
+ ],
+ [
+  "menu geom 1600x900",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 673,
+    "y": 314,
+    "w": 507,
+    "h": 109
+   },
+   "daily": {
+    "x": 673,
+    "y": 430,
+    "w": 507,
+    "h": 68
+   },
+   "ratioSoloDaily": 1.6,
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 1214,
+     "y": 397,
+     "right": 1273,
+     "w": 59,
+     "textClipped": false
+    },
+    {
+     "t": "DEPTH",
+     "x": 1277,
+     "y": 397,
+     "right": 1336,
+     "w": 59,
+     "textClipped": false
+    },
+    {
+     "t": "TIME",
+     "x": 1340,
+     "y": 397,
+     "right": 1384,
+     "w": 44,
+     "textClipped": false
+    },
+    {
+     "t": "KILLS",
+     "x": 1389,
+     "y": 397,
+     "right": 1439,
+     "w": 50,
+     "textClipped": false
+    },
+    {
+     "t": "RIVALS",
+     "x": 1443,
+     "y": 397,
+     "right": 1504,
+     "w": 61,
+     "textClipped": false
+    }
+   ],
+   "stripBox": {
+    "x": 1214,
+    "right": 1504,
+    "w": 290
+   },
+   "stripScroll": 0,
+   "tabSlack": 0,
+   "allTabsVisible": true,
+   "primaryClip": "PROW",
+   "board": {
+    "x": 1199,
+    "y": 384,
+    "w": 320,
+    "h": 306
+   },
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   }
+  }
+ ],
+ [
+  "menu clips 1600x900",
+  []
+ ],
+ [
+  "menu fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   },
+   "voidBelowViewport": 147,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 1600x900",
+  {
+   "meanLuma": 8.8,
+   "maxLuma": 100,
+   "litFrac": 0.229,
+   "px": 579600
+  }
+ ],
+ [
+  "ladder ack 1600x900",
+  {
+   "ackMs": 73,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 1600x900",
+  {
+   "frame": {
+    "w": 1180,
+    "h": 864
+   },
+   "state": "THE BOARD IS DARK",
+   "hugs": false
+  }
+ ],
+ [
+  "ladder fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1600x900",
+  []
+ ],
+ [
+  "ladder bands frame 1600x900",
+  {
+   "hBefore": 864,
+   "hLoading": 864,
+   "hSettled": 864,
+   "stable": true
+  }
+ ],
+ [
+  "career ack 1600x900",
+  {
+   "ackMs": 52
+  }
+ ],
+ [
+  "career fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1600x900",
+  []
+ ],
+ [
+  "menu geom 2560x1440",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "solo": {
+    "x": 1067,
+    "y": 550,
+    "w": 992,
+    "h": 156
+   },
+   "daily": {
+    "x": 1067,
+    "y": 713,
+    "w": 992,
+    "h": 96
+   },
+   "ratioSoloDaily": 1.63,
+   "tabRows": 1,
+   "tabs": [
+    {
+     "t": "TODAY",
+     "x": 2098,
+     "y": 503,
+     "right": 2165,
+     "w": 67,
+     "textClipped": false
+    },
+    {
+     "t": "DEPTH",
+     "x": 2170,
+     "y": 503,
+     "right": 2237,
+     "w": 67,
+     "textClipped": false
+    },
+    {
+     "t": "TIME",
+     "x": 2242,
+     "y": 503,
+     "right": 2292,
+     "w": 50,
+     "textClipped": false
+    },
+    {
+     "t": "KILLS",
+     "x": 2297,
+     "y": 503,
+     "right": 2354,
+     "w": 57,
+     "textClipped": false
+    },
+    {
+     "t": "RIVALS",
+     "x": 2359,
+     "y": 503,
+     "right": 2428,
+     "w": 69,
+     "textClipped": false
+    }
+   ],
+   "stripBox": {
+    "x": 2098,
+    "right": 2428,
+    "w": 330
+   },
+   "stripScroll": 0,
+   "tabSlack": 0,
+   "allTabsVisible": true,
+   "primaryClip": "PROW",
+   "board": {
+    "x": 2083,
+    "y": 490,
+    "w": 360,
+    "h": 669
+   },
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020
+   }
+  }
+ ],
+ [
+  "menu clips 2560x1440",
+  []
+ ],
+ [
+  "menu fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020
+   },
+   "voidBelowViewport": 210,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu hero luma 2560x1440",
+  {
+   "meanLuma": 8.2,
+   "maxLuma": 100,
+   "litFrac": 0.212,
+   "px": 1488960
+  }
+ ],
+ [
+  "ladder ack 2560x1440",
+  {
+   "ackMs": 78,
+   "firstPaint": "SKELETON: TUNING IN"
+  }
+ ],
+ [
+  "ladder settled 2560x1440",
+  {
+   "frame": {
+    "w": 1587,
+    "h": 1382
+   },
+   "state": "THE BOARD IS DARK",
+   "hugs": false
+  }
+ ],
+ [
+  "ladder fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "voidBelowViewport": 29,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 2560x1440",
+  []
+ ],
+ [
+  "ladder bands frame 2560x1440",
+  {
+   "hBefore": 1382,
+   "hLoading": 1382,
+   "hSettled": 1382,
+   "stable": true
+  }
+ ],
+ [
+  "career ack 2560x1440",
+  {
+   "ackMs": 36
+  }
+ ],
+ [
+  "career fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 281,
+    "w": 1587,
+    "h": 878
+   },
+   "voidBelowViewport": 281,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 2560x1440",
+  []
+ ]
+]

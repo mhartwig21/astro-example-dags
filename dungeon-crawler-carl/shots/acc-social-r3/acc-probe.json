@@ -1,0 +1,578 @@
+[
+ [
+  "menu rhythm 1366x768",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "gapNameToPrimary": 10,
+   "gapTestToFooter": 14,
+   "ratioSoloDaily": 1.62,
+   "soloH": 97,
+   "dailyH": 60,
+   "boardGhostsVisible": 3,
+   "boardDeadBelowGhosts": 25,
+   "boardListH": 200,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550,
+    "bottom": 659
+   }
+  }
+ ],
+ [
+  "menu fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 553,
+    "y": 109,
+    "w": 765,
+    "h": 550
+   },
+   "voidBelowViewport": 109,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu clips 1366x768",
+  []
+ ],
+ [
+  "campfire base AFTER 1366x768",
+  {
+   "meanLuma": 28.97,
+   "litFrac": 0.959,
+   "blackFrac": 0,
+   "px": 32279
+  }
+ ],
+ [
+  "campfire base BEFORE(r2) 1366x768",
+  {
+   "meanLuma": 26.25,
+   "litFrac": 0.938,
+   "blackFrac": 0.024,
+   "px": 32279
+  }
+ ],
+ [
+  "ladder skeleton 1366x768",
+  {
+   "state": "THE BOARD IS DARK",
+   "frame": {
+    "w": 1180,
+    "h": 737
+   },
+   "hugs": false,
+   "skelW": 1138,
+   "skelWFracOfInner": 1,
+   "rowsVisible": 5,
+   "rowH": 41,
+   "rowGrid": "30px 872px 58px 128px",
+   "browGrid": "(no live rows)",
+   "inkH": 317,
+   "inkFracOfFrame": 0.43
+  }
+ ],
+ [
+  "ladder fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1366x768",
+  []
+ ],
+ [
+  "career geom 1366x768",
+  {
+   "frame": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "hugs": false,
+   "frameHFracOfViewport": 0.96,
+   "histoRect": {
+    "x": 114,
+    "y": 225,
+    "w": 1138,
+    "h": 68
+   },
+   "histoGhostBars": 18,
+   "histoZeroLabel": "NO EPISODES ON FILE",
+   "splitRows": 6,
+   "splitNames": [
+    "THE UNDERCROFT",
+    "THE SEWERS",
+    "THE GARDEN",
+    "THE RUINS",
+    "THE IRONWORKS",
+    "THE APPROACH"
+   ],
+   "shelfSkelRows": 3,
+   "masteryPlates": 3,
+   "micInk": "rgb(169, 159, 140)",
+   "micSize": 20,
+   "cols": [
+    {
+     "h": 364,
+     "lastBottomGap": 0
+    },
+    {
+     "h": 279,
+     "lastBottomGap": 0
+    },
+    {
+     "h": 370,
+     "lastBottomGap": 0
+    }
+   ]
+  }
+ ],
+ [
+  "career fit 1366x768",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 93,
+    "y": 15,
+    "w": 1180,
+    "h": 737
+   },
+   "voidBelowViewport": 15,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1366x768",
+  []
+ ],
+ [
+  "career histo raster 1366x768",
+  {
+   "meanLuma": 13.89,
+   "litFrac": 0.822,
+   "blackFrac": 0,
+   "px": 77384
+  }
+ ],
+ [
+  "career field raster 1366x768",
+  {
+   "meanLuma": 6.98,
+   "litFrac": 0.172,
+   "blackFrac": 0.253,
+   "px": 36792
+  }
+ ],
+ [
+  "career field BEFORE(r2) 1366x768",
+  {
+   "meanLuma": 1.77,
+   "litFrac": 0,
+   "blackFrac": 1,
+   "px": 36792
+  }
+ ],
+ [
+  "menu rhythm 1600x900",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "gapNameToPrimary": 11,
+   "gapTestToFooter": 14,
+   "ratioSoloDaily": 1.6,
+   "soloH": 109,
+   "dailyH": 68,
+   "boardGhostsVisible": 3,
+   "boardDeadBelowGhosts": 34,
+   "boardListH": 225,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605,
+    "bottom": 753
+   }
+  }
+ ],
+ [
+  "menu fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 648,
+    "y": 147,
+    "w": 896,
+    "h": 605
+   },
+   "voidBelowViewport": 147,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu clips 1600x900",
+  []
+ ],
+ [
+  "campfire base AFTER 1600x900",
+  {
+   "meanLuma": 28.85,
+   "litFrac": 0.96,
+   "blackFrac": 0,
+   "px": 44352
+  }
+ ],
+ [
+  "campfire base BEFORE(r2) 1600x900",
+  {
+   "meanLuma": 27.31,
+   "litFrac": 0.944,
+   "blackFrac": 0.024,
+   "px": 44352
+  }
+ ],
+ [
+  "ladder skeleton 1600x900",
+  {
+   "state": "THE BOARD IS DARK",
+   "frame": {
+    "w": 1180,
+    "h": 864
+   },
+   "hugs": false,
+   "skelW": 1134,
+   "skelWFracOfInner": 1,
+   "rowsVisible": 5,
+   "rowH": 41,
+   "rowGrid": "30px 868px 58px 128px",
+   "browGrid": "(no live rows)",
+   "inkH": 317,
+   "inkFracOfFrame": 0.37
+  }
+ ],
+ [
+  "ladder fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 1600x900",
+  []
+ ],
+ [
+  "career geom 1600x900",
+  {
+   "frame": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "hugs": false,
+   "frameHFracOfViewport": 0.96,
+   "histoRect": {
+    "x": 233,
+    "y": 265,
+    "w": 1134,
+    "h": 84
+   },
+   "histoGhostBars": 18,
+   "histoZeroLabel": "NO EPISODES ON FILE",
+   "splitRows": 6,
+   "splitNames": [
+    "THE UNDERCROFT",
+    "THE SEWERS",
+    "THE GARDEN",
+    "THE RUINS",
+    "THE IRONWORKS",
+    "THE APPROACH"
+   ],
+   "shelfSkelRows": 3,
+   "masteryPlates": 3,
+   "micInk": "rgb(169, 159, 140)",
+   "micSize": 20,
+   "cols": [
+    {
+     "h": 394,
+     "lastBottomGap": 0
+    },
+    {
+     "h": 324,
+     "lastBottomGap": 0
+    },
+    {
+     "h": 413,
+     "lastBottomGap": 0
+    }
+   ]
+  }
+ ],
+ [
+  "career fit 1600x900",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 210,
+    "y": 18,
+    "w": 1180,
+    "h": 864
+   },
+   "voidBelowViewport": 18,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 1600x900",
+  []
+ ],
+ [
+  "career histo raster 1600x900",
+  {
+   "meanLuma": 13.82,
+   "litFrac": 0.825,
+   "blackFrac": 0,
+   "px": 95256
+  }
+ ],
+ [
+  "career field raster 1600x900",
+  {
+   "meanLuma": 7.46,
+   "litFrac": 0.234,
+   "blackFrac": 0.206,
+   "px": 123120
+  }
+ ],
+ [
+  "career field BEFORE(r2) 1600x900",
+  {
+   "meanLuma": 2.03,
+   "litFrac": 0,
+   "blackFrac": 1,
+   "px": 123120
+  }
+ ],
+ [
+  "menu rhythm 2560x1440",
+  {
+   "gate": {
+    "loadingGone": true
+   },
+   "gapNameToPrimary": 89,
+   "gapTestToFooter": 89,
+   "ratioSoloDaily": 1.62,
+   "soloH": 196,
+   "dailyH": 121,
+   "boardGhostsVisible": 8,
+   "boardDeadBelowGhosts": 95,
+   "boardListH": 583,
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020,
+    "bottom": 1230
+   }
+  }
+ ],
+ [
+  "menu fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 1038,
+    "y": 210,
+    "w": 1434,
+    "h": 1020
+   },
+   "voidBelowViewport": 210,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "menu clips 2560x1440",
+  []
+ ],
+ [
+  "campfire base AFTER 2560x1440",
+  {
+   "meanLuma": 29.75,
+   "litFrac": 0.964,
+   "blackFrac": 0,
+   "px": 113486
+  }
+ ],
+ [
+  "campfire base BEFORE(r2) 2560x1440",
+  {
+   "meanLuma": 27.88,
+   "litFrac": 0.944,
+   "blackFrac": 0.025,
+   "px": 113486
+  }
+ ],
+ [
+  "ladder skeleton 2560x1440",
+  {
+   "state": "THE BOARD IS DARK",
+   "frame": {
+    "w": 1587,
+    "h": 1382
+   },
+   "hugs": false,
+   "skelW": 1180,
+   "skelWFracOfInner": 0.77,
+   "rowsVisible": 8,
+   "rowH": 49,
+   "rowGrid": "30px 914px 58px 128px",
+   "browGrid": "(no live rows)",
+   "inkH": 507,
+   "inkFracOfFrame": 0.37
+  }
+ ],
+ [
+  "ladder fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "voidBelowViewport": 29,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "ladder clips 2560x1440",
+  []
+ ],
+ [
+  "career geom 2560x1440",
+  {
+   "frame": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "hugs": false,
+   "frameHFracOfViewport": 0.96,
+   "histoRect": {
+    "x": 513,
+    "y": 329,
+    "w": 1533,
+    "h": 210
+   },
+   "histoGhostBars": 18,
+   "histoZeroLabel": "NO EPISODES ON FILE",
+   "splitRows": 6,
+   "splitNames": [
+    "THE UNDERCROFT",
+    "THE SEWERS",
+    "THE GARDEN",
+    "THE RUINS",
+    "THE IRONWORKS",
+    "THE APPROACH"
+   ],
+   "shelfSkelRows": 3,
+   "masteryPlates": 3,
+   "micInk": "rgb(169, 159, 140)",
+   "micSize": 20,
+   "cols": [
+    {
+     "h": 779,
+     "lastBottomGap": 4
+    },
+    {
+     "h": 779,
+     "lastBottomGap": 4
+    },
+    {
+     "h": 779,
+     "lastBottomGap": 4
+    }
+   ]
+  }
+ ],
+ [
+  "career fit 2560x1440",
+  {
+   "docOverX": 0,
+   "docOverY": 0,
+   "panel": {
+    "x": 486,
+    "y": 29,
+    "w": 1587,
+    "h": 1382
+   },
+   "voidBelowViewport": 29,
+   "liveScrollers": []
+  }
+ ],
+ [
+  "career clips 2560x1440",
+  []
+ ],
+ [
+  "career histo raster 2560x1440",
+  {
+   "meanLuma": 13.5,
+   "litFrac": 0.821,
+   "blackFrac": 0,
+   "px": 321930
+  }
+ ],
+ [
+  "career field raster 2560x1440",
+  {
+   "meanLuma": 7.85,
+   "litFrac": 0.279,
+   "blackFrac": 0.166,
+   "px": 498864
+  }
+ ],
+ [
+  "career field BEFORE(r2) 2560x1440",
+  {
+   "meanLuma": 2.3,
+   "litFrac": 0,
+   "blackFrac": 1,
+   "px": 498864
+  }
+ ]
+]
