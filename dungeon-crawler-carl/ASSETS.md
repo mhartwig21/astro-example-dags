@@ -149,7 +149,7 @@ pointers for the audio sources too.
 
 | Our file(s) | Source | Author | License |
 |---|---|---|---|
-| `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds (SFX r2: re-leveled -5.2/-5.3/-5.4/-5.2dB via `ffmpeg -af volume`, q5 — the originals decoded at +1.9..+2.1 dBFS over full scale and breached the SOUNDPLAN §2.2 headroom contract; now peak -3.4/-3.2/-3.4/-3.0 dBFS. Level change only, no creative edit) | Kenney | CC0 |
+| `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds (SFX r2: re-leveled -5.2/-5.3/-5.4/-5.2dB via `ffmpeg -af volume`, q5 — the originals decoded at +1.9..+2.1 dBFS over full scale and breached the SOUNDPLAN §2.2 headroom contract; now peak -6.4/-6.2/-6.4/-6.0 dBFS (the earlier -3.4/-3.2/-3.4/-3.0 row was read with the pre-fix stereo-inflating meter; re-measured in the final audit — files are SAFER than first documented). Level change only, no creative edit) | Kenney | CC0 |
 | `sfx/announce,warning.ogg` | Kenney — Interface Sounds | Kenney | CC0 |
 | `sfx/gold,buy,item,equip,door_unlock,descend.ogg` | Kenney — RPG Audio | Kenney | CC0 |
 | `sfx/level_up,victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles | Kenney | CC0 |
