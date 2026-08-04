@@ -1,0 +1,72 @@
+TUTORIAL r4 probe — 70 pass, 0 fail
+
+PASS A: COLD profile (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS A: B0 up, run live
+PASS A1: the sim generated the collapse tip (within-run latch set)
+PASS A1 BLOCKER 1: it is NOT in the once-EVER ledger while unshown — ledger=[tut.campfire]
+PASS A1 BLOCKER 1: saveRun does not spend it either — ledger=[tut.campfire]
+PASS A1: the RUN SAVE drops the unshown id too (a refresh can re-teach it) — saved=[tut.campfire]
+PASS A1: the collapse card SHOWS once the surface is free
+PASS a1_collapse_card: #tutorial .tut PAINTED (std 45.2, warm 5.4%)
+PASS A1 BLOCKER 1: the ledger gains it AT the paint, not before — ledger=[tut.campfire,collapse]
+PASS A2: a 'favorites' card is generated and waiting on the pacing gap
+PASS A2: the run ended (verdict)
+PASS A2: ...with run 1's card still undrained (the leak has something to carry)
+PASS A2: run 2 is live on floor 1 with an empty show
+PASS A2 BLOCKER 2: run 1's queued card NEVER paints over run 2
+PASS A2: ...and it was not spent either — run 2 may still teach it — ledger=[tut.campfire,collapse,tut.runback]
+PASS A: zero 404s
+PASS A: zero page errors
+PASS B: COLD profile (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS B: B0 up, run live
+PASS B3: alone at spawn (nearest monster 11.4 tiles) and NO swing lecture yet
+PASS B3: the SWING is taught at contact —  SYSTEM — COURTESY EXPLANATIONContact. Left click or Space swings at what the mouse points
+PASS B3: ...naming the strike
+PASS B3: ...and nothing else
+PASS b_contact_card: #tutorial .tut PAINTED (std 44.6, warm 5.4%)
+PASS B3: the crawler's real loadout is [melee,dash,bolt,] ult=null
+PASS B3 BLOCKER: the ability line arrives AFTER the swing —  SYSTEM — COURTESY EXPLANATIONSwinging is the floor, not the ceiling. Shift, Q are your live abilities: louder arguments
+PASS B3 BLOCKER: it names the LIVE slots only (Shift, Q)
+PASS B3 BLOCKER: it does NOT name slot 4 (C — padlocked)
+PASS B3 BLOCKER: it does NOT name the ultimate (F — unreachable before floor 7)
+PASS B3: it says WHY the rest of the row is dark
+PASS b_ability_card: #tutorial .tut PAINTED (std 47.0, warm 4.9%)
+PASS B SHOW: a crit fired the hype tip (hype=5)
+PASS B SHOW: ...and the card PAINTED on the hype event the player caused
+PASS b_hype_card: #tutorial .tut PAINTED (std 47.1, warm 4.5%)
+PASS B3 BLOCKER: across the whole session, no card ever named the ultimate
+PASS B: the crawler survived the battery (every measurement is of a LIVE run)
+PASS B: zero 404s
+PASS B: zero page errors
+PASS C: COLD profile (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS C: B0 up, run live
+PASS C FLASK: the low-HP prompt fired
+PASS c_flask_prompt: #tutorial .tut PAINTED (std 42.3, warm 6.6%)
+PASS C FLASK: the press landed (3 -> 2 charges)
+PASS C FLASK BY DOING: the press produced its confirmation —  SYSTEM — COURTESY EXPLANATIONFlask consumed. Charges come back from KILLS, not from time,
+PASS c_flask_confirm: #tutorial .tut PAINTED (std 44.7, warm 5.4%)
+PASS C LOOT: the bag offered the item to equip by hand
+PASS C LOOT: the player CHOSE to wear it
+PASS C LOOT BY DOING: the equip produced its confirmation —  SYSTEM — COURTESY EXPLANATIONEquipped. Strict upgrades dress themselves on pickup; anythi
+PASS c_equip_confirm: #tutorial .tut PAINTED (std 48.6, warm 4.5%)
+PASS C GLYPH: picking one up fired the glyph tip
+PASS C GLYPH BY DOING: ...and the card PAINTED —  SYSTEM — COURTESY EXPLANATIONThat is a GLYPH — firmware for ONE ability. It does not make
+PASS c_glyph_card: #tutorial .tut PAINTED (std 48.1, warm 4.9%)
+PASS C: the crawler survived the battery (every measurement is of a LIVE run)
+PASS C VOICE: no painted card ever named the player's chrome (HUD / badge)
+PASS C VOICE: no painted card glossed a keybind in parentheses
+PASS C: every id in the ledger corresponds to a card that painted (2 ids) — ledger=[tut.campfire,glyph]
+PASS C: zero 404s
+PASS C: zero page errors
+PASS D: COLD profile (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS D: B0 up, run live
+PASS D: the descent reached the safe room
+PASS D: the first safe room opens on Mordecai's beat
+PASS D: it is Mordecai
+PASS D VOICE: B5 line 1 is no longer a panel-affordance list — Safe room. Nothing in here is trying to kill you, and that stops being true the second you take those stairs. Sit down. 
+PASS d_beat_portrait: #dialogue PAINTED (std 23.5, warm 2.0%)
+PASS D: the safe-room panel opened behind the beat
+PASS D: the room has a header line to suppress — Floor 2? I've seen crawlers do it on half your gear. They're dead now, but still.
+PASS D MINOR: the green header line stands down on a beat visit — one voice, one surface — sr-tip=""
+PASS D: zero 404s
+PASS D: zero page errors
