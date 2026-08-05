@@ -1,244 +1,178 @@
-# Open work on `aaa-perfection`
+# HANDOFF — where the game stands, and what to pick up
 
-This branch is the INTEGRATION branch: `main@334cc32` plus all four V2 tracks
-merged in one place, so critic rounds judge the game a player would actually
-load rather than four divergent copies of it.
+Written at `main@48d5f03`, deployed to production. Replaces the previous
+handoff (which described the long-since-merged `aaa-perfection` integration).
 
-    social-v2     PR #166, complete    (replay-verified runs, ladders, ghosts, career)
-    abilities-v2  PR #167, complete    (kit rework, 3 new abilities, star chart, glyphs)
-    bosses-v2     checkpoint, MID-ROUND (18-boss roster + grammar; presentation failing)
-    mobile-v2     checkpoint, MID-ROUND (touch core + HUD; spec contradictions open)
-
-Merge decisions worth knowing are in the merge commit messages. The one that
-bites: social-v2 introduced `src/sim/dmath.ts`, a deterministic transcendental
-layer that the whole replay-verification spine stands on, and a guard in
-`test/balance.test.ts` bans `Math.sin/cos/atan2/hypot/pow` anywhere in
-`src/sim/`. Both other tracks forked before it existed. **Any sim code written
-against `main` needs its transcendentals converted before it merges here**, and
-`npx tsx scripts/simhash.ts --write` must be re-run whenever sim rules move
-(it retires recorded run proofs by design — that is the system working).
+**Read `CLAUDE.md` first** — this file assumes it. This one covers only what a
+new session cannot reconstruct from the code and git history: open threads,
+verdicts still owed, and the specific ways this project has been got wrong
+before.
 
 ---
 
-## 0. Integration debt — PAID
+## 0. THE ONE LESSON THIS PROJECT KEEPS RE-LEARNING
 
-**`abilities2.test.ts` §6.4.9(i) is green.** The suite is clean.
+**Measuring the wrong thing and reporting it as success.** Every serious defect
+found this session came from an instrument that was green about something
+adjacent to the question. All of these shipped:
 
-The red was not the cross-track interaction the merge commit guessed at. It was
-never the boss: across the 13 floor-12 windows a boss *was* present in all of
-them, and dealt 22 of the 352 damage — all 22 on the arm that was **not**
-channelling. `shieldHp` was 0 in 12 of the 13, the one plated boss took nothing
-in its window, and `ap.track`/`ap.band` were 0 in every fixture, so Precision
-Strike never snapped a shell anywhere. The 300 was trash: `shot` 200,
-`swarmer` 70, one blast for 30 that both arms ate identically.
-
-What was broken was the RULER, in two measurable ways: 13 windows could not
-resolve the claim (the same fixture on neighbouring seed bases read 101v104,
-119v240, 179v418 — the shipped base was the outlier of four), and the "playing
-normally" arm was itself pressing the ultimate in 21 of 81 windows, which makes
-it a barrage-vs-barrage comparison. No sim rule moved; the fixture was rebuilt.
-Details and the falsification check are in the §6.4.9 comment and
-ABILITIES-V2 §6.9.
-
-**Carried forward as a watch item:** the barrage's affordability is bought by
-its lethality, and shells stop one-shotting the median mob around floor 12
-(0.56 shells-to-kill at floor 8, 1.34 at floor 12). Floors 14–16 sit near
-parity. If a later band pushes clause (i) past 1.0, the lever is shell damage
-at depth, not channel length — the pre-registered 3s -> 2s ladder is aimed at
-the wrong axis and measuring it (269 vs 153 at 2s) confirmed that.
-
----
-
-## 1. Bosses — presentation, not design
-
-Design doc `BOSSES-V2.md` (991 lines) passed a harsh encounter-design critic at
-**8.0/10**. The full sim scope shipped: an 18-boss named roster across the six
-bands, seeded selection, 8 encounter mutators, phases, plates, shield pools,
-tethers, enrage and the punish window, all on the shared `stepBoss` chassis.
-
-Two acceptance rounds on captured frames scored **5.8** then **5.5** against an
-8.5 bar. Open blockers, verbatim from the critics:
-
-- **The name card is absent from 8 of 18 intro captures** and unreadable in a
-  9th — the marquee beat does not reliably fire.
-- **The punish window has no in-world read.** The doc calls it "the one beat
-  that most needs to read"; nothing on screen communicates it.
-- **Exposure destroys the read on several bosses** despite the claimed shared
-  brightness governor (topiary especially).
-- **The payoff chain does not land** across rentcollector / permitoffice /
-  sumpking — the beat a short-session game lives on.
-- **Fights differ by hue, not shape.** PARTIALLY ANSWERED after the last
-  checkpoint: `src/render3d/bossSignatures.ts` now assigns each ask its own
-  silhouette (lanes / cords / shell / props / cells / column, with the spoked
-  ring reserved to one arena signature). Unverified by a critic — the claim
-  needs fresh captures, not a re-read of the table.
-- **The boss is occluded by its own health plate** in the `-3fight` captures.
-
-Harness: `tools/bossshot.mjs`. Do not trust a capture that does not visibly
-contain the beat it claims — several earlier ones did not, which is how a
-5.5 round got mistaken for a 7.
-
-## 2. Mobile — precision problems in the spec
-
-Design doc `MOBILE.md` (~1,301 lines), audit-first: `tools/mobileshot.mjs`
-drove iPhone 13, iPhone 13 Pro Max, iPad Pro 11 landscape and Pixel 5 with REAL
-touch events before a line of design was written. Shipped: the touch state
-machine (floating-origin stick, tap-vs-drag activation with aim indicators and
-a cancel zone, target selection, dodge, potion, loot, interact, multi-touch),
-and responsive HUD/layout with `env(safe-area-inset-*)` handling plus
-touch-first passes on the close controls, shop, sheet, inventory, constellation
-and glyph socketing. Everything maps onto the SAME `Intent` the keyboard
-produces — no host-side rules.
-
-Design critiques scored **6.5** then **7.0** against an 8.0 bar on six spec
-contradictions. **All six are DECIDED in `MOBILE.md` §2.0 (the decision
-register, which outranks every other section of that doc) and all six are now
-IMPLEMENTED on `trk-mobile`**, each with the test that holds it. Summary:
-
-| # | was | now |
+| what was measured | what mattered | how it surfaced |
 |---|---|---|
-| 1 | AIMING promoted on `travel > 18px` OR `dwell > 90ms`; a deliberate tap runs 100–300ms | travel only, from a **leaky origin** (`ORIGIN_LEAK = 40 px/s`, frozen on promotion). No time term exists in the ability FSM. §2.4a — **SHIPPED**: `AbilityButton.move()`; the five speed rows + byte-identical Intent in `test/touchIntent.test.ts` |
-| 2 | max range = "1.0 stick-radius from the chip"; R was a clamped viewport function spanning 36–123px | `aimThrow = 18mm` (94–110px), its own hand-scale quantity, `buttonScale` not `stickScale`; `cancelRadius = 0.34 × aimThrow`; ordering asserted. §2.4b — **SHIPPED**, plus `aimPlacement()` for the placed-shape half |
-| 3 | tap ≤ 200ms, long-press 450ms — the 200–450ms band resolved to **nothing** | tap ceiling deleted (`TAP_MS` gone). Release before the 450ms arm = move, after = ping. §2.5a — **SHIPPED**; 11 durations asserted to produce exactly one Intent each |
-| 4 | `comfortable = clamp(0.55 × shortEdge, 150, 300)` — one formula, and its clamp gave every tablet the same number anyway | reach is anthropometry: `48mm` / `66mm` through a per-class `MM_PER_PX` table. Phones gain 31% of arc, tablets lose 17%. §3.2 — **SHIPPED**, with a 38–62mm player slider |
-| 5 | tablet side pivot at `0.62 H` reproduced the phone layout §1.5 condemns | pivot kept, **fan** fixed: corner grip +6°…+96°, side grip −46°…+46° at `0.58 H`, with four asserted invariants incl. "no combat chip in the top 32% of the safe box". §4.2a — **SHIPPED**; three of four invariants are structural (a cluster box the relaxation pass cannot escape), all four asserted over 6 viewports × 2 hands × 8 slider positions |
-| 6 | `setModalOpen(boolean)` over a hand-maintained list of 9 element IDs, missing `#ladder`/`#career`/`#consent`/`#loading`/`#recap-tab`/`#rotate` and every no-event path | refcounted input authority, 8 enumerated suspend reasons driven by `body.modal` + a `test/panels.test.ts` that catches new overlays, + an 8s stuck-pointer reaper. §2.9a — **SHIPPED**; overlays declare `data-overlay` in the markup and the test parses the screen-zone map |
+| "is the crawler inside the viewport" (`\|ndc\| > 1`) | is the crawler *findable* | owner: "really hard to see your own player" — the probe reported 0 failures |
+| LUFS, seams, duck depth (audio audit scored 8.8/10) | is the ability roster audible at all | 13 of 16 abilities cast in silence; the audit enumerated the director's mappings, not the roster |
+| decoded-clip loudness | resident memory | 639.6 MB of PCM held for the session, never once weighed |
+| floor-1 tutorial card pacing | floors 2-18 | the curriculum rule was scoped to `state.floor === 1`; every deeper floor got the full 16-tip flood |
+| "the shop renders tier sections" | do the sections *read* as sections | ~28 filler "well" tiles made five bands look like one grid |
 
-Four of the six were one mistake: *a quantity set by the hand written as a
-function of the screen.* §2.0 splits hand-scale (mm) from screen-scale
-(viewport fractions) and that split is now load-bearing, and it is what
-`computeZones()` is organised around.
+The shape is always the same: **the instrument was accurate and the question
+was wrong.** Before writing a probe, write down the sentence the owner would
+say if the feature were broken, then check that the probe would fail on it.
 
-**Implementation round 1 landed** — see the commit on `trk-mobile` and the
-"IMPLEMENTED" table at the top of `MOBILE.md`, which also records the three
-places the implementation had to contradict the prose (the corner CANCEL band
-cannot sit above the cluster; `rf` runs past 1.0 on a corner fan; the size
-slider is a request the packer may refuse). Evidence lives in
-`tools/_mobile/i2.log` and `tools/_mobile/i3.log`.
+Corollary: **the owner's ear and eye are the only acceptance for anything
+subjective.** No agent in this loop can hear audio. Spectrograms, CLAP scores
+and LUFS tables catch *incoherence*; they cannot catch *bad*. Always say which
+of the two you measured.
 
-**Implementation round 2 landed** — a device-driven acceptance round found the
-touch LAYER was sound and the SURFACES were not. `MOBILE.md`'s new "ROUND 2"
-section carries the five findings that mattered and what each actually turned
-out to be. The headline: *a phone player could not buy anything*, and the cause
-was `srPageShop.style.display = "grid"` — one inline style, which beats every
-stylesheet rule and silently defeated the whole one-pane shop treatment, leaving
-the shelf in 40% of the panel with **not one hit-testable tile**. The
-select→detail→BUY chain was never broken; there was nothing a finger could press
-to start it.
+---
 
-Also landed: §3.1's indicator (`src/render3d/aimIndicator.ts`, six shapes,
-cyan/white/outline, stroke and footprint floors, fed the live `AimSpec`); loot
-feedback (ground ring + `#pickstrip`); the low-HP flask pulse and refill haptic;
-swipe-to-close (moved onto the TOUCH stream — Chrome cancels the POINTER stream
-after one move when a scroller claims the pan, which is why round 1's swipe
-closed nothing anywhere); the phone recap; the toast rail's width; the boss
-plate off the crawler's own vitals; and the desktop regression where touch
-chrome was injected into every fine-pointer panel.
+## 1. WHAT IS LIVE (main@48d5f03)
 
-**Implementation round 3 landed** — and its headline is that the round-2
-telegraph work was correct and **invisible**. `src/main3d.ts` placed every
-telegraph at `p.pos + isoRotate(aimDir) * tiles`, and `aimDir` is the RAW PIXEL
-drag vector, so the anchor was 110-175x too far out for every PLACED shape:
-nova 455 world units from the crawler, cataclysm 1050, **0% of the projected
-vertices on screen** for six of ten abilities including both ultimates. Line,
-cone and chain survived only because `aimPlacement()` returns 0 for them.
-Direction and anchor now come from one pure `aimAnchor()`
-(`src/input/aimSpec.ts`), and `test/aimTelegraph.test.ts` projects the result
-through an iso camera rebuilt from `THEME` onto four real viewports — including
-a REGRESSION row that reproduces the shipped arithmetic and asserts it is off
-the glass, so the test's own sensitivity is proved rather than assumed. Measured
-after, on a 750x342 iPhone 13 with the finger held through the frame: 78-100%
-of the telegraph's vertices on screen in all four drag directions, all three
-shapes (`tools/_mobile/r3.mjs`).
+Deployed and verified: `/health` fresh, `/iso.html` 200, exactly one machine.
 
-Also landed: the camera now LEADS a live aim (up to 4.2 tiles of slide and 22%
-of frame widening, easing back the instant the finger lifts) because bolt
-reaches 14.4 tiles and the frame shows 8.5; two drawn target markers (a
-persistent bracket on the locked target, a 420 ms cyan reticle on whatever the
-smart cast just chose — `lockedTargetId` had steered `pickTarget` for four
-rounds with nothing on the glass); a **crawler keepout** in `computeZones()`,
-because `#t-map` measured 51x51 at (370,152) on a phone whose crawler projects
-to (375,150) — the least-used control had the most valuable pixels; a
-`CastVerdict` log on every chip press, so a refusal, a queue expiry, a deaf
-modal gate, a re-entrant pointerId and a cancel stop being the same silence;
-panel stacking that raises an overlay above whatever is already open (`#sheet`
-is z 20 and `#saferoom` z 24, so a sheet opened over the shop opened
-UNDERNEATH it and its own ✕ could not be tapped); a sticky `.tp-done` (it was
-`position: absolute` inside a scroller, i.e. not pinned at all — measured at
-y = -105 after 361 px of scroll); a pinned recap fork; the shop's own 40 px tab
-rules raised to the 44 px gate they were undercutting; an 11.5 px floor inside
-panels; and the transient System card clamped out of the sight line.
+- **Audio r2** — music streams (639.6 MB → 15.5 MB resident PCM; renderer
+  working set 934 → 285 MB). All 16 abilities have a cast cue. `dash` and
+  `level_up` regenerated; footsteps **deleted by owner order**.
+- **Polish r1** — shop rarity sections restored, verdict grade removed, menu
+  CTA 1.62x → 1.26x, ability screen opens on LIST.
+- **Boss camera r2** — owner-verified live.
+- **Courtesy explanations** stop flowing past floor 1.
+- **Tutorial r5** — Mordecai's first-run onboarding.
+- **Mobile** — Wild Rift geometry, iOS multi-touch fix, LOCK chip removed.
 
-**Three round-2 findings turned out to be the HARNESS, and they are worth more
-than the fixes.**
+`rulesEra` moved `564d5ba → 98b1470` in this release (tutorial sim tips). Prior
+run proofs are retired — that is the system working, not a bug.
 
-- *Flick-to-dash fires on 1 of 4 profiles.* Instrumented, the page received
-  every dispatched `pointermove` — no coalescing, no lost samples.
-  `FLICK_DEBOUNCE_MS` is judged on EVENT time and the driver's virtual clock
-  only advances when the script calls `tick()`, so five profiles driven back to
-  back all landed inside 350 ms of each other and every one after the first was
-  correctly debounced. **5 of 5 fire on both devices** once the clock advances.
-  The recogniser did have a real and different defect: a 900 px/s thumb stir
-  cleared the iPad's per-sample floor by a tenth of a pixel and dashed, so the
-  latch now also requires net travel and straightness.
-- *Move while aiming fails on iPad in 2 of 2 runs.* Unreproduced: 4.25-9.56
-  tiles kept in every direction of two independent runs.
-- *One aimed cast in four produces no cast.* Unreproduced: 80 of 80 identical
-  aimed casts fired, and all 80 of the layer's own verdicts read `aimed`.
-- *The desktop gate's two ability-key FAILs are "a bindings mismatch that
-  predates this track".* **That diagnosis was wrong** and is corrected below.
+---
 
-**Still open in this track:**
+## 2. OPEN — OWNER VERDICTS OWED
 
-- **The legibility diff still has no honest number, and now for a new reason.**
-  Every diff taken before round 3 was measured inside the indicator's own
-  projected box, which for six of ten abilities was a degenerate rectangle
-  hundreds of tiles off-screen — so the "at or below the scene churn" result
-  reproduced no matter what the palette did. The shapes are in frame now, so
-  the measurement can finally mean something, and it has not been taken. §5.2
-  keeps the row.
-- **The world zone is two slivers on a phone.** `readability.json` reported 2 of
-  4 on-screen monsters under the HUD on an iPhone 13 combat frame and 1 of 4 on
-  the boss scene (iPad: 0 of 5). Chips win at `pointerdown` so world taps still
-  resolve, and `world: tap to move` / `long press pings` now pass on the phones
-  — but the *visual* crowding is untouched, and it wants a HUD-density or camera
-  decision, not another zone tweak.
-- **The phone shop is still the desktop information architecture, segmented.**
-  It buys now, the tabs finally clear 44 px and the prices clear 11.5 px, but a
-  phone still gets 11 of 55 shelf tiles behind four stacked rows of navigation
-  that eat 59% of the panel, in a fixed 11-column desktop grid that does not
-  reflow. The iPad shop in the same build is excellent, which is the proof that
-  the phone was segmented rather than redesigned. `#sr-detail` (610x155 with
-  185 px of hidden scroll) and the 1149 px unnavigated character sheet are the
-  same debt.
-- **Haptics are a no-op on iOS**, which is the larger half of the target
-  platform: `navigator.vibrate` does not exist in Safari, so every press / cast
-  / cancel / refuse cue is silent on iPhone and iPad. §5.2 now says "behind on
-  iOS" instead of "degrading cleanly", and the compensation — a louder visual
-  press state where `vibrate` is missing — is owed.
-- The §8.3 real-hardware gate still owes: `ORIGIN_LEAK` against a real thumb,
-  `MM_PER_PX` against a real panel, and what preset Safari picks.
-- `tools/desktopsmoke.mjs`'s cast check asserts `cast || facingChanged` and
-  passes on the facing half alone. An OR satisfied by the clause that is not the
-  claim is not a check.
-- **CORRECTION.** `tools/_mobile/deskdeep.mjs`'s two ability-key FAILs were NOT
-  a bindings mismatch. The probe used `page.keyboard.press(k)` — a ~10 ms key
-  edge — against a host that samples the keyboard once per sim step on a page
-  running at ~3 fps under SwiftShader, which is the gotcha CLAUDE.md documents
-  ("hold keys >= 450 ms"). Stashing could not have shown a bindings mismatch,
-  because the branch was never the variable. The probe now holds for 520 ms and
-  all five ability keys fire (Space/melee 2239->2210 mob hp, Shift/dash charges
-  2->1, q/bolt 2210->2051, c and f cooldowns started). Desktop is fine; the
-  gate was producing phantom FAILs and a wrong root cause, which is how a real
-  regression eventually gets waved through.
+Blocked on the owner, not on work. Do not "resolve" these by measuring harder.
 
-## 3. Standing bars
+1. **The new `dash` and `level_up` sounds are unjudged.** Both stay OPEN in
+   `SOUNDPLAN.md §1.3a` until cleared BY EAR. The audition sheet is built by
+   `tools/audio/mk-audition.mjs` (23 clips, self-contained, ~5 MB — the page is
+   gitignored, the generator is committed). Regenerate and send it.
+2. **The 13 new cast cues** have never been heard by anyone. Same sheet.
 
-Every round ends at a harsh critic doing a BLIND A/B against the reference
-(Diablo II: Resurrected and Hades for bosses, League of Legends for the
-competitive and shop surfaces, Wild Rift for touch). The bar is 8.5, and a
-critic that has not seen a capture containing the claimed beat has not scored
-the beat.
+`SOUNDPLAN.md §1.3a` is the standing register of owner verdicts on shipped
+sounds. **Read it before touching audio.** Verdicts stay open until a
+replacement is cleared, so "the owner already said this sucks" cannot get lost
+between sessions again.
 
-Before any PR: `npx tsc --noEmit`, `npx vitest run`, and
-`npx tsx scripts/balance-sweep.ts` when sim rules moved.
+---
+
+## 3. OPEN — WORK WITH A CLEAR NEXT STEP
+
+### 3a. The tutorial rebuild (the biggest open thread)
+
+Owner's direction, verbatim: *"the system courtesy explanations should entirely
+be replaced by Mordecai's guidance -- I think sometimes its useful to have
+guided tutorials as well where the player goes and does x, y, z before that
+tutorial step ends so they know what they're doing. Mordecai is some times
+talking in riddles."*
+
+What shipped is a **stop-gap**: non-curriculum courtesy tips are dropped rather
+than shown (`main3d.ts`, the `CURRICULUM_TIPS` branch). The rebuild is not
+started. The design, as far as it got:
+
+- **One voice.** COURTESY EXPLANATION dies as a teaching format. The System
+  keeps its announcer register for *events* (ringside intros, achievements,
+  hype) — that is the game's tone and it is not teaching.
+- **Mordecai gets a live channel.** Today he speaks only at rest by design (see
+  the `src/ui/guide.ts` header). That rule must go if he is the teacher — he
+  needs a lightweight in-play strip, not the modal `#dialogue` panel that
+  pauses the world.
+- **Objectives.** A small persistent card: a titled step with 2-3 checkable
+  items, staying until all are done. Play never pauses.
+- **The riddle fix is structural, not stylistic.** `guide.ts` currently FORBIDS
+  Mordecai from teaching mechanics (there is a two-voice test in
+  `test/guide.test.ts` enforcing it), which is exactly why every line he has is
+  atmosphere: *"Sit down. Breathe. It counts as work."* Invert the binding
+  rule — a teaching beat's FIRST sentence must contain the instruction and the
+  key; wry gets sentence two. Testable the same way the current rule is.
+
+### 3b. Shop — one unverified fix
+
+`SHELF_ROW_BUDGET 7 → 6` (`main3d.ts`) and the gutter type cap (`iso.html`)
+landed AFTER the browser pass that verified the rest of polish r1. Drive
+`IN STOCK` at 1366x768 and confirm SIGNATURE is fully visible — it was 1%
+visible before the fix, and the boundary case is the tab the shop opens on.
+
+### 3c. Audio — loop ladder rungs 2 and 3
+
+Music streams with native `el.loop` (rung 1) only. If a bed audibly gaps at the
+wrap: `src/audio/deck.ts` already carries the spare deck rung 2 needs
+(ping-pong crossfade); rung 3 is `stream: false` per id in the manifest, which
+sends that one bed back to sample-accurate buffered looping. The seam
+instrument is `engine.debugHook.musicSeam()` — **it returns null when the
+worklet will not install, and null must be read as UNPROVEN, not as a pass.**
+
+### 3d. `battle_winter.ogg` is 262 seconds
+
+Four and a half minutes of music for a bed the director drops after a 6s battle
+linger; 3.7 MB fetched mid-fight is a real phone stall. Trim through
+`tools/audio/fix-beds.mjs` with a measured seam. Optional now that streaming
+landed — it is a wire-cost fix, not a memory one.
+
+---
+
+## 4. THE INSTRUMENTS (use these before writing new ones)
+
+| tool | what it answers |
+|---|---|
+| `tools/_bugcam.mjs` | boss camera: crawler's distance from centre, p50/p95/worst, fails outside the ±0.55 box. **Rewritten** — the old version only checked `\|ndc\| > 1` |
+| `tools/audio/contactsheet.mjs` | spectrograms + waveforms + descriptors + pairwise distinctness matrix. Catches "13 renders came out as one whoosh" |
+| `tools/audio/clapjudge.py` | CLAP audio↔text judge. **CALIBRATED — read the docstring**: `house` (audio↔audio outlier detection) works; `brief` (audio↔text) scored 3/6 on knowns and may never fail a clip alone. Venv at `~/.clap-venv` (py3.12 + CPU torch) |
+| `tools/audio/measure.mjs` | per-file peak / LUFS / silence share / loop-seam delta |
+| `tools/audio/probe-beds.mjs` | live music routing. Port overridable via `DCC_PORT` |
+| `tools/audio/verify-r2*.mjs` | memory A/B, boot payload, the 16-cast roster drive |
+| `tools/_mobile/battery_focus.mjs`, `ios_gesture_probe.mjs` | mobile merge gates |
+| `tools/filmstrip.mjs`, `tools/feelprobe.mjs` | see `HARNESS.md` |
+
+**Memory-measurement gotcha, learned the hard way**:
+`performance.memory.usedJSHeapSize` does NOT move when AudioBuffers are freed —
+they live outside the JS heap. Use `residentPcmBytes()` (walks live buffers) or
+the process working set. And when matching processes: headless Playwright ships
+`chrome-headless-shell.exe`, so a matcher on `chrome.exe` finds the *user's own
+browser* and reports its churn as yours. That produced a bogus number once.
+
+---
+
+## 5. DEV BOX CONSTRAINTS (owner-stated, non-negotiable)
+
+- **Never more than ~3 headless browsers at once.** Six crashed the machine.
+  Three parallel workflows is fine; the browsers are the ceiling.
+- **Never scale production past exactly one machine** (party state is
+  in-memory — `DEPLOY.md`).
+- **The owner tests on their phone against PRODUCTION.** A mobile-only
+  judgment cannot be gated behind a localhost screenshot.
+- Dev servers from other worktrees squat ports 5280-5290. **Check a port is
+  free AND fingerprint what it serves** before trusting a probe — a whole round
+  was once measured against a stale server on 5280 running another branch.
+- PowerShell here-strings mangle commit messages: write the message to a file
+  and use `git commit -F`.
+
+---
+
+## 6. STALE BRANCHES — do not blind-merge
+
+Seven PRs are open from earlier sessions, all `mergeable: UNKNOWN` (old enough
+that GitHub has not resolved them against current main): #161, #150, #147,
+#134, #123, #12, #2. **#161 and #150 move sim numbers**, which rotates
+`RULES_HASH` and retires every recorded run proof. None has been verified
+recently. Rebase and test individually, or leave them.
+
+Live worktrees: `focus`, `polish`, `audio2`, `main-preview` (branch
+`preview-all` — the integration branch this release shipped from), `tut-fix`
+(abandoned; the toast-hold work it holds was mooted by the tutorial redirect).
+`node_modules` in the newer worktrees are junctions to `focus`'s.
