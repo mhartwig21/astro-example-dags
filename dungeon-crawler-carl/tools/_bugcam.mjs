@@ -82,13 +82,42 @@ try {
   const bothOff = sample.feet.filter(([, y], i) =>
     (Math.abs(sample.feet[i][0]) > 1 || Math.abs(y) > 1)
     && (Math.abs(sample.head[i][0]) > 1 || Math.abs(sample.head[i][1]) > 1)).length;
+  // ---- READABLE, NOT MERELY PRESENT (round 2) ---------------------------
+  //
+  // The check above (|ndc| > 1) is the whole reason this probe passed a camera
+  // the owner then rejected a second time. It asks "is the crawler inside the
+  // viewport", so it is satisfied by a crawler pinned to the edge of the frame,
+  // half under the boss plate, for an entire fight — which is exactly what
+  // ENC_BIAS 0.5 + frameDrop 6.8 + a 0.80 safe box produced. "On screen" was
+  // never the requirement; "the player can find their own body without
+  // hunting" is.
+  //
+  // So the bar is now the CENTRE BOX: the crawler's feet must stay inside
+  // +/-0.55 of NDC on both axes, which is the middle half of the frame where a
+  // player's eye already lives. Report the distribution, not just the breaches,
+  // because a camera that grazes 0.54 every frame is also a bad camera and a
+  // pass/fail count would hide it.
+  const READ = 0.55;
+  const ax = sample.feet.map(([x]) => Math.abs(x));
+  const ay = sample.feet.map(([, y]) => Math.abs(y));
+  const pct = (a, q) => a.slice().sort((m, n) => m - n)[Math.min(a.length - 1,
+    Math.floor(q * (a.length - 1)))].toFixed(3);
+  const outside = sample.feet.filter(([x, y]) => Math.abs(x) > READ || Math.abs(y) > READ).length;
+  const worst = Math.max(...ax.map((v, i) => Math.max(v, ay[i]))).toFixed(3);
+
   console.log(`engaged dist=${sample.dist} bias=${sample.bias} drop=${sample.drop} zoom=${sample.zoom}`);
   console.log(`feet NDC last=[${last}] head NDC last=[${lastHead}]`);
   console.log(`frames sampled=${sample.frames} feetOff=${offscreen} fullyOff=${bothOff}`);
+  console.log(`|ndc.x| p50=${pct(ax, 0.5)} p95=${pct(ax, 0.95)}   ` +
+    `|ndc.y| p50=${pct(ay, 0.5)} p95=${pct(ay, 0.95)}   worst=${worst}`);
+  console.log(`outside the +/-${READ} centre box: ${outside}/${sample.frames} frames`);
   await page.screenshot({ path: `${out}.png` });
-  writeFileSync(`${out}.json`, JSON.stringify({ floor, sample, offscreen, bothOff, census: census() }, null, 2));
+  writeFileSync(`${out}.json`, JSON.stringify(
+    { floor, sample, offscreen, bothOff, readBox: READ, outside, worst, census: census() }, null, 2));
   console.log(`wrote ${out}.png / .json  foreign=${census().foreign}`);
-  console.log(offscreen > 0 ? "REPRODUCED: player off-screen during boss borrow" : "NOT reproduced");
+  if (offscreen > 0) console.log("FAIL: player off-screen during boss borrow");
+  else if (outside > 0) console.log(`FAIL: player outside the centre box on ${outside} frames (worst ${worst})`);
+  else console.log("PASS: player stayed readable through the boss borrow");
 } finally {
   await browser.close();
 }

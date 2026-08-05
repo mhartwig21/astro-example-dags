@@ -4122,6 +4122,10 @@ export class Renderer3D {
   /** Last half-height actually pushed to the camera (see applyProjection). */
   private lastProjHH = -1;
 
+  /** World units the encounter framing may slide the anchor toward the boss,
+   *  however far away it is. 2.0 against an 8.5-unit half-height = 24%. */
+  private static readonly ENC_MAX_SLIDE = 2.0;
+
   /**
    * The ortho frame. BOSSES V2 §5.5 lets the boss layer BORROW it — wider one
    * step per phase transition (the arena is more dangerous, so show more of
@@ -9624,8 +9628,36 @@ export class Renderer3D {
         // The reveal's orbit bias and the fight's framing bias are the same
         // move; take whichever is asking for more rather than stacking them.
         const k = Math.max(bias, Math.min(1, Math.abs(orbit) / 0.55) * 0.45);
-        ax += (star.pos.x - ax) * k;
-        az += (star.pos.y - az) * k;
+        // THE SLIDE IS CAPPED IN WORLD UNITS, NOT LEFT AS A FRACTION (owner
+        // bug, round 2: "the boss fights still have too weird of a zoom, it's
+        // really hard to see your own player").
+        //
+        // A fraction of the gap has no upper bound: at ENC_BIAS 0.5 a boss ten
+        // units away slides the anchor FIVE units, which is 59% of the 8.5-unit
+        // ortho half-height — before frameDrop adds another 6.8 (80%) and a
+        // beat's push-in shrinks the frame under both. The crawler ends up
+        // parked at the edge of the shot for the whole fight, which is where
+        // the safe clamp below was content to leave them: it only fires at 80%
+        // of the half-width, so it guarantees ON SCREEN and says nothing about
+        // READABLE. Round 1 fixed "lost" and left "can't see me" untouched,
+        // and the probe that passed it (tools/_bugcam.mjs) only ever tested
+        // |ndc| > 1.
+        //
+        // A capped absolute slide keeps the intent — the pair is the subject —
+        // and bounds the cost: at most 2 units, under a quarter of the
+        // half-height, whatever the boss's range. Close-quarters framing is
+        // unchanged (a boss 4u away still slides the full 2u at k=0.5); only
+        // the long-range case, the one that produced the complaint, is
+        // clamped. §5.5's own rule is that readability beats cinematography,
+        // and ENC_BIAS was measured against a 1600x900 CAPTURE — a screenshot
+        // problem, solved at the cost of the thing being photographed.
+        const sx = star.pos.x - ax, sz = star.pos.y - az;
+        const gap = Math.hypot(sx, sz);
+        if (gap > 1e-4) {
+          const move = Math.min(gap * k, Renderer3D.ENC_MAX_SLIDE);
+          ax += (sx / gap) * move;
+          az += (sz / gap) * move;
+        }
       }
     }
     // AIMING A SKILLSHOT LONGER THAN THE FRAME (MOBILE.md §3.4).
@@ -9747,8 +9779,18 @@ export class Renderer3D {
       const ox = px - ax, oz = pz - az;
       const a = ox * xcx + oz * xcz;
       const b = ox * gux + oz * guz;
-      const aMax = 0.80 * hw;
-      const bMin = -0.80 * hh / Math.max(0.2, c); // feet stay off the bottom edge
+      // 0.55, NOT 0.80 (owner bug, round 2). The box below is what the camera
+      // is allowed to do to the crawler, and at 0.80 it permitted them to sit
+      // four fifths of the way to the edge for an entire boss fight — on
+      // screen, and unreadable, with the fight happening around a body you
+      // have to hunt for. That is the difference between the round-1 complaint
+      // ("you can't see your character and get lost") and this one ("really
+      // hard to see your own player, makes the fights way more difficult").
+      // 0.55 keeps the crawler inside the middle half of the frame, where a
+      // player's eye already is, and still leaves the boss framing room to
+      // compose: the clamp only takes back what the borrow overspent.
+      const aMax = 0.55 * hw;
+      const bMin = -0.58 * hh / Math.max(0.2, c); // feet stay off the bottom edge
       // Head (rig tops out ~1.9 world units) stays under the top strip the
       // boss plate occupies: b*c + 1.9*yc.y <= 0.62*hh.
       const bMax = (0.62 * hh - 1.9 * ycy) / Math.max(0.2, c);
