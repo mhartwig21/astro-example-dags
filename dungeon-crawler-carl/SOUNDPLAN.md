@@ -66,6 +66,7 @@ a replacement the owner has cleared.
 |---|---|---|
 | `dash` | "The dash sound effect sucks" | REGENERATE in audio r2 — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
 | `step_*` (all 12) | "the footsteps are really annoying.. let's not have any footsteps sound effects" | REMOVED outright (director, manifest, files, generator, tests). Not a volume problem — a sound the game should not have. |
+| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATE in audio r2. A Kenney Music Jingles stock clip on one of the most-fired progression edges in the game (director.ts: every `cur.level > prev.level`), so its fatigue cost is as high as any clip we ship. Brief it in the house language — a System that files a promotion, not a slot machine that pays out — and it goes through the same brief/spectrogram/audition pipeline as the casts. The old clip is the negative reference. |
 
 ### 1.4 THE SILENT MOMENTS (the gap list this track exists to close)
 
