@@ -50,6 +50,29 @@ function url(seed, floor) {
     "&level=" + lvl + "&abilities=all&gold=4000&seed=" + seed + "&eagerassets";
 }
 
+// HEADLESS CHROMIUM ONLY SERVICES rAF WHEN SOMETHING COMPOSITES, and nothing
+// composites in a headless tab that nobody is watching. Measured on this
+// harness: renderer.frameNo sat at 0 across a full staging plus a 420ms wait,
+// and only moved when a screenshot forced a composite — so the previous round
+// was photographing frames on which updateBossBar had never run ONCE. That is
+// the eight missing name cards, and re-firing a CSS animation was never going
+// to fix it. A screencast subscription makes Chromium composite continuously,
+// which is the cheapest way to give the host a real frame loop.
+let cdp = null;
+async function watchFrames() {
+  if (!cdp) {
+    cdp = await page.context().newCDPSession(page);
+    cdp.on("Page.screencastFrame", async (f) => {
+      try { await cdp.send("Page.screencastFrameAck", { sessionId: f.sessionId }); } catch { /* torn down */ }
+    });
+  }
+  try {
+    await cdp.send("Page.startScreencast", {
+      format: "jpeg", quality: 1, maxWidth: 64, maxHeight: 64, everyNthFrame: 1,
+    });
+  } catch { /* a navigation raced us; the next boot re-arms it */ }
+}
+
 async function boot(seed, floor) {
   let last = null;
   for (let i = 0; i < 5; i++) {
@@ -64,6 +87,7 @@ async function boot(seed, floor) {
         return !el || el.style.display === "none" || el.classList.contains("done");
       }, null, { timeout: 120000 });
       await page.waitForTimeout(700);
+      await watchFrames();
       return;
     } catch (e) {
       last = e;
@@ -110,6 +134,29 @@ const DRIVER = String.raw`
   }
   var bf = window.__bf = window.__bf || {};
   bf.ready = true;
+  // THE IMMORTAL OBSERVER, now that the page genuinely composites. With a live
+  // frame loop the host steps the sim between the harness's own evaluates —
+  // which is correct and wanted, but it means a parked crawler dies on a boss
+  // floor in about two seconds of sim time (BOSSES-V2 §6.1) and the capture
+  // ends up photographing the post-run card. This keeps the crawler on their
+  // FEET and only that: the boss's health, its beats and its damage are all
+  // untouched, so every frame is still a real fight.
+  if (!bf.alive) {
+    bf.alive = true;
+    var keep = function () {
+      var st = window.__dcc && window.__dcc.state;
+      if (st) {
+        var p = st.players[0];
+        if (p) {
+          if (p.hp < p.maxHp * 0.5) p.hp = p.maxHp;
+          p.alive = true; p.downedT = 0;
+        }
+        if (st.status !== "playing") st.status = "playing";
+      }
+      requestAnimationFrame(keep);
+    };
+    requestAnimationFrame(keep);
+  }
   bf.log = [];
   bf.i = 0;
   bf.boss = function () {
@@ -208,6 +255,16 @@ const DRIVER2 = String.raw`
         var hb = bf.boss();
         if (hb && hb.hp > 0 && hb.hp < hold) hb.hp = hold;
       }
+      // A FLOOR, not a freeze: the health may fall (so HP gates, phases and
+      // intermissions all still arrive on their own) but the boss cannot die
+      // before the beat this segment exists to photograph. A fully-kitted
+      // capture crawler out-damages every band, and a corpse is not a beat.
+      if (opts.floorHp) {
+        var fb = bf.boss();
+        if (fb && fb.hp > 0 && fb.hp < fb.maxHp * opts.floorHp) {
+          fb.hp = fb.maxHp * opts.floorHp;
+        }
+      }
       if (!evs) return { done: "noboss" };
       for (var j = 0; j < evs.length; j++) {
         var e = evs[j];
@@ -286,6 +343,34 @@ async function hunt(want, maxSteps, opts, budgetMs = 240000) {
   }
   return done;
 }
+/**
+ * PUMP THE PAGE (round 3, the real root cause of blocker 1).
+ *
+ * Headless Chromium only services requestAnimationFrame when something
+ * COMPOSITES. A waitForTimeout after staging advances the host loop by
+ * roughly nothing — measured: `renderer.frameNo` sat at 0 across a full
+ * staging + 420ms wait, and only reached 16 after a screenshot forced a
+ * composite. So the previous round was photographing frames on which
+ * `updateBossBar` had never run even once: no name card, no letterbox, the
+ * plain HUD, and the boss clipped behind the Hype bar. That is exactly the
+ * eight missing intros, and no amount of re-firing a CSS animation was ever
+ * going to fix it.
+ *
+ * An 8x8 clipped screenshot is the cheapest legal way to force a composite,
+ * so this walks the page forward until the host has genuinely presented the
+ * staged frame. Nothing about the world changes: the sim clock is still
+ * frozen and every frame here is the host drawing what is already there.
+ */
+async function pumpFrames(min) {
+  const start = await page.evaluate(() => window.__dcc.renderer.frameNo);
+  try {
+    await page.waitForFunction(
+      ([s, m]) => window.__dcc.renderer.frameNo - s >= m, [start, min],
+      { timeout: 60000, polling: 120 });
+  } catch { /* fall through and report what we did get */ }
+  return (await page.evaluate(() => window.__dcc.renderer.frameNo)) - start;
+}
+
 async function shoot(name, ageMs = 260) {
   await guard();
   const path = OUT + "/" + name + ".png";
@@ -302,7 +387,9 @@ async function shoot(name, ageMs = 260) {
     };
     step();
   }, ageMs);
-  await page.waitForTimeout(420);
+  // The ageing loop is itself a chain of rAF callbacks, so it also needs the
+  // page pumped before any of it has happened.
+  const aged = await pumpFrames(Math.max(30, Math.ceil(ageMs / 16) + 12));
   await guard();
   // FREEZE THE BEAT (r3 blocker 1). Every boss beat now expires on the FRAME
   // clock, which this harness has stopped; __dcc.hold pushes every live
@@ -342,7 +429,9 @@ async function shoot(name, ageMs = 260) {
       hp: boss ? Math.round((boss.hp / boss.maxHp) * 100) : -1,
     };
   });
-  console.log("      on-screen " + JSON.stringify(probe));
+  console.log("      on-screen " + JSON.stringify({ frames: aged, ...probe }));
+  // One more composite so the hold is in effect on the presented frame.
+  await pumpFrames(4);
   await page.screenshot({ path, timeout: 240000 });
   await page.evaluate(() => { window.__dcc.release(); });
   console.log("    [" + el() + "] saved " + path);
@@ -487,7 +576,7 @@ async function captureBoss(id, info) {
   //    fighting: whichever trigger this boss owns (a health gate, or the
   //    mechanic edge its own kit fires) lands first, and the plate is at a
   //    real value when it does.
-  const phase = await hunt(["intermission"], 9000, {});
+  const phase = await hunt(["intermission"], 9000, { floorHp: 0.12 });
   console.log("  phase: " + JSON.stringify(phase));
   await shoot(id + "-4phase", 240);
   row.beats.phase = phase.done;
@@ -497,7 +586,7 @@ async function captureBoss(id, info) {
   //    signatures, not on its health, so the segment PINS the health while it
   //    waits — otherwise a well-armed crawler ends the fight before the boss's
   //    count comes round, which is how the previous round lost this beat.
-  const punish = await hunt(["punish"], 9000, { holdHp: true });
+  const punish = await hunt(["punish"], 9000, { holdHp: true, floorHp: 0.12 });
   console.log("  punish: " + JSON.stringify(punish));
   // Aged into the MIDDLE of the window: the reticle opens wide and CLOSES on
   // the core, so a frame from its first instant shows the brackets at their
