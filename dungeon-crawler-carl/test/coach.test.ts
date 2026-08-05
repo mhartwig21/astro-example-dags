@@ -1,0 +1,264 @@
+/**
+ * THE COACH (the tutorial rebuild, HANDOFF §3a): Mordecai's in-play teaching
+ * channel. These tests hold TWO bodies of law:
+ *
+ * 1. THE INVERTED BINDING RULE (the riddle fix). The old two-voice rule
+ *    FORBADE Mordecai from teaching mechanics; this file asserts the
+ *    opposite, the same way the old rule was asserted — mechanically, over
+ *    the beat data. A teaching beat's FIRST sentence must contain the
+ *    instruction and the key; wry gets sentence two and may never smuggle
+ *    the key. Curriculum tip translations must NAME their mechanism —
+ *    coverage asserted where avoidance used to be.
+ *
+ * 2. THE ONRAMP'S MEASURED MECHANICS, carried over: ≤6 prompt budget
+ *    (in-flight counted), floor-1 prompt window, confirmations unbudgeted and
+ *    un-floor-gated, live-label refusal, offer/commit/release (a line is
+ *    spent when it PAINTS).
+ */
+import { describe, expect, it } from "vitest";
+import {
+  COACH_BEATS, COACH_MAX_PROMPTS, COACH_TIP_BEATS, COACH_TIP_IDS, Coach,
+  OBJ_DONE_LINES, OBJ_INTRO_BEATS, coachTipLine, renderBeat,
+  type CoachEvent, type TeachBeat,
+} from "../src/ui/coach";
+import { OBJ_STEP_IDS } from "../src/ui/objectives";
+
+const LIVE = { move: "WASD", attack: "Left click or Space", flask: "X", bag: "I" };
+const desktop = (): Coach => new Coach({ ...LIVE });
+/** Touch is the same table with chip labels — the host picks the words. */
+const TOUCH = {
+  move: "a drag on the left half of the glass",
+  attack: "the STRIKE chip", flask: "the FLASK chip", bag: "the ☰ menu",
+};
+const phone = (): Coach => new Coach({ ...TOUCH });
+
+/** Unsolicited lectures: floor 1, budgeted. */
+const PROMPTS: CoachEvent[] = ["start", "contact", "pickup", "lowhp", "linger"];
+/** Earned by an act: any floor, unbudgeted. */
+const CONFIRMS: CoachEvent[] = [
+  "ability", "cast", "slotted", "ult", "equipped", "autoequip", "drink",
+];
+/** The three whose {key} is only true per-loadout, handed in at call time. */
+const KEYED: CoachEvent[] = ["ability", "slotted", "ult"];
+
+/** Every beat in the module, wherever it lives. */
+const ALL_BEATS: [string, TeachBeat][] = [
+  ...Object.entries(COACH_BEATS),
+  ...Object.entries(COACH_TIP_BEATS).map(([k, b]) => [`tip:${k}`, b] as [string, TeachBeat]),
+  ...Object.entries(OBJ_INTRO_BEATS).map(([k, b]) => [`intro:${k}`, b] as [string, TeachBeat]),
+];
+/** Every player-facing line the module can emit. */
+const ALL_LINES: string[] = [
+  ...ALL_BEATS.map(([, b]) => renderBeat(b, "K")),
+  ...Object.values(OBJ_DONE_LINES),
+];
+
+describe("the inverted binding rule: he TEACHES first (the riddle fix)", () => {
+  it("every instruction is exactly ONE sentence and contains its verb", () => {
+    for (const [id, b] of ALL_BEATS) {
+      // One terminal period, no internal sentence breaks: the instruction is
+      // a single imperative, not a paragraph with the lesson buried in it.
+      expect(b.instruction, id).toMatch(/^[^.!?]+\.$/);
+      expect(b.instruction, `${id} must contain its verb "${b.verb}"`).toContain(b.verb);
+    }
+  });
+
+  it("a keyed beat's instruction contains {key}; wry NEVER does", () => {
+    // The key may not be smuggled into the quip — a player who reads only
+    // sentence one must know what to press.
+    for (const [id, b] of ALL_BEATS) {
+      if (b.needsKey) expect(b.instruction, id).toContain("{key}");
+      else expect(b.instruction, id).not.toContain("{key}");
+      if (b.wry) expect(b.wry, id).not.toContain("{key}");
+    }
+  });
+
+  it("the rendered line puts the instruction FIRST, live label substituted", () => {
+    for (const [id, b] of ALL_BEATS) {
+      const line = renderBeat(b, "Shift, Q");
+      expect(line.startsWith(b.instruction.replace(/\{key\}/g, "Shift, Q")), id).toBe(true);
+      expect(line, id).not.toContain("{key}");
+    }
+  });
+
+  it("every curriculum translation NAMES its mechanism (coverage, not avoidance)", () => {
+    // The inversion of the old paraphrase ban: the strip's whole job is to
+    // say the thing plainly. Each instruction must anchor its mechanism noun.
+    expect(COACH_TIP_BEATS.collapse.instruction).toMatch(/stairs|clock/i);
+    expect(COACH_TIP_BEATS.draftBanked.instruction).toMatch(/draft/i);
+    expect(COACH_TIP_BEATS.hype.instruction).toMatch(/hype/i);
+    expect(COACH_TIP_BEATS.glyph.instruction).toMatch(/glyph|socket/i);
+  });
+
+  it("register: no line wears the System's ribbon, and nobody shouts", () => {
+    for (const line of ALL_LINES) {
+      expect(line).not.toMatch(/COURTESY EXPLANATION/);
+      expect(line).not.toMatch(/^NOTICE:/);
+      expect(line).not.toMatch(/!/); // register bible: no exclamation marks
+    }
+  });
+
+  it("completeness: every event, every curriculum tip, every objective step has a line", () => {
+    // A silent step is a curriculum hole — the old whitelist dropped tips;
+    // the new law is that everything the player is owed has Mordecai's words.
+    for (const ev of [...PROMPTS, ...CONFIRMS]) expect(COACH_BEATS[ev], ev).toBeTruthy();
+    expect(new Set(COACH_TIP_IDS)).toEqual(new Set(["collapse", "draftBanked", "hype", "glyph"]));
+    for (const id of COACH_TIP_IDS) expect(coachTipLine(id), id).toBeTruthy();
+    expect(coachTipLine("stagger")).toBeNull(); // untranslated => dropped, never printed
+    for (const id of OBJ_STEP_IDS) {
+      expect(OBJ_INTRO_BEATS[id], `${id} intro`).toBeTruthy();
+      expect(OBJ_DONE_LINES[id], `${id} done`).toBeTruthy();
+      expect(OBJ_DONE_LINES[id]).toMatch(/\.$/);
+    }
+  });
+});
+
+describe("the prompt budget is structural (carried from the onramp)", () => {
+  it("every prompt fires once, and never more than the budget", () => {
+    const o = desktop();
+    const lines = PROMPTS.map((ev) => o.note(ev, 1));
+    expect(lines.every((l) => typeof l === "string" && l.length > 0)).toBe(true);
+    for (const ev of PROMPTS) o.commit(ev); // the paint is the spend
+    expect(o.promptsSpent).toBe(PROMPTS.length);
+    expect(o.promptsSpent).toBeLessThanOrEqual(COACH_MAX_PROMPTS);
+    for (const ev of PROMPTS) expect(o.note(ev, 1)).toBeNull();
+  });
+
+  it("the budget counts lines still in flight, not just painted ones", () => {
+    const o = desktop();
+    for (const ev of PROMPTS) expect(o.note(ev, 1)).toBeTruthy();
+    expect(o.promptsSpent).toBe(0); // nothing has reached the glass yet
+    for (const ev of PROMPTS) o.commit(ev);
+    expect(o.promptsSpent).toBe(PROMPTS.length);
+  });
+
+  it("prompts retire at depth; a floor-2 refusal does not burn the line", () => {
+    const o = desktop();
+    for (const ev of PROMPTS) expect(o.note(ev, 2)).toBeNull();
+    expect(o.spent).toBe(0);
+    expect(o.note("start", 1)).toContain("WASD");
+  });
+
+  it("confirmations are NOT floor-gated — the act is the trigger", () => {
+    for (const ev of CONFIRMS) {
+      const o = desktop();
+      expect(o.note(ev, 5, "K")).toBeTruthy();
+    }
+  });
+
+  it("confirmations do not spend the lecture budget", () => {
+    const o = desktop();
+    for (const ev of CONFIRMS) o.note(ev, 1, "K");
+    expect(o.promptsSpent).toBe(0);
+    expect(PROMPTS.every((ev) => typeof o.note(ev, 1) === "string")).toBe(true);
+  });
+});
+
+describe("no line ever names a bind the player cannot use", () => {
+  it("a keyed line with no live label is DECLINED, not printed", () => {
+    for (const ev of KEYED) {
+      const o = desktop();
+      expect(o.note(ev, 1, "")).toBeNull();
+      // ...and declining does not spend it: the moment simply had not come.
+      expect(o.note(ev, 1, "Q")).toContain("Q");
+    }
+  });
+
+  it("the ability line names ONLY the slots it was handed", () => {
+    const line = desktop().note("ability", 1, "Shift, Q")!;
+    expect(line).toContain("Shift, Q");
+    expect(line).not.toMatch(/\bC\b/);
+    expect(line).not.toMatch(/\bF\b/);
+    expect(line).not.toMatch(/ultimate/i); // ultimateMinFloor is 7
+    // It says WHY the rest of the row is dark, rather than pretending.
+    expect(line).toMatch(/lock/i);
+  });
+
+  it("the ultimate is only ever named at the moment it exists", () => {
+    const o = desktop();
+    for (const ev of [...PROMPTS, "ability", "cast", "slotted", "equipped", "drink"] as CoachEvent[]) {
+      const line = o.note(ev, 1, "Shift, Q");
+      if (line) expect(line).not.toMatch(/ultimate/i);
+    }
+    expect(desktop().note("ult", 7, "F")).toMatch(/ultimate/i);
+    expect(desktop().note("ult", 7, "F")).toContain("Press F");
+  });
+
+  it("desktop names the binds it was handed; touch names the glass and chips", () => {
+    const d = new Coach({ move: "ESDF", attack: "Left click or Space", flask: "H", bag: "B" });
+    expect(d.note("start", 1)).toContain("ESDF");
+    expect(d.note("contact", 1)).toContain("Left click or Space");
+    expect(d.note("pickup", 1)).toContain("bag with B");
+    expect(d.note("lowhp", 1)).toContain("flask with H");
+    expect(d.note("slotted", 1, "C")).toContain("Press C");
+
+    const t = phone();
+    expect(t.note("start", 1)).toMatch(/left half of the glass/);
+    expect(t.note("contact", 1)).toMatch(/STRIKE chip/);
+    expect(t.note("lowhp", 1)).toMatch(/FLASK chip/);
+    expect(t.note("pickup", 1)).toMatch(/☰ menu/);
+    for (const ev of ["cast", "linger", "equipped", "drink"] as CoachEvent[]) {
+      const line = t.note(ev, 1)!;
+      expect(line).not.toMatch(/WASD|click|mouse/i);
+    }
+  });
+});
+
+describe("a line is spent when it PAINTS (offer/commit/release, inherited)", () => {
+  it("an offered line that is RELEASED is offerable again", () => {
+    const o = desktop();
+    expect(o.note("drink", 1)).toMatch(/refill that flask/i);
+    expect(o.note("drink", 1)).toBeNull(); // in flight — not offered twice
+    o.release("drink");
+    expect(o.spent).toBe(0); // nothing painted, nothing spent
+    expect(o.note("drink", 1)).toMatch(/refill that flask/i);
+  });
+
+  it("an offered line that is COMMITTED never comes back", () => {
+    const o = desktop();
+    expect(o.note("contact", 1)).toBeTruthy();
+    o.commit("contact");
+    expect(o.spent).toBe(1);
+    expect(o.promptsSpent).toBe(1);
+    expect(o.note("contact", 1)).toBeNull();
+    o.release("contact"); // a late drop must not un-teach a painted card
+    expect(o.note("contact", 1)).toBeNull();
+  });
+
+  it("a released prompt gives its budget back", () => {
+    const o = desktop();
+    for (const ev of PROMPTS) o.note(ev, 1);
+    for (const ev of PROMPTS) o.release(ev);
+    expect(o.spent).toBe(0);
+    expect(o.promptsSpent).toBe(0);
+    expect(PROMPTS.every((ev) => typeof o.note(ev, 1) === "string")).toBe(true);
+  });
+
+  it("commit is idempotent and only counts a line that was actually offered", () => {
+    const o = desktop();
+    o.commit("linger"); // never offered — nothing to spend
+    expect(o.spent).toBe(0);
+    o.note("linger", 1);
+    o.commit("linger");
+    o.commit("linger");
+    expect(o.spent).toBe(1);
+  });
+});
+
+describe("the teach-by-doing pairs (carried from the onramp)", () => {
+  it("the flask lesson has a second half only a PRESS can reach", () => {
+    const o = desktop();
+    expect(o.note("lowhp", 1)).toMatch(/Drink your flask/);
+    expect(o.note("drink", 1)).toMatch(/kills, not from patience/);
+  });
+
+  it("the loot lesson has a by-hand half and a reachable auto-equip half", () => {
+    const o = desktop();
+    expect(o.note("pickup", 1)).toMatch(/bag/i);
+    expect(o.note("equipped", 1)).toMatch(/Compare the numbers/);
+    const auto = o.note("autoequip", 1)!;
+    expect(auto).toMatch(/dressed itself/);
+    // The two halves must not be the same paragraph twice.
+    expect(auto).not.toMatch(/Compare the numbers/);
+  });
+});

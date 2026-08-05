@@ -81,9 +81,18 @@ guided tutorials as well where the player goes and does x, y, z before that
 tutorial step ends so they know what they're doing. Mordecai is some times
 talking in riddles."*
 
-What shipped is a **stop-gap**: non-curriculum courtesy tips are dropped rather
-than shown (`main3d.ts`, the `CURRICULUM_TIPS` branch). The rebuild is not
-started. The design, as far as it got:
+**PLUMBING SHIPPED on branch `tutorial-mordecai`** (TUTORIAL.md "r6" section
+has the map): `src/ui/coach.ts` (Mordecai's strip, instruction-first beats,
+onramp mechanics carried over; `src/ui/onramp.ts` deleted), `src/ui/objectives.ts`
+(+ the `#objectives` card — four guided steps, checked by state observation,
+`obj.*` on the tips ledger, fresh-crawler enrollment / veteran grandfathering),
+tip translation in `showAnnouncement` (no tip ever prints in the System's
+register), and the inverted binding rule enforced in `test/coach.test.ts`.
+STILL OWED: the content pass (placeholder-quality lines are live), the
+`tools/_tut_r6.mjs` cold-profile acceptance battery (the r1–r5 batteries
+assert COURTESY-era behavior and lie now), a real browser round, and the
+owner's phone pass on the compact objectives chip. The design that got us
+here:
 
 - **One voice.** COURTESY EXPLANATION dies as a teaching format. The System
   keeps its announcer register for *events* (ringside intros, achievements,

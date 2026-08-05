@@ -4,10 +4,36 @@ Owner ask: "an initial tutorial of AAA quality to onboard players to the game
 — thinking Mordecai as the game guide using the Roam NPC chat experience —
 helping to introduce all of the key concepts."
 
-**SHIPPED (r1 + r2 + r3 + r4 + r5 fix rounds, branch `tutorial`).** The design
-sections that became code are deleted (BACKLOG.md convention); what remains is
-the enduring canon (the two-voice rule, the register bible), the implementation
-map, and the open edges for later rounds.
+**SHIPPED (r1 + r2 + r3 + r4 + r5 fix rounds, branch `tutorial`; r6 REBUILD —
+ONE VOICE — on branch `tutorial-mordecai`).** The design sections that became
+code are deleted (BACKLOG.md convention); what remains is the enduring canon
+(the one-voice law, the register bible), the implementation map, and the open
+edges for later rounds.
+
+## r6 — the ONE VOICE rebuild (HANDOFF §3a), plumbing shipped
+
+- `src/ui/onramp.ts` is DELETED; `src/ui/coach.ts` replaces it (same measured
+  mechanics — prompt budget, live-label refusal, offer/commit/release — with
+  Mordecai's instruction-first beats; `test/coach.test.ts` carries the ported
+  behavior tests plus the inverted binding rule).
+- `src/ui/objectives.ts` is the guided-step sequencer; main3d's
+  `objectivesObserve` computes facts at both intent seams (solo + net) and the
+  `#objectives` card renders the current step. Completion is FACT-spent
+  (done-by-DOING — the one ledger write that sits under an act, not a paint;
+  the paint rule below still governs every once-ever LINE).
+- Enrollment: fresh crawlers get an `obj.enrolled` ledger key at first boot;
+  profiles without it (veterans) never see the card or the coach — the
+  grandfather clause with no seeding writes.
+- The `#tutorial` card surface is re-skinned as MORDECAI'S STRIP (his plaque +
+  portrait chip); the COURTESY ribbon and lead-in strip logic are gone. The
+  queue/pacing/visibility machinery (r2–r5) is untouched.
+- `showAnnouncement`'s tip branch now translates the four curriculum tipIds
+  through `COACH_TIP_BEATS` and drops every other tip UNSPENT — no tip is
+  ever printed in the System's register. Sim untouched; rulesHash unchanged.
+- Content pass and the r6 acceptance probe (`tools/_tut_r6.mjs`, cold-profile,
+  fails on any painted teaching line whose first sentence lacks its
+  instruction/key) are the follow-up rounds. The old `_tut_r1..r5` batteries
+  assert COURTESY-era behavior and are retired as instruments of record.
 
 ## The one rule this feature keeps relearning (r5 — read this first)
 
@@ -61,41 +87,49 @@ Three things follow, and they are binding on every future round:
    places" was checkable by grep and nobody grepped. Every binding sentence in
    this file now names the file and function it is true of.
 
-## The one-paragraph design (canon)
+## The one-paragraph design (canon — REWRITTEN by the r6 rebuild, HANDOFF §3a)
 
-**The System teaches the controls in the moment; Mordecai teaches the game at
-rest.** THE ONRAMP (shipped in `src/ui/onramp.ts`) keeps minutes 1–5: six
-System lines keyed to first-time events on floor 1. Mordecai appears ONLY at
-rest moments — campfire, the first draft pause, safe rooms, the verdict, the
-second check-in — through the shipped `#dialogue` panel. He never speaks over
-live combat, never rides `state.announcements`, and never explains a rule the
-System is about to demonstrate. Every beat is one ESC away from gone, fires
-once EVER via the shipped tips ledger, and teaches by the player DOING the
-thing once with a line of guidance.
+**ONE VOICE: Mordecai teaches everything; the System announces events.**
+Owner, verbatim: *"the system courtesy explanations should entirely be
+replaced by Mordecai's guidance"* — so COURTESY EXPLANATION is dead as a
+teaching format, on every surface. Mordecai now has TWO surfaces: the LIVE
+STRIP (the `#tutorial` card surface, non-pausing — `src/ui/coach.ts` lines,
+curriculum tip translations, objective step lines) and the MODAL (`#dialogue`,
+at rest — `src/ui/guide.ts` beats: campfire, draft, safe rooms, verdict,
+check-in). A persistent OBJECTIVES card (`src/ui/objectives.ts` + right-rail
+`#objectives`) gives the first session a guided go-do-x-y-z spine: four
+sequential steps, 2–3 checkable items each, checked by real state observation,
+completed steps ledgered forever (`obj.*` on `dcc:tips:v1`). The sim's TIPS
+and `tipsSeen` are untouched — the host translates the four curriculum tipIds
+into Mordecai's words and drops the rest unspent.
 
-## Two voices, one flow (canon — binding on every future line)
+**The riddle fix is structural (owner: "Mordecai is some times talking in
+riddles").** Every strip beat is data: `instruction` (EXACTLY one sentence,
+imperative, contains the beat's verb and the live `{key}`) + `wry` (sentence
+two, never the key). `test/coach.test.ts` enforces it mechanically, the same
+way the old two-voice rule was enforced — including the INVERSION: curriculum
+translations must NAME their mechanism (collapse→stairs/clock, draftBanked→
+draft, hype→hype, glyph→glyph/socket). Coverage asserted where avoidance used
+to be.
 
-| | The System (SHOW) | Mordecai (GUIDE) |
-|---|---|---|
-| Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Gruff, economical, protective; tired manager who's buried clients |
-| Channel | `state.announcements` → banners / ticker / tutorial cards | dialogue panel only (plus the B8 verdict aside plate) |
-| When | In the moment — the instant a rule touches you | At rest only — campfire, draft pause, safe room, verdict, check-in |
-| Teaches | Controls + rules-as-they-bite | Judgment + the meta: what to pick, what to spend, why the cameras pay |
-| Skip | Any input / 7s auto-dismiss | ESC or the farewell choice — one input, always last in the list |
+## One voice, two surfaces (canon — binding on every future line)
 
-**Division-of-labor rule**: if a concept can be demonstrated, the System
-demonstrates it and Mordecai shuts up about it. He debriefs (the Show, B6)
-only AFTER the System's tip has fired — never the reverse.
+| | The System (SHOW) | Mordecai — STRIP | Mordecai — MODAL |
+|---|---|---|---|
+| Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Instruction first, quip second; no exclamation marks | Gruff, economical, protective; judgement, not mechanics |
+| Channel | `state.announcements` → banners / ticker / log (EVENTS only, never teaching) | `#tutorial` card surface (non-pausing) + `#objectives` card | `#dialogue` panel (pauses solo world) + B8 verdict aside |
+| When | The instant an event happens | The instant a rule touches you | At rest — campfire, draft pause, safe room, verdict, check-in |
+| Teaches | NOTHING (this is the rebuild's law) | Controls, mechanisms, the objective steps | Judgment + the meta: what to pick, what to spend, why the cameras pay |
+| Skip | — | Any input / auto-dismiss; B0 skip silences all of it | ESC or the farewell choice — one input, always last in the list |
 
-**And he does not paraphrase it (r4).** B6 shipped through three rounds
-restating the `sponsors` tip nearly clause-for-clause ("sponsors pay YOU, in
-gear, between floors" against "sponsors send gifts between floors"), and the
-voice test could not see it because quotation-matching cannot detect a
-paraphrase. `test/guide.test.ts` now fails any beat line that shares three or
-more content words with any System tip — domain nouns deliberately NOT
-exempted, because if Mordecai needs three of a tip's words to make his point,
-his point IS the tip's point. The fix is always the same: find the thing the
-System will never file. It owns mechanism; he owns what it costs you.
+**Division-of-labor rule (rescoped)**: the STRIP owns mechanism; the MODAL
+owns judgement. A modal beat may not restate a mechanism the strip (or the
+sim tips' subject matter) already owns — `test/guide.test.ts`'s paraphrase
+test still fails any MODAL line sharing three or more content words with any
+sim tip, domain nouns deliberately NOT exempted. The fix is always the same:
+the modal says the thing a mechanism line will never say. And B6 still
+debriefs the Show only AFTER the System has demonstrated it — the
+demonstrate-then-debrief order survived the rebuild.
 
 **The System never points at your FURNITURE (r4, corrected r5).** It audits
 ledgers, posts notices, and files explanations. It has never conceded that you

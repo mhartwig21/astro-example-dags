@@ -67,7 +67,11 @@ import { RunRecorder, REPLAY_DT, canonicalIntent, type RunProof } from "./sim/re
 import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
-import { Onramp, type OnrampEvent } from "./ui/onramp";
+import {
+  Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, coachTipLine, renderBeat,
+  type CoachEvent,
+} from "./ui/coach";
+import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
 import { GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
@@ -420,11 +424,15 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = forcedSeed ?? (mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed());
   forcedSeed = null;
   consentEl.classList.remove("on"); // a stale offer never survives into a new run
-  // Neither does a stale COURTESY card (r4 blocker 2). Both boot paths that
+  // Neither does a stale teaching card (r4 blocker 2). Both boot paths that
   // reach startRun are already deferred past module evaluation, so the card
   // surface's module-level state is live by the time this runs.
   resetTutorialSurface();
-  resetOnrampSampling();
+  resetCoachSampling();
+  // A new run is a new crawler: mid-step objective progress is re-earned
+  // (completed steps are not — the curriculum is a career, not a run).
+  objectives?.resetRun();
+  renderObjectivesCard();
   closeSets();
   // TODAY'S RULE (NICHE.md §4.8): the daily deals one — same rule for every
   // crawler on that day's dungeon. Non-daily runs are always the base game.
@@ -1698,9 +1706,10 @@ function pushLogLine(text: string): void {
   // The ringside title card owns the boss-intro moment — no third echo in the
   // visible feed (the line stays in the archive `log` array).
   if (text.includes("RINGSIDE INTRODUCTION")) return;
-  // COURTESY EXPLANATIONs own the top-left tutorial card — echoing the same
-  // paragraph into the visible feed doubles UI noise during play (r4 major:
-  // one canonical surface per system message). The archive keeps the line.
+  // The sim's COURTESY EXPLANATION text never paints anywhere now (ONE
+  // VOICE: Mordecai's strip carries the translated curriculum instead), and
+  // echoing the System's lecture into the visible feed would resurrect the
+  // voice the owner killed. The archive `log` array keeps the line.
   if (text.startsWith("COURTESY EXPLANATION")) return;
   const el = document.createElement("div");
   el.className = "log-line fresh";
@@ -2768,7 +2777,7 @@ invBag.addEventListener("click", (e) => {
     equipFromInventory(state, me(state).id, idx);
     persistRun(state);
   }
-  onrampNoteEquip(); // the loot lesson's second half (r4)
+  coachNoteEquip(); // the loot lesson's second half (r4)
   renderInventory(state);
 });
 
@@ -5468,7 +5477,7 @@ srDetail.addEventListener("click", (e) => {
       flushFeedback(state);
       persistRun(state);
     }
-    onrampNoteEquip(); // the loot lesson's second half (r4)
+    coachNoteEquip(); // the loot lesson's second half (r4)
     shopSel = null;
     renderSafeRoom(state);
     return;
@@ -6481,9 +6490,11 @@ function guideAnswer(choiceId: string): void {
     return;
   }
   if (c.effect === "skipAll") {
-    // The global skip: every beat ledgered, the remaining onramp lines
-    // silenced (guide.skipped — onrampObserve reads it), one goodbye left.
+    // The global skip: every beat ledgered, the remaining coach lines
+    // silenced (guide.skipped — coachObserve reads it), the objectives
+    // curriculum consumed (a refusal is a delivery), one goodbye left.
     if (guide) recordTips(guide.skipAll());
+    if (objectives) { recordTips(objectives.skipAll()); renderObjectivesCard(); }
     guideChoices = [{ id: "go", label: "Let's go.", effect: "close" }];
     if (c.reply) dlgStartType([c.reply]);
     guideRenderChoices();
@@ -7724,20 +7735,19 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   // boss's System line; a capture caught the same sentence printed twice in
   // one frame — once in the top SYSTEM toast, once as the card's kicker.
   if (state.encounter?.line && a.text === state.encounter.line) return;
-  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
-  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
-  // deserves an explicit acknowledgment rather than an auto-fade a player
-  // could easily miss. This branch sits ABOVE the headline routing on
-  // purpose: a tip is a tip whatever its priority — "high" only means it may
-  // jump the card pacing gap (the onramp's flask line), never that the
-  // System's teaching voice gets to shout from the center banner.
+  // First-contact tips get a dismissible card instead of a toast — each one
+  // fires exactly once ever (Player.tipsSeen), so it deserves an explicit
+  // acknowledgment rather than an auto-fade a player could easily miss. This
+  // branch sits ABOVE the headline routing on purpose: a tip is a tip
+  // whatever its priority — "high" only means it may jump the card pacing gap
+  // (the coach's flask line), never that a teaching line gets to shout from
+  // the center banner.
   //
   // ...unless the player took B0's "Skip the hand-holding" (r2 major): the
-  // skip silences BOTH voices, and the sim's COURTESY cards are the System's
-  // teaching voice. The sim still files the rule as explained (tipsSeen —
-  // shown-or-declined = consumed); the host just declines to lecture someone
-  // who asked it not to. Under net (guide is null) the persisted ledger flag
-  // carries the same choice.
+  // skip silences the teaching entirely. The sim still files the rule as
+  // explained (tipsSeen — shown-or-declined = consumed); the host just
+  // declines to lecture someone who asked it not to. Under net (guide is
+  // null) the persisted ledger flag carries the same choice.
   if (a.kind === "tip") {
     const skippedAll = guide ? guide.skipped : knownTips().includes(GUIDE_SKIP_KEY);
     // A DECLINED tip is spent (shown-or-declined = consumed): the player asked
@@ -7746,37 +7756,21 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
     // it is the only reason the ledger write lives down here at all.
     if (skippedAll) { if (a.tipId) recordTips([a.tipId]); hooks?.onShown?.(); return; }
     if (cleanMode) { hooks?.onDropped?.(); return; }
-    // THE COURTESY EXPLANATION STOPS FLOWING (owner, twice).
-    //
-    // r5 already ruled that "the card surface is the curriculum, not the
-    // chatter" — a guarded cold run painted FOURTEEN cards on floor 1 at ~10s
-    // intervals, mostly rule footnotes (staggers, bolts, afflictions) nobody
-    // ever called onboarding. But it scoped that rule to `state.floor === 1`,
-    // so from floor 2 down the ENTIRE 16-tip courtesy catalogue went back to
-    // taking dismissible cards, one interruption at a time, for the whole run.
-    // Owner: "Courtesy explanations are still flowing though which is annoying."
-    //
-    // Two changes, and the floor gate is the important one:
-    //   1. the curriculum rule applies on EVERY floor, not just the first;
-    //   2. a non-curriculum courtesy line is DROPPED rather than demoted to the
-    //      ticker. Demoting only moved the flow — the owner's word is
-    //      "flowing", and a tip nobody asked for is noise wherever it is
-    //      painted. It still reaches the HUD archive log (the separate
-    //      state.events drain), so nothing is lost, only un-shouted.
-    //
-    // What survives is CURRICULUM_TIPS: collapse, draftBanked, hype, glyph —
-    // the four systems a player genuinely cannot infer. Everything else is a
-    // footnote the game can afford to let someone discover.
-    //
-    // This is the floor, not the destination: the owner has asked for the
-    // System's teaching voice to be REPLACED by Mordecai, with checkable
-    // objectives (TUTORIAL.md redesign, still unbuilt). This stops the bleeding
-    // now and leaves that rebuild exactly as free.
-    if (a.tipId && !CURRICULUM_TIPS.has(a.tipId)) {
-      hooks?.onDropped?.(); // not shown => not spent (r4 blocker 1 holds)
+    // ONE VOICE (owner, HANDOFF §3a): COURTESY EXPLANATION is dead as a
+    // teaching format. No tip is EVER printed in the System's register — a
+    // curriculum tipId is translated here into Mordecai's line (the strip's
+    // voice, src/ui/coach.ts COACH_TIP_BEATS, whose key set IS the old
+    // CURRICULUM_TIPS whitelist) and everything else is DROPPED, unspent
+    // (r4 blocker 1 holds: not shown => not spent). The System's raw text
+    // still reaches the HUD archive log via the separate state.events drain,
+    // so nothing is lost, only un-lectured. The sim (TIPS, tipsSeen,
+    // systemTip sites) is untouched — this is a host-side translation seam.
+    const mordecai = a.tipId ? coachTipLine(a.tipId) : null;
+    if (!mordecai) {
+      hooks?.onDropped?.();
       return;
     }
-    showTutorialCard(a, hooks);
+    showTutorialCard({ ...a, text: mordecai }, hooks);
     return;
   }
   // A tip never reaches the center banner whatever its priority. It can no
@@ -7845,12 +7839,11 @@ function showBanner(a: Announcement, cls = "ann banner"): void {
   }, BANNER_HOLD_MS);
 }
 
-// Tutorial cards (kind:"tip"): D4-style dismissible explainer, one at a time.
-// Each fires exactly once per crawler ever (Player.tipsSeen, sim-side), so
-// the host needs no "seen" bookkeeping of its own — dismiss just advances
-// the queue. Display-only text tweak: the ribbon header already says
-// "COURTESY EXPLANATION," so the redundant lead-in is stripped from the body
-// (the stored/logged announcement text is untouched — this is presentation).
+// MORDECAI'S STRIP (kind:"tip"): the non-pausing teaching surface, one card
+// at a time — coach lines, curriculum tip translations, objective step
+// intros/sign-offs, all in his frame. The queue/pacing/visibility machinery
+// below is five rounds of measured behavior and is voice-agnostic; only the
+// words and the header changed when the System stopped teaching.
 const tutorialLayer = document.getElementById("tutorial")!;
 /** A queued card carries its author's hooks and the clock its moment is
  *  measured against (r5). */
@@ -7865,7 +7858,7 @@ let tutorialGapTimer = 0;
 /**
  * Breathing room between EVERGREEN cards (r2 major: the organic cold run put
  * FIVE cards through ~13s of first combat — a corner lecture mid-fight, and
- * the onramp's own ≤6 discipline defeated by the shared surface). Queued
+ * the coach's own ≤6 discipline defeated by the shared surface). Queued
  * cards wait out the gap; a "high"-priority card (the flask line while the
  * player is leaking) waits only for the active card, never for politeness.
  *
@@ -7901,22 +7894,17 @@ const TUT_DEFAULT_MOMENT_MS = 25000;
  *  a backlog is the metronome's raw material. */
 const TUT_QUEUE_MAX = 3;
 
-/** THE FIRST-SESSION CURRICULUM among the sim's tips (TUTORIAL.md's twelve
- *  concepts). On floor 1 these own the card; every other tip is ordinary
- *  System chatter and rides the ticker. */
-const CURRICULUM_TIPS: ReadonlySet<string> = new Set([
-  "collapse", "draftBanked", "hype", "glyph",
-]);
-
 /** How long each sim tip's moment is worth. `hype` is the shortest for the
- *  reason above: it is a sentence about the last second and a half. */
+ *  reason above: it is a sentence about the last second and a half. (The
+ *  curriculum whitelist itself now lives in src/ui/coach.ts — COACH_TIP_BEATS
+ *  is the tipId→Mordecai translation table, and untranslated tips drop.) */
 const SIM_TIP_MOMENT_MS: Record<string, number> = {
   hype: 10000, collapse: 20000, draftBanked: 45000, glyph: 30000,
 };
 
-/** ...and the same, per onramp line. Prompts about permanent controls are
+/** ...and the same, per coach line. Prompts about permanent controls are
  *  evergreen; everything earned by an act is a moment. */
-const ONRAMP_MOMENT_MS: Record<OnrampEvent, number> = {
+const COACH_MOMENT_MS: Record<CoachEvent, number> = {
   start: 90000, linger: 60000, pickup: 45000,
   contact: 10000, lowhp: 8000,
   ability: 12000, cast: 12000, slotted: 20000, ult: 20000,
@@ -8062,16 +8050,15 @@ function displayTutorialCard(card: QueuedCard): void {
   // things that used to eat a card between generation and glass.
   if (a.tipId) recordTips([a.tipId]);
   card.hooks?.onShown?.(); // ...and the same spend for a line that has no tipId
-  // Strip the redundant lead-in (the ribbon header already says COURTESY
-  // EXPLANATION) and re-capitalize so the body never reads as a truncated
-  // sentence ("that unlock queued…" -> "That unlock queued…").
-  const body = a.text
-    .replace(/^COURTESY EXPLANATION:\s*/, "")
-    .replace(/^[a-z]/, (c) => c.toUpperCase());
+  // MORDECAI'S STRIP (ONE VOICE): every teaching card on this surface is his —
+  // coach lines, tip translations, objective intros/sign-offs. The COURTESY
+  // EXPLANATION ribbon is dead; the System's register survives only in the
+  // announcer channels (banners, ticker, log).
+  const body = a.text;
   const el = document.createElement("div");
   el.className = "tut";
   el.innerHTML =
-    `<div class="tut-head"><i class="dia"></i> SYSTEM<span class="tut-hx"> — COURTESY EXPLANATION</span></div>` +
+    `<div class="tut-head"><img class="tut-face" src="/icons/portraits/mordecai.svg" alt=""> MORDECAI<span class="tut-hx"> — GUIDE</span></div>` +
     `<div class="tut-body">${esc(body)}<button class="tut-dismiss">GOT IT</button></div>`;
   tutorialLayer.appendChild(el);
   requestAnimationFrame(() => el.classList.add("show"));
@@ -8151,97 +8138,152 @@ window.addEventListener("keyup", (e) => {
 document.getElementById("m-standings")!.addEventListener("click", () => { void openLadder(); });
 document.getElementById("m-careerset")!.addEventListener("click", () => { void openCareerSet(); });
 
-// ---- THE ONRAMP (NICHE.md 4.4): the first five minutes for someone a card
-// dragged in. First-contact detection is exactly the doc's: no account token
-// and no local history = fresh crawler — sampled HERE, before any telemetry
-// call can mint a token and fake a veteran. The run stays a normal run (the
-// module never touches the sim); the System just addresses the fresh meat,
-// ≤6 lines, floor 1 only, naming the ACTUAL controls for the device.
+// ---- THE COACH (the tutorial rebuild, HANDOFF §3a): Mordecai's in-play
+// teaching channel, on the non-pausing strip (#tutorial card surface). The
+// first five minutes for someone a card dragged in — the ONRAMP's measured
+// mechanics with Mordecai's words. First-contact detection is exactly the
+// doc's: no account token and no local history = fresh crawler — sampled
+// HERE, before any telemetry call can mint a token and fake a veteran. The
+// run stays a normal run (the module never touches the sim).
 const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
-// "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences BOTH voices: a
-// persisted skip suppresses the onramp on later boots too (the live-session
-// half of the same rule is the guide.skipped check inside onrampObserve).
+// THE OBJECTIVES ENROLLMENT (grandfather clause): fresh crawlers join the
+// guided curriculum at first boot; every pre-existing profile is enrolled
+// nowhere and never sees the card — no seeding writes on veterans' ledgers,
+// just the absence of this key. Decided in the same breath as freshCrawler,
+// before anything can mint a token.
+const OBJ_ENROLLED_KEY = "obj.enrolled";
+if (freshCrawler && !testMode && !cleanMode && !knownTips().includes(OBJ_ENROLLED_KEY)) {
+  recordTips([OBJ_ENROLLED_KEY]);
+}
+const objEnrolled = knownTips().includes(OBJ_ENROLLED_KEY);
+const objCurriculumDone = OBJ_STEP_IDS.every((id) => knownTips().includes(id));
+// "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences Mordecai's strip
+// too: a persisted skip suppresses the coach on later boots (the live-session
+// half of the same rule is the guide.skipped check inside coachObserve).
 //
 // LIVE LABELS (the module header's contract, r2 blocker): the host passes the
-// player's ACTUAL binds. The shipped Five default to Space/Shift/Q/C + F —
-// the old hardcoded "1–4" named keys that do nothing, so the first thing the
-// System taught a compliant fresh crawler was that the System lies.
-//
-// r4 blocker 3 takes that one step further: a bind is only true when there is
-// something IN the slot. The static labels below are the ones that are always
-// true (movement, the strike, the flask, the bag); every ability label is
-// computed at the moment of teaching by onrampSlotKeys/onrampUltKey.
-const onrampKey = (a: BindableAction): string =>
+// player's ACTUAL binds — and on touch, the ACTUAL chips. A bind is only true
+// when there is something IN the slot: the static labels below are the ones
+// that are always true (movement, the strike, the flask, the bag); every
+// ability label is computed at the moment of teaching by coachSlotKeys.
+const coachKey = (a: BindableAction): string =>
   bindings[a][0] ? keyLabel(bindings[a][0]) : "—";
-const onrampMove = (["moveUp", "moveLeft", "moveDown", "moveRight"] as const).map(onrampKey);
+const coachMove = (["moveUp", "moveLeft", "moveDown", "moveRight"] as const).map(coachKey);
 const SLOT_ACTIONS = ["slot1", "slot2", "slot3", "slot4"] as const;
 /** Labels for the active slots past the strike that CURRENTLY hold an ability.
  *  Empty string when the crawler has nothing but their swing. */
-function onrampSlotKeys(p: Player): string {
+function coachSlotKeys(p: Player): string {
+  if (touchMode) {
+    const any = [1, 2, 3].some((i) => p.abilities?.slots?.[i]);
+    return any ? "the chips beside STRIKE" : "";
+  }
   const live: string[] = [];
   for (let i = 1; i < SLOT_ACTIONS.length; i++) {
-    if (p.abilities?.slots?.[i]) live.push(onrampKey(SLOT_ACTIONS[i]));
+    if (p.abilities?.slots?.[i]) live.push(coachKey(SLOT_ACTIONS[i]));
   }
   return live.join(", ");
 }
-// The onramp RUNS UNDER NET too (r2 major): it is a pure observer — no sim
-// writes, no seed, no spawn — and the fresh browser whose first click is THE
-// RUSH deserves the same six lines. (Mordecai stays solo-only: the dialogue
-// seam has no wire messages — TUTORIAL.md open edges.)
-const onramp: Onramp | null = freshCrawler && !testMode
+/** The live label for one slot that just filled (touch names the chip). */
+function coachSlotKey(i: number): string {
+  return touchMode ? "its new chip beside STRIKE" : coachKey(SLOT_ACTIONS[i]);
+}
+// The coach RUNS UNDER NET too (r2 major, inherited): it is a pure observer —
+// no sim writes, no seed, no spawn — and the fresh browser whose first click
+// is THE RUSH deserves the same lines. (Mordecai's MODAL beats stay solo-only:
+// the dialogue seam has no wire messages — TUTORIAL.md open edges.)
+//
+// The gate widened from freshCrawler to "enrolled and mid-curriculum": the
+// strip serves whoever the objectives card still serves, and retires with it.
+const coach: Coach | null = objEnrolled && !objCurriculumDone && !testMode && !cleanMode
   && !knownTips().includes(GUIDE_SKIP_KEY)
-  ? new Onramp(touchMode, {
-      // Single-char labels read as one word ("WASD"); anything longer spaces out.
-      move: onrampMove.every((k) => k.length === 1) ? onrampMove.join("") : onrampMove.join(" "),
-      attack: `Left click or ${onrampKey("slot1")}`,
-      flask: bindingLabel(bindings, "flask"),
-      bag: onrampKey("inventory"),
-    })
+  ? new Coach(touchMode
+    ? {
+        move: "a drag on the left half of the glass",
+        attack: "the STRIKE chip",
+        flask: "the FLASK chip",
+        bag: "the ☰ menu",
+      }
+    : {
+        // Single-char labels read as one word ("WASD"); anything longer spaces out.
+        move: coachMove.every((k) => k.length === 1) ? coachMove.join("") : coachMove.join(" "),
+        attack: `Left click or ${coachKey("slot1")}`,
+        flask: bindingLabel(bindings, "flask"),
+        bag: coachKey("inventory"),
+      })
   : null;
-let onrampItems = -1;
+// THE OBJECTIVES (src/ui/objectives.ts): the guided go-do-x-y-z card. A pure
+// sequencer — zero sim writes, so it runs under net too. Completed steps ride
+// the same dcc:tips:v1 ledger as everything else (obj.* keys, fact-spent on
+// the completion edge: done-by-DOING, exempt from the paint rule on purpose).
+const objectives: Objectives | null = objEnrolled && !objCurriculumDone && !testMode
+  && !cleanMode && !knownTips().includes(GUIDE_SKIP_KEY)
+  ? new Objectives(knownTips())
+  : null;
+let coachItems = -1;
 /** Loadout/kit facts sampled last step, so the observer can see an EDGE: a
  *  slot filling, an ultimate arriving, a piece of gear going on, a flask
  *  charge going down. Every teach-by-doing confirmation below is one of these
- *  edges — the player did a thing, and the System files the paperwork. */
-let onrampSlotSig = "";
-let onrampUlt: string | null = null;
-let onrampFlask = -1;
-let onrampSwung = false;
-let onrampEquipSig = "";
+ *  edges — the player did a thing, and Mordecai says what it meant. */
+let coachSlotSig = "";
+let coachUlt: string | null = null;
+let coachFlask = -1;
+let coachSwung = false;
+let coachEquipSig = "";
 /** Set for one step by the bag's own equip handler so the step loop's
  *  equipment-diff reads it as a DECISION rather than the sim dressing you. */
-let onrampHandEquip = false;
+let coachHandEquip = false;
+// ---- objectives sampling (same edge-diff discipline, same run scope) ----
+let objPosBase: { x: number; y: number } | null = null;
+let objInvBase = -1;
+let objEquipBase = "";
+let objGoldBase = -1;
+let objFloorBase = -1;
+let objCastSlots = new Set<number>();
+let objDashed = false;
+let objDraftClaimed = false;
+let objPrevOpenPicks = 0;
 
 /**
  * A NEW RUN IS A NEW CRAWLER, so the EDGES are re-baselined (r5). The observer
  * works entirely by diffing last step against this one; carrying run 1's
  * signatures into run 2 makes the fresh crawler's starting weapon read as an
  * auto-equip and their full flask read as nothing. The `fired` ledger inside
- * the Onramp is deliberately NOT reset — a line that actually painted was
+ * the Coach is deliberately NOT reset — a line that actually painted was
  * taught, and this is still one session.
  */
-function resetOnrampSampling(): void {
-  onrampItems = -1;
-  onrampSlotSig = "";
-  onrampUlt = null;
-  onrampFlask = -1;
-  onrampSwung = false;
-  onrampEquipSig = "";
-  onrampHandEquip = false;
+function resetCoachSampling(): void {
+  coachItems = -1;
+  coachSlotSig = "";
+  coachUlt = null;
+  coachFlask = -1;
+  coachSwung = false;
+  coachEquipSig = "";
+  coachHandEquip = false;
+  objPosBase = null;
+  objInvBase = -1;
+  objEquipBase = "";
+  objGoldBase = -1;
+  objFloorBase = -1;
+  objCastSlots = new Set();
+  objDashed = false;
+  objDraftClaimed = false;
+  objPrevOpenPicks = 0;
 }
 
-/** THE ONRAMP's one call into the card surface. Every line is OFFERED here and
+/** THE COACH's one call into the card surface. Every line is OFFERED here and
  *  spent only if the card paints — `commit`/`release` are r5 blocker 1: these
- *  11 lines carry no tipId, so displayTutorialCard's ledger write never touched
- *  them and `Onramp.note` was consuming them at generation. */
-function onrampSay(ev: OnrampEvent, keys = "", priority: Announcement["priority"] = "normal"): void {
-  if (!onramp) return;
-  const line = onramp.note(ev, state.floor, keys);
+ *  lines carry no tipId, so displayTutorialCard's ledger write never touches
+ *  them. Calls showTutorialCard DIRECTLY: the skip/clean gates live at the
+ *  coach's construction (and guide.skipped in coachObserve), and the tip
+ *  translation seam in showAnnouncement is for SIM tipIds only. */
+function coachSay(ev: CoachEvent, keys = "", priority: Announcement["priority"] = "normal"): void {
+  if (!coach) return;
+  const line = coach.note(ev, state.floor, keys);
   if (!line) return;
-  showAnnouncement({ text: line, kind: "tip", priority }, {
-    onShown: () => onramp.commit(ev),
-    onDropped: () => onramp.release(ev),
-    momentMs: ONRAMP_MOMENT_MS[ev],
+  showTutorialCard({ text: line, kind: "tip", priority }, {
+    onShown: () => coach.commit(ev),
+    onDropped: () => coach.release(ev),
+    momentMs: COACH_MOMENT_MS[ev],
   });
 }
 
@@ -8249,15 +8291,15 @@ function onrampSay(ev: OnrampEvent, keys = "", priority: Announcement["priority"
  *  wear something. Called from the bag panels' equip handlers, never from the
  *  step loop — the sim auto-equips strict upgrades on pickup, and confirming a
  *  decision nobody made teaches nothing. */
-function onrampNoteEquip(): void {
-  if (!onramp || guide?.skipped) return;
-  onrampHandEquip = true;
-  onrampSay("equipped");
+function coachNoteEquip(): void {
+  if (!coach || guide?.skipped) return;
+  coachHandEquip = true;
+  coachSay("equipped");
 }
 /** How close a monster has to be before "there is something to swing at" is
  *  true. The r3 script fired the combat lecture with the nearest monster 13.6
  *  tiles away; three is inside the crawler's own reach. */
-const ONRAMP_CONTACT_TILES = 3;
+const COACH_CONTACT_TILES = 3;
 
 /**
  * THE FLASK MUST ARRIVE WHILE THERE IS STILL A FIGHT TO SPEND IT ON (r5).
@@ -8267,44 +8309,44 @@ const ONRAMP_CONTACT_TILES = 3;
  * two seconds of a life is not a lesson. 60% is the first honest moment the
  * crawler is visibly losing and still has room to do something about it.
  */
-const ONRAMP_LOW_HP = 0.6;
+const COACH_LOW_HP = 0.6;
 
 /** Called once per sim step (solo) or intent pump (net): turns what just
- *  happened into at most one first-time System line on the card surface. */
-function onrampObserve(intent: Intent): void {
-  if (!onramp || state.status !== "playing") return;
+ *  happened into at most one first-time Mordecai line on the strip. */
+function coachObserve(intent: Intent): void {
+  if (!coach || state.status !== "playing") return;
   if (guide?.skipped) return; // B0's skip declined the hand-holding mid-session
   // The world must actually be LIVE. Solo elapses immediately; a rush race
   // counts down before the gun (elapsed holds at 0 while forming). Gating
   // the WHOLE observe on it also keeps the script's order sane everywhere:
-  // "fresh meat detected" always precedes everything else, even for a player
+  // the walk line always precedes everything else, even for a player
   // already holding W when the gun fires.
   if (state.elapsed <= 1) return;
   const p = me(state); // under net the local crawler is not players[0]
-  const say = onrampSay;
+  const say = coachSay;
   const inReach = state.monsters.some((m) => m.hp > 0
-    && Math.abs(m.pos.x - p.pos.x) <= ONRAMP_CONTACT_TILES
-    && Math.abs(m.pos.y - p.pos.y) <= ONRAMP_CONTACT_TILES);
+    && Math.abs(m.pos.x - p.pos.x) <= COACH_CONTACT_TILES
+    && Math.abs(m.pos.y - p.pos.y) <= COACH_CONTACT_TILES);
 
   // ---- PROMPTS FIRST (r5 blocker 3) ----
   // r4 observed confirmations first, in the same step. A fresh player holding
   // the mouse button from the start — the single most common instinct there
-  // is — therefore got "swinging is the floor, not the ceiling" at +0.9s, with
-  // the nearest monster twenty tiles away, ELEVEN SECONDS AHEAD of "WASD
-  // walks". The script's order is part of the script.
+  // is — therefore got the ability lecture at +0.9s, with the nearest monster
+  // twenty tiles away, ELEVEN SECONDS AHEAD of the walk line. The script's
+  // order is part of the script.
   if (state.floor === 1) {
-    if (onrampItems < 0) onrampItems = p.inventory.length;
+    if (coachItems < 0) coachItems = p.inventory.length;
     say("start");
     // The swing is taught when there is finally something to swing at.
     if (inReach) say("contact");
     // ...and the BAG is only named once the bag has something in it (r5): gold
     // used to trip this, so the compliant reader pressed the key on cue and
     // found nothing to wear. Gold is not a raise you can put on.
-    if (p.inventory.length > onrampItems) {
-      onrampItems = p.inventory.length;
+    if (p.inventory.length > coachItems) {
+      coachItems = p.inventory.length;
       say("pickup");
     }
-    if (p.alive && p.hp > 0 && p.hp < p.maxHp * ONRAMP_LOW_HP) say("lowhp", "", "high");
+    if (p.alive && p.hp > 0 && p.hp < p.maxHp * COACH_LOW_HP) say("lowhp", "", "high");
     if (state.elapsed > 75) say("linger");
   }
 
@@ -8315,31 +8357,31 @@ function onrampObserve(intent: Intent): void {
   //
   // A SWING IS A SWING AT SOMETHING (r5 blocker 3). `intent.attack` is true
   // whenever the button is down, so held-from-boot counted as combat. The
-  // ability lesson now waits for a swing thrown with a monster inside the
+  // ability lesson waits for a swing thrown with a monster inside the
   // crawler's own reach AND for that exchange to have cost or produced
   // something — first blood, either direction. That is the earliest instant
-  // "swinging is the floor, not the ceiling" is a true sentence.
-  if (!onrampSwung && inReach && (intent.cast?.[0] || intent.attack)
-    && (p.kills > 0 || (p.damageTaken ?? 0) > 0)) onrampSwung = true;
-  if (onrampSwung) say("ability", onrampSlotKeys(p));
+  // the slot lecture is a true sentence.
+  if (!coachSwung && inReach && (intent.cast?.[0] || intent.attack)
+    && (p.kills > 0 || (p.damageTaken ?? 0) > 0)) coachSwung = true;
+  if (coachSwung) say("ability", coachSlotKeys(p));
   // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
   if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
   // A slot FILLING is the moment its bind becomes true. Compare against last
   // step's loadout and name the slot that changed, never the whole row.
   const slotSig = (p.abilities?.slots ?? []).map((a) => a ?? "").join("|");
-  if (onrampSlotSig && slotSig !== onrampSlotSig) {
-    const before = onrampSlotSig.split("|");
+  if (coachSlotSig && slotSig !== coachSlotSig) {
+    const before = coachSlotSig.split("|");
     const now = slotSig.split("|");
     for (let i = 1; i < now.length; i++) {
-      if (now[i] && !before[i]) { say("slotted", onrampKey(SLOT_ACTIONS[i])); break; }
+      if (now[i] && !before[i]) { say("slotted", coachSlotKey(i)); break; }
     }
   }
-  onrampSlotSig = slotSig;
+  coachSlotSig = slotSig;
   // The ultimate: CONFIG.ultimateMinFloor is 7, so this line is unreachable in
   // a first session and that is the point — it is never printed as a promise.
   const ult = p.abilities?.ultimate ?? null;
-  if (ult && !onrampUlt) say("ult", onrampKey("ultimate"));
-  onrampUlt = ult;
+  if (ult && !coachUlt) say("ult", touchMode ? "the ULT chip" : coachKey("ultimate"));
+  coachUlt = ult;
   // THE LOOT LESSON'S REACHABLE HALF (r5 major). `equipped` fires from the
   // bag's own click handlers and never once fired in four cold runs, because
   // floor-1 loot is auto-equipped and the bag stays empty — the concept's
@@ -8348,15 +8390,113 @@ function onrampObserve(intent: Intent): void {
   // player actually caused (they walked over it), and it is the line that
   // explains why some gear never needed the trip.
   const equipSig = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
-  if (onrampEquipSig && equipSig !== onrampEquipSig && !onrampHandEquip) say("autoequip");
-  onrampEquipSig = equipSig;
-  onrampHandEquip = false;
+  if (coachEquipSig && equipSig !== coachEquipSig && !coachHandEquip) say("autoequip");
+  coachEquipSig = equipSig;
+  coachHandEquip = false;
   // The flask confirmation: "you died holding 3 flasks" was the critic's
-  // verdict, so the low-HP beat now has a second half that only exists if the
+  // verdict, so the low-HP beat has a second half that only exists if the
   // player actually pressed it.
-  if (onrampFlask >= 0 && p.flaskCharges < onrampFlask) say("drink");
-  onrampFlask = p.flaskCharges;
+  if (coachFlask >= 0 && p.flaskCharges < coachFlask) say("drink");
+  coachFlask = p.flaskCharges;
 }
+
+// ---- THE OBJECTIVES CARD (HANDOFF §3a: "goes and does x, y, z") ----------
+// A small persistent card, right rail: the current step's title + checkable
+// items. Play never pauses; nothing auto-dismisses; the card stays until the
+// step is done and unmounts forever when the curriculum is. The sequencer is
+// pure (src/ui/objectives.ts); everything here is fact plumbing + paint.
+const objectivesEl = document.getElementById("objectives")!;
+
+function renderObjectivesCard(): void {
+  const v = objectives?.view() ?? null;
+  if (!objectives || !v || !v.armed) {
+    objectivesEl.style.display = "none";
+    return;
+  }
+  const n = v.step.items.filter((it) => v.done.has(it.id)).length;
+  objectivesEl.style.display = "block";
+  objectivesEl.innerHTML =
+    `<div class="obj-head"><img class="obj-face" src="/icons/portraits/mordecai.svg" alt="">` +
+    `<span class="obj-title">${esc(v.step.title)}</span>` +
+    `<span class="obj-n">${n}/${v.step.items.length}</span></div>` +
+    `<ul class="obj-items">` +
+    v.step.items.map((it) =>
+      `<li class="${v.done.has(it.id) ? "done" : ""}"><i class="obj-check"></i><span>${esc(it.label)}</span></li>`,
+    ).join("") +
+    `</ul>`;
+}
+
+/** Called beside coachObserve at both intent seams (solo step loop + net
+ *  pump): computes the current step's facts from state diffs and host-surface
+ *  edges, feeds the pure sequencer, and turns its edges into paint + ledger.
+ *  Completion is FACT-spent (the player DID the step — exempt from the paint
+ *  rule by design); the intro/sign-off LINES ride the card queue and may be
+ *  dropped without consequence, because the persistent card itself is the
+ *  durable copy of the instruction. */
+function objectivesObserve(intent: Intent): void {
+  if (!objectives || objectives.finished || state.status !== "playing") return;
+  if (guide?.skipped) return; // the mid-session skip path already consumed the steps
+  const p = me(state);
+  // Baselines: the first observe of the run is the zero point for every diff.
+  if (!objPosBase) objPosBase = { x: p.pos.x, y: p.pos.y };
+  if (objInvBase < 0) objInvBase = p.inventory.length;
+  const equipSig = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
+  if (!objEquipBase) objEquipBase = equipSig;
+  if (objGoldBase < 0) objGoldBase = p.goldSpent ?? 0;
+  if (objFloorBase < 0) objFloorBase = state.floor;
+  // Intent-side acts (the canonical intent the sim just consumed — MUST-3).
+  if (intent.cast) {
+    for (let i = 1; i < intent.cast.length; i++) if (intent.cast[i]) objCastSlots.add(i);
+  }
+  if (intent.nova) objCastSlots.add(9);
+  if (intent.dash) objDashed = true;
+  // A draft CLAIM is the open picks emptying (chooseUpgrade clears the set).
+  const openPicks = p.pendingUpgrades.length;
+  if (objPrevOpenPicks > 0 && openPicks === 0) objDraftClaimed = true;
+  objPrevOpenPicks = openPicks;
+
+  const res = objectives.update({
+    inSafeRoom: state.safeRoom !== null,
+    // S1 GET MOVING
+    moved: Math.abs(p.pos.x - objPosBase.x) + Math.abs(p.pos.y - objPosBase.y) >= 3,
+    blood: p.kills > 0 || (p.damageDealt ?? 0) > 0,
+    kills3: p.kills >= 3,
+    // S2 THE FIVE — live ACTS, not loadout theory (the padlocked-key lesson):
+    // "cast two different abilities" is satisfiable by whatever the crawler
+    // actually has, so the card can never demand a locked slot.
+    castA: objCastSlots.size >= 1,
+    castB: objCastSlots.size >= 2,
+    dash: objDashed,
+    // S3 PAYDAY
+    loot: p.inventory.length > objInvBase || equipSig !== objEquipBase,
+    draft: objDraftClaimed,
+    descend: state.floor > objFloorBase,
+    // S4 THE SAFE ROOM (armed by inSafeRoom above; `shop` is a host-surface
+    // fact — the panel is host furniture, so the host testifies)
+    shop: srEl.style.display === "flex",
+    spend: (p.goldSpent ?? 0) > objGoldBase,
+    stairs: state.floor > objFloorBase,
+  });
+
+  if (res.started) {
+    objFloorBase = state.floor; // stairs items measure from the step's own start
+    const beat = OBJ_INTRO_BEATS[res.started];
+    showTutorialCard({ text: renderBeat(beat), kind: "tip", priority: "normal" }, { momentMs: 60000 });
+  }
+  if (res.completed) {
+    // THE FACT-SPEND: the step was performed, so it is done forever — the one
+    // recordTips call site that sits under an ACT instead of a paint
+    // (TUTORIAL.md's paint rule governs once-ever LINES; a performed step
+    // cannot be un-performed by a card failing to paint).
+    recordTips([res.completed]);
+    showTutorialCard({ text: OBJ_DONE_LINES[res.completed], kind: "tip", priority: "normal" }, { momentMs: 20000 });
+  }
+  if (res.started || res.checked.length > 0 || res.completed) renderObjectivesCard();
+}
+
+// The card exists from boot (an empty checklist is still an instruction) —
+// hidden by CSS behind modals, unmounted forever once the curriculum is done.
+renderObjectivesCard();
 
 // ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
 // characters. It re-dresses the DAILY tile into the challenge that was sent,
@@ -11389,7 +11529,7 @@ if (new URLSearchParams(location.search).has("debug")) {
         renderer.holdBossBeats(seconds);
       },
       release: () => { captureHold = 0; },
-      // TUTORIAL (r5): what the card surface is HOLDING versus what the ONRAMP
+      // TUTORIAL (r5): what the card surface is HOLDING versus what the COACH
       // has actually DELIVERED. Every round of this feature has been failed by
       // guards that asked the code whether it had shown a card; this hook lets
       // a probe ask the two questions separately — what is queued (offered,
@@ -11397,14 +11537,16 @@ if (new URLSearchParams(location.search).has("debug")) {
       // rest. Read-only, ?debug=1 only.
       tut: () => ({
         queue: tutorialQueue.map((c) => ({
-          text: c.a.text.replace(/^COURTESY EXPLANATION:\s*/, "").slice(0, 70),
+          text: c.a.text.slice(0, 70),
           tipId: c.a.tipId ?? null,
           ageMs: Math.round(performance.now() - c.queuedAt),
           momentMs: cardMomentMs(c),
         })),
         active: tutorialActive,
-        onrampLines: onramp?.spent ?? -1,
-        onrampPrompts: onramp?.promptsSpent ?? -1,
+        coachLines: coach?.spent ?? -1,
+        coachPrompts: coach?.promptsSpent ?? -1,
+        objectives: objectives?.view() ?? null,
+        objectivesDone: objectives?.finished ?? null,
       }),
       // Touch layer, for the device harness: the live zone table, the routing
       // decision for a point, and the lock/pref state the battery asserts on.
@@ -11976,11 +12118,14 @@ async function main(): Promise<void> {
         netIntentAcc = 0;
         const netIntent = sampleIntent(0.05);
         net.sendIntent(netIntent);
-        // THE ONRAMP under net (r2 major): a fresh browser whose first click
-        // is THE RUSH gets the same six System lines — the module is a pure
+        // THE COACH under net (r2 major): a fresh browser whose first click
+        // is THE RUSH gets the same Mordecai lines — the module is a pure
         // observer (no sim writes), so the doc's "the run is a normal run"
         // constraint holds on the server's world exactly as on the local one.
-        if (onramp) onrampObserve(netIntent);
+        // The objectives sequencer is the same kind of observer, so the
+        // guided curriculum races too.
+        if (coach) coachObserve(netIntent);
+        objectivesObserve(netIntent);
       }
       const disp = net.display(now);
       if (disp) state = disp;
@@ -12119,9 +12264,11 @@ async function main(): Promise<void> {
         const intent = rec ? rec.record(rawIntent) : canonicalIntent(rawIntent);
         if (rawIntent.ping) intent.ping = rawIntent.ping;
         step(state, intent, REPLAY_DT);
-        // THE ONRAMP (NICHE.md 4.4): the fresh crawler's ≤6 first-time lines,
-        // observed off the same canonical intent the sim just consumed.
-        if (onramp) onrampObserve(intent);
+        // THE COACH (the tutorial rebuild): Mordecai's first-time lines and
+        // the objectives curriculum, observed off the same canonical intent
+        // the sim just consumed (MUST-3: the wire format already applied).
+        if (coach) coachObserve(intent);
+        objectivesObserve(intent);
         runTicks++;
         for (const e of state.events) pushLogLine(e);
         frameHits.push(...state.hits);

@@ -462,9 +462,15 @@
            settlement plaque:   #settle-plaque (Roam arrival card, ~26% center —
                                   below the headline zone, transient)
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; dismissible
-                                 first-contact tip cards (kind:"tip"), one at a time;
-                                 touch mode slides it below the relocated minimap
+           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; MORDECAI'S
+                                 STRIP: dismissible non-pausing teaching cards (coach
+                                 lines + curriculum tip translations + objective step
+                                 lines), one at a time; touch mode slides it below the
+                                 relocated minimap
+           objectives zone:     #objectives (z 6) — right rail between #party and
+                                 #quests (first-session checkable steps; persistent,
+                                 never auto-dismissed; compact/phone collapses it to
+                                 the one-line head chip)
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -513,11 +519,12 @@
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
 
-      /* Tutorial cards (kind:"tip", COURTESY EXPLANATIONs): each one fires
-         exactly once per crawler ever (Player.tipsSeen), so unlike toasts it
-         gets an explicit dismiss instead of an auto-fade — a rule you have
-         to acknowledge, not miss in a blur of chatter. Top-left, clear of
-         the centered headline/toast zones. */
+      /* MORDECAI'S STRIP (kind:"tip" cards): the non-pausing teaching surface.
+         Every card is his — the System no longer teaches on any surface (ONE
+         VOICE, HANDOFF §3a). Once-ever lines get an explicit dismiss instead
+         of an auto-fade — an instruction you have to acknowledge, not miss in
+         a blur of chatter. Top-left, clear of the centered headline/toast
+         zones. */
       /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
          mode minimap (z 5) or taps land on movement instead of GOT IT. */
       #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none;
@@ -540,14 +547,19 @@
          the product — rule 2 says blood is HP and threat, nothing else. GOT IT
          is a stone secondary now, like every other acknowledge in the set. */
       .tut { background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
-        border: 1px solid #c9a24b; border-radius: 6px;
+        border: 1px solid #b8945a; border-radius: 6px;
         color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
       .tut.show { opacity: 1; transform: translateY(0); }
-      .tut-head { background: rgba(201,162,75,0.18); border-bottom: 1px solid #c9a24b;
-        padding: 6px 10px; font-size: var(--t-small); font-weight: 700;
+      /* Mordecai's plaque: the ember tokens the #dialogue .guide frame already
+         owns (#b8945a / #f5cf82) with his portrait as a chip — one face for
+         one voice, strip and modal alike. The gold System ribbon is retired. */
+      .tut-head { background: rgba(217,142,74,0.14); border-bottom: 1px solid #b8945a;
+        padding: 5px 10px; font-size: var(--t-small); font-weight: 700;
         font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        color: #c9a24b; display: flex; align-items: center; }
+        color: #f5cf82; display: flex; align-items: center; gap: 7px; }
+      .tut-face { width: 20px; height: 20px; border-radius: 50%; border: 1px solid #b8945a;
+        object-fit: cover; flex: 0 0 20px; background: #14100c; }
       .tut-body { padding: 10px 12px; font-size: var(--t-body); line-height: 1.5; }
       .tut-dismiss { display: block; width: 100%; margin-top: 8px; padding: 5px 0;
         background: linear-gradient(180deg, var(--raised), #14100c);
@@ -560,6 +572,51 @@
         .tut { touch-action: manipulation; } /* never a double-tap zoom */
         .tut-dismiss { padding: 12px 0; font-size: var(--t-small); } /* thumb-sized */
       }
+
+      /* THE OBJECTIVES CARD (#objectives — zone map above): the guided
+         first-session checklist. PERSISTENT — no auto-dismiss, no moment
+         expiry, no pointer events; it stays until the step's items are done
+         and unmounts forever when the curriculum is. Ember frame + portrait
+         chip: it is Mordecai's list, same voice as the strip. Right rail,
+         between the roster (96px) and the Roam contract ledger (210px) —
+         quests is Roam furniture and objectives is a first-session race, so
+         they never meaningfully coexist, but each claims its own zone. */
+      #objectives { position: fixed; top: 148px; right: 12px; width: 236px; z-index: 6;
+        display: none; pointer-events: none;
+        background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
+        border: 1px solid #b8945a; border-radius: 6px; color: #e8e0cc;
+        box-shadow: 0 6px 24px rgba(0,0,0,0.45); overflow: hidden; }
+      .obj-head { display: flex; align-items: center; gap: 7px;
+        background: rgba(217,142,74,0.14); border-bottom: 1px solid #b8945a;
+        padding: 5px 9px; font-family: var(--display); font-variant: small-caps;
+        font-weight: 700; font-size: var(--t-small); letter-spacing: 0.12em;
+        color: #f5cf82; }
+      .obj-face { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px;
+        border: 1px solid #b8945a; object-fit: cover; background: #14100c; }
+      .obj-title { flex: 1 1 auto; min-width: 0; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+      .obj-n { flex: 0 0 auto; color: #c9a24b; font-size: 11px; letter-spacing: 0.06em; }
+      .obj-items { list-style: none; margin: 0; padding: 6px 9px 8px; }
+      .obj-items li { display: flex; align-items: center; gap: 7px; padding: 3px 0;
+        font-size: 12.5px; line-height: 1.35; color: #cfc6b2;
+        transition: color 0.4s ease, opacity 0.4s ease; }
+      .obj-items li.done { color: #8fae72; opacity: 0.8; }
+      .obj-items li.done span { text-decoration: line-through; }
+      .obj-check { width: 12px; height: 12px; flex: 0 0 12px; position: relative;
+        border: 1px solid #b8945a; border-radius: 3px;
+        transition: background 0.3s ease, border-color 0.3s ease; }
+      .obj-items li.done .obj-check { background: rgba(143,174,114,0.28); border-color: #8fae72; }
+      .obj-items li.done .obj-check::after { content: "✓"; position: absolute;
+        top: -3px; left: 1px; color: #a9d48f; font-size: 11px; }
+      /* Compact/phone: the checklist collapses to the one-line head chip (the
+         step title + n/m count) tucked under #hud-tr — the ~100px of
+         uncontested width a landscape phone actually has. Owner's phone pass
+         (against production) is the acceptance for this placement. */
+      body[data-uiclass="compact"] #objectives,
+      body[data-uiclass="phone"] #objectives { top: 46px; right: 8px; width: auto;
+        max-width: 44vw; }
+      body[data-uiclass="compact"] #objectives .obj-items,
+      body[data-uiclass="phone"] #objectives .obj-items { display: none; }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already
@@ -5697,6 +5754,7 @@
          toasts, or banners may bleed readably behind a modal scrim. body.modal
          is host-managed (style-attribute observer in main3d). ---- */
       body.modal #hud-log, body.modal #toasts, body.modal #tutorial,
+      body.modal #objectives,
       body.modal #headline, body.modal #draft-badge, body.modal #party,
       body.modal #mobplates {
         opacity: 0 !important; visibility: hidden;
@@ -7082,6 +7140,10 @@
     <div id="toasts"></div>
     <div id="headline"></div>
     <div id="tutorial"></div>
+    <!-- The guided first-session checklist (zone map: objectives zone).
+         Rendered by main3d's renderObjectivesCard; display:none until a step
+         is armed, gone forever once the curriculum is done. -->
+    <div id="objectives" data-overlay="none"></div>
     <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
     <!-- ROAM: the settlement conversation cut (only the interacting player's
          host shows it; sim session playerId gates rendering). -->

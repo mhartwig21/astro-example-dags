@@ -140,7 +140,9 @@ UI overlays in `iso.html` follow a **screen-zone map** (comment block in its
 CSS): every fixed overlay claims exactly one zone; new overlays must pick a
 zone there first. Announcements route by priority: high → the one center
 banner, normal → the right-rail ticker (filtered by the K-panel verbosity
-setting).
+setting). `kind:"tip"` never rides either: it is translated into Mordecai's
+voice and painted on his non-pausing strip (the `#tutorial` card surface) or
+dropped — the System teaches nothing (TUTORIAL.md, ONE VOICE).
 
 ## Assets (models + audio) — silent/placeholder fallback pattern
 
