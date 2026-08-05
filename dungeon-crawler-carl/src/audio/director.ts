@@ -68,20 +68,6 @@ const BARK_FAMILY: Partial<Record<MonsterKind, BarkFamily>> = {
 /** One pain bark per monster per this many seconds (§2.4). */
 const BARK_PAIN_GAP = 4;
 
-// Footsteps (appearance r1: the world reacts to being walked through).
-// Every player in earshot strides: distance walked accumulates and each
-// STRIDE tiles drops one footfall, surfaced per band (the same six bands the
-// art direction uses) and varied per step — three clip variants cycled plus
-// deterministic rate/gain jitter hashed from (player, step count), so a run
-// replays with identical audio and no two strides read machine-stamped.
-// UNDERCROFT stone, SEWERS wet, GARDEN grass, RUINS stone, IRONWORKS metal,
-// THE APPROACH stone.
-const STEP_SURFACE = ["stone", "wet", "grass", "stone", "metal", "stone"] as const;
-const STEP_VARIANTS = ["a", "b", "c"] as const;
-const STRIDE = 1.15; // tiles per footfall (~4 steps/s at run speed)
-/** Own steps sit under the mix; a squad mate's steps also pan + attenuate. */
-const STEP_EARSHOT = 18;
-
 // Soundtrack pools. Regular fights rotate the battle bed per floor so runs
 // don't wear one track out; boss arenas get dedicated themes that escalate
 // toward the final floor.
@@ -168,8 +154,6 @@ export class AudioDirector {
   private chimed = new Set<number>();
   private battleUntil = 0; // state.elapsed until which the battle bed persists
   private ducked = false; // §5.1: the approach duck is riding
-  // Footstep stride accumulators, per player id (see STEP_SURFACE above).
-  private stride = new Map<number, { x: number; y: number; acc: number; n: number }>();
   // Status-apply edges: keys "m:<id>:<kind>" / "p:<id>:<kind>" currently
   // afflicted. A key appearing = the status landed. Primed on first frame so
   // a mid-run join doesn't replay every ongoing affliction.
@@ -273,44 +257,15 @@ export class AudioDirector {
     }
     this.winding = winding;
 
-    // Footsteps: distance-driven, so cadence tracks actual speed (a slowed
-    // crawler audibly trudges). A frame-to-frame jump longer than any honest
-    // stride is a teleport (descent, respawn, Blindside) — reset, don't step.
-    {
-      const surface = STEP_SURFACE[floorBand(state.floor)] ?? "stone";
-      const seen = new Set<number>();
-      for (const pl of state.players) {
-        seen.add(pl.id);
-        const st = this.stride.get(pl.id);
-        if (!st) {
-          this.stride.set(pl.id, { x: pl.pos.x, y: pl.pos.y, acc: 0, n: pl.id % 2 });
-          continue;
-        }
-        const mx = pl.pos.x - st.x, my = pl.pos.y - st.y;
-        st.x = pl.pos.x; st.y = pl.pos.y;
-        const moved = Math.hypot(mx, my);
-        if (!pl.alive || moved <= 0) continue;
-        if (moved > 1.2) { st.acc = 0; continue; } // teleport, not a stride
-        st.acc += moved;
-        if (st.acc < STRIDE) continue;
-        st.acc %= STRIDE;
-        st.n++;
-        // A dash is a whoosh, not four footfalls in 200ms.
-        if (pl.dashTime > 0) continue;
-        const rx = pl.pos.x - p.pos.x, ry = pl.pos.y - p.pos.y;
-        const dist = Math.hypot(rx, ry);
-        if (dist > STEP_EARSHOT) continue;
-        // Deterministic per-step jitter: hash (id, step) instead of RNG so a
-        // replay sounds byte-identical and tests can pin it.
-        const h = (Math.imul(pl.id + 1, 374761393) + Math.imul(st.n, 668265263)) >>> 0;
-        this.sink.play(`step_${surface}_${STEP_VARIANTS[st.n % 3]}`, {
-          gain: (0.72 + ((h & 0xff) / 255) * 0.28) / (1 + dist / 5),
-          pan: Math.min(1, Math.max(-1, (rx - ry) * 0.12)),
-          rate: 0.92 + (((h >> 8) & 0xff) / 255) * 0.16,
-        });
-      }
-      for (const id of this.stride.keys()) if (!seen.has(id)) this.stride.delete(id);
-    }
+    // NO FOOTSTEPS (owner call, audio r2): "the footsteps are really
+    // annoying.. let's not have any footsteps sound effects". The whole stride
+    // system — distance-driven cadence, per-band surfaces, deterministic
+    // per-step jitter — was correct engineering on a sound the game should
+    // never have had: at ~4 footfalls/s the most-repeated clip in the game is
+    // the one the player never chose to make. Removed wholesale (director,
+    // manifest, files, tests) rather than muted, so it cannot drift back in
+    // through a volume pass. Squadmate presence still reads through hits,
+    // barks and casts, all of which are CHOSEN moments.
 
     // Status APPLY cues (row 1): a key appearing in the afflicted set = the
     // status landed this frame. Primed on the first frame so a mid-run join

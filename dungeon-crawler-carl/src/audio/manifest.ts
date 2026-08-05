@@ -61,23 +61,11 @@ export const AUDIO_MANIFEST = {
   // jingle pack the progression sounds already come from.
   band_sting: { url: "/audio/sfx/band_sting.ogg", bus: "sfx", volume: 0.75, throttleMs: 4000 },
 
-  // Footsteps (appearance r1: the world reacts to being walked through).
-  // Procedurally synthesized in-repo (scripts/gen-footsteps.mjs — own work,
-  // CC0; see ASSETS.md). Three variants per surface, cycled by the director
-  // with per-step rate jitter, so no two strides read identical. Surfaces map
-  // to bands in director.ts: stone / wet stone / grass / metal.
-  step_stone_a: { url: "/audio/sfx/steps/step_stone_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_stone_b: { url: "/audio/sfx/steps/step_stone_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_stone_c: { url: "/audio/sfx/steps/step_stone_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_grass_a: { url: "/audio/sfx/steps/step_grass_a.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_grass_b: { url: "/audio/sfx/steps/step_grass_b.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_grass_c: { url: "/audio/sfx/steps/step_grass_c.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_metal_a: { url: "/audio/sfx/steps/step_metal_a.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_metal_b: { url: "/audio/sfx/steps/step_metal_b.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_metal_c: { url: "/audio/sfx/steps/step_metal_c.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_wet_a: { url: "/audio/sfx/steps/step_wet_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_wet_b: { url: "/audio/sfx/steps/step_wet_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_wet_c: { url: "/audio/sfx/steps/step_wet_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  // NO FOOTSTEPS (owner call, audio r2). The step_* family (12 synthesized
+  // WAVs, per-band surfaces, appearance r1) is gone — director, entries and
+  // files together, so a stale id fails loud instead of silently refetching.
+  // "the footsteps are really annoying.. let's not have any footsteps sound
+  // effects."
 
   // Creature barks (SOUNDPLAN §1.4 row 9): five archetype FAMILIES — not 36
   // per-mob voices — x aggro/pain/death x 2 variants. Generated in-repo
