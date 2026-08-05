@@ -1,0 +1,462 @@
+{
+  "name": "ref",
+  "threshold": 1.6893875362214297,
+  "meanDistance": 3.7541945249365103,
+  "dims": [
+    "logSec",
+    "logAtk",
+    "logCentroid",
+    "logRolloff",
+    "flatness",
+    "crestDb",
+    "lowShare"
+  ],
+  "clips": [
+    {
+      "id": "hit",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\hit.ogg",
+      "sec": 0.451,
+      "peakDb": -6.4,
+      "rmsDb": -22.6,
+      "momDb": -22.1,
+      "hp250MomDb": -29,
+      "hp250LossDb": 6.9,
+      "crestDb": 16.2,
+      "attackMs": 32.3,
+      "t10Ms": 7.8,
+      "centroidHz": 532,
+      "rolloff85Hz": 633,
+      "flatness": 2.68e-7,
+      "lowShare": 0.987,
+      "top3": "250(50%) 125(14%) 63(6%)",
+      "bands": {
+        "63": 5.7,
+        "125": 13.8,
+        "250": 49.9,
+        "500": 3.7,
+        "1k": 0.1,
+        "2k": 0.3,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "crit",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\crit.ogg",
+      "sec": 0.646,
+      "peakDb": -6.2,
+      "rmsDb": -23.3,
+      "momDb": -21.2,
+      "hp250MomDb": -32.4,
+      "hp250LossDb": 11.2,
+      "crestDb": 17.1,
+      "attackMs": 24.4,
+      "t10Ms": 23.3,
+      "centroidHz": 516,
+      "rolloff85Hz": 422,
+      "flatness": 5.29e-7,
+      "lowShare": 0.998,
+      "top3": "63(54%) 250(25%) 125(14%)",
+      "bands": {
+        "63": 54.3,
+        "125": 14.2,
+        "250": 25,
+        "500": 2.5,
+        "1k": 0,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "kill",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\kill.ogg",
+      "sec": 0.237,
+      "peakDb": -6.3,
+      "rmsDb": -14.9,
+      "momDb": -14.9,
+      "hp250MomDb": -38.6,
+      "hp250LossDb": 23.7,
+      "crestDb": 8.6,
+      "attackMs": 8.1,
+      "t10Ms": 1.5,
+      "centroidHz": 1493,
+      "rolloff85Hz": 3609,
+      "flatness": 0.00000304,
+      "lowShare": 0.998,
+      "top3": "63(69%) 125(30%) 250(0%)",
+      "bands": {
+        "63": 68.6,
+        "125": 30.1,
+        "250": 0.1,
+        "500": 0,
+        "1k": 0,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "tell",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\tell.ogg",
+      "sec": 0.277,
+      "peakDb": -9.5,
+      "rmsDb": -20.2,
+      "momDb": -20.2,
+      "hp250MomDb": -20.3,
+      "hp250LossDb": 0.2,
+      "crestDb": 10.7,
+      "attackMs": 199.1,
+      "t10Ms": 23,
+      "centroidHz": 1124,
+      "rolloff85Hz": 750,
+      "flatness": 6.77e-8,
+      "lowShare": 0,
+      "top3": "500(69%) 1k(31%) 2k(0%)",
+      "bands": {
+        "63": 0,
+        "125": 0,
+        "250": 0,
+        "500": 69.3,
+        "1k": 30.6,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "ident",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\ident.ogg",
+      "sec": 0.86,
+      "peakDb": -5.1,
+      "rmsDb": -18.3,
+      "momDb": -15.1,
+      "hp250MomDb": -15.2,
+      "hp250LossDb": 0.1,
+      "crestDb": 13.2,
+      "attackMs": 144.8,
+      "t10Ms": 1.9,
+      "centroidHz": 1235,
+      "rolloff85Hz": 2086,
+      "flatness": 9.63e-8,
+      "lowShare": 0,
+      "top3": "1k(60%) 500(33%) 2k(6%)",
+      "bands": {
+        "63": 0,
+        "125": 0,
+        "250": 0,
+        "500": 33.3,
+        "1k": 60.3,
+        "2k": 6.4,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "ident_high",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\ident_high.ogg",
+      "sec": 1.37,
+      "peakDb": -4.2,
+      "rmsDb": -17.1,
+      "momDb": -13.2,
+      "hp250MomDb": -14.8,
+      "hp250LossDb": 1.7,
+      "crestDb": 13,
+      "attackMs": 328.3,
+      "t10Ms": 1.8,
+      "centroidHz": 789,
+      "rolloff85Hz": 1078,
+      "flatness": 2.95e-8,
+      "lowShare": 0.577,
+      "top3": "500(57%) 1k(20%) 63(12%)",
+      "bands": {
+        "63": 11.8,
+        "125": 8.9,
+        "250": 0.1,
+        "500": 56.9,
+        "1k": 20.1,
+        "2k": 2.2,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "boss_down",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\boss_down.ogg",
+      "sec": 2.2,
+      "peakDb": -9.3,
+      "rmsDb": -20.2,
+      "momDb": -14.8,
+      "hp250MomDb": -51.6,
+      "hp250LossDb": 36.8,
+      "crestDb": 10.8,
+      "attackMs": 113.1,
+      "t10Ms": 2.2,
+      "centroidHz": 93,
+      "rolloff85Hz": 94,
+      "flatness": 1.34e-10,
+      "lowShare": 1,
+      "top3": "63(70%) 125(27%) 250(0%)",
+      "bands": {
+        "63": 70,
+        "125": 26.9,
+        "250": 0,
+        "500": 0,
+        "1k": 0,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "smash_wood",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\smash_wood.ogg",
+      "sec": 0.437,
+      "peakDb": -4.3,
+      "rmsDb": -19.6,
+      "momDb": -19.2,
+      "hp250MomDb": -33.1,
+      "hp250LossDb": 13.9,
+      "crestDb": 15.3,
+      "attackMs": 9,
+      "t10Ms": 1.7,
+      "centroidHz": 1973,
+      "rolloff85Hz": 4711,
+      "flatness": 0.0000198,
+      "lowShare": 0.992,
+      "top3": "125(93%) 250(6%) 500(1%)",
+      "bands": {
+        "63": 0.1,
+        "125": 93.3,
+        "250": 5.5,
+        "500": 0.5,
+        "1k": 0.2,
+        "2k": 0.2,
+        "4k": 0.1,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "dash_old",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\_src\\dash_old.ogg",
+      "sec": 0.467,
+      "peakDb": -1.2,
+      "rmsDb": -16.3,
+      "momDb": -15.6,
+      "hp250MomDb": -18.5,
+      "hp250LossDb": 2.9,
+      "crestDb": 15,
+      "attackMs": 128.9,
+      "t10Ms": 120.1,
+      "centroidHz": 531,
+      "rolloff85Hz": 773,
+      "flatness": 1.16e-8,
+      "lowShare": 0.811,
+      "top3": "250(50%) 500(33%) 125(12%)",
+      "bands": {
+        "63": 0.1,
+        "125": 12,
+        "250": 49.6,
+        "500": 32.9,
+        "1k": 4.6,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "a": "hit",
+      "b": "crit",
+      "d": 0.756
+    },
+    {
+      "a": "hit",
+      "b": "dash_old",
+      "d": 1.26
+    },
+    {
+      "a": "crit",
+      "b": "dash_old",
+      "d": 1.741
+    },
+    {
+      "a": "ident",
+      "b": "ident_high",
+      "d": 1.891
+    },
+    {
+      "a": "ident_high",
+      "b": "dash_old",
+      "d": 2.051
+    },
+    {
+      "a": "tell",
+      "b": "ident",
+      "d": 2.126
+    },
+    {
+      "a": "ident",
+      "b": "dash_old",
+      "d": 2.67
+    },
+    {
+      "a": "tell",
+      "b": "dash_old",
+      "d": 2.853
+    },
+    {
+      "a": "tell",
+      "b": "ident_high",
+      "d": 2.95
+    },
+    {
+      "a": "hit",
+      "b": "ident_high",
+      "d": 2.967
+    },
+    {
+      "a": "crit",
+      "b": "ident_high",
+      "d": 3.113
+    },
+    {
+      "a": "hit",
+      "b": "ident",
+      "d": 3.42
+    },
+    {
+      "a": "crit",
+      "b": "ident",
+      "d": 3.676
+    },
+    {
+      "a": "hit",
+      "b": "tell",
+      "d": 3.684
+    },
+    {
+      "a": "ident_high",
+      "b": "boss_down",
+      "d": 3.744
+    },
+    {
+      "a": "hit",
+      "b": "kill",
+      "d": 3.761
+    },
+    {
+      "a": "kill",
+      "b": "smash_wood",
+      "d": 3.829
+    },
+    {
+      "a": "kill",
+      "b": "dash_old",
+      "d": 3.889
+    },
+    {
+      "a": "kill",
+      "b": "tell",
+      "d": 3.924
+    },
+    {
+      "a": "boss_down",
+      "b": "dash_old",
+      "d": 3.943
+    },
+    {
+      "a": "crit",
+      "b": "boss_down",
+      "d": 3.999
+    },
+    {
+      "a": "hit",
+      "b": "smash_wood",
+      "d": 4.103
+    },
+    {
+      "a": "crit",
+      "b": "tell",
+      "d": 4.147
+    },
+    {
+      "a": "hit",
+      "b": "boss_down",
+      "d": 4.179
+    },
+    {
+      "a": "kill",
+      "b": "ident",
+      "d": 4.272
+    },
+    {
+      "a": "crit",
+      "b": "kill",
+      "d": 4.279
+    },
+    {
+      "a": "crit",
+      "b": "smash_wood",
+      "d": 4.288
+    },
+    {
+      "a": "smash_wood",
+      "b": "dash_old",
+      "d": 4.462
+    },
+    {
+      "a": "kill",
+      "b": "ident_high",
+      "d": 4.542
+    },
+    {
+      "a": "ident",
+      "b": "smash_wood",
+      "d": 4.853
+    },
+    {
+      "a": "ident_high",
+      "b": "smash_wood",
+      "d": 5.071
+    },
+    {
+      "a": "ident",
+      "b": "boss_down",
+      "d": 5.086
+    },
+    {
+      "a": "tell",
+      "b": "boss_down",
+      "d": 5.256
+    },
+    {
+      "a": "tell",
+      "b": "smash_wood",
+      "d": 5.367
+    },
+    {
+      "a": "kill",
+      "b": "boss_down",
+      "d": 6.083
+    },
+    {
+      "a": "boss_down",
+      "b": "smash_wood",
+      "d": 6.915
+    }
+  ],
+  "sheets": [
+    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\ref\\sheet_ref_1.png"
+  ]
+}

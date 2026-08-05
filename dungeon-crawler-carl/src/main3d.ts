@@ -11833,7 +11833,14 @@ async function main(): Promise<void> {
   // Real progress, weighted by phase (models are the bulk of the bytes).
   const phaseFrac = { models: 0, audio: 0, warm: 0 };
   const setBar = (): void => {
-    const p = phaseFrac.models * 0.72 + phaseFrac.audio * 0.2 + phaseFrac.warm * 0.08;
+    // AUDIO R2: audio was 0.2 of the bar when audio.load() fetched and decoded
+    // all 108 manifest entries — 22.0MB of it music, measured at 2.0s of an
+    // 8.0s local boot. Music now streams on demand, so load() settles 16 of
+    // those ids instantly and fetches nothing for them; what is left is 1.2MB
+    // of SFX. Leaving the weight at 0.2 made the only user-visible boot
+    // indicator snap a fifth of the way across and then stall on models — a
+    // bar reporting a phase that no longer costs what the weight says.
+    const p = phaseFrac.models * 0.86 + phaseFrac.audio * 0.06 + phaseFrac.warm * 0.08;
     loadingFill.style.width = `${Math.round(p * 100)}%`;
   };
   loadingPhase.textContent = "RECEIVING THE DUNGEON";

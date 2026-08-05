@@ -132,7 +132,9 @@ game needs) so the repo stays attribution-free like the 3D assets. Avoid any
 public/audio/
   sfx/    hit.ogg, crit.ogg, player_hurt.ogg, heal.ogg, gold.ogg, item.ogg,
           swing.ogg, tell.ogg, kill.ogg,
-          dash.ogg, bolt.ogg, nova.ogg, level_up.ogg, lootbox.ogg,
+          bolt.ogg, nova.ogg, cast_*.ogg, chain_line.ogg,   (the cast family)
+          weapon_flash.ogg,
+          level_up.ogg, lootbox.ogg,
           achievement.ogg, door_unlock.ogg, descend.ogg, death.ogg, victory.ogg,
           announce.ogg, sponsor.ogg, crowd.ogg, warning.ogg, buy.ogg, equip.ogg,
           dot_burn.ogg, dot_poison.ogg, dot_chill.ogg, band_sting.ogg   (status/band cues)
@@ -152,8 +154,8 @@ pointers for the audio sources too.
 | `sfx/hit,crit,player_hurt,nova.ogg` | Kenney — Impact Sounds (SFX r2: re-leveled -5.2/-5.3/-5.4/-5.2dB via `ffmpeg -af volume`, q5 — the originals decoded at +1.9..+2.1 dBFS over full scale and breached the SOUNDPLAN §2.2 headroom contract; now peak -6.4/-6.2/-6.4/-6.0 dBFS (the earlier -3.4/-3.2/-3.4/-3.0 row was read with the pre-fix stereo-inflating meter; re-measured in the final audit — files are SAFER than first documented). Level change only, no creative edit) | Kenney | CC0 |
 | `sfx/announce,warning.ogg` | Kenney — Interface Sounds | Kenney | CC0 |
 | `sfx/gold,buy,item,equip,door_unlock,descend.ogg` | Kenney — RPG Audio | Kenney | CC0 |
-| `sfx/level_up,victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles | Kenney | CC0 |
-| `sfx/heal,dash,bolt,death.ogg` | Kenney — Digital Audio | Kenney | CC0 |
+| `sfx/victory,lootbox,achievement,sponsor.ogg` | Kenney — Music Jingles. (`level_up.ogg` was in this row until the audio r2 fix round: the owner's §1.3a verdict — "can we also change the level up sound, it's annoying as shit" — retired it for the generated file below. Measurement agreed with the ear: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level, centroid 4773Hz / rolloff85 11813Hz, the brightest clip in the 22-file house survey by a wide margin — a sustained chord on one of the most-fired edges in the game) | Kenney | CC0 |
+| `sfx/heal,bolt,death.ogg` | Kenney — Digital Audio. (`dash.ogg` was in this row until audio r2: the owner's §1.3a verdict — "the dash sound effect sucks" — retired it for the generated `sfx/cast_dash.ogg`, and the manifest rename `dash` → `cast_dash` deleted the file) | Kenney | CC0 |
 | `music/dungeon.ogg` | [Loopable Dungeon Ambience](https://opengameart.org/content/loopable-dungeon-ambience) | JaggedStone | CC0 |
 | `music/safe_room.ogg` | [Calm Ambient 1 (Synthwave 4k)](https://opengameart.org/content/calm-ambient-1-synthwave-4k) (re-encoded MP3→OGG q3; SFX r2: source's fade-out tail trimmed + 2s loop crossfade via `tools/audio/fix-beds.mjs` — the fade made every loop restart step 20.7dB. -18.0 LUFS preserved, 157.9s→143.1s) | The Cynic Project (cynicmusic.com) | CC0 |
 | `music/collapse.ogg` | [Fast fight / battle music (looped)](https://opengameart.org/content/fast-fight-battle-music-looped) (re-encoded WAV→OGG q4; SFX r2: -2.0dB trim + 25ms loop crossfade via `tools/audio/fix-beds.mjs` — the source loop had a seam click and +0.52 dBTP true peak; now -1.4 dBTP, seam delta 0.3dB) | Ville Nousiainen, loop by XCVG | CC0 |
@@ -169,6 +171,11 @@ pointers for the audio sources too.
 | `sfx/barks/bark_{skel,org,hum,mech,air}_{aggro,pain,death}_{a,b}.ogg` (30 files) | Synthesized in-repo by `tools/audio/gen-sfx-barks.mjs` (five archetype-family voices; SOUNDPLAN row 9) | this project | CC0 (own work) |
 | `sfx/{ident,ident_high,stamp,count_tick,count_go,ledger_bank,door_close,draft_pick,draft_bank,descend_whoosh,verdict,till}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (the System's stinger language — one shared bell timbre) | this project | CC0 (own work) |
 | `sfx/boss_{phase,punish,down}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (dedicated boss beats; SOUNDPLAN row 15) | this project | CC0 (own work) |
+| `sfx/cast_{dash,orbit,stance,overcharge,cutto,crowdsurf,stuntdouble,bulwark,cables,airstrike,cataclysm,bullettime,injunction}.ogg` (13 files) | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (THE ACT — the cast cues for the ability roster; SOUNDPLAN §1.4 row E-21. Actives mastered to -17 LUFS momentary / ≤-4.5 dBFS, ultimates -14.5 / ≤-3.0, measured from the encoded files by `tools/audio/measure.mjs`; the level they PLAY at is `tools/audio/played.mjs`. `cast_dash` REPLACES the Kenney `dash.ogg` on the owner's verdict; `_r2_sheets/_src/dash_old.ogg` is kept as the negative reference. **All thirteen re-rendered in the r2 fix round** — the family's own distinctness instrument had flagged three pairs. Seeded/deterministic — verified byte-identical across reruns) | this project | CC0 (own work) |
+| `sfx/chain_line.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (the taut-line tick, so `HIT_SOUNDS.chain` stops playing the dash whoosh on all four "chain" emitters; room-tone family -28 LUFS momentary / ≤-12 dBFS) | this project | CC0 (own work) |
+| `sfx/weapon_flash.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (r2 fix round — a dry steel tick, so `HIT_SOUNDS.weapon` stops being the `item` PICKUP CHIME. `"weapon"` has 30 emitters in `src/sim/game.ts`, most of them monster-side: adds arriving, risers, boss children, the orbit parry, the snare snip. Room-tone family -28 LUFS momentary / ≤-12 dBFS) | this project | CC0 (own work) |
+| `sfx/level_up.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (r2 fix round, owner verdict §1.3a — THE SYSTEM FILES A PROMOTION: a stamp and two notes a fourth apart, in the same dry two-partial bell the rest of the System speaks in. Short and dry beats long and celebratory on an edge that fires every level: 0.44s→0.33s, centroid 4773→1593Hz, and it plays 6.0dB quieter. Stays on the `sfx` bus, not `announcer` — the announcer bus is the sidechain duck SOURCE and this edge would pump the bed all run) | this project | CC0 (own work) |
+| `tools/audio/_r2_sheets/_src/dash_old.ogg` | The retired Kenney — Digital Audio `dash.ogg`, kept OUT of `public/` as the negative reference the regenerated `cast_dash` is measured against (§1.3a). Not shipped, not in the manifest | Kenney | CC0 |
 | `music/band_{undercroft,sewers,garden,ruins,ironworks,approach}.ogg`, `music/menu.ogg` | Synthesized in-repo by `tools/audio/gen-music-beds.mjs` (SOUNDPLAN §3: the six band ambiences + the campfire check-in bed; stereo, mastered to -23 LUFS-I / ≤-6 dBTP, loop-fold seams — deterministic, rerun is byte-identical) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source

@@ -3,7 +3,8 @@ import { CONFIG, floorBand } from "../sim/config";
 // the audio director must not drag three.js into the 2D host's bundle to
 // find out how a boss's tell is pitched.
 import { signatureFor } from "../render3d/bossSignatures";
-import type { Announcement, BossEvent, GameState, HitEvent, HitKind, MonsterKind, StatusKind } from "../sim/types";
+import type { AbilityId } from "../sim/abilities";
+import type { Announcement, BossEvent, GameState, HitEvent, HitKind, MonsterKind, Player, StatusKind } from "../sim/types";
 import type { AudioSink } from "./engine";
 import type { SoundId } from "./manifest";
 
@@ -20,9 +21,69 @@ const HIT_SOUNDS: Record<HitKind, SoundId> = {
   player: "player_hurt",
   heal: "heal",
   gold: "gold",
-  weapon: "item",
-  chain: "dash", // the chain whips out; the arrival's weapon flash adds the clink
+  // The weapon FLASH, not a pickup. Audio r2 fix round: this was `item`, the
+  // coin-pickup chime, and it is the last of the borrowed clips row E-21 was
+  // written about. Scope matters here, because E-21 itself got it wrong: this
+  // is not "the juice poofs seven casts emit". `"weapon"` has 30 emitters in
+  // src/sim/game.ts and most are MONSTER-side — adds arriving (2094, 2275,
+  // 2290, 2908), risers (2238, 2459), boss children (4588), the orbit parry
+  // (3265), the snare snip (4074). A boss spawning adds rang a pickup chime.
+  weapon: "weapon_flash",
+  // The chain whips out; the arrival's weapon flash adds the clink. Audio r2:
+  // this used to be the `dash` whoosh — four unrelated things emit "chain"
+  // hits (Extradition's pull, cables, monster grabs), so a dash cue fired for
+  // all of them. `chain_line` is a taut-line tick that belongs to none of the
+  // casts and reads under the impact rather than over it.
+  chain: "chain_line",
 };
+
+// THE ACT (SOUNDPLAN §1.4 row E-21): one cue per ability the crawler CASTS.
+// The old director voiced three of SIXTEEN (AbilityId has 16 members — the
+// r2 build said 17 in five places, including the row whose entire job was to
+// be the auditable count of the roster) and the inventory was written by
+// walking THIS TABLE instead of the roster, which is why the other thirteen
+// were never listed as shipped, deferred, or anywhere — they just spoke in
+// whatever borrowed clip their juice poof happened to trigger.
+//
+// `melee` is a deliberate ABSENCE, not an oversight: `swing` on the
+// attackSwing edge already IS its cast cue (a whiff sounds), and its
+// consequence is hit/crit/kill. Its cooldown floor is ~0.19s under Swift plus
+// the 0.4 CDR cap, so a second cue on it would be the exact fatigue that got
+// the footsteps deleted by owner order. The next audit should read a decision
+// here, not a hole.
+const CAST_SOUNDS: Partial<Record<AbilityId, SoundId>> = {
+  dash: "cast_dash", bolt: "bolt", nova: "nova",
+  orbit: "cast_orbit", stance: "cast_stance", overcharge: "cast_overcharge",
+  cutto: "cast_cutto", crowdsurf: "cast_crowdsurf", stuntdouble: "cast_stuntdouble",
+  bulwark: "cast_bulwark", cables: "cast_cables",
+  airstrike: "cast_airstrike", cataclysm: "cast_cataclysm",
+  bullettime: "cast_bullettime", injunction: "cast_injunction",
+};
+/**
+ * The two CHARGE abilities, which the cooldown rule cannot see correctly in
+ * EITHER direction and which therefore detect on their charge counter alone.
+ *
+ * - It MISSES casts: `doDash` / `doCutTo` set the cooldown only when it was
+ *   already 0 (game.ts:5762, 6399), so spending a second banked charge while
+ *   the recharge runs raises nothing.
+ * - It also INVENTS them, which the design of this round did not anticipate:
+ *   the recharge blocks (game.ts:7740-7742, 7755-7757) bank a charge when the
+ *   timer expires and, while still below max, immediately RE-ARM `cd` to a
+ *   full cooldown. That is a rise from 0 with nobody pressing anything — a
+ *   phantom cast every recharge on any build with more than one charge.
+ *
+ * The counters have no such ambiguity: each is decremented in exactly one
+ * place, the cast itself, and every other write is an increment or a refill.
+ */
+const CHARGE_CASTS = new Set<AbilityId>(["dash", "cutto"]);
+
+/** Ultimates carry further and sit 2.5dB hotter (§2.2): an ally's Fault Line
+ *  is a room event you need to know about, for the same reason a boss beat
+ *  gets the wider circle. */
+const ULTIMATE_CASTS = new Set<AbilityId>(["airstrike", "cataclysm", "bullettime", "injunction"]);
+/** Cooldown-rise epsilon — the SAME one renderer3d.castCommitEdges uses, so
+ *  the cue, the commit flash and the animation fire off one fact. */
+const CAST_EPS = 1e-6;
 
 // DoT ticks read as their ELEMENT, not as blows — burn crackles, venom
 // bubbles, frost chimes (throttled in the manifest; ticks come fast).
@@ -73,8 +134,13 @@ const BARK_PAIN_GAP = 4;
 // toward the final floor.
 // Ambience is PER BAND (SOUNDPLAN §3, Music r1): the six generated beds,
 // indexed by floorBand() — same six bands the art direction reskins by.
-// `music_dungeon` is the graceful-degradation fallback for any band whose
-// bed didn't decode (sink.has), mirroring the model loader's stand-ins.
+// `music_dungeon` is the graceful-degradation fallback for ANY bed that isn't
+// PLAYABLE (sink.has — see bed()), mirroring the model loader's stand-ins.
+// Audio r2: beds stream rather than decode, so "playable" is optimistic and
+// only turns false when the element actually fails (404 / undecodable /
+// stalled). The director re-asks has() every frame, so a bed that dies
+// mid-run falls back on the very next frame — but only because every request
+// goes through bed(); the first r2 cut routed 9 of the 16 around it.
 const BAND_BEDS: SoundId[] = [
   "music_band_undercroft", "music_band_sewers", "music_band_garden",
   "music_band_ruins", "music_band_ironworks", "music_band_approach",
@@ -128,17 +194,22 @@ interface Prev {
   lootBoxes: number;
   achievements: number;
   pendingRewards: boolean;
-  dashTime: number;
-  novaFlash: number;
-  boltCd: number;
   attackSwing: number;
   frenzy: boolean;
   encounter: boolean;
   bulletTime: boolean;
-  cataCd: number;
   flask: number;
-  doubleCd: number;
   conceded: boolean;
+}
+
+/** Per-player cast bookkeeping (see castEdges). `cutCharges` is optional on
+ *  Player, so it is carried as `number | undefined` and an undefined on
+ *  EITHER side of a comparison means "prime", never "cast". */
+interface CastPrev {
+  cd: Record<string, number>;
+  dashCharges: number;
+  cutCharges: number | undefined;
+  overcharged: boolean;
 }
 
 export class AudioDirector {
@@ -162,6 +233,14 @@ export class AudioDirector {
   private crockery = new Map<number, { x: number; y: number; hp: number; clay: boolean }>();
   // Creature bark bookkeeping: last seen state per monster id.
   private mobs = new Map<number, { fam: BarkFamily; x: number; y: number; hp: number; flash: boolean; engaged: boolean; painAt: number }>();
+  // Cast edges, per player id. Absent = first sight = PRIME (store, fire
+  // nothing), so a load, a mid-run join or a squadmate walking into the
+  // interest set cannot replay the whole roster as fresh casts.
+  private casts = new Map<number, CastPrev>();
+  // Last frame's state.elapsed. A DECREASE is a fresh run (the sim's clock
+  // only ever advances within one), which is the only run-boundary signal that
+  // survives a restart on the same floor — see castEdges.
+  private lastElapsed = -Infinity;
 
   constructor(private sink: AudioSink) {}
 
@@ -170,11 +249,32 @@ export class AudioDirector {
     this.menuOpen = open;
   }
 
-  /** The band's ambient bed, degrading to the generic dungeon ambience when
-   *  the band's file didn't decode (per-band silent-fallback philosophy). */
+  /**
+   * ANY bed request, degraded to the generic dungeon ambience when the wanted
+   * bed isn't playable.
+   *
+   * This used to be `ambientBed()` and it only covered the six band beds and
+   * `music_menu` — 7 of 16. The engine and this file both carried a comment
+   * promising that a dead bed "falls back to music_dungeon on the very next
+   * frame, by itself", and for music_collapse, music_safe, the three battle
+   * tracks and the three boss themes that was simply untrue: they were
+   * requested unconditionally, so a streamBad demotion on any of them left
+   * engine.music() taking the pendingMusic branch — silence for the entire
+   * mood, at the two moments (the collapse timer, a boss arena) where silence
+   * is most expensive. Streaming introduced that failure class; the decode
+   * path could not reach it, because a bed either had a decoded buffer or was
+   * never requested. So every request goes through here now.
+   *
+   * If `music_dungeon` is itself unplayable the engine holds the outgoing bed
+   * rather than cutting to silence (see engine.music()'s hand-off).
+   */
+  private bed(id: SoundId): SoundId {
+    return (this.sink.has?.(id) ?? true) ? id : "music_dungeon";
+  }
+
+  /** The band's ambient bed (the per-band half of the same rule). */
   private ambientBed(floor: number): SoundId {
-    const bed = BAND_BEDS[floorBand(floor)] ?? "music_dungeon";
-    return (this.sink.has?.(bed) ?? true) ? bed : "music_dungeon";
+    return this.bed(BAND_BEDS[floorBand(floor)] ?? "music_dungeon");
   }
 
   /** One creature bark: family voice, variant + rate hashed from the monster
@@ -204,6 +304,134 @@ export class AudioDirector {
       pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       rate: (cracked ? 1.12 : 0.92) + ((h & 0xff) / 255) * 0.16,
     });
+  }
+
+  /** One cast cue. The LOCAL crawler's own act is centred and unattenuated —
+   *  my cast is never off to one side and never quiet. A squadmate's is
+   *  attenuated and panned exactly like their hits, with an extra 0.75 so my
+   *  own cast always wins a tie against an identical one six tiles away.
+   *  Ultimates use the boss-beat circle (EARSHOT * 1.6) and its gentler
+   *  falloff instead. */
+  private castCue(
+    p: { pos: { x: number; y: number }; id: number },
+    caster: Player, ability: AbilityId, sound: SoundId,
+    extra?: { rate?: number; gainMul?: number; force?: boolean },
+  ): void {
+    const mul = extra?.gainMul ?? 1;
+    const extras = {
+      ...(extra?.rate !== undefined ? { rate: extra.rate } : {}),
+      ...(extra?.force ? { force: true } : {}),
+    };
+    if (caster.id === p.id) {
+      this.sink.play(sound, { gain: mul, pan: 0, ...extras });
+      return;
+    }
+    const ult = ULTIMATE_CASTS.has(ability);
+    const dx = caster.pos.x - p.pos.x, dy = caster.pos.y - p.pos.y;
+    const d = Math.hypot(dx, dy);
+    if (d > EARSHOT * (ult ? 1.6 : 1)) return;
+    this.sink.play(sound, {
+      gain: mul * (ult ? 1 / (1 + d / 14) : 0.75 / (1 + d / 6)),
+      pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+      ...extras,
+    });
+  }
+
+  /**
+   * THE ACT: a general cast detector over the one fact every castable ability
+   * writes — a rising edge on `p.cd[abilityId]`. This mirrors, deliberately
+   * and down to the epsilon, what renderer3d.castCommitEdges already does
+   * host-side for the visual commit kits, so the cue, the flash and the
+   * animation fire off ONE fact instead of five ad-hoc flags.
+   *
+   * Why cd is the right general signal: `castAbility` refuses to run at all
+   * while cd > 0, and every cooldown-reduction path in the sim (rank + glyph
+   * CDR clamped at the 0.4 cap, the per-frame tick, Bullet Time's adrenaline,
+   * frenzy/tempo multipliers, Executioner's Rebate, Footwork, AWARD SEASON,
+   * Sponsor Loyalty, the overtime passive) only ever makes cd SMALLER or
+   * makes it tick DOWN faster. None can raise it without a cast, so the
+   * rising edge is cast-EXACT regardless of build, and overranks are free:
+   * the edge compares a value to its own previous frame, never to a table.
+   *
+   * The two exceptions are the CHARGE abilities (see CHARGE_CASTS), where the
+   * cooldown both misses real casts and invents phantom ones, so they read
+   * their charge counters instead. That is also strictly better than the old
+   * `dashTime` rule, since three non-dash things write dashTime (Extradition's
+   * heavy pull, Phase Etch Blindside, the PET revision's i-frames) and the
+   * game used to play a dash whoosh for every one of them.
+   *
+   * A RUN BOUNDARY IS NOT A VOLLEY. The first version of this block claimed a
+   * descent needed no guard, reasoning that the floor reset assigns `p.cd = {}`
+   * and refills charges — all movement in the safe direction. That is true for
+   * two of the three fields it reads and false for the third: game.ts:1399
+   * (resetForFloor) and game.ts:8087 (rivals descend) also clear
+   * `p.overcharged`, and the Breaker SPEND detector is a bare falling edge on
+   * exactly that flag. Descending with Breaker banked — bank before a fight,
+   * fight ends, take the stairs, i.e. ordinary play — fired a phantom
+   * pitched-up Breaker release on top of the descend stinger, the game's most
+   * deliberate transition. Verified by driving the real director against a
+   * real GameState, which is also how the r2 critics found it.
+   *
+   * So the block re-PRIMES (stores, fires nothing) on any run boundary, the
+   * same shape the smash and bark blocks already use. Two boundaries, because
+   * a floor number alone does not catch a restart on the same floor:
+   *   - the floor changed; or
+   *   - `state.elapsed` went BACKWARDS, which only a fresh run can do. The
+   *     director is module-scope in main3d.ts and `casts` is pruned only on
+   *     player disappearance, so a run that ended with Breaker banked used to
+   *     seed the next one.
+   */
+  private castEdges(p: Player, state: GameState, boundary: boolean): void {
+    const seen = new Set<number>();
+    for (const pl of state.players) {
+      seen.add(pl.id);
+      const cds = pl.cd as Partial<Record<string, number>>;
+      const snap: Record<string, number> = {};
+      for (const k in cds) snap[k] = cds[k] ?? 0;
+      const prev = boundary ? undefined : this.casts.get(pl.id);
+      if (prev) {
+        for (const ab in CAST_SOUNDS) {
+          const sound = CAST_SOUNDS[ab as AbilityId];
+          if (!sound || CHARGE_CASTS.has(ab as AbilityId)) continue;
+          if ((snap[ab] ?? 0) > (prev.cd[ab] ?? 0) + CAST_EPS) this.castCue(p, pl, ab as AbilityId, sound);
+        }
+        // The charge abilities, off their counters alone (see CHARGE_CASTS):
+        // one cue per charge SPENT, whatever the recharge timer is doing.
+        if (pl.dashCharges < prev.dashCharges) this.castCue(p, pl, "dash", CAST_SOUNDS.dash!);
+        // `cutCharges` is optional on Player — undefined on either side of the
+        // comparison is a PRIME, never a cast, or the frame the field first
+        // appears would fire a phantom Blindside.
+        if (
+          prev.cutCharges !== undefined && pl.cutCharges !== undefined &&
+          pl.cutCharges < prev.cutCharges
+        ) this.castCue(p, pl, "cutto", CAST_SOUNDS.cutto!);
+        // Breaker's SPEND: one file, two moments. The cast BANKS the power
+        // (the clip stops instead of resolving); this is its release, the
+        // same sample pitched up and pulled back. Without it the spend is
+        // indistinguishable from an ordinary swing.
+        //
+        // `force` because bank and spend share one sound id and the engine's
+        // spam guard is per-id: at throttleMs 600, spending on the next landed
+        // hit — which is the intended rhythm ("charge -> pick the moment ->
+        // spend") — produced NO CUE AT ALL. The feature was asserted at the
+        // director, where FakeSink has no throttle, and discarded at the
+        // engine. Forcing is the right escape here for the same reason the
+        // boss beats force: the SPEND edge is already rate-limited upstream by
+        // the sim — `overcharged` can only fall once per bank, per player.
+        if (prev.overcharged && !pl.overcharged) {
+          this.castCue(p, pl, "overcharge", CAST_SOUNDS.overcharge!, { rate: 1.3, gainMul: 0.55, force: true });
+        }
+      }
+      this.casts.set(pl.id, {
+        cd: snap,
+        dashCharges: pl.dashCharges,
+        cutCharges: pl.cutCharges,
+        overcharged: pl.overcharged === true,
+      });
+    }
+    // Prune on disappearance so a rejoin re-primes rather than diffing
+    // against stale numbers.
+    for (const id of this.casts.keys()) if (!seen.has(id)) this.casts.delete(id);
   }
 
   /**
@@ -427,6 +655,15 @@ export class AudioDirector {
       if (announcements.some((a) => a.text.startsWith("OPEN FOR BUSINESS"))) this.sink.play("till");
     }
 
+    // THE ACT — every crawler's cast cues, off the one general fact (see
+    // castEdges). This runs BEFORE the Prev block on purpose: Bullet Time's
+    // cast and its muffle() land on the same frame, and the engine sweeps a
+    // 700Hz master low-pass on that edge — the cue has to be in flight before
+    // the filter closes over it.
+    const runBoundary = !this.prev || this.prev.floor !== state.floor || state.elapsed < this.lastElapsed;
+    this.lastElapsed = state.elapsed;
+    this.castEdges(p, state, runBoundary);
+
     const cur: Prev = {
       phase: state.phase,
       floor: state.floor,
@@ -437,16 +674,11 @@ export class AudioDirector {
       lootBoxes: state.lootBoxes,
       achievements: p.achievements.length,
       pendingRewards: p.pendingRewards.length > 0,
-      dashTime: p.dashTime,
-      novaFlash: p.novaFlash,
-      boltCd: p.cd.bolt ?? 0,
       attackSwing: p.attackSwing,
       frenzy: p.frenzy,
       encounter: state.encounter !== null,
       bulletTime: state.bulletTimeLeft > 0,
-      cataCd: p.cd.cataclysm ?? 0,
       flask: p.flaskCharges,
-      doubleCd: p.cd.stuntdouble ?? 0,
       conceded: p.conceded === true,
     };
 
@@ -480,22 +712,22 @@ export class AudioDirector {
       if (cur.frenzy && !prev.frenzy) this.sink.play("crowd");
       // Ringside introduction: the boss sting over the frozen reveal.
       if (cur.encounter && !prev.encounter) this.sink.play("boss_intro");
-      // Skills fire on rising edges of their transient state.
       // The melee whoosh triggers on the swing itself — a whiff still sounds.
+      // It is ALSO melee's cast cue, which is why melee has no entry in
+      // CAST_SOUNDS (see the table's comment).
       if (cur.attackSwing > prev.attackSwing + 1e-6) this.sink.play("swing");
-      if (cur.dashTime > 0 && prev.dashTime <= 0) this.sink.play("dash");
-      if (cur.novaFlash > 0 && prev.novaFlash <= 0) this.sink.play("nova");
-      if (cur.boltCd > prev.boltCd) this.sink.play("bolt"); // cooldown jumps on cast
-      // Ability-specific layers over the shared cues (all existing clips —
-      // semantic reuse, no new files): Cataclysm's earth-crack layers the
-      // heavy crit impact under its nova whoosh; the flask gets the bottle
-      // clink under the heal; the Stunt Double's bow gets the equip flourish
-      // (the professional clocks in); Bullet Time enters on a whoosh beneath
-      // the low-pass sweep.
-      if (cur.cataCd > prev.cataCd) this.sink.play("crit", { gain: 0.85 });
+      // The flask keeps its borrowed bottle clink under the heal: it is a
+      // consumable, not an ability, so no cast cue covers it.
       if (cur.flask < prev.flask) this.sink.play("item");
-      if (cur.doubleCd > prev.doubleCd) this.sink.play("equip");
-      if (cur.bulletTime && !prev.bulletTime) this.sink.play("dash", { gain: 0.8 });
+      // AUDIO R2 — the ad-hoc cast block that used to live here is gone. Five
+      // hand-rolled edges (dashTime / novaFlash / boltCd / cataCd / doubleCd)
+      // plus four borrowed layers (crit for Fault Line, equip for the Stunt
+      // Double, dash at 0.8 for Bullet Time) are all subsumed by castEdges.
+      // novaFlash is the good riddance: it is SHARED by nova and cataclysm,
+      // which is why the renderer had to disambiguate it with the cataclysm
+      // cooldown edge — reading cd.nova and cd.cataclysm separately removes
+      // the ambiguity entirely. `bulletTime` stays in Prev for muffle() only:
+      // that is a STATE, not an edge.
     }
 
     // Worthwhile drops CHIME as they hit the floor (the loot-beam moment):
@@ -548,13 +780,13 @@ export class AudioDirector {
     this.sink.music(
       this.menuOpen && (this.sink.has?.("music_menu") ?? true) ? "music_menu"
       : cur.status !== "playing" ? null
-      : cur.inSafeRoom ? "music_safe"
+      : cur.inSafeRoom ? this.bed("music_safe")
       // §5.4 — the LOW-HP LAYER: on the final phase every boss escalates to
       // the colossal bed, whatever floor it is on. The finale's theme stops
       // being the finale's and starts meaning "this one is nearly over".
-      : bossNear ? (finalPhase ? "music_boss_colossal" : bossTrack(state.floor))
-      : cur.phase === "collapse" ? "music_collapse"
-      : state.elapsed < this.battleUntil ? BATTLE_TRACKS[state.floor % BATTLE_TRACKS.length]
+      : bossNear ? this.bed(finalPhase ? "music_boss_colossal" : bossTrack(state.floor))
+      : cur.phase === "collapse" ? this.bed("music_collapse")
+      : state.elapsed < this.battleUntil ? this.bed(BATTLE_TRACKS[state.floor % BATTLE_TRACKS.length])
       : this.ambientBed(state.floor),
     );
   }

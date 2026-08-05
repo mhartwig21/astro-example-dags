@@ -29,8 +29,9 @@ language** (dry, broadcast, a little too professional), never a laugh track.
 |---|---|---|
 | Combat hits | `hit, crit, player_hurt, heal, gold, item` | shipped, CC0 |
 | DoT ticks | `dot_burn, dot_poison, dot_chill` | shipped, CC0 (element-voiced, throttled) |
-| Footsteps | `step_{stone,wet,grass,metal}_{a,b,c}` | shipped, generated in-repo (gen-footsteps.mjs) |
-| Skills | `dash, bolt, nova` | shipped, CC0 |
+| ~~Footsteps~~ | ~~`step_*`~~ | **REMOVED** by owner order (§1.3a) — director, manifest, files, generator and tests together |
+| Ability casts | `cast_*` (13), `bolt`, `nova` | shipped — the whole roster (§1.4 row E-21). `dash` (Kenney) retired for the generated `cast_dash` |
+| Impact layers | `chain_line`, `weapon_flash` | shipped — so `HIT_SOUNDS.chain`/`.weapon` stop borrowing the dash whoosh and the pickup chime |
 | Progression | `level_up, lootbox, achievement, door_unlock, descend, death, victory, band_sting` | shipped, CC0 |
 | Show/UI | `announce, sponsor, warning, buy, equip` | shipped, CC0 |
 | Music | `music_dungeon, music_safe, music_collapse, music_battle_{a,b,c}, music_boss_{epic,tides,colossal}` | shipped; battle_b/c + both named boss themes are CC-BY (credited in-game) |
@@ -46,12 +47,16 @@ the commit message, verified firing in-game by `tools/audio/probe.mjs`.
 - HitEvent kind → clip, distance-attenuated + iso-panned; `killed` layers `kill`.
 - StatusKind DoT ticks → element clips (don't pin the battle bed).
 - Windup edge per monster → `tell`; boss telegraph pitched via `signatureFor`.
-- Footstep stride accumulator per player → band surface, 3 variants, deterministic jitter.
+- Cast edge per player per ability → its own cue (`cd` rising edge; the two
+  charge abilities read their counters — see director.ts CHARGE_CASTS). One
+  general rule replaced five ad-hoc ones. Re-primes on a run boundary (floor
+  change, or `state.elapsed` going backwards).
 - Boss beats (BOSSES-V2 §7.4): intro/phase/intermission/punish/plate/shieldbreak/enrage/prop/telegraph → semantic-reuse clips (see 1.4-G for upgrades).
 - State edges: warning, descend (+band_sting on band cross), death, victory,
   door_unlock, level_up, lootbox, achievement, sponsor, frenzy-crowd,
-  encounter→boss_intro, swing/dash/nova/bolt edges, ability layers
-  (cataclysm/flask/stunt-double/bullet-time), worthy-drop chime, ping chime.
+  encounter→boss_intro, the swing edge (which IS melee's cast cue), the flask
+  clink, worthy-drop chime, ping chime. The old ad-hoc ability layers
+  (cataclysm/stunt-double/bullet-time) are gone — subsumed by the cast edge.
 - Music state machine: safe → boss (final-phase escalation to colossal) →
   collapse → battle (per-floor rotation, 6s linger) → dungeon bed; APPROACH
   corridor duck (0.22) before an un-introduced boss; bullet-time muffle.
@@ -64,9 +69,9 @@ a replacement the owner has cleared.
 
 | sound | verdict (owner, verbatim) | status |
 |---|---|---|
-| `dash` | "The dash sound effect sucks" | REGENERATE in audio r2 — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
+| `dash` | "The dash sound effect sucks" | REGENERATED + WIRED (audio r2): `cast_dash.ogg` from gen-sfx-casts.mjs replaces it, the manifest id is now `cast_dash` and the Kenney file is deleted, so a stale id fails loud. **The verdict stays open until the owner clears the replacement by ear** (§9 audition sheet). Original scope note follows — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
 | `step_*` (all 12) | "the footsteps are really annoying.. let's not have any footsteps sound effects" | REMOVED outright (director, manifest, files, generator, tests). Not a volume problem — a sound the game should not have. |
-| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATE in audio r2. A Kenney Music Jingles stock clip on one of the most-fired progression edges in the game (director.ts: every `cur.level > prev.level`), so its fatigue cost is as high as any clip we ship. Brief it in the house language — a System that files a promotion, not a slot machine that pays out — and it goes through the same brief/spectrogram/audition pipeline as the casts. The old clip is the negative reference. |
+| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATED + WIRED (audio r2 **fix round** — it was silently NOT DONE in the first r2 cut, which shipped this row unchanged while updating the `dash` row directly above it). `gen-sfx-announcer.mjs` now renders it: THE SYSTEM FILES A PROMOTION — a stamp and two notes a fourth apart (G5→C6) in the house bell timbre, over before it can become a jingle. The measurement agreed with the ear about the old clip: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp, centroid 4773Hz / rolloff85 11813Hz — the brightest, most out-of-house object in the 22-clip survey, on `cur.level > prev.level`. New: 0.33s, centroid 1593Hz, and it PLAYS 6.0dB quieter (-15.3 → -21.3, §2.2a). Kept on the `sfx` bus, not `announcer`: that bus is the sidechain duck SOURCE and this edge would pump the bed all run. **The verdict stays open until the owner clears it by ear** (§9 row 2). |
 
 ### 1.4 THE SILENT MOMENTS (the gap list this track exists to close)
 
@@ -126,9 +131,125 @@ a replacement the owner has cleared.
 19. **SHIPPED (SFX r1)** — collapse.wav → OGG q4, −3.98MB, LUFS unchanged.
 20. **SHIPPED (SFX r1)** — safe_room.mp3 → OGG q3, −4.45MB, LUFS unchanged.
 
-Priority: P0 = 1.2's missing files + rows 1, 10, 11, 13. P1 = rows 3, 4, 5,
-6, 8, 9, 12, 14, 15, 16, 17. P2 = rows 2, 7, 18, 19, 20 (19/20 are trivially
-scriptable and fund the budget — do them early even though they're P2 polish).
+**G. THE ACT — the ability roster (the gap the inventory itself had)**
+21. **(E-21) SHIPPED (audio r2; corrected in the r2 fix round)** — **THE
+    ABILITY ROSTER: 16 abilities, 3 cast cues.** (SIXTEEN. `AbilityId` in
+    src/sim/abilities.ts has 16 members. The first cut of this row said 17,
+    and so did ASSETS.md, the director prose, the manifest comment and
+    test/audio.test.ts — a row whose entire purpose is to be the auditable
+    count of the roster, miscounting the roster, which is exactly how the
+    original bug looked from the outside.) This list was built by walking
+    the DIRECTOR'S mappings
+    instead of walking the ROSTER, so the other 13 casts were never entered
+    here as shipped, deferred, or anywhere — the bug behind the bug, and the
+    reason a moment that nobody wrote down could not be audited.
+    They were not silent, which is worse: **11 spoke in BORROWED clips** —
+    the `item` pickup chime for stance/overcharge/orbit/cutto/crowdsurf/
+    bulwark/cables (via the sim's `"weapon"` juice poofs), the `dash` whoosh
+    for every `"chain"` hit, `equip` for Stunt Double, `crit` for Fault Line,
+    and `dash` at 0.8 gain for Bullet Time. Only Sponsor Barrage and
+    Injunction were literally silent.
+    Closed by: 12 new clips + a regenerated `cast_dash` (gen-sfx-casts.mjs,
+    §2.2's two new cast rows), `chain_line` so `HIT_SOUNDS.chain` stops
+    borrowing the dash, and ONE general cast edge in the director — a
+    per-player rising edge on `p.cd[abilityId]` mirroring
+    renderer3d.castCommitEdges, with charge-counter detectors for the two
+    charge abilities. It DELETED five ad-hoc rules (dashTime, novaFlash,
+    boltCd, cataCd, doubleCd) and four borrowed layers. The RULE COUNT
+    shrank; the FILE did not — director.ts went 561 → 725 lines (+29%),
+    and the first cut of this row claimed "the director got smaller", which
+    is thirty seconds of `wc -l` away from being caught. What is true and
+    worth the lines: one general edge covers any ability added later for
+    free. `melee` is a documented ABSENCE, not a hole: `swing` is its cast
+    cue.
+    Two defects the wiring found and fixed, both invisible to the old rules:
+    (a) `dashTime` was written by three NON-dash things (Extradition's heavy
+    pull, Phase Etch Blindside, the PET revision's i-frames), so the game
+    played a dash whoosh for all three; (b) the charge RECHARGE blocks
+    (game.ts:7740-7742, 7755-7757) re-arm `cd` to a full cooldown when a
+    charge banks below max — a rise from zero with nobody pressing anything,
+    i.e. a phantom cast every recharge, which is why dash and cutto read
+    their charge counters and not their cooldowns.
+    **CLOSED in the r2 fix round: `HIT_SOUNDS.weapon` is now
+    `weapon_flash`**, a dry steel tick, not the `item` pickup chime. The
+    first cut deferred this to P2 and mis-scoped it while doing so — it said
+    "the juice poofs those seven casts emit", but `grep -c '"weapon"'
+    src/sim/game.ts` is 30 call sites and MOST ARE MONSTER-SIDE: adds
+    arriving (2094, 2275, 2290, 2908), risers (2238, 2459), boss children
+    (4588), the orbit parry (3265), the snare snip (4074). A boss spawning
+    adds rang a coin chime. That is the same enumerate-from-the-wrong-set
+    error one level down, committed inside the row written to record that
+    error. Measured cost of leaving it: through a 250Hz highpass (laptop /
+    phone reproduction) `item` peaked at -15.5 dBFS against cast_cables at
+    -15.4 and cast_dash at -14.8 — at parity with or louder than the cue it
+    was supposed to sit under, on the majority of playback devices.
+
+**H. THE ENGINE — how audio LOADS (the second gap this inventory had)**
+22. **(E-22) SHIPPED (audio r2) — THE MUSIC LOADING PATH: 620MB of resident
+    PCM, and this list never knew.** Measured before: `engine.load()` fetched
+    and `decodeAudioData`-ed every one of the 108 manifest entries at boot via
+    `Promise.all`, keeping each as an AudioBuffer for the session. The music
+    family is 16 files / 22.0MB on disk / 1625.3s of audio, and decode
+    resamples to the context rate — 1625.3s x 48000 x 2ch x 4 bytes ≈ **624MB
+    resident**, plus 22.0MB of wire traffic INSIDE the boot card
+    (`battle_winter.ogg` alone: 262.45s = 100.8MB). Every SFX clip together is
+    76.16 channel-seconds = 14.6MB decoded: the entire eager path costs less
+    than one boss bed.
+    **This row is the fix for the bug that produced it.** The first cut of
+    audio r2 shipped this change — 241 new lines in `src/audio/deck.ts`, ~180
+    changed in `engine.ts`, a rewrite that can silence all music in production
+    — and entered it in §1.4 as neither shipped, deferred, nor anything. That
+    is the IDENTICAL enumeration failure row E-21 exists to record, committed a
+    second time in the same diff: the inventory was walked from the clip list
+    instead of from the change. SOUNDPLAN:5 says the final audit walks this
+    file; without this row that audit would have found 21 rows and never
+    learned the engine's music path was replaced.
+    Closed by: music streams from `HTMLAudioElement`s through a 3-deck
+    `MusicDeckPool` (deck.ts), keyed on the BUS so SFX keeps its eager decode
+    (cast latency is that path's whole justification). `?audio=buffered`
+    forces the pre-r2 path — a real A/B leg and a one-URL rollback.
+    Structurally untouched downstream, and deliberately so: the deck gain
+    lands on `buses.music`, so the 1.2s crossfade, the -6dB announcer
+    sidechain and the 0.22 APPROACH duck all still work on exactly the nodes
+    they worked on before.
+    Four defects the r2 critics found in that first cut, all fixed here, all
+    of them states the decode path could not reach (there, `has()` was
+    `buffers.has(id)`, so a bed either had a decoded buffer or was never
+    requested — streaming is what put "claimed but silent" into the state
+    space): (a) a failed bed never released its deck and `this.current` was
+    nulled, discarding the only handle to `release()` — three bed failures
+    exhausted the pool permanently and the game went silent for the rest of
+    the run, including the `music_dungeon` fallback the demotion exists to
+    reach; (b) the deck listened to `playing` and `error` only, so a stalled
+    fetch or a non-autoplay `play()` rejection parked it at gain 0 forever
+    while every debug hook reported healthy music — now a 12s watchdog that
+    does NOT count time spent waiting for a user gesture; (c) the "1.2s
+    crossfade" was two decoupled ramps (outgoing released at request time,
+    incoming ramping at `playing`, `preload="none"`, no prefetch) — i.e. a
+    HOLE the length of the fetch at every first-entry band change on a cold
+    cache, presented in the code comments as a correctness fix rather than as
+    the round's central audible cost. The outgoing bed is now HELD until the
+    incoming deck reports `playing`; (d) only 7 of the 16 beds consulted
+    `has()`, so the self-healing fallback both files' comments promised did
+    not cover the collapse timer or any boss theme.
+    **STILL OPEN, and it is the memory claim itself.** `residentPcmBytes()`
+    is self-fulfilling on the streamed leg — it sums a map `load()` is coded
+    never to populate with music, so it cannot report anything but a low
+    number, and it is blind to the media elements' own decode-ahead and
+    network buffers (`streamedBufferedSec()` was added to see those). The
+    honest instrument is a process-level measurement
+    (`performance.measureUserAgentSpecificMemory`, or the CDP Memory domain)
+    on both `?audio=buffered` and streamed legs, and **nobody has run one**.
+    Until someone does, "620MB → under 20MB" is a decode-side ARITHMETIC
+    claim, not a measured one. Same status for the loop seam: `el.loop` is a
+    decoder seek-to-zero and MAY gap, `probe-beds.mjs` now reports
+    `musicSeam()`, and that probe is UNRUN (browser forbidden in the fix
+    round). P0 for the next round that is allowed to launch one.
+
+Priority: P0 = 1.2's missing files + rows 1, 10, 11, 13, 21, 22. P1 = rows 3, 4,
+5, 6, 8, 9, 12, 14, 15, 16, 17. P2 = rows 2, 7, 18, 19, 20 (19/20 are
+trivially scriptable and fund the budget — do them early even though they're
+P2 polish).
 
 ---
 
@@ -146,6 +267,18 @@ status stay on `sfx`. All in engine.ts.
 
 ### 2.2 Loudness targets (measured, per family)
 
+Ability casts sit UNDER impacts on purpose: the consequence must out-punch
+the act, or every cast becomes a lie about how much damage it did. Ultimates
+sit above an ordinary hit because an ultimate IS an event — but still under a
+kill, and they stay on the `sfx` bus, since `announcer` is the duck SOURCE and
+§2.3 allows one duck source at a time; an ultimate gets its reach from its own
+target, never from ducking the bed.
+
+**Read §2.2a before quoting any number in this table.** These are targets for
+the FILE. The engine multiplies by the manifest volume, and the relationships
+above are claims about what comes out of the speaker — which is a different
+measurement, at a different node, and for one whole round it disagreed.
+
 Beds are mastered to a shared integrated loudness so crossfades never step;
 one-shots are specified by peak + momentary loudness since integrated LUFS is
 meaningless for 300ms files. All numbers verified with ffmpeg loudnorm (beds)
@@ -157,6 +290,8 @@ or peak/windowed-RMS decode (one-shots).
 | Battle / collapse beds | -20 LUFS-I ±1 | -5 dBTP |
 | Boss beds / low-HP layer | -18 LUFS-I ±1 | -4 dBTP |
 | Impacts (hit/crit/kill/smash) | -15 LUFS momentary | -3 dBFS |
+| Ability casts — actives (row 21) | -17 LUFS momentary | -4.5 dBFS |
+| Ultimate casts (row 21) | -14.5 LUFS momentary | -3.0 dBFS |
 | Barks, status applies, tells | -18 LUFS momentary | -6 dBFS |
 | Footsteps, DoT ticks, room tone | -28 LUFS momentary | -12 dBFS |
 | UI clicks (buy/equip/draft) | -22 LUFS momentary | -8 dBFS |
@@ -165,6 +300,64 @@ or peak/windowed-RMS decode (one-shots).
 Headroom contract: with a bed at target plus a 20-hit brawl, the level at the
 master compressor input stays under 0 dBFS and the OUTPUT never hard-clips —
 verified by the §5 brawl probe, not asserted.
+
+### 2.2a AS PLAYED — the table above is about FILES, and files are not the mix
+
+**Everything in this section until the r2 fix round was measured upstream of
+the engine.** `measure.mjs` reads the encoded file; `engine.ts play()` plays
+`(def.volume ?? 1) * opts.gain` of it. So a clip mastered exactly onto its
+family target can land several dB off it in the game — and the two most
+load-bearing sentences above were, as shipped, FALSE:
+
+- "Ability casts sit 2 dB UNDER impacts: the consequence must out-punch the
+  act." With the volumes the first r2 cut set (0.5–0.7 for actives), the nine
+  actives PLAYED at -20.0…-22.9 while `hit` (volume 1.0) played at -22.1.
+  Seven of the nine out-punched the blow they caused. The act was louder than
+  the consequence for every ability in the game — the exact failure the
+  sentence exists to prevent.
+- "An ultimate IS an event." True, but the ultimates landed level with `kill`,
+  so a Fault Line cast hit as hard as the death it might not even cause.
+
+`tools/audio/played.mjs` is the instrument that measures at the right node
+(file momentary + 20log10(volume), plus the same figure through a 250Hz
+highpass), and `test/audioMix.test.ts` is the guard that keeps its verdict
+from drifting. Measured, shipped, r2 fix round:
+
+| clip | file mom | vol | **as played** | on a laptop (250Hz HP) |
+|---|---|---|---|---|
+| `hit` — THE REFERENCE | -22.1 | 1.00 | **-22.1** | -29.0 |
+| `kill` (layers over hit) | -14.9 | 0.90 | **-15.8** | -39.5 |
+| actives (nine) | -16.9…-17.4 | 0.45 | **-23.9…-24.4** | -24.8…-30.7 |
+| `cast_stance` (the fatigue bet) | -16.9 | 0.36 | **-25.8** | -27.1 |
+| ultimates (four) | -14.5…-14.6 | 0.60 | **-18.9…-19.1** | -22.1…-31.6 |
+| `chain_line`, `weapon_flash` | -27.9 / -28.3 | 0.70 | **-31.0 / -31.4** | -34.6 / -31.5 |
+| `level_up` (§1.3a) | -19.3 | 0.80 | **-21.3** | -22.7 |
+
+So the invariant now holds in the PRODUCT, not just in the files: every active
+sits 1.8–3.7dB under `hit`; every ultimate is above an ordinary hit and still
+3.1dB under a `kill`, so a death out-punches the cast that caused it.
+
+**The honest caveat about the -15 impact row.** The impacts do not meet their
+own target either: `hit` plays at -22.1 against a stated -15, because SFX r2
+re-leveled them -5.2…-5.4dB in-file to fix a measured headroom breach (the
+20-hit brawl drove the compressor input to 1.218). The cast family was
+therefore specified against the impacts AS THEY ACTUALLY PLAY, not against a
+number the impacts have not met since r2. Re-leveling the impacts back up is
+phase C's, and it must be re-measured against the §5 brawl probe when it
+happens — raising them 7dB blind would re-breach the contract that trimmed
+them. **Whichever way that goes, the ORDERING is the invariant and it is
+tested; the absolute numbers in the table above are not yet true of the mix.**
+
+**The small-speaker axis (`hp250`).** New in the fix round, because a family
+whose entire claim is that it is level-matched to ±1.5dB had never been
+checked on the one axis where it was not: through a 250Hz highpass the first
+r2 cast renders spanned 21.4dB (`cast_airstrike` -14.8 to `cast_cataclysm`
+-36.2), i.e. Fault Line reshaping the room inaudibly on a laptop while Sponsor
+Barrage played at full level. Six of thirteen carried 80–99% of their energy
+below 200Hz. Re-rendered, the family spans 9.4dB and the nine actives span
+5.9dB. This is a house-wide characteristic, not something this family
+invented (`kill` loses 23.7dB and always has) — but it is now MEASURED, by
+`contactsheet.mjs --no-images` and `played.mjs`, instead of assumed.
 
 **Phase C re-level list** (files still decoding over/near full scale but
 one-at-a-time + throttled, so not brawl-critical; measured SFX r2):
@@ -195,6 +388,27 @@ status applies 300 · smash 90 · barks 250/family + one bark per monster per
 4s (director-side set, like `winding`) · crowd 1500 · announcer idents 400 ·
 countdown ticks force-played (caller is the limit) · beds n/a (crossfade).
 Boss beats keep `force: true` — one cue per sim beat, the sim IS the limiter.
+
+Ability casts (row 21) are throttled per ABILITY, derived from each one's
+cooldown FLOOR, not by one family number: cast_dash/cast_cutto 250 (charges
+make a double-tap a real play, so both must sound) · cast_orbit 400 ·
+cast_stance 500 (the fatigue bet — 1.8s floor on a Flow build; also the
+shortest and quietest clip in the family) · cast_overcharge 600 ·
+cast_crowdsurf 500 · cast_bulwark/cast_cables 700 · cast_stuntdouble 800 ·
+ultimates 1500, cast_injunction 2000 · chain_line 200. Two crawlers pressing
+the same button inside one window yield one cue, which is the correct trade
+(a doubled identical clip is mud); ability-distinct ids keep four crawlers
+casting four different things reading as four things.
+
+ONE documented exception, added in the r2 fix round: the Breaker **SPEND**
+replay is `force: true`. Bank and spend share one sound id (`cast_overcharge`
+— "one file, two moments") and the engine's guard is per-id, so at
+throttleMs 600 the intended rhythm (bank, then spend on the next landed hit)
+produced NO CUE AT ALL for the second moment. The feature was asserted at the
+director, where the test sink has no throttle, and discarded at the engine —
+the same "verified upstream of the engine" failure as §2.2a. Forcing is
+correct here for the reason the boss beats force: `overcharged` can only fall
+once per bank, per player, so the SIM is the rate limit.
 
 ---
 
@@ -232,7 +446,7 @@ lap: 60-96s for ambient beds.
 | THE APPROACH (16-18) | Showtime dread. Broadcast mains hum, low brass-ish drone cluster, a distant crowd-texture layer that NEVER resolves into cheering. The studio is watching. | drone + 45 BPM heartbeat pulse | 80-96s | Synth |
 | Menu / campfire | The check-in. Small, warm-ish, tired: soft pad + slow filtered arp, the only near-friendly cue in the game. | ~65 BPM | 60-75s | Synth |
 | Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. **r2: the source's fade-out tail trimmed + 2s loop crossfade** (`fix-beds.mjs`; seam step 20.7dB→0.8dB, LUFS preserved). | — | as-is | Existing |
-| (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. **Music r1: demoted as planned** — it now plays only when a band bed fails to decode (per-band fallback via sink.has). The seam flaw ships only in a degraded state nobody should reach; repair stays out of scope unless the audit disagrees. | — | — | Existing |
+| (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. **Music r1: demoted as planned** — it now plays only when another bed is not PLAYABLE (fallback via sink.has, extended in the r2 fix round from the six band beds to every bed the director can request). Note "playable", not "decoded": under streaming (row E-22) no bed is ever decoded, so availability is optimistic and turns false when the element actually fails — 404, undecodable, CORS-tainted, or stalled past the deck watchdog. The seam flaw ships only in a degraded state nobody should reach; repair stays out of scope unless the audit disagrees. | — | — | Existing |
 | Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). | — | as-is | Existing |
 | Boss themes | Keep epic/tides/colossal (+ shipped final-phase escalation to colossal). Optional P2: a generated percussion LAYER the engine adds at low HP instead of a full bed swap. | — | as-is | Existing (CC-BY credited) |
 | Collapse | Keep, re-encode WAV→OGG. **r2: seam click + true peak fixed** (`fix-beds.mjs`: -2.0dB, 25ms loop crossfade → -1.4 dBTP, seam 0.3dB). Level vs the -20 LUFS family target stays phase C's. | — | as-is | Existing |
@@ -301,8 +515,17 @@ doc drift)**: main3d.ts SIGNAL ACQUISITION front-loads ALL audio inside the
 boot card (`audio.load()` is 20% of the boot progress weight; measured 2.0s
 of an 8.0s local boot). That is a focus-era, pre-branch decision, not this
 track's — but it means audio payload IS boot time, so the 10MB budget is
-also a boot budget. If a future perf round re-litigates it, the silent-
-fallback engine already tolerates late decode (`pendingMusic` retries).
+also a boot budget. AUDIO R2 CHANGED THIS (row E-22): music no longer
+loads at boot at all, so `audio.load()` now settles 16 of the 108 ids
+instantly and fetches nothing for them — ~1.2MB of SFX is the whole boot
+cost. The boot bar's weight was corrected to match (main3d.ts:
+`models*0.86 + audio*0.06 + warm*0.08`, was `0.72/0.2/0.08`); leaving it at
+0.2 made the only user-visible boot indicator snap a fifth of the way across
+and then stall on models. The 10MB payload budget is therefore no longer a
+boot budget for the music half — but it IS now a mid-run network budget, and
+`gameServer.ts serveStatic` answers a plain 200 with no `accept-ranges`
+where Vite dev answers 206, so any seam or latency measurement taken on
+localhost is taken in a more capable environment than production.
 
 ### 4.4 Phasing
 
@@ -344,6 +567,31 @@ and asserts:
   click) raises `music_safe` then `music_band_sewers` on floor 4; the
   announcer duck over the live floor-4 bed measures -5.8dB @150ms with
   clean release; no hard clip across the session (comp out peak 0.831).
+
+**Distinctness — `tools/audio/contactsheet.mjs` (added audio r2)**: turns a
+set of clips into spectrograms, waveforms, a 7-dimension descriptor table and
+the pairwise z-scored distance matrix that answers the only question a family
+of new cues has to answer — "are these thirteen sounds, or one sound thirteen
+times?" A pair under 0.45x the family's own mean pairwise distance is FLAGGED.
+`--no-images` prints the numbers without emitting ~10MB of PNG (the PNGs are
+gitignored; `descriptors.json` is the committed receipt). It also reports
+`hp250MomDb` — the same momentary window through a 250Hz highpass, i.e. what a
+laptop or phone actually reproduces.
+**READ THE INSTRUMENT'S ANSWER, INCLUDING WHEN IT SAYS NO.** In the first r2
+cut this tool flagged three cast pairs (cast_dash/cast_bulwark 0.979,
+cast_overcharge/cast_airstrike 1.253, cast_stuntdouble/cast_cables 1.470
+against its own 1.656 threshold), saved that verdict to
+`_r2_sheets/casts/descriptors.json`, and the build report claimed "no pair
+violates it" while citing a weaker, uncommitted, unreproducible criterion. The
+strongest instrument in the repo answered the question and its answer sat on
+disk unreported. The metric is SET-RELATIVE (z-scored across whichever files
+you pass), so always say which run a number came from.
+
+**As-played levels — `tools/audio/played.mjs` (added in the r2 fix round)**:
+parses the manifest, decodes every file, and prints file momentary, manifest
+volume, the level as PLAYED, and the same through a 250Hz highpass. It also
+fails if any manifest url does not resolve. See §2.2a for why the file-level
+table alone was not enough. `test/audioMix.test.ts` is the standing guard.
 
 **Per-file measurements (every committed clip)**: peak ≤ ceiling, LUFS in
 family band (§2.2), silence share < 10% (beds) — and for loops the **seam
@@ -478,3 +726,111 @@ point at the restart moment, name the band and I'll fix the seam.
    to a distant drone before the reveal (this is the run's last quiet
    moment), and the ringside sting still lands on top. WRONG = full-volume
    ambience right up to the boss, or music that never comes back after.
+
+
+---
+
+## 9. Audio r2 — audition sheet for the owner (THE ACT + the two verdicts)
+
+This section is ACCEPTANCE, not an extra: §5 makes the audition report part of
+it, and §1.3a's two open verdicts both point here. Fourteen new clips and two
+clips you personally rejected are waiting on one ear, and it is not ours.
+
+**The honest frame, first.** Everything below is measured or event-verified.
+Nothing below is a claim that anything sounds good. Three of these rows exist
+specifically because a picture raised a question a picture cannot answer — they
+are marked **EAR ONLY** and they are the ones I would put first.
+
+All on `/iso.html`, sound on. `?test&floor=6&level=30&abilities=all` puts every
+ability on the bar at once, which is the fastest way to hear the family as a
+family.
+
+### The two verdicts you named
+
+1. **`cast_dash` — EAR ONLY, and it is the whole point.** Press dash. The old
+   Kenney clip is the negative reference; "sounds like the old dash" is the
+   failure condition. What changed that a picture CAN see: the old clip's sound
+   arrived 120ms after the key (t10 120.1ms) and then plateaued for 0.47s. This
+   one speaks in 1.9ms and is gone in 0.20s, and it is AIR — a body displacing
+   air and leaving — where the old one was a cartoon swish with a thump in it.
+   WRONG = anything swishy, anything cute, or a cue you stop noticing by floor
+   3. Also tell me if it is too DRY: it has almost no tail on purpose.
+2. **`level_up` — EAR ONLY.** Gain a level in a fight. It should read as a
+   System filing a promotion: a stamp, then two notes stepping up, done in a
+   third of a second. It is also 6dB quieter than the old one, because it fires
+   constantly. WRONG = still a jingle; still celebratory; or now so small you
+   cannot tell you levelled at all (that is the real risk with this trade, and
+   it is the one I cannot judge).
+
+### The three rows where the pictures raised a question
+
+3. **`cast_injunction` — EAR ONLY.** The biggest cue in the game. It ends with
+   two faint gavel ticks and then STOPS on the beat a third tick would land on.
+   Measured 14% silence in the last third. Is that a rest that lands, or is it
+   dead air on the loudest thing we ship? Only you can say. WRONG = it just
+   sounds like the file got cut off.
+4. **`cast_stance` — EAR ONLY, the fatigue bet.** A Flow build swaps stance
+   every ~1.8s. This is deliberately the shortest (0.10s) and quietest
+   (-25.8 as played, 3.7dB under a hit) clip in the family — one wooden detent,
+   no tail. Play a Flow build for a full floor. WRONG = you notice it at all
+   after the first minute, OR you cannot tell your stance changed.
+5. **`cast_bullettime` — EAR ONLY.** The screen snaps to the graded look on
+   the same frame the master low-pass closes. This cue now JAMS at t=0 instead
+   of swelling for 412ms first (the previous render peaked at 412ms behind a
+   near-silent opening — the sound did not acknowledge the button for a third
+   of a second). Everything in it is under 700Hz on purpose, so it survives its
+   own muffle. WRONG = the sound still feels late against the screen, or the
+   tail outlasts the effect.
+
+### The family, as a family
+
+6. **Press everything.** `?test&floor=6&level=30&abilities=all`. Thirteen
+   abilities, thirteen cues, one game. The question is not "are they nice", it
+   is **"can you tell which button you pressed with your eyes shut?"** The four
+   two-event gestures are the ones to check first — Cut To (transient, hole,
+   arrival), Stunt Double (slate, then the double lands ~190ms later), Extradition
+   (chain paying out into one load-bearing clank), Sponsor Barrage (comms
+   key-up, whistle, departure). WRONG = name the two that blur into each other.
+7. **The act vs the consequence.** Cast into a pack. The CUE should be quieter
+   than the hits it causes — that is deliberate (§2.2a: actives play 1.8–3.7dB
+   under `hit`), and it is the opposite of what the first r2 cut shipped.
+   WRONG = the cast out-punches the damage, or the cast has vanished under it.
+8. **Ultimates.** Fault Line, Sponsor Barrage, Bullet Time, Injunction should
+   each read as an EVENT — above an ordinary hit, still under a kill. WRONG =
+   any of them feels like an ordinary ability, or Injunction feels like a boss
+   died.
+9. **On a laptop or a phone speaker.** This is the axis the family was never
+   checked on until now, and one clip is still an outlier by design: Fault Line
+   loses 12.6dB without a subwoofer (it is a sub-drop; that is the brief) where
+   the rest of the family loses 0.5–9.5dB. WRONG = Fault Line disappears
+   entirely on your laptop.
+
+### The quiet fixes — you should hear NOTHING here
+
+10. **Descend with Breaker banked.** Bank Overcharge, take the stairs. You
+    should hear the descend thunk, the whoosh, and (on a band boundary) the
+    sting — and NOT a pitched-up Breaker release on top of them. That phantom
+    was firing on every floor descent.
+11. **Bank Breaker, then spend it on the next hit.** You should hear TWO
+    moments: the bank (a breaker thrown, the whine cut off) and the release
+    (the same clip, pitched up, pulled back). The second one was being silently
+    eaten by the engine's spam guard.
+12. **Boss spawning adds; a chain pull; a parry.** These used to ring the coin
+    PICKUP chime. They should now be a dry steel tick that sits under the
+    impact. WRONG = anything that sounds like picking loot up.
+13. **No footsteps anywhere.** Still your call, still enforced (director,
+    manifest, files, generator, tests). If you hear one, something regressed.
+
+### What is NOT verified, and you should know it before signing
+
+- **No browser was run in this round** (dev-box constraint). Every cue above is
+  verified firing by unit test against the real sim; none of it has been heard,
+  and `tools/audio/probe.mjs` / `probe-beds.mjs` were not executed.
+- **The music streaming path (row E-22) has never run in a browser at all.**
+  The failure modes are now unit-tested against stubs, but no bed has actually
+  been streamed. If music is silent, gaps at a loop wrap, or holes for a second
+  at a band change, that is where to look — and `?audio=buffered` is the
+  one-URL rollback to the old all-decoded path.
+- **The memory win is arithmetic, not a measurement.** See row E-22.
+- **The loop seam is unmeasured.** `el.loop` is a decoder seek-to-zero and may
+  gap. `music_collapse` wraps every 24.7s, which is the fastest place to hear it.
