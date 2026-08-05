@@ -81,8 +81,8 @@ describe("audio director", () => {
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toEqual(expect.arrayContaining(["dash", "bolt"]));
     sink.played = [];
-    p.dashTime = 0.1; // still active — no retrigger
-    p.cd.bolt = 1.5; // cooling down — no retrigger
+    p.dashTime = 0.1; // still active â€” no retrigger
+    p.cd.bolt = 1.5; // cooling down â€” no retrigger
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toHaveLength(0);
   });
@@ -132,7 +132,7 @@ describe("audio director", () => {
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toContain("door_close");
     sink.played = [];
-    director.frame(state, [], [], p.id); // still conceded — no re-close
+    director.frame(state, [], [], p.id); // still conceded â€” no re-close
     expect(sink.ids()).not.toContain("door_close");
   });
 
@@ -199,7 +199,7 @@ describe("audio director", () => {
     expect(sink.ids().filter((i) => i === "kill")).toHaveLength(1);
   });
 
-  it("whooshes on the melee swing edge — even a whiff sounds", () => {
+  it("whooshes on the melee swing edge â€” even a whiff sounds", () => {
     const { sink, director, state } = setup();
     const p = state.players[0];
     director.frame(state, [], [], p.id);
@@ -207,7 +207,7 @@ describe("audio director", () => {
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toContain("swing");
     sink.played = [];
-    p.attackSwing = 0.1; // decaying — no retrigger
+    p.attackSwing = 0.1; // decaying â€” no retrigger
     director.frame(state, [], [], p.id);
     expect(sink.ids()).not.toContain("swing");
   });
@@ -234,18 +234,18 @@ describe("audio director", () => {
   it("raises the battle bed on combat hits and stands down after the linger", () => {
     const { sink, director, state } = setup();
     const p = state.players[0];
-    state.monsters = []; // no proximity trigger — isolate the hit trigger
+    state.monsters = []; // no proximity trigger â€” isolate the hit trigger
     director.frame(state, [], [], p.id);
     expect(sink.lastMusic()).toBe("music_band_undercroft");
 
     director.frame(state, [{ pos: { ...p.pos }, amount: 5, kind: "enemy" }], [], p.id);
-    expect(sink.lastMusic()).toBe("music_battle_b"); // floor 1 → rotation slot 1
+    expect(sink.lastMusic()).toBe("music_battle_b"); // floor 1 â†’ rotation slot 1
 
     state.elapsed += 3; // quiet, but still inside the linger window
     director.frame(state, [], [], p.id);
     expect(sink.lastMusic()).toBe("music_battle_b");
 
-    state.elapsed += 10; // linger expired — back to ambience
+    state.elapsed += 10; // linger expired â€” back to ambience
     director.frame(state, [], [], p.id);
     expect(sink.lastMusic()).toBe("music_band_undercroft");
 
@@ -260,7 +260,7 @@ describe("audio director", () => {
     const near = (i: number) => ({ ...state.monsters[0], id: 9000 + i, kind: "grunt" as const, hp: 10, pos: { x: p.pos.x + 1 + i, y: p.pos.y } });
     state.monsters = [near(0), near(1)];
     director.frame(state, [], [], p.id);
-    expect(sink.lastMusic()).toBe("music_band_undercroft"); // two nearby ≠ a pack
+    expect(sink.lastMusic()).toBe("music_band_undercroft"); // two nearby â‰  a pack
 
     state.monsters = [near(0), near(1), near(2)];
     director.frame(state, [], [], p.id);
@@ -320,7 +320,7 @@ describe("audio director", () => {
   });
 });
 
-describe("audio director: band beds + campfire (SOUNDPLAN §3, Music r1)", () => {
+describe("audio director: band beds + campfire (SOUNDPLAN Â§3, Music r1)", () => {
   it("routes ambience by band: one bed per 3-floor act, clamped at the end", () => {
     const { sink, director, state } = setup();
     const beds: Record<number, SoundId> = {
@@ -335,7 +335,7 @@ describe("audio director: band beds + campfire (SOUNDPLAN §3, Music r1)", () =>
     }
   });
 
-  it("the 3→4 descent swaps UNDERCROFT for THE SEWERS (the band transition)", () => {
+  it("the 3â†’4 descent swaps UNDERCROFT for THE SEWERS (the band transition)", () => {
     const { sink, director, state } = setup();
     state.floor = 3;
     director.frame(state, [], [], 0);
@@ -392,40 +392,26 @@ describe("audio director: band beds + campfire (SOUNDPLAN §3, Music r1)", () =>
   });
 });
 
-describe("audio manifest: the announcer bus (SOUNDPLAN §2.1/§2.3)", () => {
+describe("audio manifest: the announcer bus (SOUNDPLAN Â§2.1/Â§2.3)", () => {
   it("routes exactly the System's stinger surface through the duck source", () => {
     const announcer = Object.entries(AUDIO_MANIFEST)
       .filter(([, def]) => def.bus === "announcer")
       .map(([id]) => id)
       .sort();
-    // The set §2.1 names: idents, TODAY'S RULE stamp, starting gun,
+    // The set Â§2.1 names: idents, TODAY'S RULE stamp, starting gun,
     // verdict, boss_intro. Party pings (`announce`) deliberately stay off
-    // it — a ping must not duck the fight, and UI clicks are not the show.
+    // it â€” a ping must not duck the fight, and UI clicks are not the show.
     expect(announcer).toEqual(
       ["boss_intro", "count_go", "count_tick", "ident", "ident_high", "stamp", "verdict"].sort(),
     );
   });
 });
 
-describe("audio director: footsteps (appearance r1)", () => {
-  it("drops a footfall per stride walked, surfaced by band", () => {
-    const { sink, director, state } = setup();
-    const p = state.players[0];
-    director.frame(state, [], [], p.id); // primes the stride tracker
-    // Walk 1.2 tiles over three frames — one stride boundary crossed.
-    for (let i = 0; i < 3; i++) {
-      p.pos.x += 0.4;
-      director.frame(state, [], [], p.id);
-    }
-    const steps = sink.ids().filter((i) => i.startsWith("step_"));
-    expect(steps).toHaveLength(1);
-    expect(steps[0]).toMatch(/^step_stone_[abc]$/); // floor 1 = THE UNDERCROFT
-    const opts = sink.played.find((s) => s.id.startsWith("step_"))!.opts!;
-    expect(opts.rate).toBeGreaterThanOrEqual(0.92);
-    expect(opts.rate).toBeLessThanOrEqual(1.08);
-  });
-
-  it("keeps stepping with fresh variants as the walk continues", () => {
+// NO FOOTSTEPS (owner call, audio r2): the stride system and its five tests
+// are gone with it. One negative guard remains below so the family cannot
+// quietly return through a future director change.
+describe("audio director: footsteps stay removed (owner call, audio r2)", () => {
+  it("a long walk produces zero step_* plays", () => {
     const { sink, director, state } = setup();
     const p = state.players[0];
     director.frame(state, [], [], p.id);
@@ -433,47 +419,9 @@ describe("audio director: footsteps (appearance r1)", () => {
       p.pos.x += 0.4;
       director.frame(state, [], [], p.id);
     }
-    const steps = sink.ids().filter((i) => i.startsWith("step_"));
-    expect(steps.length).toBeGreaterThanOrEqual(3);
-    expect(new Set(steps).size).toBeGreaterThan(1); // variants cycle
-  });
-
-  it("changes surface with the band: THE GARDEN walks on grass", () => {
-    const { sink, director, state } = setup();
-    const p = state.players[0];
-    state.floor = 8;
-    director.frame(state, [], [], p.id);
-    for (let i = 0; i < 4; i++) {
-      p.pos.x += 0.4;
-      director.frame(state, [], [], p.id);
-    }
-    const steps = sink.ids().filter((i) => i.startsWith("step_"));
-    expect(steps.length).toBeGreaterThanOrEqual(1);
-    for (const s of steps) expect(s).toMatch(/^step_grass_[abc]$/);
-  });
-
-  it("a teleport is not a stride: no footfall on a positional jump", () => {
-    const { sink, director, state } = setup();
-    const p = state.players[0];
-    director.frame(state, [], [], p.id);
-    p.pos.x += 6; // Blindside / respawn / descent snap
-    director.frame(state, [], [], p.id);
-    expect(sink.ids().filter((i) => i.startsWith("step_"))).toHaveLength(0);
-  });
-
-  it("dead crawlers do not walk", () => {
-    const { sink, director, state } = setup();
-    const p = state.players[0];
-    director.frame(state, [], [], p.id);
-    p.alive = false;
-    for (let i = 0; i < 6; i++) {
-      p.pos.x += 0.4; // corpse dragged by whatever physics — still no steps
-      director.frame(state, [], [], p.id);
-    }
     expect(sink.ids().filter((i) => i.startsWith("step_"))).toHaveLength(0);
   });
 });
-
 describe("audio director: status cues + band sting (launch polish #3)", () => {
   it("DoT ticks sound as their element, never as a blow", () => {
     const { sink, director, state } = setup();
@@ -508,7 +456,7 @@ describe("audio director: status cues + band sting (launch polish #3)", () => {
     director.frame(state, [], [], p.id);
     expect(sink.ids()).toContain("apply_burn");
     sink.played = [];
-    director.frame(state, [], [], p.id); // still burning — no re-cue
+    director.frame(state, [], [], p.id); // still burning â€” no re-cue
     expect(sink.ids()).not.toContain("apply_burn");
   });
 
@@ -564,7 +512,7 @@ describe("audio director: creature barks (SOUNDPLAN row 9)", () => {
     windup: 0, windupTotal: 0, stagger: 0, poiseDmg: 0,
   });
 
-  it("a grunt rattles once when it starts hunting — skeletal family, per-id variant", () => {
+  it("a grunt rattles once when it starts hunting â€” skeletal family, per-id variant", () => {
     const { sink, director, state } = setup();
     const p = state.players[0];
     state.monsters.length = 0;
@@ -574,7 +522,7 @@ describe("audio director: creature barks (SOUNDPLAN row 9)", () => {
     expect(sink.ids().filter((i) => i.startsWith("bark_"))).toHaveLength(0);
     m.pos.x = p.pos.x + 3; // closed to aggro range
     director.frame(state, [], [], p.id);
-    director.frame(state, [], [], p.id); // still hunting — no re-bark
+    director.frame(state, [], [], p.id); // still hunting â€” no re-bark
     const barks = sink.ids().filter((i) => i.startsWith("bark_"));
     expect(barks).toHaveLength(1);
     expect(barks[0]).toMatch(/^bark_skel_aggro_[ab]$/);
@@ -674,7 +622,7 @@ describe("audio director: breakable smashes (SOUNDPLAN row 5)", () => {
     const b = { id: 11, pos: { x: p.pos.x + 1, y: p.pos.y }, key: "bookcase", hp: 2, footprint: [0] };
     state.breakables = [b];
     director.frame(state, [], [], p.id);
-    b.hp = 1; // one blow in — it cracks
+    b.hp = 1; // one blow in â€” it cracks
     director.frame(state, [], [], p.id);
     const crack = sink.played.find((s) => s.id === "smash_wood")!;
     expect(crack).toBeDefined();

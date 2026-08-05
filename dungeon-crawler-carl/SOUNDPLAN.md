@@ -56,6 +56,17 @@ the commit message, verified firing in-game by `tools/audio/probe.mjs`.
   collapse → battle (per-floor rotation, 6s linger) → dungeon bed; APPROACH
   corridor duck (0.22) before an un-introduced boss; bullet-time muffle.
 
+### 1.3a OWNER VERDICTS ON SHIPPED SOUNDS (the ear this plan answers to)
+
+The instruments measure compliance; only the owner hears quality. Verdicts
+land here as they arrive, and each stays until the sound that earned it ships
+a replacement the owner has cleared.
+
+| sound | verdict (owner, verbatim) | status |
+|---|---|---|
+| `dash` | "The dash sound effect sucks" | REGENERATE in audio r2 — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
+| `step_*` (all 12) | "the footsteps are really annoying.. let's not have any footsteps sound effects" | REMOVED outright (director, manifest, files, generator, tests). Not a volume problem — a sound the game should not have. |
+
 ### 1.4 THE SILENT MOMENTS (the gap list this track exists to close)
 
 **A. Status effects (BACKLOG #3)**
