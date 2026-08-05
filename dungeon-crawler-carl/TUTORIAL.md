@@ -30,10 +30,35 @@ edges for later rounds.
 - `showAnnouncement`'s tip branch now translates the four curriculum tipIds
   through `COACH_TIP_BEATS` and drops every other tip UNSPENT — no tip is
   ever printed in the System's register. Sim untouched; rulesHash unchanged.
-- Content pass and the r6 acceptance probe (`tools/_tut_r6.mjs`, cold-profile,
-  fails on any painted teaching line whose first sentence lacks its
-  instruction/key) are the follow-up rounds. The old `_tut_r1..r5` batteries
-  assert COURTESY-era behavior and are retired as instruments of record.
+- **CONTENT PASS shipped** (same branch, second commit) — the full first-session
+  curriculum in Mordecai's voice:
+  - **Five objective steps** (was four): GET MOVING → THE FIVE → PAYDAY →
+    THE SAFE ROOM → **THE SHOW** (new closer: hype over the System's
+    interference floor + one favorite converted, both sim-truth facts;
+    favorites measure from the step's own start edge so an old fan cannot
+    pre-check the lesson). THE SHOW is last on purpose: it is the game's
+    identity, and by then the crawler is deep enough that hype actually flows.
+  - **THE FIVE is key by key**: the step's three items are `{token}`-labelled
+    (`{strike}`/`{dash}`/`{cast}`, plus `{hypeline}` on THE SHOW) and the host
+    substitutes LIVE labels at render time (`objItemLabel` in main3d) — real
+    binds on desktop, chips/gestures on touch, the slot that actually holds
+    dash wherever the player benched it. `OBJ_LABEL_TOKENS` is the contract;
+    a test fails any label whose token the host doesn't know.
+  - **Facts are sim-truth now**: a dash is `p.dashTime` running (the old fact
+    read `intent.dash`, a legacy bot flag no input host ever sets — the item
+    was uncheckable by a human); a cast is a pressed slot that actually HOLDS
+    a non-dash ability (a key mashed over a padlocked slot checks nothing).
+  - **Depth beats (floor-2+ pacing)**: two new coach confirmations — `elite`
+    (first named elite within 8 tiles: the affix lesson) and `boss` (first
+    boss within 12: the telegraph lesson). Past floor 1 the prompts are
+    silent and the floors teach themselves; Mordecai only footnotes the FIRST
+    of each new thing the depth introduces. Unbudgeted, never a promise.
+- The r6 acceptance probe (`tools/_tut_r6.mjs`, cold-profile, fails on any
+  painted teaching line whose first sentence lacks its instruction/key) is
+  still the follow-up round (`tools/_tut_r6_smoke.mjs` + the one-off
+  `_tut_content_probe.mjs` cover boot/paint/label-substitution today). The
+  old `_tut_r1..r5` batteries assert COURTESY-era behavior and are retired
+  as instruments of record.
 
 ## The one rule this feature keeps relearning (r5 — read this first)
 
@@ -97,11 +122,11 @@ STRIP (the `#tutorial` card surface, non-pausing — `src/ui/coach.ts` lines,
 curriculum tip translations, objective step lines) and the MODAL (`#dialogue`,
 at rest — `src/ui/guide.ts` beats: campfire, draft, safe rooms, verdict,
 check-in). A persistent OBJECTIVES card (`src/ui/objectives.ts` + right-rail
-`#objectives`) gives the first session a guided go-do-x-y-z spine: four
-sequential steps, 2–3 checkable items each, checked by real state observation,
-completed steps ledgered forever (`obj.*` on `dcc:tips:v1`). The sim's TIPS
-and `tipsSeen` are untouched — the host translates the four curriculum tipIds
-into Mordecai's words and drops the rest unspent.
+`#objectives`) gives the first session a guided go-do-x-y-z spine: five
+sequential steps, 2–3 checkable items each, checked by real state observation
+(sim-truth facts), completed steps ledgered forever (`obj.*` on `dcc:tips:v1`).
+The sim's TIPS and `tipsSeen` are untouched — the host translates the four
+curriculum tipIds into Mordecai's words and drops the rest unspent.
 
 **The riddle fix is structural (owner: "Mordecai is some times talking in
 riddles").** Every strip beat is data: `instruction` (EXACTLY one sentence,

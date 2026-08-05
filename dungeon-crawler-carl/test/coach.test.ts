@@ -34,9 +34,13 @@ const phone = (): Coach => new Coach({ ...TOUCH });
 
 /** Unsolicited lectures: floor 1, budgeted. */
 const PROMPTS: CoachEvent[] = ["start", "contact", "pickup", "lowhp", "linger"];
-/** Earned by an act: any floor, unbudgeted. */
+/** Earned by an act (or, for the depth pair, by the encounter existing):
+ *  any floor, unbudgeted. `elite`/`boss` are the floor-2+ pacing beats —
+ *  past floor 1 the prompts are silent and Mordecai only footnotes the FIRST
+ *  of each new thing the depth introduces. */
 const CONFIRMS: CoachEvent[] = [
   "ability", "cast", "slotted", "ult", "equipped", "autoequip", "drink",
+  "elite", "boss",
 ];
 /** The three whose {key} is only true per-loadout, handed in at call time. */
 const KEYED: CoachEvent[] = ["ability", "slotted", "ult"];
@@ -88,6 +92,15 @@ describe("the inverted binding rule: he TEACHES first (the riddle fix)", () => {
     expect(COACH_TIP_BEATS.draftBanked.instruction).toMatch(/draft/i);
     expect(COACH_TIP_BEATS.hype.instruction).toMatch(/hype/i);
     expect(COACH_TIP_BEATS.glyph.instruction).toMatch(/glyph|socket/i);
+  });
+
+  it("the depth beats NAME their mechanism too (floor-2+ pacing)", () => {
+    // Elites are the affix lesson; bosses are the telegraph lesson. Sentence
+    // one must anchor the noun and the counterplay, not gesture at them.
+    expect(COACH_BEATS.elite.instruction).toMatch(/elite/i);
+    expect(COACH_BEATS.elite.instruction).toMatch(/named|name/i);
+    expect(COACH_BEATS.boss.instruction).toMatch(/boss/i);
+    expect(COACH_BEATS.boss.instruction).toMatch(/telegraph|wind/i);
   });
 
   it("register: no line wears the System's ribbon, and nobody shouts", () => {
@@ -176,7 +189,7 @@ describe("no line ever names a bind the player cannot use", () => {
 
   it("the ultimate is only ever named at the moment it exists", () => {
     const o = desktop();
-    for (const ev of [...PROMPTS, "ability", "cast", "slotted", "equipped", "drink"] as CoachEvent[]) {
+    for (const ev of [...PROMPTS, "ability", "cast", "slotted", "equipped", "drink", "elite", "boss"] as CoachEvent[]) {
       const line = o.note(ev, 1, "Shift, Q");
       if (line) expect(line).not.toMatch(/ultimate/i);
     }
@@ -197,7 +210,7 @@ describe("no line ever names a bind the player cannot use", () => {
     expect(t.note("contact", 1)).toMatch(/STRIKE chip/);
     expect(t.note("lowhp", 1)).toMatch(/FLASK chip/);
     expect(t.note("pickup", 1)).toMatch(/☰ menu/);
-    for (const ev of ["cast", "linger", "equipped", "drink"] as CoachEvent[]) {
+    for (const ev of ["cast", "linger", "equipped", "drink", "elite", "boss"] as CoachEvent[]) {
       const line = t.note(ev, 1)!;
       expect(line).not.toMatch(/WASD|click|mouse/i);
     }

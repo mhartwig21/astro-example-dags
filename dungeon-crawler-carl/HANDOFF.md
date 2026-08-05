@@ -88,11 +88,16 @@ onramp mechanics carried over; `src/ui/onramp.ts` deleted), `src/ui/objectives.t
 `obj.*` on the tips ledger, fresh-crawler enrollment / veteran grandfathering),
 tip translation in `showAnnouncement` (no tip ever prints in the System's
 register), and the inverted binding rule enforced in `test/coach.test.ts`.
-STILL OWED: the content pass (placeholder-quality lines are live), the
-`tools/_tut_r6.mjs` cold-profile acceptance battery (the r1–r5 batteries
-assert COURTESY-era behavior and lie now), a real browser round, and the
-owner's phone pass on the compact objectives chip. The design that got us
-here:
+**CONTENT PASS shipped** (second commit on the branch — TUTORIAL.md's r6
+section has the details): five objective steps (THE SHOW added as the
+closer), THE FIVE key by key via live `{token}` labels, `elite`/`boss` depth
+confirmations for floor-2+ pacing, and the S2 facts moved to sim-truth (the
+old dash fact read a bot-only intent flag — a human could never check it).
+STILL OWED: the `tools/_tut_r6.mjs` cold-profile acceptance battery (the
+r1–r5 batteries assert COURTESY-era behavior and lie now; `_tut_r6_smoke.mjs`
+and `_tut_content_probe.mjs` cover boot/paint/label-substitution only), a
+full played-through browser round, and the owner's phone pass on the compact
+objectives chip. The design that got us here:
 
 - **One voice.** COURTESY EXPLANATION dies as a teaching format. The System
   keeps its announcer register for *events* (ringside intros, achievements,

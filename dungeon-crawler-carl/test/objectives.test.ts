@@ -8,21 +8,40 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  OBJECTIVE_STEPS, OBJ_STEP_IDS, Objectives, type ObjectiveFacts,
+  OBJECTIVE_STEPS, OBJ_LABEL_TOKENS, OBJ_STEP_IDS, Objectives, type ObjectiveFacts,
 } from "../src/ui/objectives";
 
 const NONE: ObjectiveFacts = {};
 const S1_ALL: ObjectiveFacts = { moved: true, blood: true, kills3: true };
 
 describe("the curriculum shape", () => {
-  it("four steps, 2-3 checkable items each, ids on the obj.* ledger namespace", () => {
-    expect(OBJECTIVE_STEPS.length).toBe(4);
+  it("five steps, 2-3 checkable items each, ids on the obj.* ledger namespace", () => {
+    expect(OBJECTIVE_STEPS.length).toBe(5);
     for (const s of OBJECTIVE_STEPS) {
       expect(s.id).toMatch(/^obj\./);
       expect(s.items.length).toBeGreaterThanOrEqual(2);
       expect(s.items.length).toBeLessThanOrEqual(3);
     }
-    expect(OBJ_STEP_IDS).toEqual(["obj.move", "obj.five", "obj.payday", "obj.saferoom"]);
+    // Teaching order: controls first, economy second, identity last — THE
+    // SHOW closes the spine because by then hype actually flows (floor 2+).
+    expect(OBJ_STEP_IDS).toEqual(["obj.move", "obj.five", "obj.payday", "obj.saferoom", "obj.show"]);
+  });
+
+  it("every {token} in an item label is one the host knows how to substitute", () => {
+    // The card obeys the coach's law (never name a bind the player cannot
+    // use), so key-shaped words are all tokens — and an unknown token would
+    // print literally on the glass.
+    const known = new Set<string>(OBJ_LABEL_TOKENS);
+    for (const s of OBJECTIVE_STEPS) {
+      for (const it of s.items) {
+        for (const m of it.label.matchAll(/\{([^}]+)\}/g)) {
+          expect(known.has(m[1]), `${s.id}/${it.id} token {${m[1]}}`).toBe(true);
+        }
+      }
+    }
+    // ...and THE FIVE actually is key by key: all three items are keyed.
+    const five = OBJECTIVE_STEPS.find((s) => s.id === "obj.five")!;
+    for (const it of five.items) expect(it.label).toMatch(/\{(strike|dash|cast)\}/);
   });
 });
 
@@ -39,8 +58,8 @@ describe("steps advance only on fact edges, strictly in order", () => {
 
   it("a later step's facts do nothing until that step is current", () => {
     const o = new Objectives();
-    // The player dashes and casts during S1 — S2 must not pre-check.
-    o.update({ castA: true, castB: true, dash: true });
+    // The player strikes, dashes and casts during S1 — S2 must not pre-check.
+    o.update({ strike: true, dash: true, cast: true });
     expect(o.view()?.step.id).toBe("obj.move");
     expect(o.view()?.done.size).toBe(0);
   });
@@ -141,6 +160,16 @@ describe("S4's safe-room gate: armed by standing in one, this run", () => {
     // The stairs are taken AFTER leaving the safe room — still counts.
     const res = o.update({ inSafeRoom: false, stairs: true });
     expect(res.completed).toBe("obj.saferoom");
+    // ...and the curriculum closes on THE SHOW, not here.
+    expect(o.finished).toBe(false);
+    expect(o.currentStep()?.id).toBe("obj.show");
+  });
+
+  it("THE SHOW closes the curriculum: hype over the line + a favorite", () => {
+    const o = new Objectives(["obj.move", "obj.five", "obj.payday", "obj.saferoom"]);
+    expect(o.update({ hype: true }).checked).toEqual(["hype"]);
+    const res = o.update({ fan: true });
+    expect(res.completed).toBe("obj.show");
     expect(o.finished).toBe(true);
   });
 

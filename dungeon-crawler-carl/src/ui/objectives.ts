@@ -35,15 +35,24 @@
  * unmounts the card forever once every step is on the ledger.
  */
 
-export type ObjStepId = "obj.move" | "obj.five" | "obj.payday" | "obj.saferoom";
+export type ObjStepId =
+  | "obj.move" | "obj.five" | "obj.payday" | "obj.saferoom" | "obj.show";
 
 export interface ObjectiveItem {
   /** Fact key the host computes each observe call (state diffs + host-surface
    *  facts like "the shop panel is open"). */
   id: string;
-  /** Player-facing label (host may substitute live key labels). */
+  /** Player-facing label. `{tokens}` are LIVE labels the host substitutes at
+   *  render time (OBJ_LABEL_TOKENS) — the card obeys the coach's law: it never
+   *  names a bind the player cannot use, so key-shaped words are all tokens. */
   label: string;
 }
+
+/** Every token a label may carry; the host must substitute all of them.
+ *  strike/dash/cast are the live control labels for the crawler's CURRENT kit
+ *  (desktop binds or touch gestures); hypeline is the System's boredom
+ *  threshold (CONFIG.interferenceHypeFloor), printed as a number. */
+export const OBJ_LABEL_TOKENS = ["strike", "dash", "cast", "hypeline"] as const;
 
 export interface ObjectiveStep {
   id: ObjStepId;
@@ -54,8 +63,18 @@ export interface ObjectiveStep {
   armFact?: "inSafeRoom";
 }
 
-/** The first-session curriculum. Every item is provable from state the host
- *  already reads (see main3d's objectivesObserve). */
+/** The first-session curriculum, in teaching order. Every item is provable
+ *  from state the host already reads (see main3d's objectivesObserve), and
+ *  every fact is SIM-TRUTH where the sim can testify (a dash is p.dashTime
+ *  running, a cast is a held slot that actually holds an ability) — a checkbox
+ *  that could tick without the thing happening teaches a lie.
+ *
+ *  Pacing across floors (the curriculum is the curriculum wherever the
+ *  crawler stands, but this is where each step lands in a real first run):
+ *  S1–S2 are floor 1's first two fights; S3 closes on the first descent; S4
+ *  arms in the safe room that descent routes through; S5 is floor 2+ combat,
+ *  where hype and favorites actually flow — so the guided spine dissolves
+ *  exactly as the game starts teaching itself. */
 export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
   {
     id: "obj.move", title: "Get Moving",
@@ -66,11 +85,15 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
     ],
   },
   {
+    // THE FIVE, key by key — the three keys a fresh crawler actually owns
+    // (slot 4 and the ultimate are padlocked, and the card never names a
+    // dead bind; the coach's `slotted`/`ult` beats teach those keys the
+    // moment they become true).
     id: "obj.five", title: "The Five",
     items: [
-      { id: "castA", label: "Cast an ability" },
-      { id: "castB", label: "Cast a second, different ability" },
-      { id: "dash", label: "Dash" },
+      { id: "strike", label: "Trade blows with {strike}" },
+      { id: "dash", label: "Dash with {dash}" },
+      { id: "cast", label: "Cast with {cast}" },
     ],
   },
   {
@@ -87,6 +110,19 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
       { id: "shop", label: "Open the shop" },
       { id: "spend", label: "Spend some gold" },
       { id: "stairs", label: "Take the stairs down" },
+    ],
+  },
+  {
+    // THE SHOW, last on purpose: it is the game's identity, so the guided
+    // spine ends on it — and by now the crawler is deep enough that hype
+    // actually flows. The items are the two numbers the whole economy hangs
+    // off: the System's boredom line (hype as cover — interference starts
+    // below it) and the first favorite conversion (hype above the threshold
+    // converts fans; favorites are the sticky ones).
+    id: "obj.show", title: "The Show",
+    items: [
+      { id: "hype", label: "Push your hype over {hypeline}" },
+      { id: "fan", label: "Convert a favorite" },
     ],
   },
 ];

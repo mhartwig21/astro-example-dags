@@ -7915,6 +7915,9 @@ const COACH_MOMENT_MS: Record<CoachEvent, number> = {
   // the queue cap at 15s and the concept going untaught for the run.
   equipped: 25000, autoequip: 25000,
   drink: 12000,
+  // Depth beats: a moment, not a rule — the elite/boss standing there IS the
+  // illustration, and both lessons expire with the fight they footnote.
+  elite: 15000, boss: 15000,
 };
 
 function cardMomentMs(c: QueuedCard): number {
@@ -8238,10 +8241,20 @@ let objInvBase = -1;
 let objEquipBase = "";
 let objGoldBase = -1;
 let objFloorBase = -1;
-let objCastSlots = new Set<number>();
+/** SIM-TRUTH latches for THE FIVE (a checkbox that could tick without the
+ *  thing happening teaches a lie): a dash is p.dashTime actually running, a
+ *  cast is a held slot that actually HOLDS a non-dash ability — a key mashed
+ *  over a padlocked slot proves nothing and checks nothing. */
+let objStruck = false;
 let objDashed = false;
+let objCastReal = false;
 let objDraftClaimed = false;
 let objPrevOpenPicks = 0;
+/** Favorites baseline for THE SHOW's `fan` item — re-based on the step's own
+ *  start edge, so a favorite earned three steps ago cannot pre-check the
+ *  lesson (the floors' `descend`/`stairs` items get the same treatment via
+ *  objFloorBase). */
+let objFavBase = -1;
 
 /**
  * A NEW RUN IS A NEW CRAWLER, so the EDGES are re-baselined (r5). The observer
@@ -8264,10 +8277,12 @@ function resetCoachSampling(): void {
   objEquipBase = "";
   objGoldBase = -1;
   objFloorBase = -1;
-  objCastSlots = new Set();
+  objStruck = false;
   objDashed = false;
+  objCastReal = false;
   objDraftClaimed = false;
   objPrevOpenPicks = 0;
+  objFavBase = -1;
 }
 
 /** THE COACH's one call into the card surface. Every line is OFFERED here and
@@ -8398,6 +8413,17 @@ function coachObserve(intent: Intent): void {
   // player actually pressed it.
   if (coachFlask >= 0 && p.flaskCharges < coachFlask) say("drink");
   coachFlask = p.flaskCharges;
+  // ---- DEPTH BEATS (floor-2+ pacing): past floor 1 the prompts are silent
+  // and the floors teach themselves — Mordecai only footnotes the FIRST of
+  // each new thing the depth introduces, at the moment it is standing there.
+  // An elite is taught when a named one is close enough to be the point
+  // (same reach discipline as `contact`, wider because elites announce);
+  // a boss the moment its arena is joined. Both are confirmations: earned
+  // by the encounter, unbudgeted, never spoken as a promise.
+  if (state.monsters.some((m) => m.hp > 0 && m.elite && m.eliteName
+    && Math.abs(m.pos.x - p.pos.x) <= 8 && Math.abs(m.pos.y - p.pos.y) <= 8)) say("elite");
+  if (state.monsters.some((m) => m.hp > 0 && m.kind === "boss"
+    && Math.abs(m.pos.x - p.pos.x) <= 12 && Math.abs(m.pos.y - p.pos.y) <= 12)) say("boss");
 }
 
 // ---- THE OBJECTIVES CARD (HANDOFF §3a: "goes and does x, y, z") ----------
@@ -8406,6 +8432,27 @@ function coachObserve(intent: Intent): void {
 // step is done and unmounts forever when the curriculum is. The sequencer is
 // pure (src/ui/objectives.ts); everything here is fact plumbing + paint.
 const objectivesEl = document.getElementById("objectives")!;
+
+/** LIVE LABELS for the card's `{tokens}` (OBJ_LABEL_TOKENS): the objectives
+ *  card obeys the coach's law — it never names a bind the player cannot use —
+ *  so every key-shaped word is substituted here, at render time, from the
+ *  crawler's CURRENT kit and device. Desktop reads the real binds (and the
+ *  slot that actually holds dash, wherever the player benched it); touch
+ *  names the chips and gestures. {hypeline} is the sim's own interference
+ *  floor, so the card and the rule can never drift apart. */
+function objItemLabel(label: string): string {
+  const p = me(state);
+  const slots = p?.abilities?.slots ?? [];
+  const dashSlot = slots.findIndex((a) => a === "dash");
+  const castSlot = slots.findIndex((a, i) => i >= 1 && !!a && a !== "dash");
+  return label
+    .replace(/\{strike\}/g, touchMode ? "the STRIKE chip" : `Left click or ${coachKey("slot1")}`)
+    .replace(/\{dash\}/g, touchMode ? "a flick or a two-finger tap"
+      : coachKey(SLOT_ACTIONS[dashSlot >= 0 ? dashSlot : 1]))
+    .replace(/\{cast\}/g, touchMode ? "a chip beside STRIKE"
+      : coachKey(SLOT_ACTIONS[castSlot >= 0 ? castSlot : 2]))
+    .replace(/\{hypeline\}/g, String(CONFIG.interferenceHypeFloor));
+}
 
 function renderObjectivesCard(): void {
   const v = objectives?.view() ?? null;
@@ -8421,7 +8468,7 @@ function renderObjectivesCard(): void {
     `<span class="obj-n">${n}/${v.step.items.length}</span></div>` +
     `<ul class="obj-items">` +
     v.step.items.map((it) =>
-      `<li class="${v.done.has(it.id) ? "done" : ""}"><i class="obj-check"></i><span>${esc(it.label)}</span></li>`,
+      `<li class="${v.done.has(it.id) ? "done" : ""}"><i class="obj-check"></i><span>${esc(objItemLabel(it.label))}</span></li>`,
     ).join("") +
     `</ul>`;
 }
@@ -8444,12 +8491,29 @@ function objectivesObserve(intent: Intent): void {
   if (!objEquipBase) objEquipBase = equipSig;
   if (objGoldBase < 0) objGoldBase = p.goldSpent ?? 0;
   if (objFloorBase < 0) objFloorBase = state.floor;
-  // Intent-side acts (the canonical intent the sim just consumed — MUST-3).
+  if (objFavBase < 0) objFavBase = p.favorites;
+  // SIM-TRUTH ACTS (the canonical intent the sim just consumed — MUST-3 —
+  // cross-checked against what the sim says actually happened):
+  // - a DASH is p.dashTime running (the i-frames exist), whatever gesture
+  //   caused it — key, chip, stick flick, or a bot's legacy intent.dash;
+  // - a CAST is a pressed slot that actually HOLDS a non-dash ability (a key
+  //   mashed over a padlocked slot proves nothing and checks nothing);
+  // - a STRIKE is a swing thrown with a monster inside reach after the
+  //   exchange has drawn blood either way (the coach's `contact` discipline).
+  if (intent.dash || p.dashTime > 0) objDashed = true;
   if (intent.cast) {
-    for (let i = 1; i < intent.cast.length; i++) if (intent.cast[i]) objCastSlots.add(i);
+    const slots = p.abilities?.slots ?? [];
+    for (let i = 1; i < intent.cast.length && i < slots.length; i++) {
+      if (intent.cast[i] && slots[i] && slots[i] !== "dash") objCastReal = true;
+    }
+    if (intent.cast[4] && p.abilities?.ultimate) objCastReal = true;
   }
-  if (intent.nova) objCastSlots.add(9);
-  if (intent.dash) objDashed = true;
+  if (intent.bolt || intent.nova) objCastReal = true; // legacy bot/test intents
+  if (!objStruck && (intent.cast?.[0] || intent.attack)
+    && (p.kills > 0 || (p.damageDealt ?? 0) > 0 || (p.damageTaken ?? 0) > 0)
+    && state.monsters.some((m) => m.hp > 0
+      && Math.abs(m.pos.x - p.pos.x) <= COACH_CONTACT_TILES
+      && Math.abs(m.pos.y - p.pos.y) <= COACH_CONTACT_TILES)) objStruck = true;
   // A draft CLAIM is the open picks emptying (chooseUpgrade clears the set).
   const openPicks = p.pendingUpgrades.length;
   if (objPrevOpenPicks > 0 && openPicks === 0) objDraftClaimed = true;
@@ -8461,12 +8525,12 @@ function objectivesObserve(intent: Intent): void {
     moved: Math.abs(p.pos.x - objPosBase.x) + Math.abs(p.pos.y - objPosBase.y) >= 3,
     blood: p.kills > 0 || (p.damageDealt ?? 0) > 0,
     kills3: p.kills >= 3,
-    // S2 THE FIVE — live ACTS, not loadout theory (the padlocked-key lesson):
-    // "cast two different abilities" is satisfiable by whatever the crawler
-    // actually has, so the card can never demand a locked slot.
-    castA: objCastSlots.size >= 1,
-    castB: objCastSlots.size >= 2,
+    // S2 THE FIVE, key by key — the three controls a fresh crawler actually
+    // owns (the card's labels are live tokens, so it can never demand a
+    // locked slot; `slotted`/`ult` beats teach the late keys as they arrive).
+    strike: objStruck,
     dash: objDashed,
+    cast: objCastReal,
     // S3 PAYDAY
     loot: p.inventory.length > objInvBase || equipSig !== objEquipBase,
     draft: objDraftClaimed,
@@ -8476,10 +8540,16 @@ function objectivesObserve(intent: Intent): void {
     shop: srEl.style.display === "flex",
     spend: (p.goldSpent ?? 0) > objGoldBase,
     stairs: state.floor > objFloorBase,
+    // S5 THE SHOW: the boredom line is the sim's own interference floor, and
+    // a favorite is counted from the step's start so an old fan can't
+    // pre-check the lesson.
+    hype: p.hype >= CONFIG.interferenceHypeFloor,
+    fan: p.favorites >= objFavBase + 1,
   });
 
   if (res.started) {
     objFloorBase = state.floor; // stairs items measure from the step's own start
+    objFavBase = p.favorites; // ...and the favorite item from ITS start
     const beat = OBJ_INTRO_BEATS[res.started];
     showTutorialCard({ text: renderBeat(beat), kind: "tip", priority: "normal" }, { momentMs: 60000 });
   }

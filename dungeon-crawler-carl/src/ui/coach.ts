@@ -75,7 +75,11 @@ export type CoachEvent =
   | "ult"       // the ultimate slot just filled (ultimateMinFloor 7)
   | "equipped"  // first BY-HAND equip
   | "autoequip" // the sim dressed the crawler on pickup — the reachable half
-  | "drink";    // first flask press
+  | "drink"     // first flask press
+  // ---- depth confirmations (floor-2+ pacing: the floors teach past floor 1;
+  //      Mordecai footnotes the FIRST of each new thing the depth introduces) ----
+  | "elite"     // first named elite in reach — the affix lesson
+  | "boss";     // first boss encounter — the telegraph lesson
 
 /** Lines that arrive uninvited. Floor 1 only, and never more than six. */
 const PROMPTS: ReadonlySet<CoachEvent> = new Set<CoachEvent>([
@@ -147,6 +151,17 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     instruction: "Find the stairs down before the collapse clock finds you.",
     wry: "Nobody said this was a rescue.",
   },
+  // ---- depth confirmations: fired by the first encounter, wherever it is ----
+  elite: {
+    verb: "Kill", needsKey: false,
+    instruction: "Kill the named one first — an elite carries one extra trick and drops the good loot.",
+    wry: "The System names them so the crowd has something to chant. The merchandise follows.",
+  },
+  boss: {
+    verb: "Step", needsKey: false,
+    instruction: "Step out of the ring when the boss winds up — every big swing is telegraphed on purpose.",
+    wry: "It rehearsed that move for the cameras. You get to rehearse leaving.",
+  },
 };
 
 /**
@@ -203,9 +218,9 @@ export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
     wry: "The dungeon grades on participation first.",
   },
   "obj.five": {
-    verb: "Cast", needsKey: false,
-    instruction: "Cast two different abilities and dash once.",
-    wry: "A crawler with one move is a rerun, and reruns get cancelled.",
+    verb: "Work", needsKey: false,
+    instruction: "Work through your kit once — strike, dash, and cast each sit on their own key.",
+    wry: "The other two slots stay padlocked until the System issues you something worth slotting. It enjoys the suspense.",
   },
   "obj.payday": {
     verb: "Loot", needsKey: false,
@@ -217,6 +232,11 @@ export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
     instruction: "Open the shop, spend some gold, then take the stairs when you're done.",
     wry: "Gold you spend is gear; gold you hoard is ballast.",
   },
+  "obj.show": {
+    verb: "Fight", needsKey: false,
+    instruction: "Fight loud enough to push your hype over the line and convert a favorite.",
+    wry: "Below the line the System gets creative on your behalf. You want it bored.",
+  },
 };
 
 /** Step sign-offs: one line each, register-bound, no teaching duty. */
@@ -225,6 +245,7 @@ export const OBJ_DONE_LINES: Record<ObjStepId, string> = {
   "obj.five": "That's the whole toolkit moving. Now it's reps.",
   "obj.payday": "Paid, drafted, and deeper. That's the shape of a career.",
   "obj.saferoom": "Rested, spent, and moving. You might actually last.",
+  "obj.show": "A favorite of your own. You stopped being content and started being a show.",
 };
 
 // Completeness is a test (coach.test.ts): every objective step id must have
@@ -252,6 +273,7 @@ const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
   start: "move", contact: "attack", pickup: "bag", lowhp: "flask",
   ability: "call", slotted: "call", ult: "call",
   cast: null, autoequip: null, equipped: null, drink: null, linger: null,
+  elite: null, boss: null,
 };
 
 /** The lecture budget. Confirmations do not count against it. */
