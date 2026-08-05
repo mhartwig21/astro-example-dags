@@ -20,6 +20,34 @@
 //                      floor 4 raises music_band_sewers. The 3→4 band
 //                      transition is a bed swap you can watch in the ring.
 //   6. NO HARD CLIP  — compressor output < 1.0 across the whole session.
+//   7. AUDIBLE       — musicEnergy() > 0 and streamsStarted() names the bed.
+//
+// WHY 7 EXISTS (r2 critic finding, and it is the important one). Every music
+// assertion in the list above reads REQUEST-TIME STATE or an AudioParam
+// value: currentMusic() is set the moment the director asks, musicBusGain()
+// and musicDuckGain() are schedules on nodes that exist whether or not
+// anything is flowing through them. Under the decoded path that was enough by
+// construction — has() was buffers.has(id), so currentMusic() implied a
+// started source. Streaming removed that implication and this file was not
+// edited, so it went strictly WEAKER without a single assertion being
+// touched: it would print PROBE PASS on a build with zero audible music.
+// That is precisely the regression class streaming introduces.
+//
+// One launch flag went with it: --autoplay-policy=no-user-gesture-required
+// meant the probe never exercised the media elements own gesture gate, which
+// is a NEW gate (a decoded buffer has only the AudioContext gate; a media
+// element has its own, per element, and on iOS historically per element per
+// gesture). The probe already presses a key and clicks, so it now unlocks the
+// way a player does — and if that breaks, it breaks HERE instead of in
+// production.
+// --mute-audio is KEPT: probe.mjs has it with the measured note "graph still
+// processes; the box stays quiet", and this probe reads the graph, not the
+// device. If musicEnergy() ever reads exactly 0 while streamsStarted() names
+// the bed, --mute-audio is the first suspect to pull.
+//
+// STATUS: UNRUN as of the r2 fix round. The owner dev box forbids launching a
+// browser in that round, so these assertions are written and NOT EXECUTED.
+// Do not read a green unit suite as a green probe.
 //
 // Usage: node tools/audio/probe-beds.mjs [--headless]
 // MACHINE LIMIT: exactly one Chromium; launch, use, CLOSE.
@@ -27,7 +55,11 @@
 import { chromium } from "playwright";
 
 const headed = !process.argv.includes("--headless");
-const BASE = "http://localhost:5282/iso.html";
+// Port is overridable because several worktrees run dev servers in parallel on
+// this box and 5282 is regularly somebody else's branch — pointing the probe at
+// the wrong tree would measure code that is not under test.
+const PORT = process.env.DCC_PORT ?? "5282";
+const BASE = `http://localhost:${PORT}/iso.html`;
 const TEST_URL = `${BASE}?test&floor=3&level=12&abilities=all&seed=7&debug=1&noassets`;
 const MENU_URL = `${BASE}?debug=1&noassets`;
 
@@ -37,7 +69,9 @@ const report = {};
 const browser = await chromium.launch({
   headless: !headed,
   args: [
-    "--autoplay-policy=no-user-gesture-required",
+    // NO --autoplay-policy: the probe unlocks with the real gesture it already
+    // performs, so it exercises the media elements own gate. --mute-audio
+    // stays (see the header) — it mutes the device, not the graph.
     "--mute-audio",
     ...(headed ? ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] : []),
   ],
@@ -66,6 +100,35 @@ try {
       return false;
     }
   };
+  /**
+   * The assertion currentMusic() cannot make: this bed is SOUNDING.
+   * streamsStarted() is the deck own `playing` event; musicEnergy() is a
+   * running RMS at the music bus, measured by an AudioWorklet over contiguous
+   * 128-sample blocks. A 404ing, stalled, gesture-blocked or CORS-tainted
+   * deck satisfies currentMusic() and fails both of these.
+   */
+  const waitAudible = async (want, timeout = 25000) => {
+    await page.evaluate(() => window.__dcc.audio.resetMusicMeters());
+    try {
+      await page.waitForFunction(
+        (w) => {
+          const a = window.__dcc?.audio;
+          if (!a) return false;
+          const named = a.streamsStarted().includes(w) || a.buffers().includes(w);
+          return named && a.musicEnergy() > 1e-4;
+        }, want, { timeout },
+      );
+      return true;
+    } catch {
+      return false;
+    }
+  };
+  const meters = async (want) => ({
+    want,
+    started: await page.evaluate(() => window.__dcc.audio.streamsStarted()),
+    claimed: await page.evaluate(() => window.__dcc.audio.streams()),
+    energy: Number((await page.evaluate(() => window.__dcc.audio.musicEnergy())).toFixed(5)),
+  });
 
   // ---- 1. MENU BED: the real check-in screen --------------------------------
   await page.goto(MENU_URL, { waitUntil: "domcontentloaded" });
@@ -77,10 +140,15 @@ try {
     menuVisible: await page.evaluate(() => document.getElementById("menu")?.style.display === "flex"),
     bedRaised: await waitMusic("music_menu"),
     music: null,
+    audible: false,
   };
   report.menu.music = await page.evaluate(() => window.__dcc.audio.currentMusic());
+  report.menu.audible = await waitAudible("music_menu", 20000);
+  report.menu.meters = await meters("music_menu");
   if (!report.menu.menuVisible) fail.push("menu probe: check-in screen not visible on a fresh load");
   if (!report.menu.bedRaised) fail.push(`menu bed: expected music_menu, got ${report.menu.music}`);
+  if (!report.menu.audible)
+    fail.push(`menu bed SILENT (director asked, nothing sounded): ${JSON.stringify(report.menu.meters)}`);
 
   // ---- 2. BAND BED on floor 3 ----------------------------------------------
   await page.goto(TEST_URL, { waitUntil: "domcontentloaded" });
@@ -93,10 +161,30 @@ try {
   report.floor3 = {
     bedRaised: await waitMusic("music_band_undercroft"),
     music: await page.evaluate(() => window.__dcc.audio.currentMusic()),
-    decodedBeds: await page.evaluate(() =>
+    // NOT `decodedBeds` any more. Under streaming no music id is ever in
+    // buffers() (engine.load skips them), so that field was [] BY
+    // CONSTRUCTION — reported, never asserted: an instrument emitting an empty
+    // list and calling it a measurement. What matters now is which beds a deck
+    // holds and which of them have actually produced audio.
+    streamedBeds: await page.evaluate(() => window.__dcc.audio.streams().sort()),
+    startedBeds: await page.evaluate(() => window.__dcc.audio.streamsStarted().sort()),
+    decodedMusic: await page.evaluate(() =>
       window.__dcc.audio.buffers().filter((b) => b.startsWith("music_")).sort()),
+    // The memory claim, on BOTH legs. Alone this number is self-fulfilling
+    // (engine.ts residentPcmBytes says so in its own doc); it is the
+    // ?audio=buffered comparison that is evidence, and mediaBufferedSec is
+    // where the streamed path own memory actually lives.
+    residentPcmBytes: await page.evaluate(() => window.__dcc.audio.residentPcmBytes()),
+    mediaBufferedSec: Number((await page.evaluate(() => window.__dcc.audio.streamedBufferedSec())).toFixed(1)),
   };
+  report.floor3.audible = await waitAudible("music_band_undercroft");
+  report.floor3.meters = await meters("music_band_undercroft");
   if (!report.floor3.bedRaised) fail.push(`floor-3 bed: expected music_band_undercroft, got ${report.floor3.music}`);
+  if (!report.floor3.audible) fail.push(`floor-3 bed SILENT: ${JSON.stringify(report.floor3.meters)}`);
+  // The split itself: a music id in buffers() means the streamed path broke
+  // open and the 620MB is back.
+  if (report.floor3.decodedMusic.length)
+    fail.push(`a music id was DECODED on the streamed leg: ${report.floor3.decodedMusic.join(", ")}`);
 
   // ---- 3. APPROACH DUCK: the corridor, then the boss falls -------------------
   // Pin the scene (HARNESS rule 6): the boss HUNTS — a one-shot teleport
@@ -174,6 +262,10 @@ try {
   };
   if (report.safeRoom.opened && !report.safeRoom.bedRaised)
     fail.push(`safe room bed: expected music_safe, got ${await page.evaluate(() => window.__dcc.audio.currentMusic())}`);
+  if (report.safeRoom.opened) {
+    report.safeRoom.audible = await waitAudible("music_safe", 12000);
+    if (!report.safeRoom.audible) fail.push(`safe room bed SILENT: ${JSON.stringify(await meters("music_safe"))}`);
+  }
 
   await page.click("#sr-descend");
   try {
@@ -208,6 +300,15 @@ try {
   };
   if (!report.floor4.bedRaised)
     fail.push(`band transition: floor 4 bed is ${report.floor4.music}, expected music_band_sewers`);
+  report.floor4.audible = await waitAudible("music_band_sewers", 20000);
+  if (!report.floor4.audible)
+    fail.push(`floor-4 bed SILENT: ${JSON.stringify(await meters("music_band_sewers"))}`);
+  // THE LOOP SEAM — the number that picks the loop-ladder rung (deck.ts).
+  // null = the AudioWorklet could not install, which reads as UNPROVEN rather
+  // than as a pass: el.loop is a decoder seek-to-zero and MAY gap, and nobody
+  // has measured whether it does.
+  report.seam = await page.evaluate(() => window.__dcc.audio.musicSeam());
+  if (report.seam === null) report.seamNote = "UNPROVEN: no AudioWorklet — the loop claim is unmeasured";
 
   // ---- 4 (deferred). ANNOUNCER DUCK over the live floor-4 band bed -----------
   // Floor 4 has no boss, so no approach duck holds the room and the §2.3
