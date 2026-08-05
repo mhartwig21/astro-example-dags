@@ -1,0 +1,5 @@
+6.1s   SYSTEM — COURTESY EXPLANATIONFresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged. The floor has opinions about the stationary.GOT IT
+19.6s   SYSTEM — COURTESY EXPLANATIONContact. Left click or Space swings at what the mouse points at, and keeps swinging while you hold it. The dungeon recognizes no other opening move.GOT IT
+32.6s   SYSTEM — COURTESY EXPLANATIONSwinging is the floor, not the ceiling. Shift, Q are your live abilities: louder arguments, priced in cooldowns. Slots the System has not issued you yet are locked, and pressing them achieves nothing.GOT IT
+46.7s   SYSTEM — COURTESY EXPLANATIONYou STAGGERED it. Damage builds hidden POISE; enough poise interrupts whatever it was doing. Poise fades fast, so interrupts take a BURST. Heavier creatures have more poise. This was not designed to be fair.GOT IT
+57.3s   SYSTEM — COURTESY EXPLANATIONThat was loud, and your HYPE reading moved. Hype buys VIEWERS, viewers are the meter every payout downstream is read off, and both bleed back down the moment you get careful. The System does not sell tickets to careful.GOT IT

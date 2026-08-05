@@ -1362,14 +1362,27 @@ export function hasRevision(p: Player, id: string): boolean {
 }
 
 /** First-contact rule explainer (tips.ts): fires ONCE per crawler, the first
- * time the rule touches them. The System files a courtesy explanation. */
-function systemTip(state: GameState, p: Player, id: string): void {
+ * time the rule touches them. The System files a courtesy explanation.
+ * `priority` is presentation pacing, not headline routing: the host's card
+ * surface holds a "high" tip only for the active card, never for the 9s
+ * politeness gap — reserved for tips whose moment expires (collapse).
+ *
+ * `tipsSeen` is the SIM's once-per-crawler latch — it stops this rule
+ * re-announcing every step of the run that generated it, and that is ALL it
+ * means. The once-EVER ledger belongs to presentation: the line rides `tipId`
+ * out to the host, which writes `dcc:tips:v1` when the card actually paints
+ * (r4 blocker 1). A tip generated into a queue that never drains is therefore
+ * not spent, and the next run gets to teach the concept properly. */
+function systemTip(
+  state: GameState, p: Player, id: string,
+  priority: Announcement["priority"] = "normal",
+): void {
   const line = TIPS[id];
   if (!line || (p.tipsSeen ?? []).includes(id)) return;
   (p.tipsSeen ??= []).push(id);
   // Addressed: the System explains the rule to the crawler it touched, not
   // to party veterans who dismissed this explanation runs ago.
-  announce(state, "tip", line, "normal", p.id);
+  announce(state, "tip", line, priority, p.id, id);
 }
 
 /** Max dash charges: base + PARKOUR ARTIST's extra. */
@@ -1908,6 +1921,13 @@ export function createTestGame(opts: TestSetup = {}): GameState {
       }
     }
   }
+
+  // A stage-representative crawler did not just find their first glyph, and
+  // the grants below run at CONSTRUCTION — without this, every test-mode URL
+  // would open with a COURTESY card sitting over the frame someone came here
+  // to look at. The `glyph` tip alone: every other tip still fires normally in
+  // test mode, because test mode is how the sim's tip sites get exercised.
+  (p.tipsSeen ??= []).push("glyph");
 
   // GLYPHS (V2 §3): a stage-representative crawler has found firmware by now —
   // one per unlocked socket across the kit, seeded, auto-filling compatible
@@ -3195,8 +3215,9 @@ function announce(
   state: GameState, kind: AnnouncementKind, line: string,
   priority: Announcement["priority"] = "normal",
   forPlayer?: number,
+  tipId?: string,
 ): void {
-  state.announcements.push({ text: line, kind, priority, forPlayer });
+  state.announcements.push({ text: line, kind, priority, forPlayer, tipId });
   state.events.push(line);
 }
 
@@ -3346,7 +3367,15 @@ export function damagePlayerHit(
   if (opts.effect) systemTip(state, p, "afflicted");
   if (p.hp > 0 && p.hp < p.maxHp * CONFIG.show.lowHpFraction) {
     addHype(state, p, CONFIG.show.hypeLowHpHit); // living dangerously = great television
-    systemTip(state, p, "lowhp");
+    // The Show's take waits for the SECOND distinct brush with death (r3
+    // fold-in): the first one already carries the host's flask lecture (THE
+    // ONRAMP's lowhp line) — two lectures on the same wound read as nagging.
+    // A brush is an EDGE (crossing under the line); the latch clears in the
+    // per-player step loop once the crawler climbs back over it. Once-ever
+    // is untouched — tipsSeen still owns the ledger, so a run that ends on
+    // its first brush simply leaves the tip for a later near-death.
+    if (!p.lowHpNow) { p.lowHpNow = true; p.lowHpBrushes = (p.lowHpBrushes ?? 0) + 1; }
+    if ((p.lowHpBrushes ?? 0) >= 2) systemTip(state, p, "lowhp");
   }
   return p.hp <= 0;
 }
@@ -3367,6 +3396,9 @@ function grantXp(state: GameState, p: Player, amount: number): void {
   if (p.level > before) {
     const jump = p.level - before > 1 ? ` (+${p.level - before} levels)` : "";
     announce(state, "levelup", `${p.name} hits LEVEL ${p.level}${jump}! The System offers an evolution.`);
+    // First-ever banked draft (TUTORIAL.md B3/§5): the badge flow explained
+    // once — this is what makes the draft reachable by badge-blind players.
+    systemTip(state, p, "draftBanked");
   }
 }
 
@@ -3472,6 +3504,11 @@ function dominantSchool(p: Player): School {
  */
 export function grantGlyph(state: GameState, p: Player, id: GlyphId): void {
   const g = (p.glyphs ??= defaultGlyphs());
+  // GLYPHS, TAUGHT BY OWNING ONE (r4). Mordecai's B7 beat needs a safe room
+  // AND an open socket AND a glyph in hand, which a first session mostly never
+  // assembles — so the concept's first-session coverage is here, at the moment
+  // the stone is actually in the crawler's possession.
+  systemTip(state, p, "glyph");
   const trySlot = (slotIdx: number): boolean => {
     const ability = slotIdx === ABILITY_SLOTS ? p.abilities.ultimate : p.abilities.slots[slotIdx];
     if (!ability || !glyphMatches(id, ability)) return false;
@@ -4011,7 +4048,14 @@ export function damageMonster(
     const key = (opts.ability ?? (opts.effect ? "dot" : "other")) + (opts.ambient ? ":ambient" : "");
     state.dmgBySource[key] = (state.dmgBySource[key] ?? 0) + dmg;
   }
-  if (isCrit) addHype(state, p, CONFIG.show.hypeCrit);
+  if (isCrit) {
+    addHype(state, p, CONFIG.show.hypeCrit);
+    // THE SHOW, TAUGHT ON A HYPE EVENT THE PLAYER CAUSED (r4). The hype bar and
+    // the viewer count are on the glass from second one and nothing ever
+    // explained them; a crit is the cheapest honest hook — the number visibly
+    // jumps in the same frame the crawler made it jump.
+    systemTip(state, p, "hype");
+  }
   // Venom Clause (chase legendary): crits inject a poison stack — the DoT
   // ticks back through this same choke point, so resists/caps keep applying.
   // (statusDuration: the Sump Crown stretches the wearer's poison/chill.)
@@ -4823,6 +4867,12 @@ function updateTimer(state: GameState, dt: number): void {
     if (state.phase === "safe") {
       state.phase = "warning";
       announce(state, "progress", "The floor is destabilizing. The clock is your enemy now.");
+      // First-ever Safe→Warning (TUTORIAL.md B4): the collapse rule explained
+      // the moment it first bites, once per crawler, in the System's voice.
+      // "high" (r3 fold-in): the moment IS the lesson — queued behind a 9s
+      // pacing gap the card drifted 15-25s from the first Warning tick and
+      // once landed inside the safe room. It jumps the gap, never a card.
+      for (const p of state.players) systemTip(state, p, "collapse", "high");
     }
   }
 }
@@ -7718,6 +7768,12 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
       }
     }
     const ptime = statusTimeMult(p);
+
+    // Near-death brush bookkeeping (r3): the "currently low" latch opens
+    // again once the crawler climbs back over the line, so the next dip
+    // counts as a NEW brush (damagePlayerHit sets it; the lowhp tip waits
+    // for the second).
+    if (p.lowHpNow && p.hp >= p.maxHp * CONFIG.show.lowHpFraction) p.lowHpNow = false;
 
     // Adrenaline (Bullet Time fork) races cooldowns inside the slow; a chill
     // stretches them — both scale the same recovery clock.

@@ -45,3 +45,6 @@ tools/_r2pay/*.log
 # but the multi-megabyte PNG piles are not.
 tools/_r3look/*.png
 tools/_r3cost_*/*.png
+# Tutorial r1 captures (tools/_tut_r1.mjs): harness + the report receipt are
+# committed; the PNG pile is not (same rule as every probe round above).
+tools/_tut_shots/*.png

@@ -1,0 +1,362 @@
+# TUTORIAL — the first session, with Mordecai
+
+Owner ask: "an initial tutorial of AAA quality to onboard players to the game
+— thinking Mordecai as the game guide using the Roam NPC chat experience —
+helping to introduce all of the key concepts."
+
+**SHIPPED (r1 + r2 + r3 + r4 + r5 fix rounds, branch `tutorial`).** The design
+sections that became code are deleted (BACKLOG.md convention); what remains is
+the enduring canon (the two-voice rule, the register bible), the implementation
+map, and the open edges for later rounds.
+
+## The one rule this feature keeps relearning (r5 — read this first)
+
+**A concept is taught when it PAINTS, not when something decides to teach
+it.** Everything upstream of the glass — the sim's `tipsSeen` latch, the
+Onramp's script, the Guide's sequencer, the announcement, the queue — is
+intent. Only the paint is delivery, and only delivery may spend a once-EVER
+opportunity.
+
+r1–r3 wrote the ledger from the sim call and mirrored it out of `saveRun`, and
+three cold runs measured the consequence: `favorites` and `achievementClaim`
+were consumed, permanently ledgered, and **never once displayed** — the
+concepts were not taught badly, they were deleted from that profile forever.
+Every guard was green while it happened, because every guard asked the code
+whether it had shown a card instead of asking the pixels.
+
+r4 fixed that in ONE of the three channels and wrote the fix down as a law
+("`recordTips` is called from exactly two places… Nowhere else"). The law was
+false when it was written. A fresh critic found the same defect intact in the
+other two, and this is the shape of it — the reason it takes a general rule and
+not three patches:
+
+| Channel | How r4 spent it early | Measured cost |
+|---|---|---|
+| Sim tips | (fixed in r4) | — |
+| Mordecai (`src/ui/guide.ts`) | `maybeShowRecap` took B8 and wrote the ledger, then scheduled the 620ms reveal whose own first line stands down if a fast R started the next run | cold profile: `ledger=[tut.campfire,tut.runback]`, verdict frames 0, aside frames 0 — B8 deleted from the profile forever by one impatient keypress |
+| THE ONRAMP (`src/ui/onramp.ts`) | its 11 lines carry NO `tipId`, so the ledger rule never applied to them at all; `Onramp.note()` marked the event fired at generation | cold profile: flask drunk inside the pacing gap, run ended, R pressed — both halves of the flask lesson gone for the session, neither card ever on the glass |
+
+**So the rule is now structural, in all three modules: OFFER, then COMMIT or
+RELEASE.** `Guide.take` and `Onramp.note` hand a beat/line out and mark it
+*offered*; presentation calls `commit` when it paints (and `release` when it
+does not — a full queue, an expired moment, a run boundary, a panel that
+refused the beat). A released opportunity is owed again the next time the game
+makes it true.
+
+Three things follow, and they are binding on every future round:
+
+1. **Every `recordTips` call site is a PAINT.** There are five, and each one
+   is the line immediately after something reached the glass:
+   `displayTutorialCard`, the ticker branch of `showAnnouncement` (a toast is
+   a paint too), `guideShow`, the verdict aside's post-reveal rAF, and the
+   skip path (an explicit refusal, which is a delivery of a different kind).
+   If a sixth appears, it must sit under a paint or it is a bug.
+   `saveRun` writes no ledger at all and additionally strips unshown ids from
+   the run save, so a refresh-resume can re-teach what a crash swallowed.
+2. **`Player.tipsSeen` is the sim's within-run latch and nothing more.** It
+   exists to stop a rule re-announcing every step. It is not evidence that
+   anybody learned anything. Neither is `Onramp.fired`, and neither is
+   `Guide.seen`.
+3. **A doc claim about delivery is a claim about pixels.** r4's "exactly two
+   places" was checkable by grep and nobody grepped. Every binding sentence in
+   this file now names the file and function it is true of.
+
+## The one-paragraph design (canon)
+
+**The System teaches the controls in the moment; Mordecai teaches the game at
+rest.** THE ONRAMP (shipped in `src/ui/onramp.ts`) keeps minutes 1–5: six
+System lines keyed to first-time events on floor 1. Mordecai appears ONLY at
+rest moments — campfire, the first draft pause, safe rooms, the verdict, the
+second check-in — through the shipped `#dialogue` panel. He never speaks over
+live combat, never rides `state.announcements`, and never explains a rule the
+System is about to demonstrate. Every beat is one ESC away from gone, fires
+once EVER via the shipped tips ledger, and teaches by the player DOING the
+thing once with a line of guidance.
+
+## Two voices, one flow (canon — binding on every future line)
+
+| | The System (SHOW) | Mordecai (GUIDE) |
+|---|---|---|
+| Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Gruff, economical, protective; tired manager who's buried clients |
+| Channel | `state.announcements` → banners / ticker / tutorial cards | dialogue panel only (plus the B8 verdict aside plate) |
+| When | In the moment — the instant a rule touches you | At rest only — campfire, draft pause, safe room, verdict, check-in |
+| Teaches | Controls + rules-as-they-bite | Judgment + the meta: what to pick, what to spend, why the cameras pay |
+| Skip | Any input / 7s auto-dismiss | ESC or the farewell choice — one input, always last in the list |
+
+**Division-of-labor rule**: if a concept can be demonstrated, the System
+demonstrates it and Mordecai shuts up about it. He debriefs (the Show, B6)
+only AFTER the System's tip has fired — never the reverse.
+
+**And he does not paraphrase it (r4).** B6 shipped through three rounds
+restating the `sponsors` tip nearly clause-for-clause ("sponsors pay YOU, in
+gear, between floors" against "sponsors send gifts between floors"), and the
+voice test could not see it because quotation-matching cannot detect a
+paraphrase. `test/guide.test.ts` now fails any beat line that shares three or
+more content words with any System tip — domain nouns deliberately NOT
+exempted, because if Mordecai needs three of a tip's words to make his point,
+his point IS the tip's point. The fix is always the same: find the thing the
+System will never file. It owns mechanism; he owns what it costs you.
+
+**The System never points at your FURNITURE (r4, corrected r5).** It audits
+ledgers, posts notices, and files explanations. It has never conceded that you
+have a HUD, a badge, or a bottom of a screen, and it does not gloss keys in
+parentheses like a manual. It may name a CONTROL — a key on desktop, a chip or
+a half of the glass on touch, because on a phone the control IS a pixel and a
+lesson that named a keyboard there would be a lie — and it may name a place in
+the dungeon (a Safe Room's ACHIEVEMENTS tab). What it may not name is the
+READOUT: the bar, the badge, the counter, the panel you watch. Controls are
+the crawler's own equipment; readouts are the audience's.
+
+(r4 wrote this rule as "it may not name a pixel", which the shipped touch
+script and `test/onramp.test.ts` had contradicted since r1 — the touch lines
+name the STRIKE chip and the ☰ menu by design. The rule was right; the sentence
+was wrong.)
+
+**Register bible** (for every future Mordecai line): short declaratives; wry,
+never breathless; protective under the gruffness ("I hate it too. It
+works."); concrete verbs over adjectives; no exclamation marks; no corporate
+cheer; he says "you" and means the person, where the System says "Crawler"
+and means the inventory item. `test/guide.test.ts` holds the voice line
+mechanically (no COURTESY EXPLANATION, no exclamation marks, no TIPS text on
+the dialogue surface).
+
+## Implementation map (r1)
+
+- **`src/ui/guide.ts`** — the beat table as DATA + the `Guide` sequencer
+  (Onramp mold: facts in, at most one never-before-seen beat out). Beats:
+  `tut.campfire` (B0, casting stage, organic fresh crawlers only),
+  `tut.draft` (B3, first level-up claim — Mordecai before the draft UI),
+  `tut.saferoom`/`tut.glyphs`/`tut.show` (B5/B7/B6 — at most one per
+  safe-room visit, priority-ordered, so "second-or-later safe room" is
+  structural. r4 put B7 ahead of B6: B7 needs a socket, a safe room and a
+  glyph in hand simultaneously — a conjunction three cold runs never once
+  assembled — while B6 is eligible at every later visit for the rest of the
+  run. The scarce beat gets the scarce opportunity), `tut.runback` (B8, verdict aside plate — solo DEATHS only; a
+  win gates it out without consuming it, r2), `tut.menu2` (B9, second organic
+  check-in with ≥1 finished run, shown a 1.6s beat after the menu paints and
+  standing down if the player has already moved on, r2). `tut.skipAll` is the
+  global skip and it silences BOTH voices for real (r2): every beat ledgered,
+  the remaining onramp lines dropped, AND every future first-contact COURTESY
+  card suppressed at presentation — the sim still marks `tipsSeen`
+  (shown-or-declined = consumed); the host just declines to lecture.
+- **Host adapter** — main3d.ts `THE GUIDE` block: renders beats through the
+  SHIPPED `#dialogue` presentation (`.guide` ember frame + `.tut` z-lift to
+  29 over the check-in menu); `dlgOpen` doubles as the pause gate, so no beat
+  can share a frame with live combat. `state.dialogue` remains exclusively
+  Roam's; the sim, the replay wire, and MUST-3 are untouched by beats.
+- **Ledger** — the shipped browser tips ledger (`dcc:tips:v1`,
+  `recordTips`/`seedTips`); SHOWN = consumed; no second ledger. See §"the one
+  rule this feature keeps relearning" above for who is allowed to write it.
+  Announcements carry `tipId` so presentation can name what it painted.
+- **Sim tips (the four that moved the sim)** — `collapse` (first
+  Safe→Warning), `draftBanked` (first level-up mints a draft), and, from r4,
+  `hype` (first crit — the bar moves in the frame the crawler moved it) and
+  `glyph` (first glyph in hand). All four are `TIPS` entries + `systemTip`
+  sites in game.ts. `rulesHash` regenerated — run proofs rotated.
+  (r4: `draftBanked` reworded again. The System posts a NOTICE; it does not
+  concede that you have a HUD with a badge at the bottom of it. It says
+  "redeem" where Mordecai says "cash it": the two voices share no idiom.)
+- **THE ONRAMP, r4 rebuild — PROMPTS and CONFIRMATIONS.** The ≤6 budget was
+  never wrong; it was measuring the wrong thing. It now governs PROMPTS only
+  (`start`, `contact`, `pickup`, `lowhp`, `linger`) — unsolicited lectures,
+  floor 1, capped. CONFIRMATIONS (`ability`, `cast`, `slotted`, `ult`,
+  `equipped`, `autoequip`, `drink`) exist only because the player performed the
+  act they explain, so they are neither budgeted nor floor-gated; gating a
+  confirmation by depth is what made the `cast` line unreachable in r2 and
+  needed a special case in r3.
+  **No line may name a bind the player cannot use.** The host passes static
+  labels for the always-true controls (movement, strike, flask, bag) and a
+  LIVE label at call time for anything ability-shaped; a keyed line handed an
+  empty label is declined, not printed, and stays unfired for later. This is
+  what killed the r3 dump, which named `Shift, Q, C` and `F` while slot 4 and
+  the ultimate were padlocked — `CONFIG.ultimateMinFloor` is 7, so the
+  ultimate's bind cannot exist in a first session at all and the onramp now
+  never speaks it unless the slot itself has filled.
+  **The script's ORDER is part of the script (r5).** `onrampObserve` reports
+  PROMPTS before CONFIRMATIONS, and `intent.attack` is only a swing when
+  something is inside `ONRAMP_CONTACT_TILES` *and* the exchange has drawn first
+  blood either way. r4 observed confirmations first and treated a held mouse
+  button as combat, so the most common fresh-player instinct — press and hold
+  from the first frame — got "swinging is the floor, not the ceiling" at +0.9s
+  with the nearest monster twenty tiles away, eleven seconds ahead of "WASD
+  walks".
+  **The flask prompt is at 60%, not 40% (r5, `ONRAMP_LOW_HP`).** At 40% the
+  measured card painted at hp=34% with the crawler dead two seconds later, and
+  four cold runs produced the verdict line "You died holding 3 flasks."
+  **The bag is named only when the bag has something in it (r5).** `pickup`
+  used to fire on gold, so the compliant reader pressed the key on cue and
+  found nothing to wear.
+  **`autoequip` is the loot lesson's reachable half (r5).** `equipped` fires on
+  a BY-HAND equip and never once fired in four cold runs, because floor-1 loot
+  is auto-equipped and the bag stays empty; the sim dressing the crawler is the
+  moment gear demonstrably went on, and it is the natural place to explain why
+  some gear never needed the trip.
+- **Link arrivals** (`?daily=`/`?c=`/`?rush`/`?join=`/`?runback=`) skip
+  B0/B9; in-run beats attach to pauses the player already took. Multiplayer
+  and test mode construct no guide at all — but THE ONRAMP runs under net
+  too (r2): it is a pure observer with zero sim writes, so the fresh browser
+  whose first click is THE RUSH still gets its six lines. `?clean=1`
+  suppresses beats and cards alike.
+- **Acceptance probe** — `tools/_tut_r1.mjs`: cold-profile (fresh context)
+  battery, raster-verified (box non-uniformity + warm-key fraction), one
+  Chromium; frames in `tools/_tut_shots/`. 61 checks green at r1.
+  `tools/_tut_r2.mjs`, `_tut_r3.mjs` and `_tut_r4.mjs` are the same shape per
+  round (r4: 70 checks across four cold contexts, frames in
+  `tools/_tut_r4_shots/`). r5 is `tools/_tut_r5_p1..p4.mjs` over
+  `_tut_r5_lib.mjs` — which is the r4 CRITIC's instrument copied verbatim but
+  for the shots directory, so the round is measured by the tool that failed it;
+  frames and transcripts in `tools/_tut_r5_shots/`. ?debug=1 exposes
+  `__dcc.tut()`: what the card surface is HOLDING (queued, with each card's age
+  and moment length) versus what the ONRAMP has DELIVERED — the two questions
+  every previous round conflated. Two probe habits r4 added, both learned the
+  expensive way: a context asserts its profile is cold by reading
+  `dcc:tips:v1`/`dcc:save:v1`/`dcc:history:v1` rather than assuming, and every
+  in-run battery holds the crawler alive and CHECKS it survived — a death
+  opens THE VERDICT, and post-r3 a card correctly refuses to burn behind a
+  modal, so every measurement after an unnoticed death is a measurement of a
+  corpse.
+
+### The card surface's visibility contract (r3)
+
+A once-EVER card is spent the moment it is SHOWN, so it may only be shown
+where a player can see it. Three rules, all in main3d's `THE GUIDE`/card
+block:
+
+1. **Nothing displays behind a modal.** `tutorialBlocked()` = `dlgOpen ||
+   body.modal`; the pump waits on it (400ms poll), because `body.modal` sets
+   `#tutorial` to `opacity: 0 !important` (iso.html's modal-focus rule).
+   Observed pre-fix: the collapse card displayed behind the safe-room shop
+   and was consumed unseen, permanently.
+2. **The auto-dismiss clock counts VISIBLE time only.** The 7s courtesy timer
+   is an interval that accrues only while unblocked, so a modal opening
+   mid-card pauses it instead of clipping the tail.
+3. **Any-input dismiss stands down while blocked** — that input belongs to
+   the modal, not to a card nobody can read.
+4. **...and an URGENT card gets a longer input grace (r5: 2.6s vs 1.2s).** The
+   flask line arrives while the crawler is losing a fight, which is exactly
+   when the player's hands are busiest; its measured dwell in a real fight was
+   0.3 SECONDS, blinked away by a movement key that was already down. A card
+   nobody can physically read has been spent, not delivered.
+
+"high" on a tip means exactly "this card's moment expires" — the onramp's
+flask line and, since r3, the sim's `collapse` tip (queued behind the gap it
+drifted 15-25s from the Warning tick and once landed inside the safe room).
+It jumps the gap, never the active card.
+
+### The card surface stops being a metronome (r5)
+
+A guarded cold run painted **fourteen cards on floor 1 at almost exactly 10.4s
+intervals**, with a median act→card lag of 30.4s and the hype card arriving
+**47.6 seconds** after the crit whose sentence it opens with. The onramp's ≤6
+prompt budget was intact and irrelevant: the player was reading a conveyor
+belt, and the queue — not the game — was deciding what was being taught. Four
+changes, all in main3d's card block:
+
+1. **Every card declares how long its MOMENT is worth** (`cardMomentMs`:
+   `ONRAMP_MOMENT_MS` / `SIM_TIP_MOMENT_MS`, default 25s). Past it the card is
+   DROPPED — unspent, released to its author, teachable again the next time
+   the game makes it true. A reaper runs on a 1s interval so a moment expires
+   in wall time, not in pump time: a card waiting behind an ACTIVE card (whose
+   own visible clock is paused behind a panel) must not be delivered a minute
+   late the instant the glass clears.
+2. **A card about NOW goes ahead of a card about ALWAYS**, and waits behind a
+   3s gap instead of the 14s courtesy one. Evergreen rules ("WASD walks", "the
+   stairs are down") lose nothing by waiting; they were what held the hype card.
+3. **The courtesy gap widened 9s → 14s.** Nine seconds is short enough that a
+   busy fight can always fill the next slot, which is what a 10.4s metronome
+   is made of. Fourteen cannot.
+4. **The card surface is the CURRICULUM; the ticker is the chatter.** On floor
+   1 of a fresh crawler's session, the card belongs to the twelve concepts —
+   the onramp's lines plus `CURRICULUM_TIPS` (`collapse`, `draftBanked`,
+   `hype`, `glyph`). Every other first-contact tip (staggers, bolts,
+   afflictions, loot boxes) routes to the ticker, where the System's ordinary
+   chatter has always lived. A toast is still a paint, so it still spends —
+   `showAnnouncement`'s toast branch writes the ledger for exactly that reason.
+
+Measured after (cold profile, mouse held from the first frame, floor 1 for
+93s): **9 cards, gaps 4.3 / 8.5 / 4.7 / 15.7 / 15.6 / 15.6 / 11.3 / 16.9s** —
+contextual teaching bunched into the first fight (contact +5.3s, the ability
+line +13.7s with the nearest monster 2.9 tiles away, hype +18.4s), evergreen
+rules spaced wide after it. Hype card **4.1s** behind its crit (r4: 47.6s).
+Median sim-tip delivery lag ~0s (r4: 30.4s). Three rule footnotes rode the
+ticker instead, with real boxes on the glass.
+
+### Two lectures, one wound (r3)
+
+The sim's `lowhp` tip ("EXCELLENT television") now waits for the SECOND
+distinct brush with death: the FIRST one already carries THE ONRAMP's flask
+line, and two lectures 12s apart on the same wound read as nagging. A brush
+is an EDGE — `Player.lowHpNow` latches on the dip, clears in the step loop
+when the crawler climbs back over `show.lowHpFraction`, and `lowHpBrushes`
+counts them. Once-EVER is untouched: `tipsSeen` still owns the ledger, so a
+run that ends on its first brush simply leaves the tip for a later one.
+
+### THE ONRAMP's floor-2 exception (r3), generalized (r4)
+
+r3 carved `"cast"` alone out of the floor-1 retirement: a level-1 crawler can
+reach the stairs with slot 4 and the ultimate still locked, and the organic
+cold run banked its draft and descended without ever casting, which made the
+one ability confirmation unreachable FOREVER. (The line re-words itself on
+floor 2 — the socket is named present tense, not as a future event.)
+
+r4 stopped treating that as an exception. Every CONFIRMATION is exempt from
+the floor window on the same argument, because the exemption was never about
+`cast`: it was about the fact that a confirmation belongs to whoever performed
+the act, whenever they performed it. PROMPTS still retire on floor 2, where
+the game starts teaching itself.
+
+### The 12 concepts, and where each is actually taught (r5)
+
+The r3 critic's finding was that only 4 of 12 were taught BY DOING; the r4
+critic's was that the three the owner named as the point — THE FIVE, THE SHOW,
+GLYPHS — were the three weakest. What the player must DO for each concept to
+land, and where it was last MEASURED landing:
+
+| Concept | Taught by | The act | Measured (cold, r5) |
+|---|---|---|---|
+| Move / aim | onramp `start` | (prompt — the one unavoidable lecture) | +1.0s, first card even with the mouse held from frame one |
+| The swing | onramp `contact` | a monster comes inside 3 tiles | +7.0s, nearest monster 2.9 tiles |
+| The ability slots | onramp `ability` | the player swings AT something, and the exchange costs or produces something | +17.8s, nearest monster 2.6 tiles, after `start` and `contact` |
+| Cooldowns + the glyph socket | onramp `cast` | the player casts | (unchanged since r3) |
+| A new slot's bind | onramp `slotted` | a draft fills an empty slot | +63.6s, naming C, the slot that had just filled |
+| The ultimate | onramp `ult` | the ultimate slot fills (floor 7+) | NOT first-session — see below |
+| Loot exists | onramp `pickup` | an ITEM lands in the bag (r5: no longer gold) | +49.1s, bag holding 4 |
+| Gear is compared | onramp `autoequip`, then `equipped` | the sim dresses the crawler / the player equips by hand | +33.5s (`autoequip`); `equipped` still needs a by-hand equip |
+| The flask | onramp `lowhp` → `drink` | the player presses it | prompt at hp 45–58%, confirmation 3–5s after the press |
+| The stairs / the clock | onramp `linger`, sim `collapse` | time | +76.9s / +92.5s |
+| THE SHOW | sim `hype` | the player lands a crit | card 4.2s behind the crit (r4: 47.6s) |
+| GLYPHS | sim `glyph`, then B7 | the player picks a glyph up | NOT first-session — see below |
+
+**GLYPHS, decided honestly — and r5 stops claiming the half r4 claimed.** r4
+split the concept: B7 a later-session beat, but "the System's `glyph` tip is
+the first-session coverage". The r4 critic then reported the tip unreached in
+four cold sessions, and r5 reproduced that: glyphs drop at ~5% of loot from
+floor 2, and a first session mostly ends on floors 1–3. So the honest statement
+is the simple one: **GLYPHS IS NOT FIRST-SESSION CONTENT.** The `glyph` tip is
+its coverage *whenever it happens* — it fires the instant the stone is in the
+crawler's possession, wherever they are, and it is `CURRICULUM_TIPS` so it gets
+the card and not the ticker. B7 adds judgement on top when a safe room, an open
+socket (`glyphSocket1Level` = 4) and a glyph in hand finally coincide; it is
+ordered ahead of B6 to make "finally" as early as the game allows. Neither is
+counted as a first-session concept, and no probe in this repo should be written
+to assert one.
+
+**THE ULTIMATE is explicitly NOT first-session content either.**
+`CONFIG.ultimateMinFloor` is 7. The `ult` line exists so the bind is taught
+the moment the slot fills, and it is never printed before then.
+
+**So the honest scoreboard is 10 first-session concepts, all taught by an act
+the player performed, plus 2 (the ultimate, glyphs) that the game does not put
+in front of a first session and that this feature does not pretend to.**
+
+## Open edges (later rounds)
+
+- **B7 at Roam settlement benches**: r1 fires the glyph beat at race-run safe
+  rooms only; the settlement outfitter is opened by a live Roam dialogue and
+  needs its own seam (Roam already has Mordecai's `GUIDE_TIPS` there).
+- **Party onboarding** (`?join=`): Mordecai's beats stay suppressed — the
+  dialogue seam has no wire message for answers. Later phase. (The System
+  side is covered since r2: the onramp teaches controls under net.)
+- **Touch farewell affordance**: beats close by tapping the farewell choice;
+  a dedicated on-glass ESC affordance could come with the mobile merge (the
+  mobile-wr branch is not on `tutorial`).

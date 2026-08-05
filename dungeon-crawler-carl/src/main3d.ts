@@ -45,7 +45,7 @@ import { aimAnchor, aimSpecFor, castRange, isPlacedShape } from "./input/aimSpec
 import { accumulateTouch, applyTouchEdges, createTouchEdges } from "./input/touchIntent";
 import { createClickMove, stepClickMove } from "./input/clickMove";
 import {
-  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
+  ACTION_INFO, DEFAULT_BINDINGS, bindingLabel, keyLabel, loadBindings, loadCamView, loadGamepad, loadMouseAim, loadMouseMove, loadNotify,
   loadTouch, loadTouchPrefs, rebind, saveBindings, saveCamView, saveGamepad, saveMouseAim, saveMouseMove, saveNotify, saveTouch,
   saveTouchPrefs,
   type BindableAction, type Bindings, type CamView, type NotifyLevel, type TouchPref, type TouchPrefs,
@@ -54,7 +54,7 @@ import { Renderer3D } from "./render3d/renderer3d";
 import { QUALITY_PRESETS, type QualityChoice } from "./render3d/quality";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, loadRun, saveRun, seedTips, type RunMode } from "./persist/save";
+import { clearRun, knownTips, loadRun, recordTips, saveRun, seedTips, type RunMode } from "./persist/save";
 
 import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
@@ -68,6 +68,7 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import { Onramp, type OnrampEvent } from "./ui/onramp";
+import { GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -419,6 +420,11 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   const seed = forcedSeed ?? (mode.kind === "daily" && mode.day ? dailySeed(mode.day) : freshSeed());
   forcedSeed = null;
   consentEl.classList.remove("on"); // a stale offer never survives into a new run
+  // Neither does a stale COURTESY card (r4 blocker 2). Both boot paths that
+  // reach startRun are already deferred past module evaluation, so the card
+  // surface's module-level state is live by the time this runs.
+  resetTutorialSurface();
+  resetOnrampSampling();
   closeSets();
   // TODAY'S RULE (NICHE.md §4.8): the daily deals one — same rule for every
   // crawler on that day's dungeon. Non-daily runs are always the base game.
@@ -656,6 +662,11 @@ function enterCasting(modeLabel: string, launch: () => void): void {
   document.getElementById("m-cast-mode")!.textContent = modeLabel;
   menuEl.classList.add("casting");
   if (charSelect) charSelect.mode = "casting";
+  // TUTORIAL.md B0: the campfire intro rides the casting stage — the scene
+  // where the crawler/name decisions already happen; zero extra screens.
+  // (Deferred a microtask: the guide adapter is declared later in this
+  // module — same TDZ discipline as the ?runback boot path.)
+  queueMicrotask(() => { if (menuOpen && menuEl.classList.contains("casting")) maybeCampfireBeat(); });
 }
 function exitCasting(): void {
   pendingLaunch = null;
@@ -1217,6 +1228,10 @@ function openMenu(): void {
   document.getElementById("m-board-day")!.textContent = challengeDay ?? serverToday();
   void refreshBoard();
   renderCareer();
+  // TUTORIAL.md B9: the second organic check-in — the menu has doors too.
+  // Microtasked for the same TDZ reason as the ?runback boot path: openMenu()
+  // runs during module evaluation, before the guide adapter is declared.
+  queueMicrotask(() => maybeMenuBeat());
 }
 function closeMenu(): void {
   menuOpen = false;
@@ -1917,6 +1932,18 @@ function hideOverlay(el: HTMLElement): void {
 }
 
 function openDraftModal(): void {
+  // TUTORIAL.md B3: the first-ever level-up draft gets Mordecai's one framing
+  // beat BEFORE the draft UI — it rides the pause the modal already owns
+  // (dlgOpen pauses the solo loop exactly like an open draft would). ESC and
+  // the single choice both land in the draft: there is no way to lose it.
+  if (guide && guideBeat === null && !dlgOpen && me(state).pendingRewards.length === 0
+    && me(state).pendingUpgrades.length > 0) {
+    const beat = guide.draftOpen();
+    if (beat) {
+      guideShow(beat, () => { renderDraft(state); showOverlay(draftEl); });
+      return;
+    }
+  }
   renderDraft(state);
   showOverlay(draftEl);
 }
@@ -2741,6 +2768,7 @@ invBag.addEventListener("click", (e) => {
     equipFromInventory(state, me(state).id, idx);
     persistRun(state);
   }
+  onrampNoteEquip(); // the loot lesson's second half (r4)
   renderInventory(state);
 });
 
@@ -4806,8 +4834,10 @@ function renderSafeRoom(s: GameState): void {
     ? `${(settlement?.name ?? "SETTLEMENT").toUpperCase()} — OUTFITTER`
     : "SAFE ROOM";
   srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
-  srTip.textContent = room.tip ||
-    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : "");
+  // r4 minor: he does not say the same thing twice in two typographies — see
+  // guideSrBeatThisVisit. The portrait beat outranks the header line.
+  srTip.textContent = guideSrBeatThisVisit ? "" : (room.tip ||
+    (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : ""));
   // Zero-value currencies stay off the header until first earned — three
   // dead 0-chips are noise, not information.
   const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
@@ -5438,6 +5468,7 @@ srDetail.addEventListener("click", (e) => {
       flushFeedback(state);
       persistRun(state);
     }
+    onrampNoteEquip(); // the loot lesson's second half (r4)
     shopSel = null;
     renderSafeRoom(state);
     return;
@@ -6291,31 +6322,44 @@ let mmFlashPending = false;
 
 dlgChoicesEl.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest(".dlg-choice") as HTMLElement | null;
-  if (btn?.dataset.choice) answerDialogue(btn.dataset.choice);
+  if (!btn?.dataset.choice) return;
+  // A tutorial beat borrows the surface, not the sim: answers route to the
+  // guide adapter below, never to state.dialogue.
+  if (guideBeat) guideAnswer(btn.dataset.choice);
+  else answerDialogue(btn.dataset.choice);
 });
 dlgTextEl.addEventListener("click", () => dlgFinishType());
 // The dialogue owns the keyboard while open (captureMode holds game binds):
 // 1-9 answer, Space/Enter skip the typewriter, Esc is a polite farewell.
+// Guide beats additionally SWALLOW their keys (stopImmediatePropagation):
+// they can sit over the check-in menu, whose own Enter/Escape handlers
+// (casting stage) must not fire through the panel.
 window.addEventListener("keydown", (e) => {
   if (!dlgOpen) return;
   if (e.key === "Escape") {
-    if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
-    closeDialogueUi();
+    if (guideBeat) guideClose(); // ESC = farewell, one input, everywhere
+    else {
+      if (!net && state.dialogue) closeDialogue(state, state.dialogue.playerId);
+      closeDialogueUi();
+    }
     e.stopImmediatePropagation();
     return;
   }
-  if ((e.key === " " || e.key === "Enter") && dlgShown < dlgTotalChars()) {
-    dlgFinishType();
+  if (e.key === " " || e.key === "Enter") {
+    if (dlgShown < dlgTotalChars()) dlgFinishType();
+    if (guideBeat) e.stopImmediatePropagation();
     return;
   }
   const n = Number(e.key);
   if (Number.isInteger(n) && n >= 1 && n <= 9) {
     (dlgChoicesEl.children[n - 1] as HTMLButtonElement | undefined)?.click();
+    if (guideBeat) e.stopImmediatePropagation();
   }
 }, true);
 
 /** Per-frame dialogue sync: the sim session is the truth, the panel follows. */
 function updateDialogueUi(s: GameState): void {
+  if (guideBeat) return; // a tutorial beat holds the surface; the sim has no session
   const session = s.runKind === "roam" ? s.dialogue ?? null : null;
   if (!session || session.playerId !== me(s).id || session.done) {
     if (dlgOpen) closeDialogueUi();
@@ -6344,6 +6388,138 @@ function updateDialogueUi(s: GameState): void {
   if (fresh) openDialogueUi(session, s);
   dlgStartType(session.lines.map((l) => l.text));
   dlgRenderChoices(session);
+}
+
+// ======================= THE GUIDE (TUTORIAL.md) ===========================
+// Mordecai's once-ever first-session beats, rendered through the SHIPPED
+// #dialogue presentation. The pure sequencer lives in src/ui/guide.ts; this
+// adapter renders beats and persists them on the SHIPPED tips ledger
+// (recordTips / dcc:tips:v1) — shown = consumed, the tips convention.
+// state.dialogue remains exclusively Roam's: no beat touches the sim, the
+// replay wire, or the announcer channel. dlgOpen doubles as the pause gate
+// (the solo loop already drops time while a conversation is up), so no beat
+// can ever share a frame with live combat.
+//
+// Link arrivals (?daily= / ?c= / ?rush / ?join= / ?runback=) skip the menu
+// beats (B0/B9) — a card dragged them in; nothing may delay the run. In-run
+// beats attach to pauses the player already took, so they cost nothing.
+const linkArrival =
+  params.has("daily") || params.has("c") || params.has("rush") ||
+  params.has("join") || params.has("runback");
+const guide: Guide | null = !net && !testMode && !cleanMode ? new Guide(knownTips()) : null;
+
+let guideBeat: GuideBeat | null = null;      // the active beat (panel up)
+let guideAfter: (() => void) | null = null;  // continuation armed on close
+let guideChoices: GuideChoice[] = [];
+/** Safe-room "one beat per surface visit" latch (reset when the room closes). */
+let guideSrVisitSpent = false;
+/**
+ * ONE VOICE, ONE SURFACE, ONE MOMENT (r4 minor). The safe-room panel header
+ * carries `room.tip` — Mordecai's deterministic manager advice, in green, in
+ * the panel's typography. On the visit a BEAT plays he has already said his
+ * piece two seconds earlier through the portrait, and the header line made him
+ * speak twice in two different faces about the same room. On those visits the
+ * header stays quiet; every other safe room keeps its line.
+ */
+let guideSrBeatThisVisit = false;
+/** Tab the closing beat asked the auto-opening safe-room panel to show. */
+let guideSrTab: "shop" | "abil" | null = null;
+
+function guideRenderChoices(): void {
+  dlgChoicesEl.innerHTML = guideChoices.map((c, i) =>
+    `<button class="dlg-choice${c.effect === "close" ? " bye" : ""}" data-choice="${esc(c.id)}">` +
+    `<span class="dnum">${i + 1}</span><span class="dlabel">${esc(c.label)}</span></button>`,
+  ).join("");
+}
+
+/** Open a beat on the dialogue surface. Ledgered the moment it is shown —
+ *  and ONLY then (r5 blocker 1): the refusal below is a real path (another
+ *  beat or a Roam conversation owns the panel), and a beat that never reached
+ *  the glass goes back to the sequencer unspent. */
+function guideShow(beat: GuideBeat, after?: () => void): void {
+  if (guideBeat || dlgOpen) { guide?.release(beat.key); return; } // one beat at a time; never over Roam chat
+  guideBeat = beat;
+  guideAfter = after ?? null;
+  guideChoices = [...beat.choices];
+  guide?.commit(beat.key);
+  recordTips([beat.key]); // shown = consumed — never replays, even off a skip
+  dlgOpen = true;
+  dlgSessionId = -1;
+  dlgLinesKey = "";
+  dlgEl.classList.add("guide", "tut"); // .tut lifts z over the check-in menu
+  dlgPortraitImg.src = "/icons/portraits/mordecai.svg";
+  dlgNameEl.textContent = "Mordecai";
+  dlgRoleEl.textContent = "Guide";
+  dlgKickerEl.textContent = "◆ THE GUIDE ◆";
+  input.captureMode = true; // digits answer, not cast, while the panel is up
+  dlgEl.style.display = "flex";
+  requestAnimationFrame(() => dlgEl.classList.add("show"));
+  dlgStartType(beat.lines);
+  guideRenderChoices();
+}
+
+/** Close the active beat (farewell / ESC) and run its continuation. */
+function guideClose(): void {
+  if (!guideBeat) return;
+  const after = guideAfter;
+  guideBeat = null;
+  guideAfter = null;
+  guideChoices = [];
+  closeDialogueUi();
+  window.setTimeout(() => { if (!dlgOpen) dlgEl.classList.remove("tut"); }, 240);
+  after?.();
+}
+
+/** Apply a beat choice (click or digit — the dialogue key handler routes). */
+function guideAnswer(choiceId: string): void {
+  const c = guideChoices.find((x) => x.id === choiceId);
+  if (!guideBeat || !c) return;
+  if (c.effect === "reply" && c.reply) {
+    guideChoices = guideChoices.filter((x) => x !== c); // asked and answered
+    dlgStartType([c.reply]);
+    guideRenderChoices();
+    return;
+  }
+  if (c.effect === "skipAll") {
+    // The global skip: every beat ledgered, the remaining onramp lines
+    // silenced (guide.skipped — onrampObserve reads it), one goodbye left.
+    if (guide) recordTips(guide.skipAll());
+    guideChoices = [{ id: "go", label: "Let's go.", effect: "close" }];
+    if (c.reply) dlgStartType([c.reply]);
+    guideRenderChoices();
+    return;
+  }
+  if (c.effect === "open" && c.open) {
+    if (c.open === "shop") guideSrTab = "shop";
+    else if (c.open === "bench") guideSrTab = "abil";
+    // "draft" needs no arming: the continuation passed to guideShow opens it.
+  }
+  guideClose();
+}
+
+/** B0 — the campfire intro: organic fresh crawlers, at the casting stage. */
+function maybeCampfireBeat(): void {
+  if (!guide || linkArrival || !freshCrawler) return;
+  const beat = guide.campfire();
+  if (beat) guideShow(beat);
+}
+
+/** B9 — the second organic check-in, panel stage, with a finished run.
+ *  A beat-sized delay (r2 minor): the returning player sees the menu they
+ *  came back to BEFORE Mordecai speaks — and if they've already moved on
+ *  (casting stage, a standings/career overlay, any surface change) the
+ *  check-in quietly stands down until the next organic menu. */
+let menuBeatTimer = 0;
+function maybeMenuBeat(): void {
+  if (!guide || linkArrival) return;
+  if (!menuOpen || menuEl.classList.contains("casting") || dlgOpen) return;
+  window.clearTimeout(menuBeatTimer);
+  menuBeatTimer = window.setTimeout(() => {
+    if (!menuOpen || menuEl.classList.contains("casting") || dlgOpen) return;
+    if (ladderEl.classList.contains("on") || careerEl.classList.contains("on")) return;
+    const beat = guide.menuReturn(loadHistory().length);
+    if (beat) guideShow(beat);
+  }, 1600);
 }
 
 // ---- Contract ledger (right rail, collapsible) ----
@@ -7527,7 +7703,20 @@ const TICKER_KINDS: Record<NotifyLevel, readonly AnnouncementKind[]> = {
   critical: ["boss", "progress", "achievement", "tip"],
 };
 
-function showAnnouncement(a: Announcement): void {
+/**
+ * What presentation owes the module that authored a card (r5 blocker 1). A tip
+ * is spent by the PAINT; anything upstream of the glass is an offer, and the
+ * queue is allowed to refuse. `momentMs` is how long the card's moment is worth
+ * teaching for — past it the card is dropped UNSPENT rather than delivered as
+ * trivia (r5 major: a hype card about a crit 47.6 seconds gone).
+ */
+interface CardHooks {
+  onShown?: () => void;
+  onDropped?: () => void;
+  momentMs?: number;
+}
+
+function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   // Addressed lines (first-contact tips) are for ONE crawler — party members
   // who've already had that rule explained don't get the rerun.
   if (a.forPlayer !== undefined && a.forPlayer !== me(state).id) return;
@@ -7535,7 +7724,44 @@ function showAnnouncement(a: Announcement): void {
   // boss's System line; a capture caught the same sentence printed twice in
   // one frame — once in the top SYSTEM toast, once as the card's kicker.
   if (state.encounter?.line && a.text === state.encounter.line) return;
-  if (a.priority === "high") {
+  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
+  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
+  // deserves an explicit acknowledgment rather than an auto-fade a player
+  // could easily miss. This branch sits ABOVE the headline routing on
+  // purpose: a tip is a tip whatever its priority — "high" only means it may
+  // jump the card pacing gap (the onramp's flask line), never that the
+  // System's teaching voice gets to shout from the center banner.
+  //
+  // ...unless the player took B0's "Skip the hand-holding" (r2 major): the
+  // skip silences BOTH voices, and the sim's COURTESY cards are the System's
+  // teaching voice. The sim still files the rule as explained (tipsSeen —
+  // shown-or-declined = consumed); the host just declines to lecture someone
+  // who asked it not to. Under net (guide is null) the persisted ledger flag
+  // carries the same choice.
+  if (a.kind === "tip") {
+    const skippedAll = guide ? guide.skipped : knownTips().includes(GUIDE_SKIP_KEY);
+    // A DECLINED tip is spent (shown-or-declined = consumed): the player asked
+    // for no teaching, and re-offering it next run would ignore the answer.
+    // An undisplayed tip is NOT spent — that distinction is r4 blocker 1, and
+    // it is the only reason the ledger write lives down here at all.
+    if (skippedAll) { if (a.tipId) recordTips([a.tipId]); hooks?.onShown?.(); return; }
+    if (cleanMode) { hooks?.onDropped?.(); return; }
+    // THE CARD SURFACE IS THE CURRICULUM, NOT THE CHATTER (r5 major). A guarded
+    // cold run painted FOURTEEN cards on floor 1 at roughly ten-second
+    // intervals — the queue, not the game, deciding what was being taught, with
+    // a median act→card lag of 30.4s. Most of them were rule footnotes
+    // (staggers, bolts, afflictions) that no one ever claimed were onboarding.
+    // On floor 1 of a fresh crawler's session the card belongs to the twelve
+    // concepts; every other tip rides the ticker, where the System's ordinary
+    // chatter has always lived. A toast is still a paint, so it still spends.
+    if (!(onramp && state.floor === 1 && a.tipId && !CURRICULUM_TIPS.has(a.tipId))) {
+      showTutorialCard(a, hooks);
+      return;
+    }
+  }
+  // ...a tip never reaches the center banner whatever its priority: "high" on a
+  // teaching line means "this card's moment expires", never "shout".
+  if (a.priority === "high" && a.kind !== "tip") {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
     if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
@@ -7546,17 +7772,15 @@ function showAnnouncement(a: Announcement): void {
   // lastLevelByPid diff loop) instead of a toast — the line still reaches
   // the archive log via the separate state.events drain, nothing is lost.
   if (a.kind === "levelup") return;
-  // First-contact tips (COURTESY EXPLANATIONs) get a dismissible card instead
-  // of a toast — each one fires exactly once ever (Player.tipsSeen), so it
-  // deserves an explicit acknowledgment rather than an auto-fade a player
-  // could easily miss.
-  if (a.kind === "tip") { if (!cleanMode) showTutorialCard(a); return; }
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
   toastLayer.appendChild(el);
+  // A ticker-routed tip (the floor-1 curriculum rule above) is on the glass the
+  // moment it is appended, so this IS the paint that spends it.
+  if (a.kind === "tip" && a.tipId) recordTips([a.tipId]);
   // Fade the oldest out instead of yanking it instantly — a burst of
   // announcements (kill + loot + level-up) shouldn't cut one off mid-read.
   // `if`, not `while`: each call adds exactly one child, and the evicted
@@ -7605,14 +7829,216 @@ function showBanner(a: Announcement, cls = "ann banner"): void {
 // "COURTESY EXPLANATION," so the redundant lead-in is stripped from the body
 // (the stored/logged announcement text is untouched — this is presentation).
 const tutorialLayer = document.getElementById("tutorial")!;
-const tutorialQueue: Announcement[] = [];
+/** A queued card carries its author's hooks and the clock its moment is
+ *  measured against (r5). */
+interface QueuedCard { a: Announcement; hooks?: CardHooks; queuedAt: number }
+const tutorialQueue: QueuedCard[] = [];
 let tutorialActive = false;
 let tutorialDismissActive: (() => void) | null = null;
 let tutorialAutoTimer = 0;
+let tutorialLastDismiss = -Infinity; // frame-clock stamp of the last card leaving
+let tutorialGapTimer = 0;
 
-function showTutorialCard(a: Announcement): void {
-  if (tutorialActive) { tutorialQueue.push(a); return; }
+/**
+ * Breathing room between EVERGREEN cards (r2 major: the organic cold run put
+ * FIVE cards through ~13s of first combat — a corner lecture mid-fight, and
+ * the onramp's own ≤6 discipline defeated by the shared surface). Queued
+ * cards wait out the gap; a "high"-priority card (the flask line while the
+ * player is leaking) waits only for the active card, never for politeness.
+ *
+ * r5 widened it from 9s to 14s, because 9s was the metronome's tick: the r4
+ * critic counted fourteen floor-1 cards at almost exactly 10.4s intervals and
+ * named the tell precisely — "the queue, not the game, decides what is being
+ * taught". Nine seconds is short enough that a busy fight can always fill the
+ * next slot, which turns the surface into a conveyor. Fourteen cannot, and the
+ * cards that DO have somewhere to be no longer wait behind it (see
+ * TUT_MOMENT_GAP_MS).
+ */
+const TUT_CARD_GAP_MS = 14000;
+
+/**
+ * ...but politeness is not the same debt to every card (r5 major). A card
+ * about a thing that JUST HAPPENED — the crit that moved the hype bar, the
+ * monster now inside your reach, the flask you just drank — is worthless
+ * arriving a minute later; a card about a rule that is permanently true
+ * ("WASD walks", "the stairs are down") loses nothing waiting. So a MOMENT
+ * card queues behind a short gap and a MOMENT-length life; an evergreen card
+ * keeps the full courtesy gap above and a long one.
+ *
+ * The measurement that forced this: the crit fired the hype tip at +19.8s and
+ * the card painted at +67.4s, opening "That was loud, and your HYPE reading
+ * moved" about a moment three quarters of a minute gone.
+ */
+const TUT_MOMENT_GAP_MS = 3000;
+/** A card whose moment is no longer than this is a MOMENT card. */
+const TUT_MOMENT_MS = 12000;
+/** How long any card is worth teaching for, unless its author says otherwise. */
+const TUT_DEFAULT_MOMENT_MS = 25000;
+/** Cards waiting at once. Past this the OLDEST evergreen is dropped unspent —
+ *  a backlog is the metronome's raw material. */
+const TUT_QUEUE_MAX = 3;
+
+/** THE FIRST-SESSION CURRICULUM among the sim's tips (TUTORIAL.md's twelve
+ *  concepts). On floor 1 these own the card; every other tip is ordinary
+ *  System chatter and rides the ticker. */
+const CURRICULUM_TIPS: ReadonlySet<string> = new Set([
+  "collapse", "draftBanked", "hype", "glyph",
+]);
+
+/** How long each sim tip's moment is worth. `hype` is the shortest for the
+ *  reason above: it is a sentence about the last second and a half. */
+const SIM_TIP_MOMENT_MS: Record<string, number> = {
+  hype: 10000, collapse: 20000, draftBanked: 45000, glyph: 30000,
+};
+
+/** ...and the same, per onramp line. Prompts about permanent controls are
+ *  evergreen; everything earned by an act is a moment. */
+const ONRAMP_MOMENT_MS: Record<OnrampEvent, number> = {
+  start: 90000, linger: 60000, pickup: 45000,
+  contact: 10000, lowhp: 8000,
+  ability: 12000, cast: 12000, slotted: 20000, ult: 20000,
+  // The gear pair sits between the two kinds: caused by an act, but the RULE
+  // they teach (strict upgrades dress themselves, judgement calls wait) stays
+  // true all run. 25s buys them a place in a busy first minute without letting
+  // them jump the moments — a cold run measured `autoequip` losing its slot to
+  // the queue cap at 15s and the concept going untaught for the run.
+  equipped: 25000, autoequip: 25000,
+  drink: 12000,
+};
+
+function cardMomentMs(c: QueuedCard): number {
+  return c.hooks?.momentMs
+    ?? (c.a.tipId ? SIM_TIP_MOMENT_MS[c.a.tipId] : undefined)
+    ?? TUT_DEFAULT_MOMENT_MS;
+}
+
+/**
+ * A card must never spend its once-EVER showing where nobody can see it
+ * (r3 major): body.modal sets #tutorial to opacity 0 !important (the
+ * modal-focus rule in iso.html), and dlgOpen means Mordecai owns the frame —
+ * yet the pump and the 7s auto-timer used to run regardless, so the collapse
+ * card burned invisibly behind the safe-room shop (shown = consumed,
+ * permanently). While either holds: the pump waits, the auto-dismiss clock
+ * counts only VISIBLE time, and any-input dismiss stands down (the input
+ * belongs to the modal).
+ */
+function tutorialBlocked(): boolean {
+  return dlgOpen || document.body.classList.contains("modal");
+}
+
+/** Retire every card whose moment has passed — UNSPENT, so the concept is
+ *  still owed and the game may make it true again. This is the whole of the
+ *  metronome fix: a card that cannot be delivered while it is still about
+ *  something is not delivered at all. */
+function dropStaleCards(): void {
+  const now = performance.now();
+  for (let i = tutorialQueue.length - 1; i >= 0; i--) {
+    const c = tutorialQueue[i];
+    if (now - c.queuedAt <= cardMomentMs(c)) continue;
+    tutorialQueue.splice(i, 1);
+    c.hooks?.onDropped?.();
+  }
+}
+
+// A moment expires in WALL TIME, not in pump time. Without this reaper a card
+// waiting behind an ACTIVE card (or behind a panel, where the active card's own
+// clock is paused) could sit for a minute and then be delivered the instant the
+// glass cleared — the metronome again, one indirection down.
+window.setInterval(dropStaleCards, 1000);
+
+function pumpTutorialQueue(): void {
+  if (tutorialActive) return;
+  dropStaleCards();
+  if (tutorialQueue.length === 0) { window.clearTimeout(tutorialGapTimer); return; }
+  window.clearTimeout(tutorialGapTimer);
+  if (tutorialBlocked()) {
+    tutorialGapTimer = window.setTimeout(pumpTutorialQueue, 400);
+    return;
+  }
+  const head = tutorialQueue[0];
+  const gap = cardMomentMs(head) <= TUT_MOMENT_MS ? TUT_MOMENT_GAP_MS : TUT_CARD_GAP_MS;
+  const wait = tutorialLastDismiss + gap - performance.now();
+  if (head.a.priority !== "high" && wait > 0) {
+    tutorialGapTimer = window.setTimeout(pumpTutorialQueue, wait + 50);
+    return;
+  }
+  displayTutorialCard(tutorialQueue.shift()!);
+}
+
+function showTutorialCard(a: Announcement, hooks?: CardHooks): void {
+  const card: QueuedCard = { a, hooks, queuedAt: performance.now() };
+  if (a.priority === "high") {
+    tutorialQueue.unshift(card);
+  } else if (cardMomentMs(card) <= TUT_MOMENT_MS) {
+    // A CARD ABOUT NOW GOES AHEAD OF A CARD ABOUT ALWAYS (r5). Behind the
+    // urgent line and behind other moments — never ahead of one — but in front
+    // of the evergreen rules, which lose nothing by waiting and were the thing
+    // holding the hype card 47s behind the crit that earned it.
+    let i = 0;
+    while (i < tutorialQueue.length
+      && (tutorialQueue[i].a.priority === "high" || cardMomentMs(tutorialQueue[i]) <= TUT_MOMENT_MS)) i++;
+    tutorialQueue.splice(i, 0, card);
+  } else {
+    tutorialQueue.push(card);
+  }
+  dropStaleCards();
+  // A BACKLOG IS THE METRONOME'S RAW MATERIAL. Past the cap the oldest
+  // evergreen card goes, unspent — the newest card is the one that is still
+  // about something, and the dropped one can be taught the next time it is true.
+  while (tutorialQueue.length > TUT_QUEUE_MAX) {
+    let victim = -1;
+    // Never the head: it is next on the glass, and evicting it is how a queue
+    // cap would silently delete "WASD walks" from a busy first minute.
+    for (let i = tutorialQueue.length - 1; i >= 1; i--) {
+      if (tutorialQueue[i].a.priority === "high") continue;
+      // The evergreen card loses the least by being dropped: it is about a rule
+      // that will still be true in a minute. Ties go to the oldest.
+      if (victim < 0
+        || cardMomentMs(tutorialQueue[i]) > cardMomentMs(tutorialQueue[victim])
+        || (cardMomentMs(tutorialQueue[i]) === cardMomentMs(tutorialQueue[victim])
+          && tutorialQueue[i].queuedAt < tutorialQueue[victim].queuedAt)) victim = i;
+    }
+    if (victim < 0) break; // all urgent: let them through rather than drop one
+    const [dropped] = tutorialQueue.splice(victim, 1);
+    dropped.hooks?.onDropped?.();
+  }
+  pumpTutorialQueue();
+}
+
+/**
+ * A CARD BELONGS TO THE RUN THAT EARNED IT (r4 blocker 2). Pressing R at the
+ * verdict carried run 1's queue into run 2, and "the crowd has FAVORITES now"
+ * painted over a floor-1 crawler with an empty hype bar, zero favorites, level
+ * 1 and full HP. Contextual teaching that arrives with no context is worse
+ * than silence, and it is worse still now that arrival is what spends the
+ * concept. So the queue is scoped to a run: startRun drops everything still
+ * waiting (unspent — the ledger only hears about cards that painted, so the
+ * new run may teach these the moment they are true again) and clears the
+ * pacing clock so run 2's first honest card is not held for run 1's politeness.
+ */
+function resetTutorialSurface(): void {
+  // ...and every dropped card is handed back to whoever authored it (r5
+  // blocker 1). r4 said the dropped queue was "unspent"; for the ONRAMP's
+  // eleven lines that was simply untrue — they carry no tipId, so the ledger
+  // rule never covered them, and `Onramp.note` had already marked them fired.
+  // Measured: the flask confirmation queued, the run ended, R was pressed, and
+  // BOTH halves of the flask lesson were gone for the session with neither
+  // card ever on the glass.
+  for (const c of tutorialQueue.splice(0)) c.hooks?.onDropped?.();
+  window.clearTimeout(tutorialGapTimer);
+  tutorialDismissActive?.();
+  tutorialLastDismiss = -Infinity;
+}
+
+function displayTutorialCard(card: QueuedCard): void {
+  const a = card.a;
   tutorialActive = true;
+  // THE SPEND (r4 blocker 1). This is the only line in the client that turns a
+  // sim tip into a once-EVER fact, and it runs here — after the queue, after
+  // the pacing gap, after tutorialBlocked() — because those are exactly the
+  // things that used to eat a card between generation and glass.
+  if (a.tipId) recordTips([a.tipId]);
+  card.hooks?.onShown?.(); // ...and the same spend for a line that has no tipId
   // Strip the redundant lead-in (the ribbon header already says COURTESY
   // EXPLANATION) and re-capitalize so the body never reads as a truncated
   // sentence ("that unlock queued…" -> "That unlock queued…").
@@ -7633,31 +8059,54 @@ function showTutorialCard(a: Announcement): void {
   const dismiss = (): void => {
     if (dismissed) return;
     dismissed = true;
-    window.clearTimeout(tutorialAutoTimer);
+    window.clearInterval(tutorialAutoTimer);
     tutorialDismissActive = null;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
-    const next = tutorialQueue.shift();
-    if (next) showTutorialCard(next);
+    tutorialLastDismiss = performance.now();
+    pumpTutorialQueue(); // next card honors the pacing gap (urgent jumps it)
   };
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
   tutorialShownAt = performance.now();
-  // Auto-dismiss: a courtesy, not a squatter (r2: or any input). The hold
-  // scales with the line — 7s flat gave the ONRAMP's 170-char teaching lines
-  // ~24 chars/s, faster than anyone reads a System clause on a phone.
-  tutorialAutoTimer = window.setTimeout(
-    dismiss,
-    Math.min(14000, Math.max(7000, 55 * body.length)),
-  );
+  tutorialGraceMs = a.priority === "high" ? 2600 : 1200;
+  // Auto-dismiss: a courtesy, not a squatter (r2: or any input). Two rules,
+  // and the preview-all merge keeps BOTH because they fix different bugs:
+  //
+  //  - THE HOLD SCALES WITH THE LINE. 7s flat gave the ONRAMP's 170-char
+  //    teaching lines ~24 chars/s, faster than anyone reads a System clause
+  //    on a phone.
+  //  - THE CLOCK COUNTS ONLY VISIBLE TIME (r3). A modal opening mid-card
+  //    pauses it, so a tail is never clipped unseen — observed with the lowhp
+  //    card under the B3 draft modal.
+  //
+  // Taking either alone loses a real fix: a long line still gets its reading
+  // time, and a card buried under a draft panel still spends none of it.
+  const holdMs = Math.min(14000, Math.max(7000, 55 * body.length));
+  let visibleMs = 0;
+  let lastTick = performance.now();
+  tutorialAutoTimer = window.setInterval(() => {
+    const now = performance.now();
+    if (!tutorialBlocked()) visibleMs += now - lastTick;
+    lastTick = now;
+    if (visibleMs >= holdMs) dismiss();
+  }, 200);
 }
 
 // Any input clears the courtesy card (r2) — with a short grace so the key
 // the player was already holding when it appeared can't insta-kill it.
+//
+// An URGENT card gets a longer one (r5). The flask line arrives while the
+// crawler is losing a fight, which is precisely when the player's hands are
+// busiest: the r4 critic measured its dwell in a real fight at 0.3 SECONDS,
+// blinked away by the movement key that was already down. A lesson nobody can
+// physically read is not delivered, and it has already been spent.
 let tutorialShownAt = 0;
+let tutorialGraceMs = 1200;
 function dismissTutorialOnInput(): void {
-  if (tutorialDismissActive && performance.now() - tutorialShownAt > 1200) {
+  if (tutorialBlocked()) return; // the input belongs to the modal; the card is hidden (r3)
+  if (tutorialDismissActive && performance.now() - tutorialShownAt > tutorialGraceMs) {
     tutorialDismissActive();
   }
 }
@@ -7686,37 +8135,204 @@ document.getElementById("m-careerset")!.addEventListener("click", () => { void o
 // module never touches the sim); the System just addresses the fresh meat,
 // ≤6 lines, floor 1 only, naming the ACTUAL controls for the device.
 const freshCrawler = !loadToken() && loadHistory().length === 0 && !loadRun();
-const onramp: Onramp | null = freshCrawler && !net && !testMode
+// "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences BOTH voices: a
+// persisted skip suppresses the onramp on later boots too (the live-session
+// half of the same rule is the guide.skipped check inside onrampObserve).
+//
+// LIVE LABELS (the module header's contract, r2 blocker): the host passes the
+// player's ACTUAL binds. The shipped Five default to Space/Shift/Q/C + F —
+// the old hardcoded "1–4" named keys that do nothing, so the first thing the
+// System taught a compliant fresh crawler was that the System lies.
+//
+// r4 blocker 3 takes that one step further: a bind is only true when there is
+// something IN the slot. The static labels below are the ones that are always
+// true (movement, the strike, the flask, the bag); every ability label is
+// computed at the moment of teaching by onrampSlotKeys/onrampUltKey.
+const onrampKey = (a: BindableAction): string =>
+  bindings[a][0] ? keyLabel(bindings[a][0]) : "—";
+const onrampMove = (["moveUp", "moveLeft", "moveDown", "moveRight"] as const).map(onrampKey);
+const SLOT_ACTIONS = ["slot1", "slot2", "slot3", "slot4"] as const;
+/** Labels for the active slots past the strike that CURRENTLY hold an ability.
+ *  Empty string when the crawler has nothing but their swing. */
+function onrampSlotKeys(p: Player): string {
+  const live: string[] = [];
+  for (let i = 1; i < SLOT_ACTIONS.length; i++) {
+    if (p.abilities?.slots?.[i]) live.push(onrampKey(SLOT_ACTIONS[i]));
+  }
+  return live.join(", ");
+}
+// The onramp RUNS UNDER NET too (r2 major): it is a pure observer — no sim
+// writes, no seed, no spawn — and the fresh browser whose first click is THE
+// RUSH deserves the same six lines. (Mordecai stays solo-only: the dialogue
+// seam has no wire messages — TUTORIAL.md open edges.)
+const onramp: Onramp | null = freshCrawler && !testMode
+  && !knownTips().includes(GUIDE_SKIP_KEY)
   ? new Onramp(touchMode, {
-      move: "WASD",
-      attack: "Left click",
-      cast: "1–4",
+      // Single-char labels read as one word ("WASD"); anything longer spaces out.
+      move: onrampMove.every((k) => k.length === 1) ? onrampMove.join("") : onrampMove.join(" "),
+      attack: `Left click or ${onrampKey("slot1")}`,
       flask: bindingLabel(bindings, "flask"),
+      bag: onrampKey("inventory"),
     })
   : null;
-let onrampGold = 0;
 let onrampItems = -1;
-/** Called once per sim step (solo loop only): turns what just happened into
- *  at most one first-time System line on the tutorial-card surface. */
+/** Loadout/kit facts sampled last step, so the observer can see an EDGE: a
+ *  slot filling, an ultimate arriving, a piece of gear going on, a flask
+ *  charge going down. Every teach-by-doing confirmation below is one of these
+ *  edges — the player did a thing, and the System files the paperwork. */
+let onrampSlotSig = "";
+let onrampUlt: string | null = null;
+let onrampFlask = -1;
+let onrampSwung = false;
+let onrampEquipSig = "";
+/** Set for one step by the bag's own equip handler so the step loop's
+ *  equipment-diff reads it as a DECISION rather than the sim dressing you. */
+let onrampHandEquip = false;
+
+/**
+ * A NEW RUN IS A NEW CRAWLER, so the EDGES are re-baselined (r5). The observer
+ * works entirely by diffing last step against this one; carrying run 1's
+ * signatures into run 2 makes the fresh crawler's starting weapon read as an
+ * auto-equip and their full flask read as nothing. The `fired` ledger inside
+ * the Onramp is deliberately NOT reset — a line that actually painted was
+ * taught, and this is still one session.
+ */
+function resetOnrampSampling(): void {
+  onrampItems = -1;
+  onrampSlotSig = "";
+  onrampUlt = null;
+  onrampFlask = -1;
+  onrampSwung = false;
+  onrampEquipSig = "";
+  onrampHandEquip = false;
+}
+
+/** THE ONRAMP's one call into the card surface. Every line is OFFERED here and
+ *  spent only if the card paints — `commit`/`release` are r5 blocker 1: these
+ *  11 lines carry no tipId, so displayTutorialCard's ledger write never touched
+ *  them and `Onramp.note` was consuming them at generation. */
+function onrampSay(ev: OnrampEvent, keys = "", priority: Announcement["priority"] = "normal"): void {
+  if (!onramp) return;
+  const line = onramp.note(ev, state.floor, keys);
+  if (!line) return;
+  showAnnouncement({ text: line, kind: "tip", priority }, {
+    onShown: () => onramp.commit(ev),
+    onDropped: () => onramp.release(ev),
+    momentMs: ONRAMP_MOMENT_MS[ev],
+  });
+}
+
+/** The loot lesson's second half (r4): the player opened the bag and CHOSE to
+ *  wear something. Called from the bag panels' equip handlers, never from the
+ *  step loop — the sim auto-equips strict upgrades on pickup, and confirming a
+ *  decision nobody made teaches nothing. */
+function onrampNoteEquip(): void {
+  if (!onramp || guide?.skipped) return;
+  onrampHandEquip = true;
+  onrampSay("equipped");
+}
+/** How close a monster has to be before "there is something to swing at" is
+ *  true. The r3 script fired the combat lecture with the nearest monster 13.6
+ *  tiles away; three is inside the crawler's own reach. */
+const ONRAMP_CONTACT_TILES = 3;
+
+/**
+ * THE FLASK MUST ARRIVE WHILE THERE IS STILL A FIGHT TO SPEND IT ON (r5).
+ * r4 prompted at 40% and the critic measured the consequence twice: a card
+ * that painted at hp=34% and a corpse 2s later (0.3s of dwell), and a verdict
+ * that read "You died holding 3 flasks." A lesson delivered inside the last
+ * two seconds of a life is not a lesson. 60% is the first honest moment the
+ * crawler is visibly losing and still has room to do something about it.
+ */
+const ONRAMP_LOW_HP = 0.6;
+
+/** Called once per sim step (solo) or intent pump (net): turns what just
+ *  happened into at most one first-time System line on the card surface. */
 function onrampObserve(intent: Intent): void {
-  if (!onramp || state.floor !== 1 || state.status !== "playing") return;
-  const p = state.players[0];
-  if (onrampItems < 0) { onrampGold = p.gold; onrampItems = p.inventory.length; }
-  const say = (ev: OnrampEvent): void => {
-    const line = onramp.note(ev, state.floor);
-    if (line) showAnnouncement({ text: line, kind: "tip", priority: "normal" });
-  };
-  if (state.elapsed > 1) say("start");
-  if (Math.abs(intent.move.x) + Math.abs(intent.move.y) > 0.01) say("moved");
+  if (!onramp || state.status !== "playing") return;
+  if (guide?.skipped) return; // B0's skip declined the hand-holding mid-session
+  // The world must actually be LIVE. Solo elapses immediately; a rush race
+  // counts down before the gun (elapsed holds at 0 while forming). Gating
+  // the WHOLE observe on it also keeps the script's order sane everywhere:
+  // "fresh meat detected" always precedes everything else, even for a player
+  // already holding W when the gun fires.
+  if (state.elapsed <= 1) return;
+  const p = me(state); // under net the local crawler is not players[0]
+  const say = onrampSay;
+  const inReach = state.monsters.some((m) => m.hp > 0
+    && Math.abs(m.pos.x - p.pos.x) <= ONRAMP_CONTACT_TILES
+    && Math.abs(m.pos.y - p.pos.y) <= ONRAMP_CONTACT_TILES);
+
+  // ---- PROMPTS FIRST (r5 blocker 3) ----
+  // r4 observed confirmations first, in the same step. A fresh player holding
+  // the mouse button from the start — the single most common instinct there
+  // is — therefore got "swinging is the floor, not the ceiling" at +0.9s, with
+  // the nearest monster twenty tiles away, ELEVEN SECONDS AHEAD of "WASD
+  // walks". The script's order is part of the script.
+  if (state.floor === 1) {
+    if (onrampItems < 0) onrampItems = p.inventory.length;
+    say("start");
+    // The swing is taught when there is finally something to swing at.
+    if (inReach) say("contact");
+    // ...and the BAG is only named once the bag has something in it (r5): gold
+    // used to trip this, so the compliant reader pressed the key on cue and
+    // found nothing to wear. Gold is not a raise you can put on.
+    if (p.inventory.length > onrampItems) {
+      onrampItems = p.inventory.length;
+      say("pickup");
+    }
+    if (p.alive && p.hp > 0 && p.hp < p.maxHp * ONRAMP_LOW_HP) say("lowhp", "", "high");
+    if (state.elapsed > 75) say("linger");
+  }
+
+  // ---- CONFIRMATIONS: no floor window, because the act is the trigger ----
+  // (r4 blocker 3 / teach-by-doing. r3 had already carved `cast` out of the
+  // floor-1 retirement for exactly this reason; the others earn the same
+  // exemption on exactly the same argument.)
+  //
+  // A SWING IS A SWING AT SOMETHING (r5 blocker 3). `intent.attack` is true
+  // whenever the button is down, so held-from-boot counted as combat. The
+  // ability lesson now waits for a swing thrown with a monster inside the
+  // crawler's own reach AND for that exchange to have cost or produced
+  // something — first blood, either direction. That is the earliest instant
+  // "swinging is the floor, not the ceiling" is a true sentence.
+  if (!onrampSwung && inReach && (intent.cast?.[0] || intent.attack)
+    && (p.kills > 0 || (p.damageTaken ?? 0) > 0)) onrampSwung = true;
+  if (onrampSwung) say("ability", onrampSlotKeys(p));
   // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
   if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
-  if (p.gold > onrampGold || p.inventory.length > onrampItems) {
-    onrampGold = p.gold;
-    onrampItems = p.inventory.length;
-    say("pickup");
+  // A slot FILLING is the moment its bind becomes true. Compare against last
+  // step's loadout and name the slot that changed, never the whole row.
+  const slotSig = (p.abilities?.slots ?? []).map((a) => a ?? "").join("|");
+  if (onrampSlotSig && slotSig !== onrampSlotSig) {
+    const before = onrampSlotSig.split("|");
+    const now = slotSig.split("|");
+    for (let i = 1; i < now.length; i++) {
+      if (now[i] && !before[i]) { say("slotted", onrampKey(SLOT_ACTIONS[i])); break; }
+    }
   }
-  if (p.alive && p.hp > 0 && p.hp < p.maxHp * 0.4) say("lowhp");
-  if (state.elapsed > 75) say("linger");
+  onrampSlotSig = slotSig;
+  // The ultimate: CONFIG.ultimateMinFloor is 7, so this line is unreachable in
+  // a first session and that is the point — it is never printed as a promise.
+  const ult = p.abilities?.ultimate ?? null;
+  if (ult && !onrampUlt) say("ult", onrampKey("ultimate"));
+  onrampUlt = ult;
+  // THE LOOT LESSON'S REACHABLE HALF (r5 major). `equipped` fires from the
+  // bag's own click handlers and never once fired in four cold runs, because
+  // floor-1 loot is auto-equipped and the bag stays empty — the concept's
+  // delivery depended on the sim happening to drop something it declined to
+  // wear. So the AUTO-equip gets its own confirmation, on the same edge the
+  // player actually caused (they walked over it), and it is the line that
+  // explains why some gear never needed the trip.
+  const equipSig = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
+  if (onrampEquipSig && equipSig !== onrampEquipSig && !onrampHandEquip) say("autoequip");
+  onrampEquipSig = equipSig;
+  onrampHandEquip = false;
+  // The flask confirmation: "you died holding 3 flasks" was the critic's
+  // verdict, so the low-HP beat now has a second half that only exists if the
+  // player actually pressed it.
+  if (onrampFlask >= 0 && p.flaskCharges < onrampFlask) say("drink");
+  onrampFlask = p.flaskCharges;
 }
 
 // ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
@@ -7833,7 +8449,14 @@ function dismissTutorialForTransition(): void {
   tutorialDismissActive();
   if (queued.length > 0) {
     setTimeout(() => {
-      for (const q of queued) showTutorialCard(q);
+      // Re-queued with their ORIGINAL clock (r5): five seconds of transition is
+      // five seconds of a moment expiring, and a card that comes out the other
+      // side stale is dropped there rather than delivered as trivia.
+      for (const q of queued) {
+        tutorialQueue.push(q);
+      }
+      dropStaleCards();
+      pumpTutorialQueue();
     }, 5000);
   }
 }
@@ -7843,6 +8466,20 @@ function dismissTutorialForTransition(): void {
 // data already lives on Player/GameState; this only formats it.
 const recapEl = document.getElementById("recap")!;
 let recapFor: GameState["status"] | null = null;
+// TUTORIAL.md B8: Mordecai's first-verdict aside — cached at the status edge
+// (the verdict re-renders as boards arrive; the once-ever take happens once).
+let recapGuideLine: string | null = null;
+/** Has B8's plate actually reached the glass this run-end? Until it has, the
+ *  beat is OFFERED and nothing else (r5 blocker 1). */
+let recapGuideSpent = false;
+
+/** The verdict never showed the aside (a fast R cancelled the reveal, or the
+ *  run went back to playing): hand B8 back to the sequencer, unspent. */
+function releaseVerdictAside(): void {
+  if (recapGuideLine && !recapGuideSpent) guide?.release("tut.runback");
+  recapGuideLine = null;
+  recapGuideSpent = false;
+}
 
 // THE VERDICT (COMPETITIVE.md 6). One job: convert the end of a run into the
 // start of the next one, in under eight seconds of reading. Everything on the
@@ -8193,6 +8830,18 @@ function renderRecap(s: GameState): void {
       ? "TRY THIS DUNGEON AGAIN <kbd>R</kbd>"
       : "RUN IT BACK <kbd>R</kbd>";
   }
+  // TUTORIAL.md B8: the corner-man's aside, above the CTA it points at — a
+  // guide-framed plate inside the shipped layout, never a modal over the
+  // numbers. Once ever (cached at the status edge); absent on reruns.
+  {
+    const aside = document.getElementById("recap-guide")!;
+    aside.style.display = recapGuideLine ? "flex" : "none";
+    // Written unconditionally (r5): the r4 code only wrote the truthy case, so
+    // a verdict with no aside kept the PREVIOUS run's line sitting inside a
+    // display:none node — a probe reading textContent found B8 "present" on a
+    // screen that never showed it, which is the same lie the ledger was telling.
+    document.getElementById("recap-guide-line")!.textContent = recapGuideLine ?? "";
+  }
 
   // ---- Beat 1: THE GRADE ------------------------------------------------
   // A test-chamber start is HANDED its depth; it did not earn it, and the
@@ -8521,9 +9170,20 @@ let submitVisibility: "public" | "private" = "public";
 
 /** Show the recap when the run ends; re-arm when a new run starts. */
 function maybeShowRecap(s: GameState): void {
-  if (s.status === "playing") { recapFor = null; return; }
+  if (s.status === "playing") { recapFor = null; releaseVerdictAside(); return; }
   if (recapFor === s.status) return;
   recapFor = s.status;
+  // B8 fires on the first ever solo DEATH (guide is null under net / test
+  // mode; a rush death is DEATH IS A DOOR's moment, not this one). Wins are
+  // gated out WITHOUT consuming the beat (r2 minor: "run it back and collect
+  // what the tuition bought" on a first-run WIN read as a shrug) — the first
+  // death after a charmed first win still earns the aside.
+  recapGuideLine = guide && s.status === "dead" ? guide.verdictLine() : null;
+  recapGuideSpent = false;
+  // NO recordTips here (r5 blocker 1). This is the OFFER; the verdict is not
+  // on screen for another 620ms and a fast R cancels the reveal outright —
+  // measured, from a cold profile: ledger=[tut.campfire,tut.runback] with zero
+  // verdict frames and zero aside frames. The spend now rides the paint below.
   // (A ?c= run's one end-of-run claim comparison renders in renderRecap's
   // note slot — NICHE.md 4.2/§5: compared once, at the end, never live.)
 
@@ -8542,15 +9202,28 @@ function maybeShowRecap(s: GameState): void {
   // One short beat between the killing blow and the card — enough that the
   // verdict does not land on top of the hit that caused it, and no more.
   window.setTimeout(() => {
-    if (recapFor !== s.status) return; // a fast R already started the next run
+    if (recapFor !== s.status) { releaseVerdictAside(); return; } // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
-    // SOUNDPLAN row 12: ONE grade-reveal sting. It used to be pitched by the
-    // letter; with no letter on the screen it is pitched by the only outcome
-    // the screen still states — you walked out, or you did not. A sting that
-    // asserts a grade the glass no longer shows is the sound lying. Fires here
-    // (the status edge, with the card) so board-upgrade re-renders and a
-    // second run in the same session both behave.
+    // B8's SPEND (r5 blocker 1) — two frames after the verdict is told to
+    // display, so the ledger write follows a composited plate rather than an
+    // intention. Everything above this line is reversible; this line is not.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      if (recapFor !== s.status || recapEl.style.display !== "flex") { releaseVerdictAside(); return; }
+      if (!recapGuideLine || recapGuideSpent) return;
+      if (document.getElementById("recap-guide")!.style.display === "none") return;
+      recapGuideSpent = true;
+      guide?.commit("tut.runback");
+      recordTips(["tut.runback"]);
+    }));
+    // SOUNDPLAN row 12: ONE grade-reveal sting. The tutorial branch pitched it
+    // by the letter (S rings high, D sits low) — but the polish round DELETED
+    // the letter, because it was unstable (it changed a second after the card
+    // appeared, as the board resolved). So this merge takes the outcome pitch:
+    // a sting that asserts a grade the glass no longer shows is the sound
+    // lying, and `runGrade` no longer exists to read. Fires here (the status
+    // edge, with the card) so board-upgrade re-renders and a second run in the
+    // same session both behave.
     audio.play("verdict", { rate: s.status === "won" ? 1.22 : 0.9 });
   }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
@@ -10693,6 +11366,23 @@ if (new URLSearchParams(location.search).has("debug")) {
         renderer.holdBossBeats(seconds);
       },
       release: () => { captureHold = 0; },
+      // TUTORIAL (r5): what the card surface is HOLDING versus what the ONRAMP
+      // has actually DELIVERED. Every round of this feature has been failed by
+      // guards that asked the code whether it had shown a card; this hook lets
+      // a probe ask the two questions separately — what is queued (offered,
+      // unspent) and what was painted (spent) — and check the pixels for the
+      // rest. Read-only, ?debug=1 only.
+      tut: () => ({
+        queue: tutorialQueue.map((c) => ({
+          text: c.a.text.replace(/^COURTESY EXPLANATION:\s*/, "").slice(0, 70),
+          tipId: c.a.tipId ?? null,
+          ageMs: Math.round(performance.now() - c.queuedAt),
+          momentMs: cardMomentMs(c),
+        })),
+        active: tutorialActive,
+        onrampLines: onramp?.spent ?? -1,
+        onrampPrompts: onramp?.promptsSpent ?? -1,
+      }),
       // Touch layer, for the device harness: the live zone table, the routing
       // decision for a point, and the lock/pref state the battery asserts on.
       touch: {
@@ -11254,7 +11944,13 @@ async function main(): Promise<void> {
       netIntentAcc += dt;
       if (netIntentAcc >= 0.05) {
         netIntentAcc = 0;
-        net.sendIntent(sampleIntent(0.05));
+        const netIntent = sampleIntent(0.05);
+        net.sendIntent(netIntent);
+        // THE ONRAMP under net (r2 major): a fresh browser whose first click
+        // is THE RUSH gets the same six System lines — the module is a pure
+        // observer (no sim writes), so the doc's "the run is a normal run"
+        // constraint holds on the server's world exactly as on the local one.
+        if (onramp) onrampObserve(netIntent);
       }
       const disp = net.display(now);
       if (disp) state = disp;
@@ -11336,8 +12032,30 @@ async function main(): Promise<void> {
     if (settlementShopOpen && (inSafeRoom || !!net || !settlementShopFor(state, lp))) {
       settlementShopOpen = false;
     }
-    if (srEl.style.display !== "flex" && inSafeRoom && !draftPending) {
-      srTab = "shop"; // every safe room opens on today's shelf
+    // TUTORIAL.md B5/B6/B7: at most ONE Mordecai beat per safe-room visit,
+    // shown before the panel (the sim is already paused — shipped safe-room
+    // behavior). The panel itself opens the moment the beat closes; a beat
+    // choice may pre-pick its tab (shop / bench) via guideSrTab.
+    if (!inSafeRoom) { guideSrVisitSpent = false; guideSrBeatThisVisit = false; }
+    if (guide && inSafeRoom && !draftPending && !guideSrVisitSpent && !dlgOpen
+      && srEl.style.display !== "flex") {
+      guideSrVisitSpent = true; // one beat per surface visit, spent either way
+      const seen = new Set([...knownTips(), ...(lp.tipsSeen ?? [])]);
+      const beat = guide.safeRoomBeat({
+        // The System demonstrates the Show first; Mordecai debriefs after.
+        showMet: seen.has("interference") || seen.has("sponsors") || seen.has("favorites"),
+        // Socketing is POSSIBLE on this visit: socket 1 open + a glyph in
+        // hand or the shelf stocking the Glyph Cache. Never as theory.
+        glyphReady: lp.level >= CONFIG.glyphSocket1Level
+          && ((lp.glyphs && (lp.glyphs.bench.length > 0
+            || lp.glyphs.slots.some((s) => s.some(Boolean)) || lp.glyphs.ultimate.some(Boolean)))
+            || (state.safeRoom?.available.includes("glyph_cache") ?? false)),
+      });
+      if (beat) { guideSrBeatThisVisit = true; guideShow(beat); }
+    }
+    if (srEl.style.display !== "flex" && inSafeRoom && !draftPending && !dlgOpen) {
+      srTab = guideSrTab ?? "shop"; // every safe room opens on today's shelf
+      guideSrTab = null;            // ...unless the beat's choice picked one
       shopView = "stock";
       shopSel = null;
       renderSafeRoom(state);

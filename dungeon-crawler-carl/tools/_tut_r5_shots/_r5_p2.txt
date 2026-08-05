@@ -1,0 +1,29 @@
+RUN1 cards so far:  SYSTEM — COURTESY EXPLANATIONFresh meat detecte |  SYSTEM — COURTESY EXPLANATIONContact. Left clic |  SYSTEM — COURTESY EXPLANATIONYou are leaking. X
+LOWHP card painted at hp=45% flask=3
+FLASK press: card-up=true charges 3 -> 2; bag open (modal)=true
+QUEUE while blocked: [{"text":"flask consumed. Charges come back from KILLS, not from time, so the wa","tipId":null,"ageMs":642,"momentMs":12000}]
+AFTER BAG: {"queue":[],"active":true,"onrampLines":3,"onrampPrompts":3}
+SECOND PRESS: flask 2 -> 1; drink card =  SYSTEM — COURTESY EXPLANATIONFlask consumed. Charges come back from KILLS, not from time,
+RUN1 DEATH @ {"floor":1,"elapsed":116,"lvl":1,"hp":1,"near":17,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":270,"fav":0,"flask":1,"slots":"melee|dash|bolt|","ult":null,"latch":["tut.campfire","achievementClaim","collapse"],"ledger":["tut.campfire","achievementClaim","collapse"]}
+AFTER R: {"queue":[],"active":false,"onrampLines":5,"onrampPrompts":4} (lines before death = 4)
+RUN2 cards: (none)
+CARD hp=100% f=1 e=1s ::  SYSTEM — COURTESY EXPLANATIONFresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged. The floor has opini
+CARD hp=100% f=1 e=6s ::  SYSTEM — COURTESY EXPLANATIONContact. Left click or Space swings at what the mouse points at, and keeps swinging while you hold i
+CARD hp=45% f=1 e=15s ::  SYSTEM — COURTESY EXPLANATIONYou are leaking. X drinks the flask; kills refill it. The System notes that dying pays nothing.GOT I
+CARD hp=85% f=1 e=22s ::  SYSTEM — COURTESY EXPLANATIONFlask consumed. Charges come back from KILLS, not from time, so the way out of a losing fight is thr
+CARD hp=1% f=1 e=72s ::  SYSTEM — COURTESY EXPLANATIONThis floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the ha
+CARD hp=1% f=1 e=89s ::  SYSTEM — COURTESY EXPLANATIONDown is the only way out. Find the stairs before the collapse clock finds you — the exit is always d
+errors [] | 404s []
+
+
+PASS R5P2: profile is genuinely COLD (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS R5P2: the low-HP prompt reached the glass in run 1 — {"floor":1,"elapsed":16,"lvl":1,"hp":45,"near":13.8,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":270,"fav":0,"flask":3,"slots":"melee|dash|bolt|","ult":null,"latch":["tut.campfire","achievementClaim"],"ledger":["tut.campfire","achievementClaim"]}
+PASS R5P2 M6: the flask lesson arrives with room to use it (hp > 40%) — hp=45%
+PASS R5P2: the flask was actually drunk in run 1 — 3 -> 2
+PASS R5P2: the bag really blocks the card surface
+PASS R5P2: the confirmation is QUEUED, unpainted, behind the panel — [{"text":"flask consumed. Charges come back from KILLS, not from time, so the wa","tipId":null,"ageMs":642,"momentMs":12000}]
+PASS R5P2 M4: a card whose moment expired behind a panel is DROPPED, not delivered late — painted=false queue=[]
+PASS R5P2 BLOCKER 1: the dropped line was UNSPENT — the next press teaches it — flask 2->1 card=yes
+PASS R5P2 BLOCKER 2 (r4, kept): the run boundary empties the queue — []
+PASS R5P2 BLOCKER 2: no run-1 card painted over run 2's context
+PASS R5P2: zero page errors

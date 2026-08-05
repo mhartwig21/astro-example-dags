@@ -1,0 +1,61 @@
+PASS A boot: RINGSIDE CHECK-IN open
+PASS A boot: no dialogue on the panel stage (B9 needs a history)
+PASS B0: Mordecai panel up at the casting stage
+PASS B0: nameplate reads Mordecai
+PASS B0: three numbered choices
+PASS b0_1366: #dialogue .dlg-stage painted (std 33.7, warm 5.3%)
+PASS B0: depth answer consumed the question
+PASS b0_reply: #dialogue .dlg-stage painted (std 31.0, warm 4.2%)
+PASS B0: ESC closes the beat
+PASS B0->run: CHECK IN launched the run
+PASS b1_card: #tutorial .tut painted (std 42.7, warm 5.4%)
+PASS B1: onramp card body mentions fresh meat / walking
+PASS B3 setup: staged a kill
+PASS B3 setup: leveled up — level 2
+PASS B3: guide beat BEFORE the draft UI
+PASS b3_beat: #dialogue .dlg-stage painted (std 31.6, warm 4.6%)
+PASS B3: choice 1 opens the draft panel
+PASS b3_draft: #draft painted (std 14.8, warm 0.6%)
+PASS B3: the pick completed
+PASS B3-2 setup: staged a kill
+PASS B3-2 setup: leveled to >=5 (socket 1 open) — level 5
+PASS B3-2: second draft opens with NO beat
+PASS B3-2: drafts all claimed
+PASS B4: collapse card text present
+PASS b4_card: #tutorial .tut painted (std 45.2, warm 5.4%)
+PASS B4: no Mordecai surface during live play
+PASS B5: safe room opened in the sim
+PASS B5: Mordecai beat before the panel
+PASS b5_beat: #dialogue .dlg-stage painted (std 34.5, warm 5.8%)
+PASS B5: choice 1 lands in the safe-room shop
+PASS b5_shop: #saferoom painted (std 24.9, warm 2.4%)
+PASS A: on floor 2
+PASS B7: glyph beat on the visit where socketing is possible
+PASS b7_beat: #dialogue .dlg-stage painted (std 32.6, warm 5.3%)
+PASS B7: choice 1 lands on the bench tab
+PASS b7_bench: #saferoom painted (std 20.0, warm 1.4%)
+PASS B8: THE VERDICT is up
+PASS B8: the Mordecai aside plate shows
+PASS B8: aside sits clear of the RUN IT BACK CTA — false
+PASS b8_verdict: #recap-guide painted (std 33.8, warm 5.2%)
+PASS B8: R runs back the identical seed — {"seedBefore":1055777229,"rb":{"seed":1055777229,"status":"playing"}}
+PASS B8-2: second verdict has NO plate
+PASS B9: beat on the second organic check-in
+PASS b9_menu: #dialogue .dlg-stage painted (std 31.8, warm 4.8%)
+PASS b9_roam: #dialogue .dlg-stage painted (std 27.9, warm 3.9%)
+PASS B9: ESC leaves the menu usable
+PASS B9-2: third visit shows no beat
+PASS A: zero page errors
+PASS skip: B0 up at 1600x900
+PASS b0_1600: #dialogue .dlg-stage painted (std 33.8, warm 5.2%)
+PASS b0_skip: #dialogue .dlg-stage painted (std 32.2, warm 4.6%)
+PASS skip: panel closed
+PASS skip: every tut key + the skip flag ledgered
+PASS skip: zero onramp lines in 20s of floor-1 play
+PASS B: zero page errors
+PASS link arrival: NO campfire beat at the casting stage
+PASS B0 @2560: campfire beat up (tut.campfire unseen)
+PASS b0_2560: #dialogue .dlg-stage painted (std 33.1, warm 5.2%)
+PASS B6: Show debrief at the safe room AFTER the System demonstrated
+PASS b6_beat: #dialogue .dlg-stage painted (std 31.9, warm 4.7%)
+PASS B6: farewell leaves the safe-room panel usable
