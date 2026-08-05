@@ -927,25 +927,43 @@ async function driveBattery(page, touch, spec) {
       `moved ${d.toFixed(2)} tiles from (${ox},${oy}) over ${under}; stick visual = ${during.stickShown}`);
   }
 
-  // --- 2. MOVEMENT under the minimap (z-order conflict) -------------------
+  // --- 2. THE MINIMAP IS OUT OF THE STICK ZONE, AND SWALLOWS NOTHING ------
+  // This used to press the puck and assert the crawler still WALKED, which
+  // encoded the very bug it was written for: the minimap sat at left:12 top:96,
+  // dead inside the movement thumb's arc, so a stick gesture dropped a party
+  // ping instead of moving. The layout round moved it out — not drawn at all on
+  // a phone (the MAP chip opens a full-screen chart), display-only at the top
+  // right on a tablet — so a press there is now a WORLD press and "did the
+  // crawler walk" would fail a layout that is correct.
+  //
+  // The two things that must still hold, asserted directly:
+  //   1. the puck's rect does not intersect the stick zone;
+  //   2. it does not swallow the pointer — the press reaches the canvas.
   {
     await keepAlive();
     const mm = await at("#minimap-frame");
-    if (!mm) rec("move: thumb lands on minimap", "N/A", "no minimap");
-    else {
-      const a = await snap();
-      await touch.down(1, mm.x, mm.y);
-      await settle(120);
-      const during = await snap();
-      for (let i = 0; i < 10; i++) { await touch.move(1, mm.x + 70, mm.y); await settle(40); }
-      const b = await snap();
-      await touch.up(1);
-      await settle(300);
-      const c = await snap();
-      const d = Math.hypot(b.pos.x - a.pos.x, b.pos.y - a.pos.y);
-      rec("move: thumb lands on minimap", d > 0.4 ? "PASS" : "FAIL",
-        `minimap ${mm.w}x${mm.h} at (${mm.x},${mm.y}) is inside the stick zone (hit: ${await hitAt(mm.x, mm.y)}); ` +
-        `moved ${d.toFixed(2)} tiles, stick shown = ${during.stickShown}, pings ${a.pings}->${c.pings}`);
+    if (!mm) {
+      rec("minimap: clear of the stick zone", "N/A",
+        "no minimap on this class — the MAP chip opens the full-screen chart");
+    } else {
+      // CENTRE() returns the element's CENTRE, not its origin — the whole
+      // battery presses at (mm.x, mm.y) and means "the middle of it". Deriving
+      // the box from the centre rather than assuming otherwise is the
+      // difference between measuring the puck and measuring 68px of air.
+      const zone = await page.evaluate(() => window.__dcc.touch.zones.stickZone);
+      const box = { x: mm.x - mm.w / 2, y: mm.y - mm.h / 2, w: mm.w, h: mm.h };
+      const overlaps = box.x < zone.x + zone.w && box.x + box.w > zone.x &&
+        box.y < zone.y + zone.h && box.y + box.h > zone.y;
+      const hit = await hitAt(mm.x, mm.y);
+      const swallowed = /minimap/i.test(String(hit));
+      const vw = page.viewportSize().width, vh = page.viewportSize().height;
+      const offscreen = box.x < 0 || box.y < 0 || box.x + box.w > vw || box.y + box.h > vh;
+      rec("minimap: clear of the stick zone",
+        (!overlaps && !swallowed && !offscreen) ? "PASS" : "FAIL",
+        `puck ${mm.w}x${mm.h} at (${Math.round(box.x)},${Math.round(box.y)}); stick zone ` +
+        `${Math.round(zone.w)}x${Math.round(zone.h)} at (${Math.round(zone.x)},${Math.round(zone.y)}); ` +
+        `overlaps stick zone = ${overlaps}; a press there lands on ${hit}; ` +
+        `inside the ${vw}x${vh} viewport = ${!offscreen}`);
     }
   }
 
