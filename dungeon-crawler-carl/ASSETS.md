@@ -189,12 +189,13 @@ BINDINGS panel footer in `iso.html`) — keep both in sync when adding rows.
 | Work | Author | License | Source | Our file |
 |---|---|---|---|---|
 | Battle Music | Alexandr Zhelanov | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-music) | `music/battle_music.ogg` |
-| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` |
+| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` (MODIFIED: trimmed 262.45s→88.40s + 1.2s loop crossfade via `tools/audio/fix-beds.mjs battle_winter` — a bed the director drops after a ~6s battle linger was 3.55MB fetched mid-fight. 1.18MB after; seam Δ0.8dB / no click, -23.5 LUFS-I, -7.5 dBTP. Level-only loop surgery, no creative content added; CC-BY's change-marking requirement is satisfied by this note) |
 | Colossal Boss Battle Theme | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/colossal-boss-battle-theme) | `music/boss_colossal.ogg` |
 | Blackmoor Tides (Epic Pirate Battle Theme) | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/blackmoor-tides-epic-pirate-battle-theme) | `music/boss_blackmoor.ogg` |
 
 The `.ogg` files are re-encodes of the authors' seamless-loop WAV/MP3 releases
-(format conversion only, no creative changes). Rejected during sourcing:
+(format conversion only, no creative changes — except `battle_winter.ogg`,
+whose loop-trim is marked in its row above). Rejected during sourcing:
 "Orchestral Battle Music" (Zefz) — CC-BY-SA/GPL only, and the author states the
 samples come from a commercial MAGIX sample DVD, so the relicensing chain is
 unclear. Don't ship it.

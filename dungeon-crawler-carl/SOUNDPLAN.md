@@ -246,6 +246,21 @@ a replacement the owner has cleared.
     `musicSeam()`, and that probe is UNRUN (browser forbidden in the fix
     round). P0 for the next round that is allowed to launch one.
 
+23. **(E-23) OPEN — THE LOOP LADDER: rung 1 ships, rungs 2/3 are prepared,
+    and only an ear can say whether they are needed.** Streamed music loops
+    via native `el.loop` (rung 1) — a decoder seek-to-zero that MAY gap
+    audibly at the wrap, per browser/codec. The live instrument is
+    `engine.debugHook.musicSeam()` (null = UNPROVEN, never a pass) and it
+    needs a browser this round was not allowed. **Owner: listen for a
+    hiccup/silence at any bed's wrap** — fastest places are `music_collapse`
+    (wraps every ~24.7s; let the collapse timer run) and any band bed after
+    ~80s of ambience. If a bed audibly gaps, the escalation path is already
+    built, nothing to design: rung 2 = the spare deck in `src/audio/deck.ts`
+    (ping-pong crossfade across two elements); rung 3 = `stream: false` on
+    that one id in `src/audio/manifest.ts`, sending just that bed back to
+    sample-accurate buffered looping. If no gap is audible, close this row
+    and rungs 2/3 die unbuilt — which is the good outcome.
+
 Priority: P0 = 1.2's missing files + rows 1, 10, 11, 13, 21, 22. P1 = rows 3, 4,
 5, 6, 8, 9, 12, 14, 15, 16, 17. P2 = rows 2, 7, 18, 19, 20 (19/20 are
 trivially scriptable and fund the budget — do them early even though they're
@@ -447,7 +462,7 @@ lap: 60-96s for ambient beds.
 | Menu / campfire | The check-in. Small, warm-ish, tired: soft pad + slow filtered arp, the only near-friendly cue in the game. | ~65 BPM | 60-75s | Synth |
 | Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. **r2: the source's fade-out tail trimmed + 2s loop crossfade** (`fix-beds.mjs`; seam step 20.7dB→0.8dB, LUFS preserved). | — | as-is | Existing |
 | (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. **Music r1: demoted as planned** — it now plays only when another bed is not PLAYABLE (fallback via sink.has, extended in the r2 fix round from the six band beds to every bed the director can request). Note "playable", not "decoded": under streaming (row E-22) no bed is ever decoded, so availability is optimistic and turns false when the element actually fails — 404, undecodable, CORS-tainted, or stalled past the deck watchdog. The seam flaw ships only in a degraded state nobody should reach; repair stays out of scope unless the audit disagrees. | — | — | Existing |
-| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). | — | as-is | Existing |
+| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). **Release-fixes: `battle_winter.ogg` trimmed 262.45s→88.40s / 3.55MB→1.18MB** (`fix-beds.mjs battle_winter` — HANDOFF §3d's mid-fight phone-stall fix; cut chosen by a deterministic continuation-correlation search, 1.2s loop crossfade; measured seam Δ0.8dB, no click, -23.5 LUFS-I / -7.5 dBTP). | — | 88s | Existing (CC-BY, change marked in ASSETS.md) |
 | Boss themes | Keep epic/tides/colossal (+ shipped final-phase escalation to colossal). Optional P2: a generated percussion LAYER the engine adds at low HP instead of a full bed swap. | — | as-is | Existing (CC-BY credited) |
 | Collapse | Keep, re-encode WAV→OGG. **r2: seam click + true peak fixed** (`fix-beds.mjs`: -2.0dB, 25ms loop crossfade → -1.4 dBTP, seam 0.3dB). Level vs the -20 LUFS family target stays phase C's. | — | as-is | Existing |
 
