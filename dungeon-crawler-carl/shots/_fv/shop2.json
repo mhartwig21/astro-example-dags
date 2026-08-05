@@ -1,0 +1,488 @@
+[
+  {
+    "vp": "1366x768",
+    "seed": 41,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 507,
+    "scrollH": 581,
+    "overflow": 74,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.011,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 10.5,
+        "boxW": 95.4,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 10.5,
+        "boxW": 55.6,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 10.5,
+        "boxW": 91,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 10.5,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 10.5,
+        "boxW": 72.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "1366x768",
+    "seed": 12,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 507,
+    "scrollH": 581,
+    "overflow": 74,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.011,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 10.5,
+        "boxW": 95.4,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 10.5,
+        "boxW": 55.6,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 10.5,
+        "boxW": 91,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 10.5,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 10.5,
+        "boxW": 72.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "1366x768",
+    "seed": 77,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 507,
+    "scrollH": 581,
+    "overflow": 74,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.011,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 10.5,
+        "boxW": 95.4,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 10.5,
+        "boxW": 55.6,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 10.5,
+        "boxW": 91,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 10.5,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 10.5,
+        "boxW": 72.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "1920x1080",
+    "seed": 41,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 537,
+    "scrollH": 581,
+    "overflow": 44,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.415,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 13.82,
+        "boxW": 70.9,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 13.82,
+        "boxW": 93,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "1920x1080",
+    "seed": 12,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 537,
+    "scrollH": 581,
+    "overflow": 44,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.415,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 13.82,
+        "boxW": 70.9,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 13.82,
+        "boxW": 93,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "1920x1080",
+    "seed": 77,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 537,
+    "scrollH": 581,
+    "overflow": 44,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.415,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 13.82,
+        "boxW": 70.9,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 13.82,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 13.82,
+        "boxW": 93,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "2560x1440",
+    "seed": 41,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 536,
+    "scrollH": 581,
+    "overflow": 45,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.4,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 14,
+        "boxW": 71.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 14,
+        "boxW": 94.1,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "2560x1440",
+    "seed": 12,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 536,
+    "scrollH": 581,
+    "overflow": 45,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.4,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 14,
+        "boxW": 71.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 14,
+        "boxW": 94.1,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  },
+  {
+    "vp": "2560x1440",
+    "seed": 77,
+    "view": "IN STOCK",
+    "dense": false,
+    "clientH": 536,
+    "scrollH": 581,
+    "overflow": 45,
+    "sections": 5,
+    "lastSection": "SIGNATURE",
+    "lastVisibleFrac": 0.4,
+    "labels": [
+      {
+        "text": "CONSUMABLES",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "STARTER",
+        "fontPx": 14,
+        "boxW": 71.8,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      },
+      {
+        "text": "COMPONENTS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 1,
+        "midWordBreak": true
+      },
+      {
+        "text": "COMPLETED WORKS",
+        "fontPx": 14,
+        "boxW": 100,
+        "lines": 2,
+        "words": 2,
+        "midWordBreak": false
+      },
+      {
+        "text": "SIGNATURE",
+        "fontPx": 14,
+        "boxW": 94.1,
+        "lines": 1,
+        "words": 1,
+        "midWordBreak": false
+      }
+    ]
+  }
+]

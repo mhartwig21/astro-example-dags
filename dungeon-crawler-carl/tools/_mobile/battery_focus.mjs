@@ -1,7 +1,7 @@
 // The focus-branch mobile gate: RESULT CARD + sharesheet on iPhone 13 landscape,
 // real CDP touch, hit-tested. Descended from wrsurf3.mjs, corrected to assert
 // the SHIPPED r2 recap-rail spec (iso.html CSS + MOBILE.md), which is:
-//   - only .rmain pins (RUN IT BACK / NEW CONTRACT on-glass at first paint);
+//   - only .rmain pins (RUN IT BACK / NEW RUN on-glass at first paint);
 //   - SHARE flows with the body copy and is reached by an ordinary thumb
 //     scroll (wrfix1.mjs / ac_wr_surf2.mjs — the WR track's committed
 //     evidence batteries — hit-test SHARE after scrolling for exactly this

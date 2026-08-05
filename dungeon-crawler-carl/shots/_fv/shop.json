@@ -1,0 +1,346 @@
+{
+  "1366x768": {
+    "stock": {
+      "sections": [
+        {
+          "header": "CONSUMABLES",
+          "note": "— 6 ready to buy",
+          "tierColor": "#a99f8c",
+          "tiles": 6,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(169, 159, 140)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 0,
+          "sectionH": 75
+        },
+        {
+          "header": "STARTER",
+          "note": "— 3 ready to buy",
+          "tierColor": "#b9b2a4",
+          "tiles": 3,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(185, 178, 164)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 87,
+          "sectionH": 75
+        },
+        {
+          "header": "COMPONENTS",
+          "note": "— 18 ready to buy",
+          "tierColor": "#8fb0d9",
+          "tiles": 18,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(143, 176, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 174,
+          "sectionH": 154
+        },
+        {
+          "header": "COMPLETED WORKS",
+          "note": "",
+          "tierColor": "#f2c14e",
+          "tiles": 11,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(242, 193, 78)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 340,
+          "sectionH": 154
+        },
+        {
+          "header": "SIGNATURE",
+          "note": "",
+          "tierColor": "#b08fd9",
+          "tiles": 4,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(176, 143, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 506,
+          "sectionH": 75
+        }
+      ],
+      "looseHeaders": [],
+      "dense": false,
+      "shelfClientH": 507,
+      "shelfScrollH": 581,
+      "overflowPx": 74,
+      "tileW": 56,
+      "totalTiles": 42,
+      "totalWells": 0,
+      "maskImage": "none"
+    },
+    "all": {
+      "sections": [
+        {
+          "header": "CONSUMABLES",
+          "note": "— 6 ready to buy",
+          "tierColor": "#a99f8c",
+          "tiles": 6,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(169, 159, 140)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 0,
+          "sectionH": 57
+        },
+        {
+          "header": "STARTER",
+          "note": "— 3 ready to buy",
+          "tierColor": "#b9b2a4",
+          "tiles": 3,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(185, 178, 164)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 69,
+          "sectionH": 57
+        },
+        {
+          "header": "COMPONENTS",
+          "note": "— 18 ready to buy",
+          "tierColor": "#8fb0d9",
+          "tiles": 18,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(143, 176, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 138,
+          "sectionH": 116
+        },
+        {
+          "header": "COMPLETED WORKS",
+          "note": "— stock varies by shop",
+          "tierColor": "#f2c14e",
+          "tiles": 19,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(242, 193, 78)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 266,
+          "sectionH": 116
+        },
+        {
+          "header": "SIGNATURE",
+          "note": "— stock varies by shop",
+          "tierColor": "#b08fd9",
+          "tiles": 20,
+          "wells": 0,
+          "headerFontPx": 10.5,
+          "headerColor": "rgb(176, 143, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 394,
+          "sectionH": 116
+        }
+      ],
+      "looseHeaders": [],
+      "dense": true,
+      "shelfClientH": 507,
+      "shelfScrollH": 510,
+      "overflowPx": 3,
+      "tileW": 40,
+      "totalTiles": 66,
+      "totalWells": 0,
+      "maskImage": "none"
+    },
+    "chase": {
+      "sections": [],
+      "looseHeaders": [
+        "DROP-ONLY — ONE PER BAND BOSS the System does not stock these, and neither will anyone else"
+      ],
+      "dense": false,
+      "shelfClientH": 507,
+      "shelfScrollH": 507,
+      "overflowPx": 0,
+      "tileW": 52,
+      "totalTiles": 5,
+      "totalWells": 0,
+      "maskImage": "none"
+    }
+  },
+  "1920x1080": {
+    "stock": {
+      "sections": [
+        {
+          "header": "CONSUMABLES",
+          "note": "— 6 ready to buy",
+          "tierColor": "#a99f8c",
+          "tiles": 6,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(169, 159, 140)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 0,
+          "sectionH": 75
+        },
+        {
+          "header": "STARTER",
+          "note": "— 3 ready to buy",
+          "tierColor": "#b9b2a4",
+          "tiles": 3,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(185, 178, 164)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 87,
+          "sectionH": 75
+        },
+        {
+          "header": "COMPONENTS",
+          "note": "— 18 ready to buy",
+          "tierColor": "#8fb0d9",
+          "tiles": 18,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(143, 176, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 174,
+          "sectionH": 154
+        },
+        {
+          "header": "COMPLETED WORKS",
+          "note": "",
+          "tierColor": "#f2c14e",
+          "tiles": 11,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(242, 193, 78)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 340,
+          "sectionH": 154
+        },
+        {
+          "header": "SIGNATURE",
+          "note": "",
+          "tierColor": "#b08fd9",
+          "tiles": 4,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(176, 143, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 506,
+          "sectionH": 75
+        }
+      ],
+      "looseHeaders": [],
+      "dense": false,
+      "shelfClientH": 537,
+      "shelfScrollH": 581,
+      "overflowPx": 44,
+      "tileW": 56,
+      "totalTiles": 42,
+      "totalWells": 0,
+      "maskImage": "none"
+    },
+    "all": {
+      "sections": [
+        {
+          "header": "CONSUMABLES",
+          "note": "— 6 ready to buy",
+          "tierColor": "#a99f8c",
+          "tiles": 6,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(169, 159, 140)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 0,
+          "sectionH": 57
+        },
+        {
+          "header": "STARTER",
+          "note": "— 3 ready to buy",
+          "tierColor": "#b9b2a4",
+          "tiles": 3,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(185, 178, 164)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 69,
+          "sectionH": 57
+        },
+        {
+          "header": "COMPONENTS",
+          "note": "— 18 ready to buy",
+          "tierColor": "#8fb0d9",
+          "tiles": 18,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(143, 176, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 138,
+          "sectionH": 116
+        },
+        {
+          "header": "COMPLETED WORKS",
+          "note": "— stock varies by shop",
+          "tierColor": "#f2c14e",
+          "tiles": 19,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(242, 193, 78)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 266,
+          "sectionH": 116
+        },
+        {
+          "header": "SIGNATURE",
+          "note": "— stock varies by shop",
+          "tierColor": "#b08fd9",
+          "tiles": 20,
+          "wells": 0,
+          "headerFontPx": 13.82,
+          "headerColor": "rgb(176, 143, 217)",
+          "headerBoxW": 116,
+          "headerLeft": 0,
+          "sectionTop": 394,
+          "sectionH": 116
+        }
+      ],
+      "looseHeaders": [],
+      "dense": true,
+      "shelfClientH": 537,
+      "shelfScrollH": 537,
+      "overflowPx": 0,
+      "tileW": 40,
+      "totalTiles": 66,
+      "totalWells": 0,
+      "maskImage": "none"
+    },
+    "chase": {
+      "sections": [],
+      "looseHeaders": [
+        "DROP-ONLY — ONE PER BAND BOSS the System does not stock these, and neither will anyone else"
+      ],
+      "dense": false,
+      "shelfClientH": 537,
+      "shelfScrollH": 537,
+      "overflowPx": 0,
+      "tileW": 52,
+      "totalTiles": 5,
+      "totalWells": 0,
+      "maskImage": "none"
+    }
+  }
+}

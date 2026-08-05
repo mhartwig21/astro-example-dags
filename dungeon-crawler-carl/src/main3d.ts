@@ -592,7 +592,7 @@ input.onReset = () => {
    *
    * The verdict's primary CTA renders `RUN IT BACK <kbd>R</kbd>` and calls
    * runItBack(): the same seed, a fresh run. R routed here instead - a fresh
-   * seed, no forcedSeed, i.e. NEW CONTRACT - and then hid the verdict with
+   * seed, no forcedSeed, i.e. NEW RUN - and then hid the verdict with
    * the comment "last season's report card". COMPETITIVE.md 6.2 Beat 6 names
    * RUN IT BACK the biggest retry driver in the design and says to bind it to
    * the key the player already reflex-presses. Shipped, the reflex press
@@ -2881,6 +2881,63 @@ function slotIndexOf(p: Player, id: AbilityId): number {
   return p.abilities.ultimate === id ? ULT_SLOT : -1;
 }
 
+/** THE VERBS. Slot controls are a SAFE-ROOM decision (the sim enforces it; we
+ *  just hide the buttons elsewhere). Roam: a settlement's walls count as
+ *  safety — the sim's slotAbility accepts playerInSettlement, so the buttons
+ *  show there too.
+ *
+ *  Lifted out of `abilityCard` in polish r1 because it was the ONLY producer
+ *  of `.slot-btn` in the codebase, which meant the STAR CHART card had no
+ *  button on it at all — and in the safe room, whose own label says
+ *  "re-slotting is a safe-room decision", switching to the chart made
+ *  re-slotting literally impossible. A view toggle must never remove the only
+ *  verb on the screen. The emitted markup is unchanged: the data attributes
+ *  are what handleSlotClick reads. */
+function abilitySlotControlsHtml(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  if (!s.safeRoom && !settlementShopFor(s, p)) return "";
+  const info = ABILITY_INFO[id];
+  if (info.tier === "active") {
+    const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
+      `<button class="slot-btn" data-ability="${id}" data-slot="${i}">SLOT ${i + 1}</button>`).join("");
+    const benchBtn = whereIs(p, id) !== "BENCH"
+      ? `<button class="slot-btn" data-ability="${id}" data-slot="bench">BENCH</button>` : "";
+    return `<div class="slot-controls">${btns}${benchBtn}</div>`;
+  }
+  const ultBtn = p.abilities.ultimate === id
+    ? `<button class="slot-btn" data-ability="${id}" data-slot="unult">BENCH</button>`
+    : `<button class="slot-btn" data-ability="${id}" data-slot="ult">SLOT AS ULT</button>`;
+  return `<div class="slot-controls">${ultBtn}</div>`;
+}
+
+/** MODIFIERS (V2 §3): the glyphs this ability is actually running, read off the
+ *  slot it occupies. A benched ability says so — sockets are the slot's.
+ *
+ *  Also lifted in polish r1, and for the same reason: "what is this ability
+ *  actually running" was LIST-only, so toggling to the chart silently dropped
+ *  it. Both cards share it now. */
+function abilityModsHtml(s: GameState, id: AbilityId): string {
+  const p = me(s);
+  const slotIdx = slotIndexOf(p, id);
+  if (slotIdx >= 0) {
+    const live = glyphsFor(p, id);
+    const label = live.length
+      ? live.map((gid) => GLYPH_INFO[gid].name).join(" + ")
+      : "no glyphs seated in this slot";
+    // Rule 7's cap, on the card the player actually reads while building.
+    const cdr = abilityCdrBreakdown(p, id);
+    const capNote = cdr.capped && cdr.glyph > 0 && live.includes("hair_trigger")
+      ? `<span class="amodcap">CDR AT CAP — Hair Trigger's -${Math.round(CONFIG.glyphHairTriggerCd * 100)}% is wasted here</span>`
+      : "";
+    return `<div class="amods">${socketRowHtml(p, slotIdx, false)}` +
+      `<span class="amodtext">${label}</span>${capNote}</div>`;
+  }
+  if ((p.glyphs?.bench.length ?? 0) > 0) {
+    return `<div class="amods"><span class="amodtext dim">benched — glyphs live on the SLOT, so this inherits whatever it lands in</span></div>`;
+  }
+  return "";
+}
+
 function abilityCard(s: GameState, id: AbilityId): string {
   const p = me(s);
   const info = ABILITY_INFO[id];
@@ -2895,43 +2952,8 @@ function abilityCard(s: GameState, id: AbilityId): string {
   const where = whereIs(p, id);
   const whereCls = where === "BENCH" ? "bench" : where === "ULTIMATE" ? "ultc" : "";
   const rows = UPGRADES.filter((u) => u.ability === id).map((u) => nodeRowHtml(p, u)).join("");
-  // Slot controls are a SAFE-ROOM decision (the sim enforces it; we just hide
-  // the buttons elsewhere). Roam: a settlement's walls count as safety — the
-  // sim's slotAbility accepts playerInSettlement, so the buttons show there too.
-  let controls = "";
-  if (s.safeRoom || settlementShopFor(s, me(s))) {
-    if (info.tier === "active") {
-      const btns = Array.from({ length: ABILITY_SLOTS }, (_v, i) =>
-        `<button class="slot-btn" data-ability="${id}" data-slot="${i}">SLOT ${i + 1}</button>`).join("");
-      const benchBtn = where !== "BENCH"
-        ? `<button class="slot-btn" data-ability="${id}" data-slot="bench">BENCH</button>` : "";
-      controls = `<div class="slot-controls">${btns}${benchBtn}</div>`;
-    } else {
-      const ultBtn = p.abilities.ultimate === id
-        ? `<button class="slot-btn" data-ability="${id}" data-slot="unult">BENCH</button>`
-        : `<button class="slot-btn" data-ability="${id}" data-slot="ult">SLOT AS ULT</button>`;
-      controls = `<div class="slot-controls">${ultBtn}</div>`;
-    }
-  }
-  // MODIFIERS (V2 §3): the glyphs this ability is actually running, read off
-  // the slot it occupies. A benched ability says so — sockets are the slot's.
-  const slotIdx = slotIndexOf(p, id);
-  let mods = "";
-  if (slotIdx >= 0) {
-    const live = glyphsFor(p, id);
-    const label = live.length
-      ? live.map((gid) => GLYPH_INFO[gid].name).join(" + ")
-      : "no glyphs seated in this slot";
-    // Rule 7's cap, on the card the player actually reads while building.
-    const cdr = abilityCdrBreakdown(p, id);
-    const capNote = cdr.capped && cdr.glyph > 0 && live.includes("hair_trigger")
-      ? `<span class="amodcap">CDR AT CAP — Hair Trigger's -${Math.round(CONFIG.glyphHairTriggerCd * 100)}% is wasted here</span>`
-      : "";
-    mods = `<div class="amods">${socketRowHtml(p, slotIdx, false)}` +
-      `<span class="amodtext">${label}</span>${capNote}</div>`;
-  } else if ((p.glyphs?.bench.length ?? 0) > 0) {
-    mods = `<div class="amods"><span class="amodtext dim">benched — glyphs live on the SLOT, so this inherits whatever it lands in</span></div>`;
-  }
+  const controls = abilitySlotControlsHtml(s, id);
+  const mods = abilityModsHtml(s, id);
   return (
     `<div class="acard${info.tier === "ultimate" ? " ult" : ""}" data-ab="${id}">` +
     `<div class="ahead">` +
@@ -3030,6 +3052,12 @@ function constellationCardHtml(s: GameState, id: AbilityId): string {
       `<span class="npips">${nodePipsHtml(p, u)}</span></div>`;
   }).join("");
   const where = whereIs(p, id);
+  // THE STAR CHART IS A VIEW OF AN ABILITY, NOT A DIFFERENT OBJECT. It used to
+  // return header + chips + graph + AS BUILT and nothing else, so toggling to
+  // it dropped the glyph line AND every slot button — on the safe room's
+  // ABILITIES page, the one screen whose stated job is re-slotting. A view
+  // toggle must never remove the only verb on the screen, so the chart card is
+  // a SUPERSET of the list card's controls rather than a lossy sibling.
   return (
     `<div class="ccard${info.tier === "ultimate" ? " ult" : ""}">` +
     `<div class="ahead">` +
@@ -3043,20 +3071,48 @@ function constellationCardHtml(s: GameState, id: AbilityId): string {
     tiles + marks.join("") +
     `</div>` +
     `<div class="acomposed"><span class="clbl">AS BUILT</span>${esc(composedText(s, id))}</div>` +
+    abilityModsHtml(s, id) +
+    abilitySlotControlsHtml(s, id) +
     `</div>`
   );
 }
 
-/** LIST vs CONSTELLATION, remembered per browser. Two views of one truth:
- * the list is for reading magnitudes, the chart is for reading SHAPE. */
+/** LIST vs CONSTELLATION. Two views of one truth: the list is for reading
+ * MAGNITUDES, the chart is for reading SHAPE — and the list is the one that
+ * answers "what do I have and what does it do", which is why every ability
+ * surface OPENS on it.
+ *
+ * It used to be remembered in localStorage["dcc.abilView"], and that is the
+ * owner's complaint verbatim: "the new ability screen that STARTS with the
+ * star chart behind the loadout ... is really hard to understand and navigate
+ * now." One click on STAR CHART, once, and every ability screen for the rest
+ * of that browser profile's life opened on a graph — a state nothing on the
+ * screen explained and nothing ever reset. The toggle still works and still
+ * holds for as long as you are on the screen; it just no longer decides what
+ * you see when you arrive. (The old key is abandoned rather than migrated: it
+ * is a view preference, not progress, and reading it back is the bug.) */
 type AbilView = "list" | "graph";
-let abilView: AbilView = ((): AbilView => {
-  try { return localStorage.getItem("dcc.abilView") === "graph" ? "graph" : "list"; } catch { return "list"; }
-})();
+let abilView: AbilView = "list";
+
+/** THE TAB MUST NEVER LIE ABOUT THE VIEW. `.amode.on` was only ever written by
+ *  two click handlers, while BOTH ability screens hardcode `class="amode on"`
+ *  on LIST in markup — so a persisted "graph" rendered a star chart with LIST
+ *  lit gold, and the one control that would fix the screen looked like it was
+ *  already selected. Every render syncs the tabs of the screen it is drawing,
+ *  so markup can never be the source of truth for this. */
+function syncAbilModes(root: ParentNode): void {
+  for (const el of root.querySelectorAll<HTMLElement>(".amode[data-view]")) {
+    el.classList.toggle("on", el.dataset.view === abilView);
+  }
+}
+
+/** An ability surface is opening: it opens on the LIST, every time. */
+function resetAbilView(): void {
+  abilView = "list";
+}
 
 function setAbilView(v: AbilView): void {
   abilView = v;
-  try { localStorage.setItem("dcc.abilView", v); } catch { /* private mode */ }
   for (const el of document.querySelectorAll(".amode")) {
     el.classList.toggle("on", (el as HTMLElement).dataset.view === v);
   }
@@ -3190,6 +3246,14 @@ function handleGlyphClick(e: Event): boolean {
   const slotIdx = Number(sock.dataset.slot), socketIdx = Number(sock.dataset.socket);
   const p = me(state);
   if (sock.classList.contains("locked")) return true; // nothing to do, tooltip explains
+  // AN EMPTY SOCKET WITH NOTHING IN HAND IS NOT A GLYPH CLICK, and saying it
+  // was handled is what made the bottom third of every loadout tile a lie.
+  // Since polish r1 the whole `.lslot` carries `cursor: pointer` and selects
+  // its ability on the stage, but `socketRowHtml` renders INSIDE `.lslot` and
+  // this function runs first — so a click on a live-but-empty socket fell
+  // through both branches below, re-rendered, and still returned true,
+  // swallowing the selection. Report it unhandled and let the tile take it.
+  if (!heldGlyph && !sock.dataset.glyph) return false;
   if (heldGlyph && !sock.dataset.glyph) {
     const id = heldGlyph;
     audio.play("equip");
@@ -3253,6 +3317,10 @@ const statsRows = document.getElementById("stats-rows")!;
  * into does not scroll at all.
  */
 function renderAbilities(s: GameState): void {
+  // The tab row states which view this render is about to draw. (setAbilPage
+  // owns it while a NON-chart page is showing — there is no view to state
+  // then — so only the chart page syncs here.)
+  if (abilPage === "chart") syncAbilModes(abilEl);
   abilGrid.classList.toggle("graphs", abilView === "graph");
   // THE SKY BELONGS TO THE STAR CHART AND NOTHING ELSE (r2 major). r1 put the
   // night field on `#abil .panel`, so the LIST view, the achievements grid and
@@ -3322,7 +3390,7 @@ function achievementsGridHtml(s: GameState): string {
 
 function toggleAbilities(): void {
   abilOpen = !abilOpen;
-  if (abilOpen) { renderAbilities(state); showOverlay(abilEl); }
+  if (abilOpen) { resetAbilView(); renderAbilities(state); showOverlay(abilEl); }
   else hideOverlay(abilEl);
 }
 
@@ -4996,8 +5064,12 @@ function glyphBenchHtml(p: Player, interactive: boolean): string {
  * for the GLYPH BENCH, which is a stage tenant rather than a header.
  */
 const SR_BENCH = "__bench";
-/** Which rail entry the safe room's stage is showing (an ability, or the bench). */
-let srStage: string = SR_BENCH;
+/** Which rail entry the safe room's stage is showing (an ability, or the bench).
+ *  `null` = not chosen yet. It used to default to SR_BENCH, so clicking a tab
+ *  called ABILITIES showed ZERO abilities — one glyph chip and two thirds of a
+ *  page of empty stone, with the roster a click away. A tab called ABILITIES
+ *  opens on an ABILITY: the one in slot 1, i.e. the thing you actually cast. */
+let srStage: string | null = null;
 
 function renderAbilPage(s: GameState): void {
   const p = me(s);
@@ -5028,7 +5100,12 @@ function renderAbilPage(s: GameState): void {
   // where the stone is, so the bench is what the stage shows.
   if (heldGlyph) srStage = SR_BENCH;
   const known = knownAbilities(p);
-  if (srStage !== SR_BENCH && !known.includes(srStage as AbilityId)) srStage = SR_BENCH;
+  // First open (or a stage that no longer exists) lands on slot 1, then on
+  // anything known, and only falls through to the bench when the crawler
+  // genuinely knows no abilities at all.
+  if (srStage === null || (srStage !== SR_BENCH && !known.includes(srStage as AbilityId))) {
+    srStage = p.abilities.slots.find((x): x is AbilityId => !!x) ?? known[0] ?? SR_BENCH;
+  }
   const benchN = (p.glyphs?.bench ?? []).length;
   srAbilIndex.innerHTML =
     `<div class="aidx-h">BENCH</div>` +
@@ -5038,7 +5115,14 @@ function renderAbilPage(s: GameState): void {
     `<span class="aidx-t">Glyph bench</span>` +
     `<span class="aidx-n">${benchN}</span></button>` +
     abilIndexHtml(s, srStage);
-  srAbil.classList.toggle("graphs", abilView === "graph" && srStage !== SR_BENCH);
+  // The safe room's own tab row, synced for the same reason (it hardcodes LIST
+  // as active in markup, which is only ever true by accident).
+  syncAbilModes(srPageAbil);
+  // `srAbil.classList.toggle("graphs", ...)` used to sit here. The only rule it
+  // could ever have matched was `.abil-cards.graphs`, deleted with the dead
+  // layout system in polish r1 — the surviving `#abil .grid.graphs` cannot
+  // match `#sr-abil`. Sweeping the CSS and leaving the writer behind is half a
+  // sweep, and a class nothing reads is the next agent's phantom.
   srAbil.innerHTML = srStage === SR_BENCH
     ? `<div class="gstage">` +
       `<div class="sec-label">GLYPH BENCH <span class="ghint">${hint}</span></div>` +
@@ -5087,6 +5171,30 @@ achGrid.addEventListener("click", claimLootBox);
 const BAG_DENSE_AT = 19; // 40px tiles hold 3 comfortable rows
 const BAG_MICRO_AT = 46; // 32px tiles hold ~6 rows
 const BAG_SHOW_MAX = 79; // beyond ~8 micro rows, the tail becomes "+K more"
+// ...and the SHELF runs the same ladder on the other side of the same panel,
+// under the same house rule (no scrollbars — the panel fits the viewport).
+// r1 answered the shelf's overflow with a 16px bottom fade instead, which is
+// the asymmetry the round was rejected for: a density ladder on the right, a
+// gradient on the left. 56px tiles give 9 columns inside the tier gutter — 6
+// rows for IN STOCK, 10 for the whole 66-entry ALL ITEMS catalog — and the
+// 40px step (the bag's own first step) gives 12 columns, i.e. 8 rows.
+const SHELF_COLS_ROOMY = 9; // 56px + 8px gap fills the 568px the gutter leaves
+/**
+ * 6, MEASURED — not 7, ESTIMATED (r1 verification).
+ *
+ * 7 was the arithmetic guess and it put the boundary case exactly on the view
+ * the shop OPENS on. IN STOCK sums to 1+1+2+2+1 = 7 rows, so `rows > 7` was
+ * false, the roomy ladder never fired, and the probe measured 581px of content
+ * in a 507px box at 1366x768 — with SIGNATURE, the TOP rarity tier, starting at
+ * y=506 inside a 507px box. One percent of the best shelf in the game, on the
+ * default tab, at the owner's own viewport.
+ *
+ * A section costs 75px for one row and 154px for two, plus a 12px gap, so 1366
+ * holds SIX roomy rows, not seven. Dropping the budget by one makes IN STOCK
+ * take the 40px dense step it was always supposed to take at this size
+ * (measured there: 3px overflow at 1366, 0 at 1920).
+ */
+const SHELF_ROW_BUDGET = 6;
 
 function renderShopPage(s: GameState): void {
   const room = shopRoomOf(s);
@@ -5102,6 +5210,7 @@ function renderShopPage(s: GameState): void {
   // drop-only boss uniques behind glass — the run's want-list, and the reason
   // the floor-3 boss means something. No prices: the currency is the fight.
   if (shopView === "chase") {
+    srShelf.classList.remove("dense"); // five rows; the ladder is for the shelf
     srShelf.innerHTML =
       `<div class="tier-h chase-h" style="--tc:#c0392f">DROP-ONLY — ONE PER BAND BOSS` +
       `<span class="tnote">the System does not stock these, and neither will anyone else</span></div>` +
@@ -5125,6 +5234,7 @@ function renderShopPage(s: GameState): void {
   }
   // The shelf, tier by tier.
   let shelf = "";
+  let rows = 0;
   for (const tier of TIERS) {
     const pool = CATALOG.filter((e) => e.tier === tier && (e.id !== "tome" || room.tomeAbility));
     const entries = shopView === "stock" ? pool.filter((e) => avail.has(e.id)) : pool;
@@ -5140,17 +5250,35 @@ function renderShopPage(s: GameState): void {
         : shopView === "all" && entries.some((e) => !avail.has(e.id))
           ? `<span class="tnote">— stock varies by shop</span>`
           : "";
-    // Curated case, never a half-stocked shelf (r4 minor): sparse tiers
-    // complete their row with recessed diamond-socket wells. 11 tiles fit a
-    // shelf row at 56px+8 gap; pad only to the end of the partial row so the
-    // shelf never grows a whole row of dead sockets (panels fit the viewport).
-    const perRow = 11;
-    const wells = (perRow - (entries.length % perRow)) % perRow;
+    // A TIER ENDS WHERE IT ENDS (restored from 575c2e6's r1 major; the wells
+    // came back by accident when ad558e7 reverted THE SHOP wholesale to
+    // 0261916 to kill the r3 tier rail). The shelf used to pad every partial
+    // row out to 11 columns with recessed "well" tiles — 28 empty wells
+    // measured on the live build per shelf (CONSUMABLES 5 items + 6 wells,
+    // STARTER 3 + 8, COMPONENTS 18 + 4, COMPLETED WORKS 9 + 2, SIGNATURE
+    // 3 + 8). They carry the same size, border, radius and inner shadow as
+    // real tiles, so five sections read as one uniform 11-column rectangle and
+    // the only surviving group cue is a 10px header — which is exactly what
+    // the owner meant by "the shop is no longer organized into rarity tiers".
+    // Ragged right edges ARE the tier sectioning, and 28 non-clickable objects
+    // are 28 things the eye must reject before it can buy. Do not "complete
+    // the row" again.
+    //
+    // A TIER IS ALSO A SECTION ELEMENT now, not a header followed by a loose
+    // grid. That is what lets the label live in a left gutter (see `.tier` in
+    // iso.html) — which strengthens the grouping AND removes five stacked
+    // header rows, ~195px, which is the fit r1 replaced with a fade.
+    rows += Math.ceil(entries.length / SHELF_COLS_ROOMY);
     shelf +=
-      `<div class="tier-h" style="--tc:${TIER_COLOR[tier]}">${TIER_LABEL[tier]}${note}</div>` +
-      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}` +
-      `<div class="itile well"><div class="ibox"></div></div>`.repeat(wells) + `</div>`;
+      `<section class="tier" style="--tc:${TIER_COLOR[tier]}">` +
+      `<div class="tier-h"><span class="tlabel">${TIER_LABEL[tier]}</span>${note}</div>` +
+      `<div class="igrid">${entries.map((e) => shelfTileHtml(s, e, owned)).join("")}</div>` +
+      `</section>`;
   }
+  // The ladder, measured in rows rather than items: ALL ITEMS is always the
+  // full catalog, but IN STOCK varies by shop, so a row count is the thing the
+  // panel height actually cares about.
+  srShelf.classList.toggle("dense", rows > SHELF_ROW_BUDGET);
   srShelf.innerHTML = shelf;
   renderShopSide(s);
 }
@@ -5421,15 +5549,33 @@ srTabStock.addEventListener("click", () => { shopView = "stock"; shopSel = null;
 srTabAll.addEventListener("click", () => { shopView = "all"; shopSel = null; renderSafeRoom(state); });
 srTabChase.addEventListener("click", () => { shopView = "chase"; shopSel = null; renderSafeRoom(state); });
 srTabShop.addEventListener("click", () => { srTab = "shop"; renderSafeRoom(state); });
-srTabAbil.addEventListener("click", () => { srTab = "abil"; renderSafeRoom(state); });
+// Arriving on ABILITIES arrives on the LIST — the tab is an OPEN, so it resets
+// the view the same way toggleAbilities() does for the T panel.
+srTabAbil.addEventListener("click", () => { srTab = "abil"; resetAbilView(); renderSafeRoom(state); });
 srTabAch.addEventListener("click", () => { srTab = "ach"; renderSafeRoom(state); });
 srAbil.addEventListener("click", (e) => {
   // The stage carries either an ability card (slot buttons) or the bench.
   if (handleGlyphClick(e)) return;
   handleSlotClick(e, renderSafeRoom);
 });
-// The loadout bar's socket wells and the glyph bench share one dispatcher.
-srLoadout.addEventListener("click", handleGlyphClick);
+// The loadout bar's socket wells and the glyph bench share one dispatcher — and
+// a loadout TILE is the most obvious thing on the page to click, so it selects
+// that ability on the stage instead of being inert scenery. Before this, the
+// only route to slot 2's card was a visual scan of a 16-entry rail whose names
+// ellipse at 1366 ("Battle St…", "Stunt Dou…"). The glyph guard runs FIRST:
+// seating a stone must never also move the stage out from under it.
+srLoadout.addEventListener("click", (e) => {
+  if (handleGlyphClick(e)) return;
+  const tile = (e.target as HTMLElement).closest(".lslot") as HTMLElement | null;
+  if (!tile) return;
+  const p = me(state);
+  const idx = Number(tile.dataset.slotidx);
+  const id = idx === ULT_SLOT ? p.abilities.ultimate : p.abilities.slots[idx];
+  if (!id) return; // an empty slot has no card to show
+  srStage = id;
+  abilSel = id; // one selection across both screens, as the rail already does
+  renderSafeRoom(state);
+});
 // The safe room's rail selects the stage: an ability, or the glyph bench.
 srAbilIndex.addEventListener("click", (e) => {
   const b = (e.target as HTMLElement).closest("button[data-ab-sel]") as HTMLElement | null;
@@ -7700,8 +7846,10 @@ let recapFor: GameState["status"] | null = null;
 
 // THE VERDICT (COMPETITIVE.md 6). One job: convert the end of a run into the
 // start of the next one, in under eight seconds of reading. Everything on the
-// default face is (a) a grade, (b) the thing that killed you, or (c) a button;
-// the numbers people argue about live behind a held TAB.
+// default face is (a) the thing that killed you, (b) the one measure that cost
+// you most, or (c) a button; every number people argue about — the four
+// measures, the scoreboard, the splits, the build — lives behind a held TAB.
+// There is no letter grade: see COMPETITIVE.md 6.1's REMOVED row.
 let runGrade: social.RunGrade | null = null;
 let todaysBoard: social.BoardRun[] | null = null;
 let earnedOpen = false;
@@ -7976,7 +8124,10 @@ function renderRecap(s: GameState): void {
     // product whose whole pitch is that its numbers agree with each other.
     document.getElementById("recap-sub")!.textContent = won
       ? `THE FINALE · all ${CONFIG.finalFloor} floors cleared · run time ${runClock(s)} · ${p.name}, Crawler`
-      : `Episode canceled on floor ${s.floor} · run time ${runClock(s)} · the crowd demands a rerun`;
+      // "the crowd demands a rerun" left with the noise pass: it is a
+      // third-person restatement of the RUN IT BACK button 300px below it, on
+      // a subtitle already carrying the two numbers that matter.
+      : `Episode canceled on floor ${s.floor} · run time ${runClock(s)}`;
   }
   const stats: [string, string][] = [
     [String(p.level), "LEVEL"],
@@ -8061,13 +8212,19 @@ function renderRecap(s: GameState): void {
     },
     loadHistory(), todaysBoard, p.maxHp,
   );
-  const medal = document.getElementById("recap-medal")!;
-  medal.className = `vmedal g-${runGrade.letter}`;
-
-  document.getElementById("recap-letter")!.textContent = runGrade.letter;
-  document.getElementById("recap-score")!.textContent = String(runGrade.score);
+  // NO LETTER (owner, polish r1: "the grade doesn't mean anything"). The
+  // composite was a mean of four percentiles, hard-capped at depth+25 and
+  // remapped on a win (src/ui/social.ts) — arithmetic the screen never showed
+  // — computed against a population that CHANGES between this render and the
+  // one loadTodaysBoard() triggers a second later, so the same run wore two
+  // different letters while the player looked at it. Two of the four parts are
+  // percentiles against the player's OWN history, so it could never state
+  // absolute skill either. What survives is the part that was always
+  // auditable: the four measures, each naming its own raw number, behind TAB
+  // with the population that produced them. Making the letter honest would
+  // have meant printing its own arithmetic on a screen the owner already calls
+  // too noisy.
   document.getElementById("recap-basis")!.textContent = runGrade.basis;
-  medal.title = runGrade.basis;
   document.getElementById("recap-line")!.textContent = runGrade.line;
   document.getElementById("recap-parts")!.innerHTML = verdictPartsHtml(runGrade);
 
@@ -8132,9 +8289,12 @@ function renderLadderLine(s: GameState): void {
   el.style.display = "";
   if (!runIsRankable(s)) {
     el.className = "notranked";
-    el.innerHTML = `<b>TEST CHAMBER — NOT RANKED.</b> This run started at depth instead of at the door. ` +
-      `The verifier refuses any proof whose start was not fresh, so there is no seal, no contract points ` +
-      `and no board row here — and the grade above is a rehearsal, not a result.`;
+    // Three sentences to say one thing, on a red plate that already shouts.
+    // The "grade above is a rehearsal" clause additionally became false when
+    // the letter left the default face — a screen referring to an element that
+    // is no longer on it.
+    el.innerHTML = `<b>TEST CHAMBER — NOT RANKED.</b> A run that started at depth earns no seal, ` +
+      `no contract points and no board row.`;
     return;
   }
   // THE VERIFIER'S REFUSAL OUTRANKS EVERY OTHER LINE ON THIS PLATE. A rejected
@@ -8175,8 +8335,11 @@ function renderLadderLine(s: GameState): void {
     chip = `<span class="ldelta flat">+0 CP</span>`;
     // ...and if the run was on the DAY'S SEED it says so, because "free seed"
     // was flatly false about the dungeon the front door hands you.
-    note = runContractNote
-      ?? "a free seed — contract points come from contracts. The board row and the splits still stand.";
+    // This is the DEFAULT branch — every non-event run hits it, so this
+    // sentence is on the glass more often than any other string on the plate.
+    // The clause it lost ("the board row and the splits still stand") is
+    // restated by the seal chip and the earned line directly beneath it.
+    note = runContractNote ?? "a free seed — CP comes from contracts.";
   } else if (!runEvent.scoresCp) {
     chip = `<span class="ldelta flat">+0 CP</span>`;
     // THE REASON HAS TO BE THE ACTUAL REASON. For an unlinked crawler this
@@ -8382,13 +8545,13 @@ function maybeShowRecap(s: GameState): void {
     if (recapFor !== s.status) return; // a fast R already started the next run
     recapEl.style.display = "flex";
     recapEl.classList.remove("tabbed");
-    // SOUNDPLAN row 12: ONE grade-reveal sting, pitched by the letter — an
-    // S rings high, a D sits low. Five grades, one file. Fires here (the
-    // status edge, with the card) so board-upgrade re-renders and a second
-    // run in the same session both behave.
-    if (runGrade) {
-      audio.play("verdict", { rate: { S: 1.22, A: 1.12, B: 1.0, C: 0.9, D: 0.82 }[runGrade.letter] ?? 1 });
-    }
+    // SOUNDPLAN row 12: ONE grade-reveal sting. It used to be pitched by the
+    // letter; with no letter on the screen it is pitched by the only outcome
+    // the screen still states — you walked out, or you did not. A sting that
+    // asserts a grade the glass no longer shows is the sound lying. Fires here
+    // (the status edge, with the card) so board-upgrade re-renders and a
+    // second run in the same session both behave.
+    audio.play("verdict", { rate: s.status === "won" ? 1.22 : 0.9 });
   }, 620);
   // The board arrives a moment later and upgrades the grade, the scoreboard
   // and RACE THE LEADER from "the house curve" to a real field.
@@ -8468,21 +8631,11 @@ function composeRunCard(s: GameState): HTMLCanvasElement {
     g.fillText(l, x, y + 28);
   });
 
-  // THE GRADE, struck into the corner - the card is the artifact people paste
-  // into a chat window, and a report card without its grade is a receipt.
-  if (runGrade) {
-    g.save();
-    g.beginPath();
-    g.arc(112, 112, 54, 0, Math.PI * 2);
-    g.fillStyle = "#14100c";
-    g.fill();
-    g.strokeStyle = "#6e5533"; g.lineWidth = 2; g.stroke();
-    g.font = "700 54px Cinzel, serif";
-    g.fillStyle = runGrade.letter === "S" || runGrade.letter === "A" ? "#f2c14e" : "#b9b2a4";
-    g.textAlign = "center"; g.textBaseline = "middle";
-    g.fillText(runGrade.letter, 112, 116);
-    g.restore();
-  }
+  // NO GRADE STRUCK INTO THE CORNER. This 1200x630 card is the artifact
+  // strangers see, and the runner is no longer shown a letter at all —
+  // publishing one here would make the grade a private oracle the game tells
+  // other people about you. The card keeps the six stat tiles, the named
+  // death, the build and the seal, all of which the runner did see.
   // THE DEATH, NAMED - the line worth more than every stat tile beside it.
   // y=516, not 500: the second stat row's labels sit at 478, and 22px of
   // clearance had the named death colliding with the word FAVORITES.
@@ -8631,7 +8784,10 @@ function openShareSheet(): void {
       floor: state.floor,
       timeSec: Math.round(state.elapsed),
       kills: p.kills,
-      letter: runGrade?.letter ?? null,
+      // No letter travels with the card: the verdict no longer states one, and
+      // resultCardText omits its rating line entirely when letter is null
+      // (test/social.test.ts: "an ungraded run carries no rating line").
+      letter: null,
       url: shareUrl,
       day: runMode.kind === "daily" ? runMode.day ?? null : null,
     });
