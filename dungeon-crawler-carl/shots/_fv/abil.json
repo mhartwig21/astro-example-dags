@@ -1,0 +1,869 @@
+{
+  "tPanelOnOpen": {
+    "modes": [
+      {
+        "view": "list",
+        "on": true,
+        "text": "LIST"
+      },
+      {
+        "view": "graph",
+        "on": false,
+        "text": "STAR CHART"
+      }
+    ],
+    "cards": [
+      {
+        "kind": "LIST",
+        "h": 310,
+        "boxH": 530,
+        "overflows": false,
+        "hasSlotBtns": 0,
+        "slotBtnsVisible": 0,
+        "hasMods": true,
+        "hasGraph": false,
+        "nodeRows": 5,
+        "nextTakeable": 0,
+        "title": "Melee"
+      }
+    ],
+    "rail": [
+      {
+        "text": "Melee",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Dash",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Bolt",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Collapse",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Orbit",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Battle Stance",
+        "w": 94.3,
+        "scrollW": 94,
+        "clientW": 94,
+        "truncated": false
+      },
+      {
+        "text": "Breaker",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Blindside",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Extradition",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Stunt Double",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Bulwark",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Stage Cables",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Sponsor Barrage",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Fault Line",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Bullet Time",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      },
+      {
+        "text": "Injunction",
+        "w": 103.3,
+        "scrollW": 103,
+        "clientW": 103,
+        "truncated": false
+      }
+    ],
+    "railW": 204.9,
+    "loadout": [],
+    "stageScrollH": 530
+  },
+  "safeRoomOnOpen": {
+    "modes": [
+      {
+        "view": "list",
+        "on": true,
+        "text": "LIST"
+      },
+      {
+        "view": "graph",
+        "on": false,
+        "text": "STAR CHART"
+      }
+    ],
+    "cards": [
+      {
+        "kind": "LIST",
+        "h": 308.8,
+        "boxH": 389.8,
+        "overflows": false,
+        "hasSlotBtns": 5,
+        "slotBtnsVisible": 5,
+        "hasMods": true,
+        "hasGraph": false,
+        "nodeRows": 5,
+        "nextTakeable": 0,
+        "title": "Melee"
+      }
+    ],
+    "rail": [
+      {
+        "text": "Glyph bench",
+        "w": 146.8,
+        "scrollW": 147,
+        "clientW": 147,
+        "truncated": false
+      },
+      {
+        "text": "Melee",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Dash",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bolt",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Collapse",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Orbit",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Battle Stance",
+        "w": 101.7,
+        "scrollW": 102,
+        "clientW": 102,
+        "truncated": false
+      },
+      {
+        "text": "Breaker",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Blindside",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Extradition",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stunt Double",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bulwark",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stage Cables",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Sponsor Barrage",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Fault Line",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bullet Time",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Injunction",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      }
+    ],
+    "railW": null,
+    "loadout": [
+      {
+        "idx": "0",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "1",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "2",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "3",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "4",
+        "cursor": "pointer",
+        "empty": false
+      }
+    ],
+    "stageScrollH": 390
+  },
+  "loadoutClickRoute": {
+    "ok": false,
+    "before": "Melee"
+  },
+  "afterLoadoutClick": {
+    "modes": [
+      {
+        "view": "list",
+        "on": true,
+        "text": "LIST"
+      },
+      {
+        "view": "graph",
+        "on": false,
+        "text": "STAR CHART"
+      }
+    ],
+    "cards": [
+      {
+        "kind": "LIST",
+        "h": 308.8,
+        "boxH": 389.8,
+        "overflows": false,
+        "hasSlotBtns": 5,
+        "slotBtnsVisible": 5,
+        "hasMods": true,
+        "hasGraph": false,
+        "nodeRows": 5,
+        "nextTakeable": 0,
+        "title": "Melee"
+      }
+    ],
+    "rail": [
+      {
+        "text": "Glyph bench",
+        "w": 146.8,
+        "scrollW": 147,
+        "clientW": 147,
+        "truncated": false
+      },
+      {
+        "text": "Melee",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Dash",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bolt",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Collapse",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Orbit",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Battle Stance",
+        "w": 101.7,
+        "scrollW": 102,
+        "clientW": 102,
+        "truncated": false
+      },
+      {
+        "text": "Breaker",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Blindside",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Extradition",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stunt Double",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bulwark",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stage Cables",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Sponsor Barrage",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Fault Line",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bullet Time",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Injunction",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      }
+    ],
+    "railW": null,
+    "loadout": [
+      {
+        "idx": "0",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "1",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "2",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "3",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "4",
+        "cursor": "pointer",
+        "empty": false
+      }
+    ],
+    "stageScrollH": 390
+  },
+  "starChartDeliberate": {
+    "modes": [
+      {
+        "view": "list",
+        "on": false,
+        "text": "LIST"
+      },
+      {
+        "view": "graph",
+        "on": true,
+        "text": "STAR CHART"
+      }
+    ],
+    "cards": [
+      {
+        "kind": "STAR CHART",
+        "h": 320.4,
+        "boxH": 389.8,
+        "overflows": false,
+        "hasSlotBtns": 5,
+        "slotBtnsVisible": 5,
+        "hasMods": true,
+        "hasGraph": true,
+        "nodeRows": 0,
+        "nextTakeable": 0,
+        "title": "Melee"
+      }
+    ],
+    "rail": [
+      {
+        "text": "Glyph bench",
+        "w": 146.8,
+        "scrollW": 147,
+        "clientW": 147,
+        "truncated": false
+      },
+      {
+        "text": "Melee",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Dash",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bolt",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Collapse",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Orbit",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Battle Stance",
+        "w": 101.7,
+        "scrollW": 102,
+        "clientW": 102,
+        "truncated": false
+      },
+      {
+        "text": "Breaker",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Blindside",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Extradition",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stunt Double",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bulwark",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stage Cables",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Sponsor Barrage",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Fault Line",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bullet Time",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Injunction",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      }
+    ],
+    "railW": null,
+    "loadout": [
+      {
+        "idx": "0",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "1",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "2",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "3",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "4",
+        "cursor": "pointer",
+        "empty": false
+      }
+    ],
+    "stageScrollH": 390
+  },
+  "afterReopen": {
+    "modes": [
+      {
+        "view": "list",
+        "on": true,
+        "text": "LIST"
+      },
+      {
+        "view": "graph",
+        "on": false,
+        "text": "STAR CHART"
+      }
+    ],
+    "cards": [
+      {
+        "kind": "LIST",
+        "h": 308.8,
+        "boxH": 389.8,
+        "overflows": false,
+        "hasSlotBtns": 5,
+        "slotBtnsVisible": 5,
+        "hasMods": true,
+        "hasGraph": false,
+        "nodeRows": 5,
+        "nextTakeable": 0,
+        "title": "Melee"
+      }
+    ],
+    "rail": [
+      {
+        "text": "Glyph bench",
+        "w": 146.8,
+        "scrollW": 147,
+        "clientW": 147,
+        "truncated": false
+      },
+      {
+        "text": "Melee",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Dash",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bolt",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Collapse",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Orbit",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Battle Stance",
+        "w": 101.7,
+        "scrollW": 102,
+        "clientW": 102,
+        "truncated": false
+      },
+      {
+        "text": "Breaker",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Blindside",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Extradition",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stunt Double",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bulwark",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Stage Cables",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Sponsor Barrage",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Fault Line",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Bullet Time",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      },
+      {
+        "text": "Injunction",
+        "w": 110.7,
+        "scrollW": 111,
+        "clientW": 111,
+        "truncated": false
+      }
+    ],
+    "railW": null,
+    "loadout": [
+      {
+        "idx": "0",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "1",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "2",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "3",
+        "cursor": "pointer",
+        "empty": false
+      },
+      {
+        "idx": "4",
+        "cursor": "pointer",
+        "empty": false
+      }
+    ],
+    "stageScrollH": 390
+  },
+  "storedPref": "graph"
+}

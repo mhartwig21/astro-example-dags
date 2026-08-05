@@ -245,7 +245,7 @@ row) and HOLDING a layout stepper drops the panel to a 0.14-opacity veil so
 the cluster previews live underneath (wr_01/wr_06's editor idea in our
 grammar); `#bosscall`'s 236px floor yields to `min(236px, 34vh)` so the
 marquee stays off the controls on short screens; the recap's action rail
-split — only RUN IT BACK / NEW CONTRACT pin (one opaque 67px row), the other
+split — only RUN IT BACK / NEW RUN pin (one opaque 67px row), the other
 three flow with the copy they belong to, and the desktop rail is reassembled
 byte-identical via `display: contents` + `order`.
 

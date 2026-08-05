@@ -936,7 +936,8 @@ drill-down, and the default state is the design:
 
 | | contents | budget |
 |---|---|---|
-| **DEFAULT — the whole screen** | Beat 0 (the freeze), Beat 1 (the grade, one line of commentary), Beat 3 (the named death), Beat 5 collapsed to **one line plus the live seal chip**, Beat 6 (the buttons) | under eight seconds |
+| **DEFAULT — the whole screen** | Beat 0 (the freeze), Beat 3 (the named death), **one line naming the weakest of the four measures**, Beat 5 collapsed to **one line plus the live seal chip**, Beat 6 (the buttons) | under eight seconds |
+| **REMOVED — Beat 1's LETTER** | The S/A/B/C/D medal is gone (owner, polish r1: "the grade doesn't mean anything"). It was a mean of four percentiles, hard-capped at `depth+25` and remapped on a win, against a population that changed between the first render and the board-loaded re-render — the same run wore two letters while the player watched, and two of its four parts were percentiles against the player's OWN history, so it could never state absolute skill. The four MEASURES survive, behind TAB, each naming its raw number. A composite whose arithmetic cannot fit on the screen is decoration. | — |
 | **TAB — held, like LoL's scoreboard** | Beat 2 (the scoreboard) and Beat 4 (the splits), full width | as long as you want |
 | **Beat 5 expanded** | click the line: every PB, every mastery tick, the CP arithmetic | opt-in |
 
@@ -950,15 +951,26 @@ argues about numbers and *absent* for the player who wants to press R.
 Hold the killing blow, desaturate, then the banner. The System is a game show; the
 death deserves a beat.
 
-**Beat 1 — THE GRADE.** One letter, S/A/B/C/D, huge, with one line of System
-commentary. Computed as a percentile against **your own history and today's board**,
-not an absolute — so a D on floor 3 and an S on floor 3 both exist and both mean
-something. A grade you can only earn at depth is just a depth readout.
+**Beat 1 — THE FOUR MEASURES (no letter).** This beat shipped as one huge
+S/A/B/C/D letter with the four parts on hover; what actually shipped put the four
+parts on the glass *permanently* and the letter above them, and the owner's read
+of the result was "the grade doesn't mean anything". It did not: see the REMOVED
+row in 6.1. **There is no letter on any surface** — not the panel, not the phone
+layout, not the 1200x630 share card, not the pasted result text.
 
-Four equal parts, shown on hover:
+What survives is the auditable half. The four equal parts live in the **TAB
+drill-down**, each naming its own raw number:
 `DEPTH` (floor vs your median) · `TEMPO` (sim seconds per floor vs the day's median)
 · `SURVIVAL` (damage taken per floor) · `EXECUTION` (kills per minute + drafts
 claimed).
+
+The DEFAULT face keeps exactly one sentence of System commentary, keyed on the
+WEAKEST measure — the only part of the old grade line a player could act on.
+
+`gradeRun` still computes the composite, the depth ceiling and the win remap: they
+are the ordering the parts are scored against, and `rateClaim` is the hook if a
+rating ever returns. If one does, strike it from something the boards actually
+rank on — DEEPEST FLOOR — never a hidden composite.
 
 **Cold start — the case that decides whether there is a second run.** A percentile
 against "your own history and today's board" has neither on a first run, and has
@@ -974,8 +986,8 @@ neither in an offline session. So the grade falls back explicitly, in this order
 3. **Online with history** → the full thing; the hover says
    `vs YOUR 27 RUNS · TODAY'S 84`.
 
-The hover label always names its comparison set, so a grade never implies a
-population it does not have. The absolute curve is also what makes the very first
+The basis label always names its comparison set — it travels WITH the measures
+into the TAB sheet — so a rating never implies a population it does not have. The absolute curve is also what makes the very first
 grade *meaningful* rather than flattering, which is the only version worth having.
 
 **Beat 2 — THE SCOREBOARD.** LoL's post-game scoreboard is the model: rows you can
@@ -1062,7 +1074,12 @@ Two states this beat must handle without lying:
    driver in the design, because "I know this dungeon now" is the strongest urge
    a roguelike death produces. Bound to the key the player already
    reflex-presses (R).
-2. **NEW CONTRACT** — fresh seed.
+2. **NEW RUN** — fresh seed. Named for the front door's own word for the same
+   action (`iso.html` `m-solo`: kicker NEW RUN, title DESCEND). It was called
+   NEW CONTRACT and that word appeared nowhere on the home page — while
+   "contract" DID appear there twice meaning something else (RIVALS, ROAM) and
+   a third time in THE STANDINGS meaning a seeded event, which is precisely
+   what this button does not enter.
 3. SHARE (run card + seed/claim link).
 4. Dismiss.
 

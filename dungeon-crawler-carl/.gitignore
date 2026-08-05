@@ -45,3 +45,17 @@ tools/_r2pay/*.log
 # but the multi-megabyte PNG piles are not.
 tools/_r3look/*.png
 tools/_r3cost_*/*.png
+# Tutorial r1 captures (tools/_tut_r1.mjs): harness + the report receipt are
+# committed; the PNG pile is not (same rule as every probe round above).
+tools/_tut_shots/*.png
+# Audio r2 spectrogram/waveform sheets (tools/audio/contactsheet.mjs): 21MB of
+# PNG per full run. Same rule as every round above — contactsheet.mjs IS the
+# artifact and its descriptors.json is the receipt the distinctness numbers
+# were read off, so both are committed; the pictures are not. Use
+# `--no-images` when you only want the numbers.
+tools/audio/_r2_sheets/**/*.png
+
+# The audition sheet is a 5MB GENERATED page (tools/audio/mk-audition.mjs
+# rebuilds it from the clips + descriptors). The generator is the artifact;
+# the base64 bundle is not.
+tools/audio/_r2_sheets/audition.html

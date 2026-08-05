@@ -1,0 +1,789 @@
+{
+  "name": "casts",
+  "threshold": 1.6731801304968255,
+  "meanDistance": 3.7181780677707232,
+  "dims": [
+    "logSec",
+    "logAtk",
+    "logCentroid",
+    "logRolloff",
+    "flatness",
+    "crestDb",
+    "lowShare"
+  ],
+  "clips": [
+    {
+      "id": "cast_airstrike",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_airstrike.ogg",
+      "sec": 0.617,
+      "peakDb": -4.9,
+      "rmsDb": -16.2,
+      "momDb": -14.6,
+      "hp250MomDb": -17.7,
+      "hp250LossDb": 3,
+      "crestDb": 11.2,
+      "attackMs": 456.6,
+      "t10Ms": 1.1,
+      "centroidHz": 1316,
+      "rolloff85Hz": 2063,
+      "flatness": 5.02e-7,
+      "lowShare": 0.475,
+      "top3": "125(26%) 1k(23%) 2k(22%)",
+      "bands": {
+        "63": 20.6,
+        "125": 25.5,
+        "250": 0.3,
+        "500": 8.6,
+        "1k": 23.2,
+        "2k": 21.6,
+        "4k": 0.1,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_bullettime",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_bullettime.ogg",
+      "sec": 0.607,
+      "peakDb": -4.6,
+      "rmsDb": -16.2,
+      "momDb": -14.5,
+      "hp250MomDb": -21.6,
+      "hp250LossDb": 7.2,
+      "crestDb": 11.6,
+      "attackMs": 4.6,
+      "t10Ms": 1.2,
+      "centroidHz": 297,
+      "rolloff85Hz": 398,
+      "flatness": 1.91e-10,
+      "lowShare": 0.993,
+      "top3": "250(70%) 125(28%) 500(1%)",
+      "bands": {
+        "63": 0.1,
+        "125": 28.4,
+        "250": 70.2,
+        "500": 1,
+        "1k": 0.2,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_bulwark",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_bulwark.ogg",
+      "sec": 0.517,
+      "peakDb": -8.6,
+      "rmsDb": -17.6,
+      "momDb": -17,
+      "hp250MomDb": -22.3,
+      "hp250LossDb": 5.3,
+      "crestDb": 9.1,
+      "attackMs": 5.4,
+      "t10Ms": 1,
+      "centroidHz": 1042,
+      "rolloff85Hz": 1031,
+      "flatness": 0.00000286,
+      "lowShare": 0.998,
+      "top3": "250(71%) 125(17%) 500(12%)",
+      "bands": {
+        "63": 0,
+        "125": 16.6,
+        "250": 71.4,
+        "500": 11.8,
+        "1k": 0.1,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_cables",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_cables.ogg",
+      "sec": 0.316,
+      "peakDb": -7.9,
+      "rmsDb": -17.3,
+      "momDb": -17.3,
+      "hp250MomDb": -23.7,
+      "hp250LossDb": 6.5,
+      "crestDb": 9.4,
+      "attackMs": 134.4,
+      "t10Ms": 1.7,
+      "centroidHz": 991,
+      "rolloff85Hz": 1570,
+      "flatness": 4.7e-7,
+      "lowShare": 0.987,
+      "top3": "250(78%) 125(11%) 500(9%)",
+      "bands": {
+        "63": 0.2,
+        "125": 11.5,
+        "250": 78.3,
+        "500": 9.2,
+        "1k": 0.4,
+        "2k": 0.3,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_cataclysm",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_cataclysm.ogg",
+      "sec": 0.897,
+      "peakDb": -6.1,
+      "rmsDb": -17.3,
+      "momDb": -14.5,
+      "hp250MomDb": -27.1,
+      "hp250LossDb": 12.6,
+      "crestDb": 11.2,
+      "attackMs": 45.6,
+      "t10Ms": 1.2,
+      "centroidHz": 1324,
+      "rolloff85Hz": 2859,
+      "flatness": 1.96e-7,
+      "lowShare": 0.96,
+      "top3": "125(62%) 63(33%) 1k(2%)",
+      "bands": {
+        "63": 32.9,
+        "125": 62.3,
+        "250": 0.1,
+        "500": 0.8,
+        "1k": 1.8,
+        "2k": 1.3,
+        "4k": 0.3,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_crowdsurf",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_crowdsurf.ogg",
+      "sec": 0.372,
+      "peakDb": -5.9,
+      "rmsDb": -17.3,
+      "momDb": -17.3,
+      "hp250MomDb": -22,
+      "hp250LossDb": 4.7,
+      "crestDb": 11.4,
+      "attackMs": 254.8,
+      "t10Ms": 1.1,
+      "centroidHz": 2956,
+      "rolloff85Hz": 6680,
+      "flatness": 0.000716,
+      "lowShare": 0.857,
+      "top3": "125(57%) 250(16%) 500(12%)",
+      "bands": {
+        "63": 2.7,
+        "125": 57.2,
+        "250": 15.7,
+        "500": 12.4,
+        "1k": 7.4,
+        "2k": 2.3,
+        "4k": 1.3,
+        "8k": 0.5,
+        "16k": 0.1
+      }
+    },
+    {
+      "id": "cast_cutto",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_cutto.ogg",
+      "sec": 0.216,
+      "peakDb": -5.5,
+      "rmsDb": -17.2,
+      "momDb": -17.2,
+      "hp250MomDb": -21.2,
+      "hp250LossDb": 4,
+      "crestDb": 11.8,
+      "attackMs": 161,
+      "t10Ms": 1,
+      "centroidHz": 5873,
+      "rolloff85Hz": 11859,
+      "flatness": 0.0118,
+      "lowShare": 0.573,
+      "top3": "125(54%) 4k(27%) 8k(7%)",
+      "bands": {
+        "63": 0.5,
+        "125": 53.6,
+        "250": 2.2,
+        "500": 1.6,
+        "1k": 2,
+        "2k": 3.9,
+        "4k": 27.1,
+        "8k": 6.8,
+        "16k": 2.1
+      }
+    },
+    {
+      "id": "cast_dash",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_dash.ogg",
+      "sec": 0.197,
+      "peakDb": -5.3,
+      "rmsDb": -17.1,
+      "momDb": -17.1,
+      "hp250MomDb": -21.1,
+      "hp250LossDb": 4,
+      "crestDb": 11.8,
+      "attackMs": 17.9,
+      "t10Ms": 1.9,
+      "centroidHz": 1724,
+      "rolloff85Hz": 2719,
+      "flatness": 0.0000257,
+      "lowShare": 0.615,
+      "top3": "125(53%) 1k(21%) 2k(12%)",
+      "bands": {
+        "63": 0.3,
+        "125": 53.3,
+        "250": 6.8,
+        "500": 5.6,
+        "1k": 21.2,
+        "2k": 11.9,
+        "4k": 0.8,
+        "8k": 0.1,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_injunction",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_injunction.ogg",
+      "sec": 0.997,
+      "peakDb": -6.3,
+      "rmsDb": -16.4,
+      "momDb": -14.5,
+      "hp250MomDb": -25.7,
+      "hp250LossDb": 11.2,
+      "crestDb": 10.1,
+      "attackMs": 8.8,
+      "t10Ms": 1.7,
+      "centroidHz": 2002,
+      "rolloff85Hz": 4547,
+      "flatness": 0.0000205,
+      "lowShare": 0.993,
+      "top3": "125(82%) 250(18%) 2k(0%)",
+      "bands": {
+        "63": 0,
+        "125": 81.8,
+        "250": 17.5,
+        "500": 0,
+        "1k": 0.1,
+        "2k": 0.3,
+        "4k": 0.2,
+        "8k": 0.1,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_orbit",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_orbit.ogg",
+      "sec": 0.292,
+      "peakDb": -5,
+      "rmsDb": -17.4,
+      "momDb": -17.4,
+      "hp250MomDb": -17.9,
+      "hp250LossDb": 0.5,
+      "crestDb": 12.4,
+      "attackMs": 21.3,
+      "t10Ms": 1.3,
+      "centroidHz": 2643,
+      "rolloff85Hz": 3750,
+      "flatness": 0.0000183,
+      "lowShare": 0.082,
+      "top3": "2k(91%) 250(8%) 4k(0%)",
+      "bands": {
+        "63": 0,
+        "125": 0.2,
+        "250": 7.9,
+        "500": 0.1,
+        "1k": 0.3,
+        "2k": 90.9,
+        "4k": 0.5,
+        "8k": 0.1,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_overcharge",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_overcharge.ogg",
+      "sec": 0.302,
+      "peakDb": -6.8,
+      "rmsDb": -16.9,
+      "momDb": -16.9,
+      "hp250MomDb": -18.6,
+      "hp250LossDb": 1.7,
+      "crestDb": 10.1,
+      "attackMs": 5,
+      "t10Ms": 1.2,
+      "centroidHz": 1215,
+      "rolloff85Hz": 1711,
+      "flatness": 0.00000287,
+      "lowShare": 0.303,
+      "top3": "1k(59%) 250(25%) 500(8%)",
+      "bands": {
+        "63": 0,
+        "125": 3.2,
+        "250": 25.4,
+        "500": 7.7,
+        "1k": 58.8,
+        "2k": 4.9,
+        "4k": 0.1,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_stance",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_stance.ogg",
+      "sec": 0.102,
+      "peakDb": -6.2,
+      "rmsDb": -16.9,
+      "momDb": -16.9,
+      "hp250MomDb": -18.3,
+      "hp250LossDb": 1.3,
+      "crestDb": 10.7,
+      "attackMs": 5.4,
+      "t10Ms": 1,
+      "centroidHz": 1840,
+      "rolloff85Hz": 3352,
+      "flatness": 0.000012,
+      "lowShare": 0.977,
+      "top3": "500(68%) 250(30%) 2k(2%)",
+      "bands": {
+        "63": 0,
+        "125": 0,
+        "250": 30,
+        "500": 67.8,
+        "1k": 0.2,
+        "2k": 1.9,
+        "4k": 0.1,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_stuntdouble",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_stuntdouble.ogg",
+      "sec": 0.527,
+      "peakDb": -5.5,
+      "rmsDb": -18.2,
+      "momDb": -17,
+      "hp250MomDb": -21.6,
+      "hp250LossDb": 4.5,
+      "crestDb": 12.7,
+      "attackMs": 5.4,
+      "t10Ms": 0.8,
+      "centroidHz": 1595,
+      "rolloff85Hz": 2836,
+      "flatness": 0.0000274,
+      "lowShare": 0.758,
+      "top3": "125(54%) 250(21%) 500(20%)",
+      "bands": {
+        "63": 0.1,
+        "125": 54.3,
+        "250": 21.1,
+        "500": 20,
+        "1k": 4.1,
+        "2k": 0.2,
+        "4k": 0.1,
+        "8k": 0.1,
+        "16k": 0
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_injunction",
+      "d": 1.691
+    },
+    {
+      "a": "cast_dash",
+      "b": "cast_stuntdouble",
+      "d": 2.015
+    },
+    {
+      "a": "cast_dash",
+      "b": "cast_stance",
+      "d": 2.09
+    },
+    {
+      "a": "cast_dash",
+      "b": "cast_orbit",
+      "d": 2.151
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_cables",
+      "d": 2.217
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_stuntdouble",
+      "d": 2.243
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_cataclysm",
+      "d": 2.301
+    },
+    {
+      "a": "cast_dash",
+      "b": "cast_overcharge",
+      "d": 2.326
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_crowdsurf",
+      "d": 2.431
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_crowdsurf",
+      "d": 2.482
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_injunction",
+      "d": 2.531
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_dash",
+      "d": 2.548
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_cataclysm",
+      "d": 2.632
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_overcharge",
+      "d": 2.782
+    },
+    {
+      "a": "cast_orbit",
+      "b": "cast_stuntdouble",
+      "d": 2.783
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_cables",
+      "d": 2.826
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_cataclysm",
+      "d": 2.859
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_dash",
+      "d": 2.869
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_dash",
+      "d": 2.869
+    },
+    {
+      "a": "cast_injunction",
+      "b": "cast_stuntdouble",
+      "d": 2.877
+    },
+    {
+      "a": "cast_orbit",
+      "b": "cast_overcharge",
+      "d": 2.894
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_injunction",
+      "d": 3.031
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_injunction",
+      "d": 3.09
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_stuntdouble",
+      "d": 3.098
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_orbit",
+      "d": 3.124
+    },
+    {
+      "a": "cast_overcharge",
+      "b": "cast_stance",
+      "d": 3.13
+    },
+    {
+      "a": "cast_overcharge",
+      "b": "cast_stuntdouble",
+      "d": 3.132
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_crowdsurf",
+      "d": 3.146
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_dash",
+      "d": 3.166
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_overcharge",
+      "d": 3.183
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_stance",
+      "d": 3.243
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_bulwark",
+      "d": 3.25
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_overcharge",
+      "d": 3.252
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_stuntdouble",
+      "d": 3.275
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_orbit",
+      "d": 3.315
+    },
+    {
+      "a": "cast_stance",
+      "b": "cast_stuntdouble",
+      "d": 3.359
+    },
+    {
+      "a": "cast_injunction",
+      "b": "cast_overcharge",
+      "d": 3.382
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_overcharge",
+      "d": 3.392
+    },
+    {
+      "a": "cast_dash",
+      "b": "cast_injunction",
+      "d": 3.432
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_stance",
+      "d": 3.452
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_stance",
+      "d": 3.468
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_injunction",
+      "d": 3.477
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_dash",
+      "d": 3.632
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_cataclysm",
+      "d": 3.67
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_stuntdouble",
+      "d": 3.739
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_stuntdouble",
+      "d": 3.766
+    },
+    {
+      "a": "cast_injunction",
+      "b": "cast_stance",
+      "d": 3.768
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_stance",
+      "d": 3.825
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_orbit",
+      "d": 3.874
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_bulwark",
+      "d": 3.942
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_overcharge",
+      "d": 3.965
+    },
+    {
+      "a": "cast_orbit",
+      "b": "cast_stance",
+      "d": 3.984
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_cables",
+      "d": 3.984
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_stuntdouble",
+      "d": 3.996
+    },
+    {
+      "a": "cast_crowdsurf",
+      "b": "cast_cutto",
+      "d": 4.003
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_overcharge",
+      "d": 4.066
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_dash",
+      "d": 4.275
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_crowdsurf",
+      "d": 4.319
+    },
+    {
+      "a": "cast_injunction",
+      "b": "cast_orbit",
+      "d": 4.347
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_stance",
+      "d": 4.444
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_injunction",
+      "d": 4.47
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_bullettime",
+      "d": 4.516
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_orbit",
+      "d": 4.713
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_orbit",
+      "d": 4.746
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_dash",
+      "d": 4.762
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_stance",
+      "d": 4.84
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_orbit",
+      "d": 5.056
+    },
+    {
+      "a": "cast_airstrike",
+      "b": "cast_cutto",
+      "d": 5.253
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_stance",
+      "d": 5.335
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_stuntdouble",
+      "d": 5.352
+    },
+    {
+      "a": "cast_cataclysm",
+      "b": "cast_cutto",
+      "d": 5.499
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_orbit",
+      "d": 5.562
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_crowdsurf",
+      "d": 5.566
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_injunction",
+      "d": 5.668
+    },
+    {
+      "a": "cast_cutto",
+      "b": "cast_overcharge",
+      "d": 5.81
+    },
+    {
+      "a": "cast_cables",
+      "b": "cast_cutto",
+      "d": 5.919
+    },
+    {
+      "a": "cast_bulwark",
+      "b": "cast_cutto",
+      "d": 6.703
+    },
+    {
+      "a": "cast_bullettime",
+      "b": "cast_cutto",
+      "d": 7.834
+    }
+  ],
+  "sheets": [
+    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\casts\\sheet_casts_1.png",
+    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\casts\\sheet_casts_2.png"
+  ]
+}

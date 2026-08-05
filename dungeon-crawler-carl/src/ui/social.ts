@@ -429,27 +429,68 @@ export function gradeRun(
     letter,
     score,
     parts,
-    basis: capped && !run.won ? `${basis} · CAPPED BY DEPTH` : basis,
-    line: commentary(letter, run, parts),
+    // THE CAVEAT HAS TO BE ABOUT SOMETHING THE PLAYER CAN SEE. This said
+    // "· CAPPED BY DEPTH", which is a note about the composite score — and the
+    // composite is no longer on any surface in the product: not the panel, not
+    // the phone layout, not the share card, not the pasted text. A caveat about
+    // an invisible number is the same defect the owner named about the letter,
+    // left behind in the drill-down everything moved into. `basis` renders
+    // directly under THE FOUR MEASURES (#recap-basis), so it says the thing
+    // those four measures are doing: three of them look good because the run
+    // ended early, and depth is the one that decides that.
+    basis: capped && !run.won ? `${basis} · SHALLOW RUN — THE OTHER MEASURES FLATTER IT` : basis,
+    line: commentary(run, parts),
   };
 }
 
-/** The System's voice. Keyed on the letter AND on the weakest part, so the
- *  commentary always says something the player can act on. */
-function commentary(letter: Letter, run: RunFacts, parts: GradePart[]): string {
-  const worst = [...parts].sort((a, b) => a.score - b.score)[0];
+/** The System's voice — the ONE performance sentence on THE VERDICT's default
+ *  face now that the letter is gone (owner, polish r1: "the grade doesn't mean
+ *  anything"). It was keyed on the letter as well, and the letter's half of it
+ *  ("THE NETWORK HAS NOTES.", "SEASON HIGHLIGHT.") was the letter restated in
+ *  words: nothing the player could act on, and the last trace of a rating the
+ *  screen no longer states.
+ *
+ *  A CRITICISM NEEDS AN ABSOLUTE FLOOR, NOT A RANKING. Deleting the letter also
+ *  deleted this line's only calibration, and four scores always have a minimum:
+ *  keyed purely on "the weakest part", a dominant clear — 18 floors at 50s per
+ *  floor, i.e. TEMPO 66, ABOVE the house-curve median — printed "Slowly. The
+ *  audience had time to order food." on the game's best possible outcome. That
+ *  was survivable while a big gold S sat beside it carrying the real verdict.
+ *  As the ONLY readout it is a false statement about the run, which is strictly
+ *  worse than the meaningless letter it replaced. So the System only takes a
+ *  shot at a measure that is genuinely weak; above the floor it names what the
+ *  crawler did WELL, keyed on a real measure so the praise is auditable too. */
+const NAG_FLOOR = 55; // below the middle of the curve is a weakness worth naming
+
+function commentary(run: RunFacts, parts: GradePart[]): string {
+  const sorted = [...parts].sort((a, b) => a.score - b.score);
+  const worst = sorted[0], best = sorted[sorted.length - 1];
   if (run.won) {
-    if (letter === "S") return "PERFECT BROADCAST. The network has already greenlit the sequel.";
-    // A clear that is not an S got there the hard way, and the screen should
-    // say which way. "You walked out" for every clear alike is the same flat
-    // reading the letter used to give.
+    if (worst.score >= NAG_FLOOR) {
+      // No weak link on the tape. Say what carried it.
+      const praise: Record<GradePart["key"], string> = {
+        DEPTH: "All eighteen floors and not one soft patch in the tape.",
+        TEMPO: "Fast, and clean with it. The network loves a tight episode.",
+        SURVIVAL: "You barely bled. That is the cut they re-air.",
+        EXECUTION: "Every draft spent, every room worked. Textbook.",
+      };
+      return praise[best.key];
+    }
+    // A clear got there some way, and the screen should say which way. These
+    // are STANDALONE sentences now: they used to continue "YOU WALKED OUT.",
+    // which duplicated the h2 directly above them ("YOU ESCAPED THE DUNGEON").
     const short: Record<GradePart["key"], string> = {
-      DEPTH: "on paper, at least.",
+      DEPTH: "On paper, at least.",
       TEMPO: "Slowly. The audience had time to order food.",
       SURVIVAL: "Bleeding the whole way. The medical bill is the sequel budget.",
       EXECUTION: "Underpowered — you left drafts banked and walked out anyway.",
     };
-    return `YOU WALKED OUT. ${short[worst.key]}`;
+    return short[worst.key];
+  }
+  // A death with no weak measure is not a mistake to correct, and telling the
+  // crawler otherwise is the same false claim in the other direction.
+  if (worst.score >= NAG_FLOOR) {
+    return "Nothing on that tape was a mistake. The dungeon simply went deeper than you did.";
   }
   const nag: Record<GradePart["key"], string> = {
     // ...AND THE DEPTH LINE READS THE FLOOR (blocker 15). This fired on a
@@ -466,14 +507,7 @@ function commentary(letter: Letter, run: RunFacts, parts: GradePart[]): string {
     SURVIVAL: "You took every hit on offer. Try the version where you do not.",
     EXECUTION: "You left power on the table — banked drafts do not accrue interest.",
   };
-  const head: Record<Letter, string> = {
-    S: "SEASON HIGHLIGHT.",
-    A: "STRONG SHOWING.",
-    B: "SOLID CONTENT.",
-    C: "THE NETWORK HAS NOTES.",
-    D: "THAT WAS UNWATCHABLE.",
-  };
-  return `${head[letter]} ${nag[worst.key]}`;
+  return nag[worst.key];
 }
 
 // ---------------------------------------------------------------------------

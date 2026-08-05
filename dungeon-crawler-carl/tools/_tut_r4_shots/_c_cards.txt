@@ -1,0 +1,7 @@
+6.1s   SYSTEM — COURTESY EXPLANATIONFresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged. The floor has opinions about the stationary.GOT IT
+15.1s   SYSTEM — COURTESY EXPLANATIONYou are leaking. X drinks the flask; kills refill it. The System notes that dying pays nothing.GOT IT
+25.6s   SYSTEM — COURTESY EXPLANATIONFlask consumed. Charges come back from KILLS, not from time, so the way out of a losing fight is through it. The System finds this arrangement elegant.GOT IT
+36.0s   SYSTEM — COURTESY EXPLANATIONLoot is a raise, not a souvenir. I opens your BAG; wear the upgrade between fights. Underdressed crawlers make excellent television, briefly.GOT IT
+46.6s   SYSTEM — COURTESY EXPLANATIONEquipped. Strict upgrades dress themselves on pickup; anything the System considers a judgement call waits for yours. The figure that matters is the one that MOVED. Gear is compared, never collected, and the System awards no points for a full bag.GOT IT
+58.1s   SYSTEM — COURTESY EXPLANATIONContact. Left click or Space swings at what the mouse points at, and keeps swinging while you hold it. The dungeon recognizes no other opening move.GOT IT
+68.7s   SYSTEM — COURTESY EXPLANATIONThat is a GLYPH — firmware for ONE ability. It does not make the ability bigger; it makes it behave differently. It stays banked until a socket and a Safe Room exist at the same time. Firmware is not installed in traffic.GOT IT

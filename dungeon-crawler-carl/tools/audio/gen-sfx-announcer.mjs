@@ -196,6 +196,42 @@ function uiMaster(x, windowSec = 0.2) {
   renderOgg(OUT + "verdict.ogg", announcerMaster(x, 0.4));
 }
 
+// ---- level_up: THE SYSTEM FILES A PROMOTION.
+// Owner verdict §1.3a, verbatim: "can we also change the level up sound, it's
+// annoying as shit." The negative reference is the Kenney Music Jingles clip
+// it replaces, and the measurement says exactly what he heard: 0.44s holding
+// ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp
+// at all (centroid 4773Hz, rolloff85 11813Hz — the brightest thing in the
+// 22-clip house survey by a mile, next brightest 5873Hz). That is a sustained
+// CHORD, a slot machine paying out, on `cur.level > prev.level`, which is one
+// of the most-fired edges in the game.
+//
+// The opposite trade: a stamp and two notes, over before it can become a
+// jingle, in the same dry two-partial bell the rest of the System speaks in.
+// The step is a fourth UP (G5 -> C6) because a promotion is a step, not a
+// fanfare. It ends while the level-up banner is still drawing.
+//
+// It stays on the `sfx` bus rather than `announcer` on purpose: `announcer`
+// is the sidechain DUCK SOURCE (§2.3), and a clip on this edge would pump the
+// bed every level all run — which is the fatigue problem again, one layer down.
+// Family target -19 momentary (between UI at -22 and impacts): it must be
+// heard over a fight without out-punching the fight.
+{
+  const r = rng(0x1e7a);
+  const thock = sine(0.07, 260, 150); // the stamp hitting the form
+  env(thock, [[0, 0], [0.0025, 1], [0.07, 0]]);
+  const knock = filt(noise(0.035, r), "bandpass", 900, 1.2);
+  env(knock, [[0, 0], [0.0015, 1], [0.035, 0]]);
+  const file = filt(noise(0.11, r), "bandpass", [2200, 1000], 1.1); // the paper filed
+  env(file, [[0, 0], [0.02, 0.4], [0.11, 0]]);
+  let x = mix(
+    [thock, 0, 1], [knock, 0, 0.8], [file, 0.05, 0.45],
+    [bell(784, 0.14, r, 0.2), 0.03, 0.55],
+    [bell(1046, 0.22, r, 0.25), 0.11, 0.65],
+  );
+  renderOgg(OUT + "level_up.ogg", master(declick(x), { rmsDb: -19, peakDb: -6.5, windowSec: 0.3 }));
+}
+
 // ---- till: the transaction. Ka-chunk, then the faintest ding — a register,
 // not a slot machine. The cut the System takes is the chunk.
 {

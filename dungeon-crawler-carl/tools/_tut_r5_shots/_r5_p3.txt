@@ -1,0 +1,41 @@
+MOUSE BUTTON HELD from the first frame of play (r4's deterministic repro)
+BAG ON CUE: {"inv":4,"offers":0,"label":null}
+STAIRS @ {"floor":1,"elapsed":78,"lvl":6,"hp":95,"near":999,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":331,"fav":13.1076063061155,"flask":3,"slots":"melee|dash|bolt|stuntdouble","ult":null,"latch":["tut.campfire","stagger","achievementClaim","hype","draftBanked","favorites","collapse"],"ledger":["tut.campfire","stagger","achievementClaim","hype","favorites","draftBanked","collapse"]}
+STAIRS @ {"floor":1,"elapsed":84,"lvl":6,"hp":95,"near":999,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":277,"fav":13.1076063061155,"flask":3,"slots":"melee|dash|bolt|stuntdouble","ult":null,"latch":["tut.campfire","stagger","achievementClaim","hype","draftBanked","favorites","collapse"],"ledger":["tut.campfire","stagger","achievementClaim","hype","favorites","draftBanked","collapse"]}
+STAIRS @ {"floor":1,"elapsed":90,"lvl":6,"hp":95,"near":999,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":277,"fav":13.1076063061155,"flask":3,"slots":"melee|dash|bolt|stuntdouble","ult":null,"latch":["tut.campfire","stagger","achievementClaim","hype","draftBanked","favorites","collapse"],"ledger":["tut.campfire","stagger","achievementClaim","hype","favorites","draftBanked","collapse"]}
+STAIRS @ {"floor":1,"elapsed":95,"lvl":6,"hp":95,"near":999,"status":"playing","sr":true,"modal":true,"hype":0,"viewers":277,"fav":13.1076063061155,"flask":3,"slots":"melee|dash|bolt|stuntdouble","ult":null,"latch":["tut.campfire","stagger","achievementClaim","hype","draftBanked","favorites","collapse"],"ledger":["tut.campfire","stagger","achievementClaim","hype","favorites","draftBanked","collapse","tut.draft"]}
+CARD +0.9s f=1 near=14.8 hp=100% lvl=1 dwell=1.6s :: Fresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged. The floor has opinions about the statio
+CARD +5.3s f=1 near=2.7 hp=100% lvl=1 dwell=1.6s :: Contact. Left click or Space swings at what the mouse points at, and keeps swinging while you hold it. The dungeon recog
+CARD +13.7s f=1 near=2.9 hp=100% lvl=1 dwell=1.9s :: Swinging is the floor, not the ceiling. Shift, Q are your live abilities: louder arguments, priced in cooldowns. Slots t
+CARD +18.4s f=1 near=26.1 hp=100% lvl=2 dwell=1.9s :: That was loud, and your HYPE reading moved. Hype buys VIEWERS, viewers are the meter every payout downstream is read off
+CARD +34.1s f=1 near=22.7 hp=100% lvl=4 dwell=1.9s :: That upgrade dressed itself. Strict improvements are worn on pickup; anything the System rules a judgement call is left 
+CARD +49.7s f=1 near=22.3 hp=100% lvl=4 dwell=1.9s :: Your level-up minted a DRAFT. The System has posted the notice and will keep posting it until the draft is redeemed. Red
+CARD +65.3s f=1 near=3.5 hp=100% lvl=6 dwell=2.9s :: Loot is a raise, not a souvenir. I opens your BAG; wear the upgrade between fights. Underdressed crawlers make excellent
+CARD +76.6s f=1 near=999 hp=95% lvl=6 dwell=3.1s :: This floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the hazard. The stairs are
+CARD +93.5s f=1 near=999 hp=95% lvl=6 dwell=1.7s :: Down is the only way out. Find the stairs before the collapse clock finds you — the exit is always deeper. Nobody said t
+TICKER-TIP +5.8s box=384.3828125x74 :: COURTESY EXPLANATION: you STAGGERED it. Damage builds hidden POISE; enough poise interrupt
+TICKER-TIP +6.3s box=384.3828125x58.5 :: COURTESY EXPLANATION: that unlock queued a LOOT BOX. It will not open itself — collect it 
+TICKER-TIP +33.6s box=384.3828125x58.5 :: COURTESY EXPLANATION: the crowd has FAVORITES now — fans who keep watching after the excit
+HYPE: sim taught at +14.3s, card painted at +18.4s (lag 4.1s)
+FLOOR 1 CARDS: 9 over 93s (r4 measured 14 at ~10.4s intervals)
+FLOOR 1 GAPS (s): 4.3, 8.5, 4.7, 15.7, 15.6, 15.6, 11.3, 16.9
+SIM TIP DELIVERY: [{"id":"tut.campfire","card":null,"toast":null},{"id":"stagger","card":null,"toast":-0.0055},{"id":"achievementClaim","card":null,"toast":-0.003899999976158142},{"id":"hype","card":4.097300000071526,"toast":null},{"id":"draftBanked","card":33.66089999997616,"toast":null},{"id":"favorites","card":null,"toast":-0.06480000007152557},{"id":"collapse","card":-0.042299999952316286,"toast":null}]
+MEDIAN sim-tip act->paint lag: -0.0s (r4 measured 30.4s across the surface)
+FINAL {"floor":1,"elapsed":95,"lvl":6,"hp":95,"near":999,"status":"playing","sr":true,"modal":false,"hype":0,"viewers":277,"fav":13.1076063061155,"flask":3,"slots":"melee|dash|bolt|stuntdouble","ult":null,"latch":["tut.campfire","stagger","achievementClaim","hype","draftBanked","favorites","collapse"],"ledger":["tut.campfire","stagger","achievementClaim","hype","favorites","draftBanked","collapse","tut.draft"]}
+errors [] | 404s []
+
+
+PASS R5P3: profile is genuinely COLD (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS R5P3 BLOCKER 3: the FIRST card a button-holding fresh crawler sees is the movement line — 0.9s :: Fresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged.
+PASS R5P3 BLOCKER 3: the ability lesson exists at all — +13.7s
+PASS R5P3 BLOCKER 3: ...and it lands in a FIGHT (nearest monster inside reach) — near=2.9 tiles at +13.7s
+PASS R5P3 BLOCKER 3: ...after the movement line, never ahead of it — movement +0.9s, ability +13.7s
+PASS R5P3 BLOCKER 3: ...and after the swing lesson it builds on — contact +5.3s, ability +13.7s
+PASS R5P3 (r4, kept): the ability line names only LIVE slots — Swinging is the floor, not the ceiling. Shift, Q are your live abilities: louder arguments, priced in cooldown
+PASS R5P3 M5: THE SHOW is taught on the crit that caused it (r4 measured 47.6s) — lag 4.1s
+PASS R5P3 M4: floor 1 is not a conveyor belt (<= 9 cards) — 9 cards
+PASS R5P3 M4: the gaps are not a metronome tick — moments jump, rules wait — 2 gaps < 6s, 4 gaps >= 12s, of 8
+PASS R5P3 M4: median sim-tip delivery lag is under 10s — -0.0s
+PASS R5P3 M7: the BAG the pickup card points at is not empty — {"inv":4,"offers":0,"label":null}
+PASS R5P3 M7: the loot lesson's other half is REACHABLE (the auto-equip explains itself) — +34.1s
+PASS R5P3: zero page errors

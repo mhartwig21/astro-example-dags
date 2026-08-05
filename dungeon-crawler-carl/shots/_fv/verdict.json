@@ -1,0 +1,142 @@
+{
+  "staging": {
+    "ok": true,
+    "mobs": 43,
+    "killerCandidate": "broodmother",
+    "hp": 1
+  },
+  "simStatus": {
+    "status": "dead",
+    "alive": false,
+    "hp": 0,
+    "floor": 6
+  },
+  "face": {
+    "panelH": 385,
+    "viewportH": 768,
+    "fitsViewport": true,
+    "panelScrolls": false,
+    "blocks": [
+      {
+        "tag": "div",
+        "cls": "verdict",
+        "id": null,
+        "text": "IN MEMORIAM Episode canceled on floor 6 · run time 0:00.93 Floor 6. Respectable, and a long way short of the story.",
+        "h": 93
+      },
+      {
+        "tag": "div",
+        "cls": "death",
+        "id": "recap-death",
+        "text": "SWARMER — 23 damage, from 0% HP. Melee, Dash and Bolt were up. You died holding 3 flasks.",
+        "h": 66
+      },
+      {
+        "tag": "div",
+        "cls": "notranked",
+        "id": "recap-ladder",
+        "text": "TEST CHAMBER — NOT RANKED. A run that started at depth earns no seal, no contract points and no board row.",
+        "h": 35
+      },
+      {
+        "tag": "div",
+        "cls": "earned",
+        "id": null,
+        "text": "nothing banked — a run that started at depth moves no ledger[ SHOW THE MATH ] UNSEALED",
+        "h": 37
+      },
+      {
+        "tag": "div",
+        "cls": "racts",
+        "id": null,
+        "text": "SHARE STANDINGS WATCH THE ARENA RUN IT BACK R NEW RUN",
+        "h": 36
+      },
+      {
+        "tag": "div",
+        "cls": "rhint",
+        "id": null,
+        "text": "HOLD TAB — EVERY NUMBER FROM THIS RUN",
+        "h": 15
+      }
+    ],
+    "buttons": [
+      {
+        "id": "recap-earned",
+        "text": "nothing banked — a run that started at depth moves no ledger[ SHOW THE MATH ]",
+        "cls": "eline",
+        "h": 17
+      },
+      {
+        "id": "recap-share",
+        "text": "SHARE",
+        "cls": "dismiss",
+        "h": 35
+      },
+      {
+        "id": "recap-standings",
+        "text": "STANDINGS",
+        "cls": "dismiss",
+        "h": 35
+      },
+      {
+        "id": "recap-dismiss",
+        "text": "WATCH THE ARENA",
+        "cls": "dismiss",
+        "h": 35
+      },
+      {
+        "id": "recap-again",
+        "text": "RUN IT BACK R",
+        "cls": "primary",
+        "h": 36
+      },
+      {
+        "id": "recap-new",
+        "text": "NEW RUN",
+        "cls": "dismiss",
+        "h": 35
+      }
+    ],
+    "gradeNodesPresent": 0,
+    "gradeNodeIds": [],
+    "tabSheetVisible": false,
+    "title": "IN MEMORIAM",
+    "sub": "Episode canceled on floor 6 · run time 0:00.93",
+    "line": "Floor 6. Respectable, and a long way short of the story.",
+    "death": "SWARMER — 23 damage, from 0% HP. Melee, Dash and Bolt were up. You died holding 3 flasks.",
+    "ladder": "TEST CHAMBER — NOT RANKED. A run that started at depth earns no seal, no contract points and no board row.",
+    "hint": "HOLD TAB — EVERY NUMBER FROM THIS RUN"
+  },
+  "tabbed": {
+    "visible": true,
+    "parts": [
+      {
+        "key": "DEPTH\n0",
+        "detail": "floor 6 — started here, not walked",
+        "clipped": false
+      },
+      {
+        "key": "TEMPO\n1",
+        "detail": "1s alive, no floor cleared",
+        "clipped": false
+      },
+      {
+        "key": "SURVIVAL\n13",
+        "detail": "a health bar lasted you 12s",
+        "clipped": false
+      },
+      {
+        "key": "EXECUTION\n30",
+        "detail": "0.0 kills/min · 0/0 drafts claimed",
+        "clipped": false
+      }
+    ],
+    "basis": "vs THE HOUSE CURVE — no crowd yet",
+    "letterOnSheet": false
+  },
+  "mordecai": {
+    "count": 0,
+    "texts": []
+  }
+}

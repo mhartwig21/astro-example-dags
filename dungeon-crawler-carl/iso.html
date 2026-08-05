@@ -7,6 +7,11 @@
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <title>Dungeon Crawler Claude — 3D isometric</title>
+    <!-- Inline favicon (tutorial r3 fold-in c): without one, every headed
+         browser requests /favicon.ico on boot and logs a 404 — the one
+         console error on an otherwise clean first run. The System's ember
+         diamond (--bronze on the void ground), zero extra requests. -->
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230c0a14'/%3E%3Cpath d='M16 5.5 26.5 16 16 26.5 5.5 16Z' fill='%23c98a3b' stroke='%23f0c273' stroke-width='1.6'/%3E%3C/svg%3E" />
     <style>
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
          Dungeon stone lit by torchfire, framed in bronze, announced in gold.
@@ -468,7 +473,8 @@
                                   LEDGER, NICHE.md 4.3: contracts/stamps/streak,
                                   toggled by the "ledger" binding, default L)
                                 · #dialogue 22 (Roam NPC
-                                  conversation — letterboxed cut, portrait left)
+                                  conversation — letterboxed cut, portrait left;
+                                  .tut tutorial beats lift it to 29, over #menu)
                                 · #saferoom 24 · #draft 25 · #keys 26
                                 · #rushgate 26 (THE STARTING GUN — rivals pre-run
                                   hold; never coexists with #keys: it exists only
@@ -1950,43 +1956,46 @@
       /* ================= THE VERDICT (COMPETITIVE.md 6) =================
          The post-run screen has ONE job: convert the end of a run into the
          start of the next one, in under eight seconds of reading. So the
-         default state is a grade, a named death, one earned line, and the
-         buttons - and the numbers people argue about live behind a held TAB,
-         the same gesture LoL trained everyone to make. */
-      #recap .verdict { display: grid; grid-template-columns: 132px 1fr; gap: 20px;
-        align-items: center; }
-      /* The medallion: a struck gold coin, because a grade is an award and a
-         letter in a plain div is a spreadsheet. */
-      #recap .vmedal { position: relative; width: 132px; height: 132px; display: grid;
-        place-items: center; border-radius: 50%;
-        background: radial-gradient(circle at 38% 30%, #3a2f22, #14100c 72%);
-        border: 2px solid var(--bronze); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
-          inset 0 2px 10px rgba(255,224,160,0.10), 0 10px 26px rgba(0,0,0,0.6); }
-      #recap .vmedal::after { content: ""; position: absolute; inset: 7px; border-radius: 50%;
-        border: 1px solid rgba(201,162,75,0.35); pointer-events: none; }
-      #recap .vmedal b { font-family: var(--display); font-size: 66px; line-height: 1;
-        font-weight: 700; color: var(--gold-hi); text-shadow: 0 2px 0 #5c4726, 0 0 30px rgba(242,193,78,0.4); }
+         default state is a named death, ONE line naming what cost you most,
+         one earned line, and the buttons - and the numbers people argue about
+         live behind a held TAB, the same gesture LoL trained everyone to make.
 
-      #recap .vmedal small { position: absolute; bottom: 15px; font-size: 11px; letter-spacing: 0.14em;
-        color: var(--gold); font-family: var(--display); font-variant: small-caps;
-        font-variant-numeric: tabular-nums; }
-      /* The comparison set lives UNDER the coin, never inside it: a grade that
-         does not name its population is the exact failure this screen exists
-         to avoid, so the label has to be legible, not engraved into the rim. */
-      #recap .vbasis { text-align: center; margin-top: 7px; font-size: 10px; line-height: 1.35;
+         THERE IS NO LETTER GRADE. The struck-coin medallion that used to sit
+         here (a 132px circle plus its score plus its basis line = three
+         elements for one concept) is gone: the letter was a mean of four
+         percentiles, hard-capped at depth+25 and remapped on a win, against a
+         population that CHANGED between first paint and the board-loaded
+         re-render — the same run wore two letters while the player watched.
+         See COMPETITIVE.md 6.1's REMOVED row. Do not re-add it with better
+         styling; the four MEASURES survive behind TAB, each naming its own
+         raw number, which is the auditable half of what the coin claimed. */
+      #recap .verdict { display: block; }
+      /* The comparison set travels WITH the measures (now inside #recap-tab):
+         a rating that does not name its population is the exact failure this
+         screen exists to avoid. */
+      #recap .vbasis { margin-top: 7px; font-size: 10px; line-height: 1.35;
         letter-spacing: 0.1em; color: var(--ink-faint);
         font-family: var(--display); font-variant: small-caps; }
-      #recap .vgrade { display: flex; flex-direction: column; align-items: center; }
-      #recap .vmedal.g-S { border-color: var(--gold-hi); box-shadow: 0 0 0 1px rgba(0,0,0,0.7),
-          inset 0 2px 12px rgba(255,235,190,0.18), 0 0 34px rgba(242,193,78,0.35); }
-      #recap .vmedal.g-C b, #recap .vmedal.g-D b { color: #b9b2a4; text-shadow: 0 2px 0 #2a231a; }
-      #recap .vmedal.g-D { border-color: #6b4038; }
       #recap .vhead { min-width: 0; }
       #recap .vline { color: var(--ink); font-size: 14px; line-height: 1.5; margin: 8px 0 10px;
         border-left: 2px solid var(--bronze); padding-left: 10px; }
       /* The four parts, as engraved meters. Each names its own raw number, so
          a grade is auditable instead of an oracle. */
       #recap .vparts { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+      /* Their home is now the TAB sheet's LEFT column, which is roughly half
+         the width the default face gave them — four abreast would crush the
+         .pd detail line that is the whole point of a meter. */
+      #recap-tab .vparts { grid-template-columns: 1fr 1fr; }
+      /* ...and the detail line WRAPS in that half-width home, which is the
+         whole point of a meter that names its own raw number. Written as
+         `#recap-tab .vpart .pd` this rule was dead: `#recap .vpart .pd` below
+         has identical specificity (one id + two classes) and comes later, so
+         nowrap+ellipsis won and "3.4 kills/min · 8/12 drafts claimed" still
+         truncated. Two ids beat one, and all three properties have to be
+         undone — `white-space: normal` alone still leaves `overflow: hidden`
+         clipping the second line. */
+      #recap #recap-tab .vpart .pd { white-space: normal; overflow: visible;
+        text-overflow: clip; }
       #recap .vpart { background: linear-gradient(180deg, #221b15, #14100c); border: 1px solid #3a2f22;
         border-radius: 2px; padding: 5px 7px 6px; }
       #recap .vpart .pk { font-family: var(--display); font-variant: small-caps; font-size: 10px;
@@ -3200,7 +3209,7 @@
            centering split ~300px of column slack into two ~130-140px voids
            (name row -> DESCEND, TEST CHAMBER -> footer). The composition's
            own tokens now absorb most of it: the featured banner grows to
-           118px (the primary rides at 1.62x by construction), the mode tiles
+           118px (the primary rides at 1.26x by construction), the mode tiles
            to 184px, and the board gaps a step — so what centering has left
            to split is breathing, not dead stone. */
         #menu .m-tiles { --hero-h: clamp(60px, 8.4vh, 124px);
@@ -3288,12 +3297,29 @@
          most players own, the front door's primary was 12px of extra height
          away from a secondary banner. Heights are now TOKENS and the ratio is
          a CONSTRUCTION, not an accident of copy: the featured banner owns
-         --hero-h, the primary is defined as 1.62x it, and both hold at every
-         viewport. The notch cut scales with the plate for the same reason. */
+         --hero-h, the primary is defined as 1.26x it, and both hold at every
+         viewport. The notch cut scales with the plate for the same reason.
+         1.26, NOT 1.62 (owner, polish r1: "the top button is huge by
+         comparison and sticks out like a sore thumb... it's overkill"): at
+         1.62 the primary measured 123x634 against a 76px banner — 3.28x the
+         AREA of a featured door and 34% of the whole command stack's ink, with
+         its title 1.69x every other title on the screen (and not even a
+         CONSISTENT step: 1.62 at 1366, 1.69 at 1920, 1.76 at 2560, because
+         nothing stepped the TYPE down alongside the mass). A AAA front door
+         leads with PLACEMENT (top, full-bleed), COLOUR (the only filled plate)
+         and ONE accent (the prow + glow) — not with mass. The size step is now
+         1.26x tall / ~1.33x type, which is a tier, not a jump. */
       .m-tiles { --hero-h: clamp(60px, 7.5vh, 76px);
-        --pri-h: calc(var(--hero-h) * 1.62);
-        --pri-cut: clamp(16px, 1.6vw, 26px);
-        --pri-prow: clamp(24px, 2.2vw, 40px);
+        --pri-h: calc(var(--hero-h) * 1.26);
+        /* The cut and the prow are re-proportioned to the now-shorter plate so
+           they stay the same FRACTION of the silhouette instead of growing
+           relative to it — 40px of pointed protrusion was sized for a 123px
+           plate and is literally the thing that "sticks out". */
+        --pri-cut: clamp(12px, 1.1vw, 18px);
+        --pri-prow: clamp(16px, 1.3vw, 24px);
+        /* The primary's own type tier. It used to take --t-head, the sheet's
+           SECTION-HEAD token, while every sibling title took --t-body. */
+        --pri-title: clamp(17px, 1.18vw, 23px);
         display: grid; grid-template-columns: 1fr;
         grid-auto-rows: auto; gap: var(--g-tight); margin-bottom: var(--g-hair); }
       /* THE SECONDARY ROW: three modes, identical mass, one row. */
@@ -3318,7 +3344,12 @@
         align-items: center; align-content: center; column-gap: var(--g-col); row-gap: 1px;
         width: 100%; min-height: var(--pri-h); box-sizing: border-box;
         cursor: pointer; text-align: left;
-        padding: clamp(11px, 1vw, 18px) clamp(16px, 1.4vw, 26px);
+        /* Vertical padding came down WITH --pri-h, or min-height stops being
+           the thing that decides the height: at the old 18px the content box
+           measured ~103px against a 95.8px token, and the ratio would go back
+           to being an accident of copy — the exact bug the block above was
+           written to kill. */
+        padding: clamp(9px, 0.85vw, 15px) clamp(16px, 1.4vw, 26px);
         padding-right: calc(clamp(16px, 1.4vw, 26px) + var(--pri-prow) * 0.6);
         color: #241a08;
         background: linear-gradient(180deg, #fff6d4 0%, #ffd970 9%, var(--gold) 44%,
@@ -3335,15 +3366,25 @@
         font-variant: small-caps; font-weight: 700; font-size: var(--t-micro);
         letter-spacing: 0.32em; color: rgba(36,26,8,0.72); }
       .m-primary b { grid-column: 1; font-family: var(--display); font-variant: small-caps;
-        font-weight: 700; font-size: var(--t-head); letter-spacing: 0.14em;
+        font-weight: 700; font-size: var(--pri-title); letter-spacing: 0.14em;
         line-height: 1.05; color: #241a08;
         text-shadow: 0 1px 0 rgba(255,246,220,0.55); }
       .m-primary small { grid-column: 1; font-family: var(--body); font-variant: normal;
         font-size: var(--t-fine); letter-spacing: 0.01em; line-height: 1.3;
         color: rgba(46,33,10,0.86); display: -webkit-box; -webkit-box-orient: vertical;
-        -webkit-line-clamp: 2; overflow: hidden; }
+        -webkit-line-clamp: 1; overflow: hidden; }
+      /* One line on desktop, so the plate's height is the TOKEN and not the
+         copy (measured: the 2nd line was what made the ratio 1.42 at 1366
+         while it was 1.26 everywhere else). Touch classes keep two lines — a
+         phone's narrow plate would otherwise ellipsis, and a clamp that eats
+         its own sentence is a lying surface. `body[data-uiclass]` is set only
+         by the touch shell (src/ui/hudLayout.ts) and is absent on desktop. */
+      body[data-uiclass] #menu .m-primary:not(.demoted) small { -webkit-line-clamp: 2; }
+      /* The chevron is sized in `em` off this font-size: left at --t-head it
+         would draw physically LARGER than the DESCEND wordmark beside it — a
+         second sore thumb inside the first. */
       .m-primary .go-arrow { grid-column: 2; grid-row: 1 / -1; margin-left: 0;
-        width: 0.7em; height: 0.7em; border-width: 3px; font-size: var(--t-head); }
+        width: 0.7em; height: 0.7em; border-width: 3px; font-size: var(--pri-title); }
       .m-primary:hover { filter: brightness(1.07);
         box-shadow: inset 0 1px 0 rgba(255,246,220,0.85), inset 0 -3px 4px rgba(76,50,12,0.6),
           0 4px 14px rgba(0,0,0,0.6), 0 0 40px rgba(242,193,78,0.4); }
@@ -3365,11 +3406,17 @@
         /* the step-down keeps the SHAPE but not the MASS — CONTINUE above it
            is the one plate built to the primary height */
         min-height: calc(var(--hero-h) * 1.1); }
-      .m-primary.demoted b { color: var(--gold-hi); font-size: var(--t-lead);
+      /* The step-down has to STAY a step down. Once the primary drops to
+         --pri-title, a demoted title at --t-lead would sit only 1.13x below it
+         AND still be larger than DAILY CRAWL — two competing headlines. At
+         --t-body the demoted DESCEND matches its true peers (DAILY, RUSH,
+         PARTY) and the same ~1.33x step now separates the primary from
+         EVERYTHING on the screen. */
+      .m-primary.demoted b { color: var(--gold-hi); font-size: var(--t-body);
         text-shadow: none; }
       .m-primary.demoted .m-pri-kick { color: var(--ink-faint); }
       .m-primary.demoted small { color: var(--ink-faint); -webkit-line-clamp: 1; }
-      .m-primary.demoted .go-arrow { color: var(--gold); font-size: var(--t-lead);
+      .m-primary.demoted .go-arrow { color: var(--gold); font-size: var(--t-body);
         border-width: 2px; }
       .m-primary.demoted:hover { filter: none; border-color: var(--bronze-hi);
         box-shadow: inset 0 0 0 1px rgba(242,193,78,0.3), 0 3px 12px rgba(0,0,0,0.55); }
@@ -3639,7 +3686,8 @@
          The footer is decoration; on a screen this short it costs a verb. */
       body[data-uiclass="compact"] #menu .m-foot { display: none; }
       /* ...and the board gets the height back: on a 293px viewport the mode
-         column had 111px — DESCEND alone was 97 (--pri-h = 1.62 x hero) and
+         column had 111px — DESCEND alone was 97 (--pri-h was 1.62 x hero;
+         polish r1 took it to 1.26, which hands ~8px straight back here) and
          THE RUSH sat half-clipped below the fold (wr-fix1 r5). The welcome
          line is decoration; the banners shrink a tier; the funnel's two
          public tiles land fully on the glass. */
@@ -3860,6 +3908,13 @@
       .ixsplit { flex: 1; min-height: 0; display: grid;
         grid-template-columns: clamp(150px, 12vw, 280px) minmax(0, 1fr);
         gap: var(--g-col); overflow: hidden; align-items: stretch; }
+      /* You cannot navigate to a name you cannot read: at 1366 the T panel's
+         163px rail ellipsed "Battle St…", "Stunt Dou…", "Stage Cabl…",
+         "Sponsor B…" while the stage beside it had ~240px of unused height.
+         The rail buys width from a card that has it. The safe room's copy of
+         this component already gets its own wider override (see
+         #sr-page-abil > .ixsplit); the T panel never got one. */
+      #abil .apane.ixsplit { grid-template-columns: clamp(196px, 15vw, 300px) minmax(0, 1fr); }
       /* One rail can be alone (THE CHASE is a single section, so it gets the
          whole width rather than a rail with one entry in it). */
       .ixsplit.solo { grid-template-columns: minmax(0, 1fr); }
@@ -3967,14 +4022,106 @@
       #saferoom .tip::before { content: "MORDECAI: "; color: #6da356; font-weight: 700; font-style: normal; }
       .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 348px;
         gap: 14px; margin-top: 8px; }
-      .shop-shelf { overflow-y: auto; padding-right: 6px; }
-      .tier-h { display: flex; align-items: center; gap: 10px; font-size: 10px; font-weight: 700;
-        letter-spacing: 3px; color: var(--tc, #a99f8c); margin: 12px 0 7px; }
-      .shop-shelf .tier-h:first-child { margin-top: 2px; }
-      .tier-h::after { content: ""; flex: 1; height: 1px;
+      .shop-shelf { overflow-y: auto; padding-right: 6px;
+        display: flex; flex-direction: column; gap: 12px; }
+      /* ========= A TIER IS A BAND, NOT A HEADING (owner, polish r1: "the shop
+         is no longer organized into rarity tiers ... the game is about speed so
+         these things need to be relatively simple") =========
+         The label used to be a letterspaced line STACKED above its stock, and
+         five of those in a column read as one wall of boxes. It is a left
+         GUTTER now: the tier names itself beside its own stock, in its own
+         colour, with the gutter edge drawn as a bracket that runs the full
+         height of the band and a faint wash of the tier colour behind it. The
+         group cue is the band — adjacency, a coloured rule, a tinted plate —
+         not the type size. (r1 raised this label 10px -> 10.5px and called that
+         legibility; at 1366 that is +0.5px and it was the same signpost the
+         owner had already failed to register. The size is honest here: the
+         gutter leaves 100px for text and CONSUMABLES is eleven small-caps
+         characters, so 10.5px at 1px tracking is what fits. What changed is
+         everything around it.)
+
+         THE GUTTER ALSO BUYS THE FIT, which is the half r1 papered over. Five
+         stacked headers cost ~195px of vertical (12+4+line+3+7 each); in the
+         gutter they cost ZERO rows. Measured before this change the shelf ran
+         +82 (IN STOCK) and +240 (ALL ITEMS) past the 1366x768 panel, which is
+         why SIGNATURE — the top rarity tier, the one that makes "organized
+         into rarity tiers" mean anything — had nothing visible under its
+         header on the view the shop OPENS on. r1's answer was a 16px bottom
+         fade; a fade is a claim that there is more below, not a way to see it,
+         and it shipped unconditionally (veiling prices in THE CHASE, which
+         never overflows) and NESTED inside .shelf-col.seg-on's identical mask
+         on compact/phone, where the two multiplied to ~9% alpha on the bottom
+         row. That mask is gone. The right-hand column of this same panel has
+         solved this structurally since r4 (BAG_DENSE_AT/BAG_MICRO_AT — 40px,
+         32px, 26px tiles under the house rule "no scrollbars"); the shelf gets
+         the same ladder below rather than a gradient. */
+      /* 116px of gutter + a 12px gap leaves exactly 568px, which is exactly
+         nine 56px tiles and eight 8px gaps — the shelf loses two columns and
+         gains five header rows' worth of height, and the arithmetic is stated
+         here because renderShopPage's row budget depends on it.
+         The bracket and the wash are painted by the SECTION, not by the label:
+         the label is `align-self: start` (it has to be, to be sticky), so a
+         border on it would stop at the end of the word instead of running the
+         height of the band it is bracketing. */
+      .tier { display: grid; grid-template-columns: 116px minmax(0, 1fr);
+        gap: 0 12px; align-items: start; padding: 2px 0;
+        background:
+          linear-gradient(90deg, transparent 114px,
+            var(--tc, #a99f8c) 114px 116px, transparent 116px),
+          linear-gradient(90deg,
+            color-mix(in srgb, var(--tc, #a99f8c) 9%, transparent), transparent 46%); }
+      /* The plain header form: THE CHASE is one section with a long subtitle,
+         so it keeps the rule-and-label shape rather than a 116px gutter. */
+      .tier-h { display: flex; flex-wrap: wrap; align-items: center; gap: var(--g-row);
+        font-size: var(--t-fine); font-weight: 700;
+        letter-spacing: 3px; color: var(--tc, #a99f8c); margin: 0; }
+      /* The rule is a RULE, not a wipe over the copy (r1 major): ::after used
+         to be the flex:1 filler, so the note ("— stock varies by shop") was
+         pushed under the gradient and faded out mid-sentence. The note takes
+         the flex now; the rule is a fixed remainder that can never reach it. */
+      .tier-h::after { content: ""; flex: 1 1 40px; min-width: 40px; height: 1px;
         background: linear-gradient(90deg, var(--tc, #a99f8c), transparent); opacity: 0.35; }
-      .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: #55493a; }
+      .tier-h .tnote { font-weight: 400; letter-spacing: 1px; color: var(--ink-faint);
+        flex: 0 1 auto; min-width: 0; }
+      /* The gutter form. `position: sticky` is now SAFE — every header's
+         containing block is its own `.tier` section, so a header is pushed out
+         by the end of its own band instead of pinning at top:0 forever. (r1
+         made all five siblings of one scroller, so up to five translucent
+         bands piled in the same box.) The bracket replaces the fading rule. */
+      /* THE LABEL MAY NOT OUTGROW ITS GUTTER (r1 verification). The gutter is a
+         hard 116px, giving 100px of text after the padding, but the label took
+         `--t-fine`, which SCALES with the viewport. Measured: at 1920 and 2560
+         "CONSUMABLES" and "COMPONENTS" broke mid-word — "CONSUMAB / LES" — so
+         the one signpost the whole sectioned shelf rests on degraded as the
+         screen got BIGGER. The gutter width is load-bearing for the column
+         arithmetic in renderShopPage (SHELF_COLS_ROOMY), so the type yields
+         instead: a cap that keeps the longest label inside 100px at every
+         viewport, and no mid-word breaking to fall back on if it ever doesn't.
+         COMPLETED WORKS still wraps — at its space, which is what a space is
+         for. */
+      .tier > .tier-h { flex-direction: column; flex-wrap: nowrap;
+        align-items: flex-end; text-align: right; gap: 2px;
+        font-size: clamp(10.5px, 0.6vw, 12px);
+        letter-spacing: 1px; line-height: 1.25;
+        overflow-wrap: normal; word-break: keep-all; hyphens: none;
+        padding: 1px 16px 1px 0; /* clears the section's bracket at 114-116px */
+        position: sticky; top: 0; z-index: 2; }
+      .tier > .tier-h::after { content: none; }
+      .tier > .tier-h .tnote { flex: none; letter-spacing: 0.4px;
+        font-size: var(--t-stamp); line-height: 1.3; }
       .igrid { display: flex; flex-wrap: wrap; gap: 8px; }
+      /* THE SHELF'S DENSITY LADDER — the bag's ladder, on the bag's own panel,
+         for the bag's own reason. 56px tiles give 9 columns inside the gutter,
+         which is 6 rows of IN STOCK and 10 of ALL ITEMS; 40px tiles (the bag's
+         first step) give 12 columns, which puts the whole 66-entry catalog in
+         8 rows. renderShopPage counts the rows and picks. */
+      .shop-shelf.dense .igrid { gap: 6px; }
+      .shop-shelf.dense .itile { width: 40px; }
+      .shop-shelf.dense .itile .ibox { width: 38px; height: 38px; }
+      .shop-shelf.dense .itile .ii { width: 31px; height: 31px; }
+      .shop-shelf.dense .itile .iglyph { font-size: 18px; }
+      .shop-shelf.dense .itile .iprice { font-size: 9px; margin-top: 2px; }
+      .shop-shelf.dense .itile .iprice .micon { width: 8px; height: 8px; }
       .itile { --tc: #a99f8c; width: 56px; cursor: pointer; }
       /* LoL-shop tile read (r4 major): rarity-tinted radial backing behind the
          painted art — the tier color is the tile's ambient light, not just a
@@ -4310,7 +4457,12 @@
       .shop-subtabs .tab:hover { color: var(--ink); }
       .shop-subtabs .tab.active { color: var(--gold-hi); background: none; border: 0;
         box-shadow: inset 0 -2px 0 #f2c14e; }
-      .shop-shelf { flex: 1; }
+      /* `min-height: 0` is not decoration: without it a flex item's auto min
+         size lets the shelf grow past the panel instead of scrolling inside
+         it, which is how a shelf that overflows by 82px pushes SIGNATURE off
+         the bottom of the modal rather than under a scroll thumb. It is the
+         same pairing `.sr-page` and the compact shelf already use. */
+      .shop-shelf { flex: 1; min-height: 0; }
       /* Safe-room pages (ABILITIES / ACHIEVEMENTS) share the shop's frame. */
       .sr-page { flex: 1; min-height: 0; overflow-y: auto; margin-top: 8px; padding-right: 6px; }
       /* ...except ABILITIES, which is a flex column that does NOT scroll: the
@@ -4332,14 +4484,29 @@
       /* The safe room's rail carries the same sixteen abilities as the T panel
          but in a shorter region (the loadout bar and the view toggle are above
          it), so it measured +295 as one column. It is the --set-xl panel: it
-         has the WIDTH, so the rail spends it. */
-      #sr-page-abil > .ixsplit { grid-template-columns: clamp(300px, 26vw, 520px) minmax(0, 1fr); }
-      #sr-abil-index { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr));
+         has the WIDTH, so the rail spends it — on TWO columns, which is what
+         makes it fit vertically.
+         But 26vw is 355px at 1366, and `repeat(2, 1fr)` spent that as two
+         ~168px entries: NARROWER per name than the 163px rail the T panel was
+         just widened to ~205px for ellipsing "Battle St…" and "Stunt Dou…".
+         The same three names still truncated here — on the screen the owner
+         actually complained about ("really hard to understand and navigate"),
+         while the fix landed on the other one. The track is a MINIMUM now, so
+         the number of columns follows from a legible entry instead of the
+         entry width following from an arbitrary two: 31vw = 423px at 1366,
+         which is two 201px entries — parity with the T panel — and one column
+         wherever two would not be readable. */
+      #sr-page-abil > .ixsplit { grid-template-columns: clamp(300px, 31vw, 560px) minmax(0, 1fr); }
+      #sr-abil-index { display: grid; grid-template-columns: repeat(auto-fill, minmax(196px, 1fr));
         gap: 1px var(--g-row); align-content: start; }
       #sr-abil-index .aidx-h { grid-column: 1 / -1; }
       /* Loadout bar: 4 active slots + the ultimate. */
       .loadout { display: flex; gap: var(--g-row); margin: 4px 0 14px; }
-      .lslot { width: 58px; }
+      /* A loadout tile SELECTS its ability on the stage (polish r1) — the bar
+         that answers "what do I have" is the shortest route to "and change
+         it", so it has to read as clickable. */
+      .lslot { width: 58px; cursor: pointer; }
+      .lslot.empty { cursor: default; }
       .lslot .ibox { width: 56px; height: 56px; position: relative; display: flex; align-items: center;
         justify-content: center; background: linear-gradient(160deg, #1b1611, #14100c);
         border: 1px solid var(--bronze); box-shadow: inset 0 0 12px rgba(0,0,0,0.75); }
@@ -4446,10 +4613,12 @@
          Every tree is ENTRY -> FORK xor FORK -> RIDER -> CAPSTONE. Drawn, the
          shape is self-teaching: one line in, two lines that cross a PICK ONE
          bar, and a violet diamond at the bottom you are walking toward. */
-      /* #abil .grid stays a CSS grid in BOTH views (the `columns` below only
-         still governs the safe room's copy of the cards). */
       #abil .grid.graphs .ccard { margin-bottom: 0; }
-      .abil-cards.graphs { columns: 2; column-gap: 14px; }
+      /* `.abil-cards` (and `.abil-cards.graphs`) used to live here. They have
+         had NO mount point since bd0004a deleted abilBodyHtml — the whole
+         roster concatenated into one 3,200px scroller — and a second, dead
+         layout system lying around is how a screen gets "restored" to the
+         thing the owner asked to be rid of. Deleted, not commented out. */
       .ccard { break-inside: avoid; margin-bottom: 14px;
         background: var(--noise), linear-gradient(180deg, rgba(26,21,15,0.82), rgba(9,7,5,0.85) 80%);
         border: 1px solid rgba(110,85,51,0.5); border-radius: var(--r-panel); padding: 11px 13px;
@@ -4475,6 +4644,24 @@
         border-radius: 3px; border: 1px solid rgba(110,85,51,0.22);
         background: radial-gradient(120% 90% at 50% 8%, rgba(40,32,58,0.5), rgba(4,3,2,0.72) 70%);
         box-shadow: inset 0 2px 12px rgba(0,0,0,0.6); }
+      /* The safe room's stage is SHORTER than the T panel's — the loadout bar
+         and the view toggle sit above it — and since polish r1 the chart card
+         also carries the glyph line and the slot buttons. r1 paid for those
+         verbs by hard-coding the sky 27% shorter here (clamp(190px, 20vh,
+         400px)), which was arithmetic, not a measurement, and it failed the
+         wrong way: `.ixsplit > .grid` is an auto-scroller, so a card even
+         slightly taller than the stage HIDES the buttons instead of overflowing
+         visibly — the exact failure the change existed to end — and it left the
+         same sixteen charts rendering at two different densities, the denser
+         one on the screen in the complaint.
+         The card is a COLUMN THAT FITS THE STAGE instead. Chrome is flex:none,
+         the sky takes whatever height is left over, and the verbs are always
+         the last visible thing on a card that is never taller than its box. No
+         constant to be wrong about, and the sky is as big as the screen can
+         actually afford rather than as big as someone guessed. */
+      #sr-page-abil .grid > .ccard { max-height: 100%; display: flex; flex-direction: column; }
+      #sr-page-abil .grid > .ccard > * { flex: none; }
+      #sr-page-abil .grid > .ccard > .cgraph { height: auto; flex: 1 1 auto; min-height: 120px; }
       .cedges { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
       .cedges line { stroke: #34291c; stroke-width: 1.6; vector-effect: non-scaling-stroke; }
       .cedges line.live { stroke: #c9a24b; stroke-width: 2.2; opacity: 0.85; }
@@ -4540,12 +4727,16 @@
         background: linear-gradient(180deg, rgba(30,22,44,0.95), rgba(10,7,14,0.95)); }
       .cxor.decided { color: var(--ink-empty); border-color: #241d16; }
 
-      /* The per-ability modifier line inside a constellation card. */
-      .acard .amods { display: flex; align-items: center; gap: var(--g-tight); margin: 7px 0 2px; }
-      .acard .amods .socks { margin: 0; }
-      .acard .amodtext { font-size: var(--t-fine); color: #b08fd9; letter-spacing: 0.2px; }
-      .acard .amodtext.dim { color: var(--ink-empty); font-style: italic; }
-      .acard .amodcap { font-size: var(--t-micro); letter-spacing: 0.5px; color: #d8a13f;
+      /* The per-ability modifier line. Scoped to BOTH card faces since polish
+         r1: the LIST card (.acard) and the STAR CHART card (.ccard) now share
+         one renderer, because "what is this ability actually running" is not
+         something a view toggle is allowed to hide. */
+      .acard .amods, .ccard .amods { display: flex; flex-wrap: wrap; align-items: center;
+        gap: var(--g-tight); margin: 7px 0 2px; }
+      .acard .amods .socks, .ccard .amods .socks { margin: 0; }
+      .acard .amodtext, .ccard .amodtext { font-size: var(--t-fine); color: #b08fd9; letter-spacing: 0.2px; }
+      .acard .amodtext.dim, .ccard .amodtext.dim { color: var(--ink-empty); font-style: italic; }
+      .acard .amodcap, .ccard .amodcap { font-size: var(--t-micro); letter-spacing: 0.5px; color: #d8a13f;
         border-left: 1px solid #7a5c1e; padding-left: 7px; margin-left: 2px; }
       #itemtip .tdormant { color: #a08a6a; margin-top: 5px; font-size: var(--t-small); line-height: 1.45;
         border-left: 2px solid #4a3d2c; padding-left: 7px; }
@@ -4555,9 +4746,9 @@
       #itemtip .tcap { color: #d8a13f; margin-top: 5px; font-size: var(--t-small); line-height: 1.45;
         border-left: 2px solid #7a5c1e; padding-left: 7px; }
       /* Ability cards: readable upgrade LISTS (rank pips + current magnitudes),
-         not a graph. Shared by the safe-room ABILITIES tab and the T panel. */
-      .abil-cards { display: block; columns: 2; column-gap: 12px; }
-      .abil-cards .acard { break-inside: avoid; margin-bottom: 12px; }
+         not a graph. Shared by the safe-room ABILITIES tab and the T panel —
+         both of which mount ONE card on a stage (.ixsplit > .grid), which is
+         why the old `.abil-cards` multi-column container is gone. */
       /* Engraved constellation plates (r3 major): each ability family is a
          framed star-chart card — bronze keyline, noise grain, header rule —
          not a flat brown field. */
@@ -4646,8 +4837,9 @@
       .nrow.locked .npips .pip { opacity: 0.35; }
       .nrow.capstone .ntitle { color: #b08fd9; }
       .nrow.taken.capstone .ntitle { color: #b08fd9; text-shadow: 0 0 8px rgba(185,152,255,0.4); }
-      /* Slot-swap buttons (safe room only; the sim enforces the gate). */
-      .slot-controls { display: flex; gap: 5px; margin-top: 9px; }
+      /* Slot-swap buttons (safe room only; the sim enforces the gate). Unscoped
+         by design — they belong to whichever card face is on the stage. */
+      .slot-controls { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
       .slot-btn { cursor: pointer; font: inherit; font-size: var(--t-fine); font-weight: 700; letter-spacing: 1px;
         padding: 3px 10px; color: #a99f8c; background: #14100c; border: 1px solid #2c241b; }
       .slot-btn:hover { color: #f2c14e; border-color: #7a6428; }
@@ -5342,22 +5534,13 @@
       .itile.eslot .ibox { border: 1px solid #241d16;
         background: linear-gradient(180deg, #14100c, #0c0906);
         box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), inset 0 0 0 1px rgba(0,0,0,0.6); }
-      /* Shelf placeholder wells (r4 minor): sparse tiers complete their row
-         with recessed diamond-socket wells — a curated case with reserved
-         slots, never a half-empty shelf trailing into brown. */
-      .itile.well { cursor: default; }
-      .itile.well .ibox { border: 1px solid rgba(36,29,22,0.9);
-        background: linear-gradient(180deg, #14100c, #0b0805);
-        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.6),
-          inset 0 -1px 0 rgba(232,221,200,0.03); position: relative; }
-      .itile.well .ibox::after { content: ""; position: absolute; left: 50%; top: 50%;
-        width: 9px; height: 9px; margin: -4.5px 0 0 -4.5px; transform: rotate(45deg);
-        background: linear-gradient(135deg, rgba(110,85,51,0.4), rgba(30,22,14,0.7));
-        box-shadow: inset 0 1px 1px rgba(0,0,0,0.8), 0 1px 0 rgba(232,221,200,0.05); }
-      /* Wells are furniture, not stock: no hover lift, no rarity light. */
-      .itile.well:hover .ibox { transform: none; border-color: rgba(36,29,22,0.9);
-        box-shadow: inset 0 2px 8px rgba(0,0,0,0.85), inset 0 0 0 1px rgba(0,0,0,0.6),
-          inset 0 -1px 0 rgba(232,221,200,0.03); }
+      /* NO SHELF PLACEHOLDER WELLS. The `.itile.well` block that lived here
+         padded every partial tier row out to 11 columns with recessed
+         diamond sockets ("never a half-empty shelf trailing into brown").
+         Measured, that shipped 28 dead sockets per shelf and fused five
+         rarity tiers into one uniform rectangle — the owner read the result
+         as "the shop is no longer organized into rarity tiers". A tier ends
+         where it ends; the ragged right edge IS the grouping. */
       /* Bar fills read as material: specular top edge + shaded foot. */
       .bar > i, .hpbar .hp-fill, #bossbar #bb-fill, #show .hypebar > i,
       #xpbar > i, .hh-xp > i, #sheet .progress .bar > i, #loading .l-bar i {
@@ -5786,6 +5969,29 @@
           0 0 30px rgba(217,142,74,0.16), 0 12px 34px rgba(0,0,0,0.6); }
       #dialogue.guide .dlg-kicker { color: var(--ember); }
       #dialogue.guide .dlg-nameplate b { color: #f5cf82; }
+      /* Tutorial beats (TUTORIAL.md): Mordecai borrows this surface at the
+         campfire and the second check-in, which sit UNDER #menu (z 28) — the
+         .tut lift puts the beat over the check-in scene. 29 stays under the
+         #rotate gate (z 40); #loading (29) is boot-only and never coexists. */
+      #dialogue.tut { z-index: 29; }
+      /* TUTORIAL.md B8: the corner-man's aside inside the verdict — portrait
+         chip, one line, ember keyline. A plate, never a modal: the numbers
+         are the star and the RUN IT BACK CTA below it stays unobstructed. */
+      #recap .guide-aside { display: flex; align-items: center; gap: 10px;
+        margin-top: 10px; padding: 7px 12px; border-radius: 3px;
+        background: linear-gradient(180deg, rgba(58,40,22,0.5), rgba(20,13,8,0.6));
+        border: 1px solid rgba(217,142,74,0.45); border-left: 3px solid var(--ember); }
+      #recap .guide-aside .ga-portrait { flex: 0 0 40px; width: 40px; height: 40px;
+        border-radius: 3px; overflow: hidden; border: 1px solid #8a6d3b;
+        background: #100c08; }
+      #recap .guide-aside .ga-portrait img { display: block; width: 100%; height: 100%;
+        object-fit: cover; }
+      #recap .guide-aside .ga-body { min-width: 0; }
+      #recap .guide-aside .ga-body b { display: block; font-family: var(--display);
+        font-variant: small-caps; font-size: 10px; letter-spacing: 0.2em;
+        color: var(--ember); }
+      #recap .guide-aside .ga-body span { font-size: 12.5px; color: #ecdfc4;
+        line-height: 1.4; }
 
       /* Quest tracker (right rail, under the party roster zone): collapsible
          contract ledger in the glass HUD family — fight-screen chrome, not
@@ -6047,7 +6253,8 @@
         .gchip .gtags, .gchip .gfam, .gchip .gfits, .gcount,
         .sheet-sec, .sheet-sec .note, #sheet-mods .mname,
         .lslot .lname, .achip, .acomposed .clbl, .amode,
-        .acard .awhere, .acard .amodcap, .cnode .cname { font-size: 11.5px; }
+        .acard .awhere, .acard .amodcap, .ccard .awhere, .ccard .amodcap,
+        .cnode .cname { font-size: 11.5px; }
 
         /* --- 44px everywhere ---
            Not "most controls": the probe counts every button, tab, row, cell
@@ -6089,6 +6296,16 @@
         .shop-shelf .itile { width: 62px; }
         .shop-shelf .itile .ibox { width: 62px; height: 62px; }
         .shop-shelf .itile .ii { width: 50px; height: 50px; }
+        /* A THUMB OUTRANKS THE DENSITY LADDER. `.shop-shelf.dense .itile` is
+           three classes and this is two, and a media query adds no specificity,
+           so the shelf's 40px step would silently win here and hand a coarse
+           pointer a 40px target. The ladder exists to keep a mouse-driven
+           panel scrollbar-free; it is not permitted to undercut the 44px rule
+           the mobile track measured. */
+        .shop-shelf.dense .itile { width: 62px; }
+        .shop-shelf.dense .itile .ibox { width: 62px; height: 62px; }
+        .shop-shelf.dense .itile .ii { width: 50px; height: 50px; }
+        .shop-shelf.dense .igrid { gap: 8px; }
         .kb-row { min-height: 48px; align-items: center; }
         /* Text fields are tap targets too — the crawler-name box measured
            202x25 on an iPad, and a party code you cannot reliably tap into is
@@ -6329,11 +6546,41 @@
       body[data-uiclass="phone"] .shop-shelf .itile .ii { width: 40px; height: 40px; }
       body[data-uiclass="compact"] .shop-shelf .iprice,
       body[data-uiclass="phone"] .shop-shelf .iprice { font-size: 9.5px; line-height: 12px; }
+      /* ...and the density ladder does not apply here either. Every number in
+         this block was measured on a 297px panel; the ladder's numbers were
+         measured on a 1366x768 one, and the compact shelf is a scroller with a
+         measured fade of its own (.shelf-col.seg-on). Two tunings for one
+         element, and the one that was measured for THIS viewport wins. */
+      body[data-uiclass="compact"] .shop-shelf.dense .itile,
+      body[data-uiclass="phone"] .shop-shelf.dense .itile { width: 50px; }
+      body[data-uiclass="compact"] .shop-shelf.dense .itile .ibox,
+      body[data-uiclass="phone"] .shop-shelf.dense .itile .ibox { width: 50px; height: 50px; }
+      body[data-uiclass="compact"] .shop-shelf.dense .itile .ii,
+      body[data-uiclass="phone"] .shop-shelf.dense .itile .ii { width: 40px; height: 40px; }
+      body[data-uiclass="compact"] .shop-shelf.dense .itile .iprice,
+      body[data-uiclass="phone"] .shop-shelf.dense .itile .iprice { font-size: 9.5px;
+        line-height: 12px; margin-top: 3px; }
+      body[data-uiclass="compact"] .shop-shelf.dense .igrid,
+      body[data-uiclass="phone"] .shop-shelf.dense .igrid { gap: 8px; }
       body[data-uiclass="compact"] .shop-shelf .tier-h,
       body[data-uiclass="phone"] .shop-shelf .tier-h { margin: 6px 0 4px; font-size: 9px;
         letter-spacing: 2px; }
       body[data-uiclass="compact"] .shop-shelf .tier-h .tnote,
       body[data-uiclass="phone"] .shop-shelf .tier-h .tnote { display: none; }
+      /* The 116px gutter is a THIRD of a compact shelf, so here the band label
+         goes back over its stock. It keeps the colour and gains a rule, and it
+         keeps `position: sticky` — but scoped inside its own `.tier`, which is
+         what makes sticky safe. Tiles genuinely scroll under it on a phone, so
+         the plate is OPAQUE: r1's band was a gradient that was opaque for only
+         its top 72%, i.e. transparent across the third the letterforms sit in. */
+      body[data-uiclass="compact"] #saferoom .tier,
+      body[data-uiclass="phone"] #saferoom .tier {
+        grid-template-columns: minmax(0, 1fr); background: none; }
+      body[data-uiclass="compact"] #saferoom .tier > .tier-h,
+      body[data-uiclass="phone"] #saferoom .tier > .tier-h {
+        flex-direction: row; align-items: center; text-align: left;
+        border-bottom: 1px solid var(--tc, #a99f8c);
+        padding: 0 0 3px; margin-bottom: 5px; background: #1a1511; }
       body[data-uiclass="compact"] .tp-seg button,
       body[data-uiclass="phone"] .tp-seg button { font-size: 11px; }
       /* The segmented control belongs to the SHOP page. On ABILITIES and
@@ -6379,37 +6626,34 @@
          with `overflowX: hidden`, which sheared the EXECUTION tile off the
          panel edge ('EXEC', '0.0 kills/') — a component of the grade, clipped
          into unreachable overflow. `scrollY 306` put all seven actions (RUN IT
-         BACK, NEW CONTRACT, SHARE, STANDINGS, SAVE CARD, WATCH THE ARENA) a
+         BACK, NEW RUN, SHARE, STANDINGS, SAVE CARD, WATCH THE ARENA) a
          full screen below the fold. iPad reported 0/0, so again: a phone-class
          layout problem.
          Nothing here is a new screen. The two-track body stacks, the four
-         grade components wrap to two rows, the medal shrinks, and the action
-         rail becomes a wrapping grid that fits — so the whole verdict is one
-         ordinary vertical scroll with no horizontal overflow at all. */
+         grade components wrap to two rows, and the action rail becomes a
+         wrapping grid that fits — so the whole verdict is one ordinary
+         vertical scroll with no horizontal overflow at all.
+         POLISH R1: the 92px medal track and its coin overrides are DELETED
+         with the medal itself, and the four measures moved behind TAB — which
+         removes the pressure that produced the `scrollX 104` shear rather
+         than papering over it. The .vparts two-up rule stays: it now applies
+         to the meters in their new home inside #recap-tab. */
       body[data-uiclass="compact"] #recap .rcols,
       body[data-uiclass="phone"] #recap .rcols { grid-template-columns: 1fr; gap: 10px; }
       body[data-uiclass="compact"] #recap .vparts,
       body[data-uiclass="phone"] #recap .vparts { grid-template-columns: 1fr 1fr; }
-      /* The medal and its track come down together — a coin drawn wider than
-         the column it sits in is how the desktop elevation earned its blocker. */
-      body[data-uiclass="compact"] #recap .verdict,
-      body[data-uiclass="phone"] #recap .verdict { grid-template-columns: 92px 1fr; gap: 12px; }
-      body[data-uiclass="compact"] #recap .vmedal,
-      body[data-uiclass="phone"] #recap .vmedal { width: 92px; height: 92px; }
-      body[data-uiclass="compact"] #recap .vmedal b,
-      body[data-uiclass="phone"] #recap .vmedal b { font-size: 44px; }
       body[data-uiclass="compact"] #recap h2,
       body[data-uiclass="phone"] #recap h2 { font-size: 18px; }
       /* THE SCREEN EVERY RUN TERMINATES ON HAD NO VISIBLE WAY FORWARD.
          Measured on an iPhone 13 landscape (vh 342) and a Pixel 5 landscape:
-         RUN IT BACK / NEW CONTRACT at y=497, SHARE / STANDINGS at y=551, SAVE
+         RUN IT BACK / NEW RUN at y=497, SHARE / STANDINGS at y=551, SAVE
          CARD / WATCH THE ARENA at y=605 — against a 342px viewport and a 297px
          panel, `onScreenBefore: 1` and that one a zero-rect element, with 395px
          of scroll below the fold. A recap is not a document you read to the
          end; it is a fork in the road, and the fork was off-screen.
          The two decisions that matter are therefore PINNED to the foot of the
          scrollport — RUN IT BACK (the strongest urge a roguelike death
-         produces) and NEW CONTRACT — and the other three stay in the flow.
+         produces) and NEW RUN — and the other three stay in the flow.
          r2: the WHOLE seven-button rail used to pin, a 3-row half-viewport
          slab whose translucent top edge severed the medal, the death context
          and the ledger line behind it (wr-surf). Only .rmain pins now: ONE
@@ -6949,21 +7193,17 @@
       <span>The System broadcasts in widescreen. Turn to landscape to enter the dungeon.</span>
     </div>
 
-    <!-- THE VERDICT (COMPETITIVE.md 6). Default state = grade, named death,
-         one earned line, buttons. Everything you argue about is behind TAB. -->
+    <!-- THE VERDICT (COMPETITIVE.md 6). Default state = named death, one line
+         naming what cost you most, one earned line, buttons. No letter grade
+         (COMPETITIVE.md 6.1's REMOVED row). Everything you argue about — the
+         four measures included — is behind TAB. -->
     <div id="recap" data-overlay="modal">
       <div class="panel">
         <div class="verdict">
-
-          <div class="vgrade">
-            <div class="vmedal" id="recap-medal"><b id="recap-letter">—</b><small id="recap-score"></small></div>
-            <div class="vbasis" id="recap-basis"></div>
-          </div>
           <div class="vhead">
             <h2 id="recap-title"></h2>
             <div class="rsub" id="recap-sub"></div>
             <div class="vline" id="recap-line"></div>
-            <div class="vparts" id="recap-parts"></div>
           </div>
         </div>
         <div class="death" id="recap-death">
@@ -6980,6 +7220,18 @@
           <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
+        <!-- TUTORIAL.md B8: Mordecai's once-ever aside, above the CTAs his
+             line points at. Hidden by default; renderRecap shows it once.
+             MERGE NOTE (preview-all): the tutorial branch put this above a
+             single .rfoot that still said NEW CONTRACT. The polish round split
+             the actions into two groups AND renamed that button, so the aside
+             keeps its place and the actions keep theirs — the aside's whole job
+             is to orient the player to the buttons under it, which means it has
+             to sit above the CURRENT ones. -->
+        <div class="guide-aside" id="recap-guide" style="display:none">
+          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
+          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
+        </div>
         <!-- Two groups: the phone flows .rmore with the body copy and pins
              only .rmain; the desktop folds both back into one flex row. -->
         <div class="racts">
@@ -6990,11 +7242,21 @@
           </div>
           <div class="rfoot rmain">
             <button class="primary" id="recap-again">RUN IT BACK <kbd>R</kbd></button>
-            <button class="dismiss" id="recap-new">NEW CONTRACT</button>
+            <!-- NEW RUN, not "NEW CONTRACT": this button rolls a fresh random
+                 seed and enters no event, and the front door already calls
+                 that exact action NEW RUN / DESCEND (#m-solo). Meanwhile
+                 "contract" is taught THREE other ways in this product (RIVALS,
+                 ROAM, and the seeded-event cards in THE STANDINGS), so the old
+                 label was not merely untaught — it was wrong. -->
+            <button class="dismiss" id="recap-new">NEW RUN</button>
             <span class="note" id="recap-note"></span>
           </div>
         </div>
-        <div class="rhint">HOLD <kbd>TAB</kbd> — SCOREBOARD, SPLITS AND THE BUILD</div>
+        <!-- Four nouns is a list to read; one is a promise. r1 LENGTHENED this
+             line (from "SCOREBOARD, SPLITS AND THE BUILD") on the screen the
+             owner had just called too noisy, to announce that the measures had
+             moved behind TAB. The drill-down holds everything, so say that. -->
+        <div class="rhint">HOLD <kbd>TAB</kbd> — EVERY NUMBER FROM THIS RUN</div>
       </div>
 
       <!-- SHARE shipped as a clipboard write whose only feedback was the button
@@ -7032,6 +7294,15 @@
             is worth beside your own bests and the crawler at the top of the board</div>
           <div class="tcols">
             <div>
+              <!-- THE FOUR MEASURES used to be permanent glass on the default
+                   face next to a letter grade. COMPETITIVE.md 6.1 always said
+                   they were a drill-down; they are numbers people argue about,
+                   which is the definition of what lives behind TAB. They come
+                   with their population label, so a measure never implies a
+                   crowd it does not have. -->
+              <div class="rsec">THE FOUR MEASURES</div>
+              <div class="vparts" id="recap-parts"></div>
+              <div class="vbasis" id="recap-basis"></div>
               <div class="rsec">THE SCOREBOARD</div>
               <table class="scorebd" id="recap-scoreboard"></table>
               <div class="rsec">THE SPLITS</div>
@@ -7110,7 +7381,10 @@
                      a run to resume and DESCEND when you do not; the pair is
                      mutually exclusive, so there is never a second primary.
                    · ONE featured contract banner (DAILY / REJOIN), gold
-                     OUTLINE, half the primary's height.
+                     OUTLINE, one step below the primary's height (1 : 1.26).
+                     It read "half the primary's height" while the primary was
+                     1.62x — and an inaccurate note here is exactly what lets
+                     the next agent re-derive the wrong number.
                    · THREE secondary modes in one row, identical in size, one
                      title colour, one icon treatment — the hue that used to
                      be in four different titles now lives only in the icon
@@ -7131,7 +7405,11 @@
               <button class="m-primary" id="m-solo">
                 <span class="m-pri-kick">NEW RUN</span>
                 <b>DESCEND</b>
-                <small>a fresh seed, an unmapped floor, and eighteen of them between you and the surface</small>
+                <!-- 64 chars, not 79: the plate clamps its description to ONE
+                     line on desktop (so its height is the token, not the copy)
+                     and the old string wrapped at <=1366. Measured 276px of
+                     natural width against a 294px text box at 1280. -->
+                <small>a fresh seed, an unmapped dungeon, eighteen floors to the surface</small>
                 <i class="go-arrow"></i>
               </button>
               <button class="m-tile hero" id="m-rejoin" style="display:none">

@@ -1,0 +1,37 @@
+PASS A: B0 up, run live
+PASS A: collapse tip consumed sim-side before the pause
+PASS A1 MAJOR: ZERO card shows while the modal holds — 0 shows during hold
+PASS A1: the active card survived the hold (auto-clock paused)
+PASS A1: ...and it is still the START card, unconsumed
+PASS A1: collapse card SHOWS after the modal closes
+PASS A1: ...and only after close (+1.5s)
+PASS a_collapse_after_modal: #tutorial .tut painted (std 45.3, warm 5.4%)
+PASS A: zero 404s
+PASS A: zero page errors
+PASS B: B0 up, run live
+PASS B 3a MAJOR: collapse card fired
+PASS B 3a: it JUMPED the 9s gap (+0.0s from its sim moment < 3.5s)
+PASS B 3b: flask card fired on the first wound
+PASS B 3b MAJOR: the sim's lowhp tip did NOT fire on the same wound — brushes=1
+PASS B 3b: brush one is on the books
+PASS B 3b: the SECOND brush files the explanation
+PASS B 3b: the crawler survived the staging (no verdict modal in the way)
+PASS B 3b: 'EXCELLENT television' card shows at the second wound, not the first —  SYSTEM — COURTESY EXPLANATIONFresh meat |  SYSTEM — COURTESY EXPLANATIONThis floor |  SYSTEM — COURTESY EXPLANATIONYou are le |  SYSTEM — COURTESY EXPLANATIONYou are AF |  SYSTEM — COURTESY EXPLANATIONYour near- :: {"modal":false,"dlg":"none","open":[],"live":true,"inLog":false}
+PASS B: zero 404s
+PASS B: zero page errors
+PASS C: B0 up, run live
+PASS C: leveled on floor 1 (draft minted)
+PASS C: B3 Mordecai beat before the draft (regression guard)
+PASS C: it is Mordecai
+PASS C: draft UI open
+PASS C: draft claimed
+PASS C: NO ability line on floor 1 (we never cast)
+PASS C: safe room reached (descent gate)
+C: B5 safe-room beat framed the first safe room
+PASS C: on floor 2
+C: floor-2 state at cast — {"slots":["melee","dash","bolt",null],"elapsed":9,"floor":2}
+PASS C2 MAJOR: the cast confirmation fired on floor 2
+PASS C2: the socket is named as PRESENT ('This floor's GLYPH SOCKET') —  SYSTEM — COURTESY EXPLANATIONThat was an ABILITY. It has a cooldown, not feelings. This floor's GLYPH SOCKET is where builds begin — and bu
+PASS c_cast_floor2: #tutorial .tut painted (std 43.7, warm 5.4%)
+PASS C fold-in c: zero 404s on a cold organic session
+PASS C: zero page errors

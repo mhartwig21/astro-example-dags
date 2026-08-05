@@ -38,7 +38,7 @@ const url =
 
 // Director's HitKind -> clip map (mirror of src/audio/director.ts HIT_SOUNDS
 // + the kill layer). The probe matches THESE ids against hit frames.
-const COMBAT_IDS = new Set(["hit", "crit", "player_hurt", "kill", "heal", "gold", "item", "dash"]);
+const COMBAT_IDS = new Set(["hit", "crit", "player_hurt", "kill", "heal", "gold", "item", "chain_line"]);
 // Manifest throttles for the ids the brawl exercises (default 70).
 const THROTTLE = { hit: 70, crit: 70, player_hurt: 70, kill: 90, swing: 120, tell: 150 };
 
@@ -221,6 +221,9 @@ try {
     fps: Math.round(1000 / frameDur),
     frameMs: Number(frameDur.toFixed(2)),
     ctx: "running",
+    // SFX ONLY since audio r2: music streams and is never decoded, so this
+    // count dropped by the 16 bed ids and that is the change working, not a
+    // regression. probe-beds.mjs owns the music side (streams/streamsStarted).
     decodedClips: buffers.length,
     music: data.music,
     hitFrames: probe.hitFrames.length,

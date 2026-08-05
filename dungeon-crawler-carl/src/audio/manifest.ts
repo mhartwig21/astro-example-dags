@@ -16,6 +16,15 @@ export interface SoundDef {
   volume?: number; // pre-bus gain 0..1 (default 1)
   throttleMs?: number; // min ms between retriggers (default 70; combat can spam)
   loop?: boolean; // music beds loop until replaced
+  // AUDIO R2 — stream instead of decoding to an AudioBuffer. The engine's
+  // DEFAULT is the bus (`music` streams, everything else stays eager), and
+  // this flag is the per-entry override. It exists for loop-ladder rung 3: a
+  // BED whose el.loop seam measures badly opts back into sample-accurate
+  // looping with `stream: false`. It is declared here rather than cast in
+  // engine.ts so that test/audio.test.ts's "no one-shot opts into streaming"
+  // assertion is a real assertion instead of a tautology about a field the
+  // type system does not have.
+  stream?: boolean;
 }
 
 export const AUDIO_MANIFEST = {
@@ -61,23 +70,11 @@ export const AUDIO_MANIFEST = {
   // jingle pack the progression sounds already come from.
   band_sting: { url: "/audio/sfx/band_sting.ogg", bus: "sfx", volume: 0.75, throttleMs: 4000 },
 
-  // Footsteps (appearance r1: the world reacts to being walked through).
-  // Procedurally synthesized in-repo (scripts/gen-footsteps.mjs — own work,
-  // CC0; see ASSETS.md). Three variants per surface, cycled by the director
-  // with per-step rate jitter, so no two strides read identical. Surfaces map
-  // to bands in director.ts: stone / wet stone / grass / metal.
-  step_stone_a: { url: "/audio/sfx/steps/step_stone_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_stone_b: { url: "/audio/sfx/steps/step_stone_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_stone_c: { url: "/audio/sfx/steps/step_stone_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_grass_a: { url: "/audio/sfx/steps/step_grass_a.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_grass_b: { url: "/audio/sfx/steps/step_grass_b.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_grass_c: { url: "/audio/sfx/steps/step_grass_c.wav", bus: "sfx", volume: 0.22, throttleMs: 100 },
-  step_metal_a: { url: "/audio/sfx/steps/step_metal_a.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_metal_b: { url: "/audio/sfx/steps/step_metal_b.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_metal_c: { url: "/audio/sfx/steps/step_metal_c.wav", bus: "sfx", volume: 0.26, throttleMs: 100 },
-  step_wet_a: { url: "/audio/sfx/steps/step_wet_a.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_wet_b: { url: "/audio/sfx/steps/step_wet_b.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
-  step_wet_c: { url: "/audio/sfx/steps/step_wet_c.wav", bus: "sfx", volume: 0.24, throttleMs: 100 },
+  // NO FOOTSTEPS (owner call, audio r2). The step_* family (12 synthesized
+  // WAVs, per-band surfaces, appearance r1) is gone — director, entries and
+  // files together, so a stale id fails loud instead of silently refetching.
+  // "the footsteps are really annoying.. let's not have any footsteps sound
+  // effects."
 
   // Creature barks (SOUNDPLAN §1.4 row 9): five archetype FAMILIES — not 36
   // per-mob voices — x aggro/pain/death x 2 variants. Generated in-repo
@@ -114,13 +111,68 @@ export const AUDIO_MANIFEST = {
   bark_air_death_a: { url: "/audio/sfx/barks/bark_air_death_a.ogg", bus: "sfx", volume: 0.55, throttleMs: 250 },
   bark_air_death_b: { url: "/audio/sfx/barks/bark_air_death_b.ogg", bus: "sfx", volume: 0.55, throttleMs: 250 },
 
-  // Skills (state-edge triggered).
-  dash: { url: "/audio/sfx/dash.ogg", bus: "sfx" },
+  // THE ACT — ability cast cues (SOUNDPLAN §1.4 row E-21, audio r2).
+  // The inventory used to be built by walking the DIRECTOR'S mappings instead
+  // of the ability ROSTER, so 13 of the 16 abilities had no cue of their own:
+  // not silent, but speaking in BORROWED clips (the `item` pickup chime via
+  // the sim's "weapon" juice poofs, the dash whoosh via "chain" hits, `equip`
+  // for Stunt Double, `crit` for Fault Line, `dash` at 0.8 for Bullet Time).
+  // Twelve new clips + a regenerated `cast_dash` close it; all from ONE
+  // generator (tools/audio/gen-sfx-casts.mjs) so the family is one voice.
+  //
+  // Loudness (§2.2, two rows added for this family): actives -17 LUFS
+  // momentary / peak ≤ -4.5 dBFS — deliberately 2dB UNDER impacts, because
+  // the consequence must out-punch the act; ultimates -14.5 / ≤ -3.0, at
+  // announcer level because an ultimate IS an event (they stay on `sfx`
+  // though: `announcer` is the duck SOURCE and an ultimate must not step on
+  // the bed). throttleMs is derived from each ability's cooldown FLOOR.
+  //
+  // `dash` (Kenney stock) is GONE, not aliased: owner verdict §1.3a. A stale
+  // id now fails loud, the same reasoning the step_* removal used, which is
+  // what forced HIT_SOUNDS.chain to be re-decided instead of inheriting it.
+  cast_dash: { url: "/audio/sfx/cast_dash.ogg", bus: "sfx", volume: 0.45, throttleMs: 250 },
   bolt: { url: "/audio/sfx/bolt.ogg", bus: "sfx", volume: 0.7, throttleMs: 120 },
   nova: { url: "/audio/sfx/nova.ogg", bus: "sfx" },
+  cast_orbit: { url: "/audio/sfx/cast_orbit.ogg", bus: "sfx", volume: 0.45, throttleMs: 400 },
+  // The quietest and shortest of the family on purpose: a Flow build swaps
+  // stance every ~1.8s, so this is the row most at risk of fatigue (§9).
+  cast_stance: { url: "/audio/sfx/cast_stance.ogg", bus: "sfx", volume: 0.36, throttleMs: 500 },
+  // One file, two moments: the director replays it at rate 1.3 / gain 0.55 on
+  // the SPEND edge, so the release of the banked hit is audible too.
+  cast_overcharge: { url: "/audio/sfx/cast_overcharge.ogg", bus: "sfx", volume: 0.45, throttleMs: 600 },
+  // 250: Second Take makes a double-cut a real play, and both cuts must sound.
+  cast_cutto: { url: "/audio/sfx/cast_cutto.ogg", bus: "sfx", volume: 0.45, throttleMs: 250 },
+  cast_crowdsurf: { url: "/audio/sfx/cast_crowdsurf.ogg", bus: "sfx", volume: 0.45, throttleMs: 500 },
+  cast_stuntdouble: { url: "/audio/sfx/cast_stuntdouble.ogg", bus: "sfx", volume: 0.45, throttleMs: 800 },
+  cast_bulwark: { url: "/audio/sfx/cast_bulwark.ogg", bus: "sfx", volume: 0.45, throttleMs: 700 },
+  cast_cables: { url: "/audio/sfx/cast_cables.ogg", bus: "sfx", volume: 0.45, throttleMs: 700 },
+  // Ultimates.
+  cast_airstrike: { url: "/audio/sfx/cast_airstrike.ogg", bus: "sfx", volume: 0.6, throttleMs: 1500 },
+  cast_cataclysm: { url: "/audio/sfx/cast_cataclysm.ogg", bus: "sfx", volume: 0.6, throttleMs: 1500 },
+  // Played BEFORE muffle(true) in the frame — the engine sweeps a 700Hz
+  // master LPF on the same edge, and this clip's energy sits at 374Hz by
+  // construction so it survives its own muffle.
+  cast_bullettime: { url: "/audio/sfx/cast_bullettime.ogg", bus: "sfx", volume: 0.6, throttleMs: 1500 },
+  cast_injunction: { url: "/audio/sfx/cast_injunction.ogg", bus: "sfx", volume: 0.6, throttleMs: 2000 },
+  // The taut-line tick for HIT_SOUNDS.chain — four different things emit
+  // "chain" hits (including monster grabs) and every one of them used to play
+  // the dash whoosh. Room-tone family (-28), so it stays under the impact.
+  chain_line: { url: "/audio/sfx/chain_line.ogg", bus: "sfx", volume: 0.7, throttleMs: 200 },
+  // The dry steel tick for HIT_SOUNDS.weapon, which was the `item` PICKUP
+  // CHIME. That is the round's own thesis finally finished: r2 shipped 13 cast
+  // cues and left six of them (orbit, stance, overcharge, bulwark, cutto,
+  // crowdsurf) ringing a coin chime underneath their own cue on the cast
+  // frame — measured LOUDER than the cue through a 250Hz highpass. And it was
+  // never only a cast artifact: `"weapon"` has 30 emitters in src/sim/game.ts
+  // and most are monster-side (adds arriving, risers, boss children, the orbit
+  // parry, the snare snip), every one of which rang a pickup.
+  // Room-tone family so it reads UNDER the impact it accompanies.
+  weapon_flash: { url: "/audio/sfx/weapon_flash.ogg", bus: "sfx", volume: 0.7, throttleMs: 90 },
+  // `melee` deliberately has NO cast clip: `swing` (above) IS its cast cue,
+  // and its consequence is hit/crit/kill. See director.ts CAST_SOUNDS.
 
   // Progression + world beats.
-  level_up: { url: "/audio/sfx/level_up.ogg", bus: "sfx" },
+  level_up: { url: "/audio/sfx/level_up.ogg", bus: "sfx", volume: 0.8 },
   lootbox: { url: "/audio/sfx/lootbox.ogg", bus: "sfx" },
   achievement: { url: "/audio/sfx/achievement.ogg", bus: "sfx" },
   door_unlock: { url: "/audio/sfx/door_unlock.ogg", bus: "sfx" },

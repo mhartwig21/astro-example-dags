@@ -1,0 +1,19 @@
+EQUIP +-7.7s inv=0 :: -|-|-|-|-|-
+EQUIP +6.7s inv=0 :: -|-|-|-|Plain Idol|-
+EQUIP +7.1s inv=0 :: -|-|Scrappy Hood|-|Plain Idol|-
+CARD +1.0s f=1 :: Fresh meat detected. WASD walks; the mouse aims. Walking is strongly encouraged. The floor has opinions about the statio
+CARD +5.3s f=1 :: Contact. Left click or Space swings at what the mouse points at, and keeps swinging while you hold it. The dungeon recog
+CARD +7.0s f=1 :: You are leaking. X drinks the flask; kills refill it. The System notes that dying pays nothing.GOT IT
+CARD +13.2s f=1 :: Swinging is the floor, not the ceiling. Shift, Q are your live abilities: louder arguments, priced in cooldowns. Slots t
+CARD +28.8s f=1 :: That upgrade dressed itself. Strict improvements are worn on pickup; anything the System rules a judgement call is left 
+CARD +72.5s f=1 :: This floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the hazard. The stairs are
+CARD +89.5s f=1 :: Down is the only way out. Find the stairs before the collapse clock finds you — the exit is always deeper. Nobody said t
+FINAL {"floor":1,"elapsed":90,"lvl":1,"hp":25,"near":7.5,"status":"playing","sr":false,"modal":false,"hype":0,"viewers":270,"fav":0.22673705087902418,"flask":3,"slots":"melee|dash|bolt|","ult":null,"latch":["tut.campfire","achievementClaim","collapse"],"ledger":["tut.campfire","achievementClaim","collapse"]}
+errors [] | 404s []
+
+
+PASS R5P4: profile is genuinely COLD (no tips ledger, no save, no history) — keys=[dcc:skin:v1]
+PASS R5P4: the sim really did dress the crawler mid-run (auto-equip is the floor-1 reality) — 3 equipment states
+PASS R5P4 M7: the moment gear went on was EXPLAINED (the loot lesson's reachable half) — +28.8s
+PASS R5P4 M7: ...and it names the BAG as where a judgement call waits — That upgrade dressed itself. Strict improvements are worn on pickup; anything the System rules a judgement call is left in the BAG for yours
+PASS R5P4: zero page errors

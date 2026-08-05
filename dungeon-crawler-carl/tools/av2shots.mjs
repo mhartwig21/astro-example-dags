@@ -289,10 +289,19 @@ await shot("hotbar", async (out) => {
 });
 
 // ---- The constellation panel (T), both views -------------------------------
-const setView = (v) => "try { localStorage.setItem('dcc.abilView', '" + v + "'); } catch (e) {}";
+// The panel OPENS ON LIST now, every time: the view stopped being persisted in
+// localStorage (owner, polish r1 — "the ability screen that starts with the
+// star chart ... is really hard to understand and navigate"), so seeding a
+// storage key here would have quietly produced a LIST capture filed under
+// "panel-graph". The probe presses the tab a player presses.
+const setView = async (page, v) => {
+  await page.waitForTimeout(900);
+  if (v !== "list") await page.click('#abil .amode[data-view="' + v + '"]');
+  await page.waitForTimeout(600);
+};
 
 await shot("panel-list", async (out) => {
-  const page = await open(PANEL, setView("list"));
+  const page = await open(PANEL);
   await page.keyboard.press("t");
   await page.waitForTimeout(900);
   await snap(page, out);
@@ -300,9 +309,9 @@ await shot("panel-list", async (out) => {
 });
 
 await shot("panel-graph", async (out) => {
-  const page = await open(PANEL, setView("graph"));
+  const page = await open(PANEL);
   await page.keyboard.press("t");
-  await page.waitForTimeout(900);
+  await setView(page, "graph");
   await snap(page, out);
   await page.close();
 });
@@ -320,18 +329,18 @@ async function panelAt(page, needle) {
 // The three NEW abilities' trees and the reworked kits' trees: the two halves
 // of the 4.3 graph a reader has to be able to check against the document.
 await shot("panel-graph-new", async (out) => {
-  const page = await open(PANEL, setView("graph"));
+  const page = await open(PANEL);
   await page.keyboard.press("t");
-  await page.waitForTimeout(900);
+  await setView(page, "graph");
   await panelAt(page, "BULWARK");
   await snap(page, out);
   await page.close();
 });
 
 await shot("panel-graph-newkits", async (out) => {
-  const page = await open(PANEL, setView("graph"));
+  const page = await open(PANEL);
   await page.keyboard.press("t");
-  await page.waitForTimeout(900);
+  await setView(page, "graph");
   await panelAt(page, "COLLAPSE");
   await snap(page, out);
   await page.close();
@@ -339,7 +348,7 @@ await shot("panel-graph-newkits", async (out) => {
 
 // ---- The safe room's ability page: sockets, dormancy, free re-socketing ----
 await shot("saferoom-glyphs", async (out) => {
-  const page = await open(PANEL, setView("list"));
+  const page = await open(PANEL);
   await page.evaluate(() => {
     const s = window.__dcc.state;
     s.safeRoom = {

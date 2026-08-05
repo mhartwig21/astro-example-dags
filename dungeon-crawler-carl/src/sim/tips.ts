@@ -8,6 +8,14 @@
 // Authoring rules: System register (show-aware but bored — see VOICE.md),
 // 1-2 sentences of rule, one beat of snark. Trigger sites live in game.ts —
 // grep systemTip( for all of them.
+//
+// THE SYSTEM NEVER POINTS AT YOUR CHROME (r4 voice). It audits ledgers, posts
+// notices, and files explanations; it has never conceded that you have a HUD,
+// a badge, or a bottom of a screen. When a line must direct the player
+// somewhere, it names the System's own instrument ("the notice", "a Safe
+// Room's ACHIEVEMENTS tab" — a place in the dungeon) and not the player's
+// furniture. The onramp names KEYS, because keys are the crawler's own
+// equipment; nothing in here names pixels.
 export const TIPS: Record<string, string> = {
   interference:
     "COURTESY EXPLANATION: your broadcast flatlined, so the System scheduled content. Sustained hype prevents recurrence. Boring crawlers are corrected; entertaining ones are left alone.",
@@ -33,4 +41,12 @@ export const TIPS: Record<string, string> = {
     "COURTESY EXPLANATION: an OVERRANK is a rank past the printed maximum. The draft lottery occasionally offers one. This is not a bug; it is a promotional event.",
   achievementClaim:
     "COURTESY EXPLANATION: that unlock queued a LOOT BOX. It will not open itself — collect it from a Safe Room's ACHIEVEMENTS tab. The System does not ship rewards to your door.",
+  collapse:
+    "COURTESY EXPLANATION: this floor is on a clock, and the clock has opinions now. When it runs out, the floor becomes the hazard. The stairs are down. Punctuality is survivable. Sentiment is not.",
+  draftBanked:
+    "COURTESY EXPLANATION: your level-up minted a DRAFT. The System has posted the notice and will keep posting it until the draft is redeemed. Redeem it somewhere quiet — drafts do not spoil, and they do not spend themselves.",
+  hype:
+    "COURTESY EXPLANATION: that was loud, and your HYPE reading moved. Hype buys VIEWERS, viewers are the meter every payout downstream is read off, and both bleed back down the moment you get careful. The System does not sell tickets to careful.",
+  glyph:
+    "COURTESY EXPLANATION: that is a GLYPH — firmware for ONE ability. It does not make the ability bigger; it makes it behave differently. It stays banked until a socket and a Safe Room exist at the same time. Firmware is not installed in traffic.",
 };

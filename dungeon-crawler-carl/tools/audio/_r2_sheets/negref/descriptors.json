@@ -1,0 +1,123 @@
+{
+  "name": "negref",
+  "threshold": 2.018420417803448,
+  "meanDistance": 4.485378706229885,
+  "dims": [
+    "logSec",
+    "logAtk",
+    "logCentroid",
+    "logRolloff",
+    "flatness",
+    "crestDb",
+    "lowShare"
+  ],
+  "clips": [
+    {
+      "id": "dash_old",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\_src\\dash_old.ogg",
+      "sec": 0.467,
+      "peakDb": -1.2,
+      "rmsDb": -16.3,
+      "momDb": -15.6,
+      "hp250MomDb": -18.5,
+      "hp250LossDb": 2.9,
+      "crestDb": 15,
+      "attackMs": 128.9,
+      "t10Ms": 120.1,
+      "centroidHz": 531,
+      "rolloff85Hz": 773,
+      "flatness": 1.16e-8,
+      "lowShare": 0.811,
+      "top3": "250(50%) 500(33%) 125(12%)",
+      "bands": {
+        "63": 0.1,
+        "125": 12,
+        "250": 49.6,
+        "500": 32.9,
+        "1k": 4.6,
+        "2k": 0,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    },
+    {
+      "id": "cast_dash",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\cast_dash.ogg",
+      "sec": 0.197,
+      "peakDb": -5.3,
+      "rmsDb": -17.1,
+      "momDb": -17.1,
+      "hp250MomDb": -21.1,
+      "hp250LossDb": 4,
+      "crestDb": 11.8,
+      "attackMs": 17.9,
+      "t10Ms": 1.9,
+      "centroidHz": 1724,
+      "rolloff85Hz": 2719,
+      "flatness": 0.0000257,
+      "lowShare": 0.615,
+      "top3": "125(53%) 1k(21%) 2k(12%)",
+      "bands": {
+        "63": 0.3,
+        "125": 53.3,
+        "250": 6.8,
+        "500": 5.6,
+        "1k": 21.2,
+        "2k": 11.9,
+        "4k": 0.8,
+        "8k": 0.1,
+        "16k": 0
+      }
+    },
+    {
+      "id": "level_up",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\level_up.ogg",
+      "sec": 0.327,
+      "peakDb": -8.5,
+      "rmsDb": -19.3,
+      "momDb": -19.3,
+      "hp250MomDb": -20.7,
+      "hp250LossDb": 1.4,
+      "crestDb": 10.9,
+      "attackMs": 4.8,
+      "t10Ms": 1.2,
+      "centroidHz": 1593,
+      "rolloff85Hz": 2508,
+      "flatness": 0.00000245,
+      "lowShare": 0.204,
+      "top3": "1k(77%) 250(19%) 2k(3%)",
+      "bands": {
+        "63": 0,
+        "125": 1.5,
+        "250": 18.8,
+        "500": 0.1,
+        "1k": 76.9,
+        "2k": 2.6,
+        "4k": 0,
+        "8k": 0,
+        "16k": 0
+      }
+    }
+  ],
+  "pairs": [
+    {
+      "a": "cast_dash",
+      "b": "level_up",
+      "d": 3.158
+    },
+    {
+      "a": "dash_old",
+      "b": "cast_dash",
+      "d": 5.147
+    },
+    {
+      "a": "dash_old",
+      "b": "level_up",
+      "d": 5.151
+    }
+  ],
+  "sheets": [
+    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\negref\\sheet_negref_1.png"
+  ]
+}
