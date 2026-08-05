@@ -1,0 +1,227 @@
+{
+  "1366x768": {
+    "buttons": [
+      {
+        "cls": "m-primary",
+        "id": "m-solo",
+        "text": "NEW RUN DESCEND a fresh seed, an unmapped dungeon, eighteen ",
+        "h": 75.6,
+        "w": 413.6,
+        "area": 31265,
+        "titleFont": 17,
+        "titleText": "DESCEND"
+      },
+      {
+        "cls": "m-tile hero gold",
+        "id": "m-daily",
+        "text": "DAILY CRAWL one dungeon, every crawler · rotates 01:00 your ",
+        "h": 60,
+        "w": 203.3,
+        "area": 12198,
+        "titleFont": 13,
+        "titleText": "DAILY CRAWL"
+      },
+      {
+        "cls": "m-tile hero rush",
+        "id": "m-rush",
+        "text": "THE RUSH four seats, second zero · rotates 01:00 your time",
+        "h": 60,
+        "w": 203.3,
+        "area": 12198,
+        "titleFont": 13,
+        "titleText": "THE RUSH"
+      },
+      {
+        "cls": "m-tile",
+        "id": "m-party",
+        "text": "PARTY CRAWL share a code, or find an open crew",
+        "h": 139.3,
+        "w": 133.2,
+        "area": 18557,
+        "titleFont": 13,
+        "titleText": "PARTY CRAWL"
+      },
+      {
+        "cls": "m-tile red",
+        "id": "m-rivals-card",
+        "text": "RIVALS four hostile crawlers, one contract",
+        "h": 139.3,
+        "w": 133.2,
+        "area": 18559,
+        "titleFont": 13,
+        "titleText": "RIVALS"
+      },
+      {
+        "cls": "m-tile roam",
+        "id": "m-roam-solo",
+        "text": "ROAM no clock — settlements, residents, contracts",
+        "h": 139.3,
+        "w": 133.2,
+        "area": 18559,
+        "titleFont": 13,
+        "titleText": "ROAM"
+      }
+    ],
+    "tokens": {
+      "--hero-h": "clamp(60px, 7.5vh, 76px)",
+      "--pri-h": "calc(clamp(60px, 7.5vh, 76px) * 1.26)",
+      "--pri-title": "clamp(17px, 1.18vw, 23px)",
+      "--pri-cut": "clamp(12px, 1.1vw, 18px)",
+      "--pri-prow": "clamp(16px, 1.3vw, 24px)"
+    },
+    "viewport": {
+      "w": 1366,
+      "h": 768
+    }
+  },
+  "1920x1080": {
+    "buttons": [
+      {
+        "cls": "m-primary",
+        "id": "m-solo",
+        "text": "NEW RUN DESCEND a fresh seed, an unmapped dungeon, eighteen ",
+        "h": 95.8,
+        "w": 634.2,
+        "area": 60720,
+        "titleFont": 22.66,
+        "titleText": "DESCEND"
+      },
+      {
+        "cls": "m-tile hero gold",
+        "id": "m-daily",
+        "text": "DAILY CRAWL one dungeon, every crawler · rotates 01:00 your ",
+        "h": 76,
+        "w": 313.6,
+        "area": 23832,
+        "titleFont": 17,
+        "titleText": "DAILY CRAWL"
+      },
+      {
+        "cls": "m-tile hero rush",
+        "id": "m-rush",
+        "text": "THE RUSH four seats, second zero · rotates 01:00 your time",
+        "h": 76,
+        "w": 313.6,
+        "area": 23832,
+        "titleFont": 17,
+        "titleText": "THE RUSH"
+      },
+      {
+        "cls": "m-tile",
+        "id": "m-party",
+        "text": "PARTY CRAWL share a code, or find an open crew",
+        "h": 165.3,
+        "w": 206.7,
+        "area": 34167,
+        "titleFont": 17,
+        "titleText": "PARTY CRAWL"
+      },
+      {
+        "cls": "m-tile red",
+        "id": "m-rivals-card",
+        "text": "RIVALS four hostile crawlers, one contract",
+        "h": 165.3,
+        "w": 206.7,
+        "area": 34167,
+        "titleFont": 17,
+        "titleText": "RIVALS"
+      },
+      {
+        "cls": "m-tile roam",
+        "id": "m-roam-solo",
+        "text": "ROAM no clock — settlements, residents, contracts",
+        "h": 165.3,
+        "w": 206.7,
+        "area": 34167,
+        "titleFont": 17,
+        "titleText": "ROAM"
+      }
+    ],
+    "tokens": {
+      "--hero-h": "clamp(60px, 7.5vh, 76px)",
+      "--pri-h": "calc(clamp(60px, 7.5vh, 76px) * 1.26)",
+      "--pri-title": "clamp(17px, 1.18vw, 23px)",
+      "--pri-cut": "clamp(12px, 1.1vw, 18px)",
+      "--pri-prow": "clamp(16px, 1.3vw, 24px)"
+    },
+    "viewport": {
+      "w": 1920,
+      "h": 1080
+    }
+  },
+  "2560x1440": {
+    "buttons": [
+      {
+        "cls": "m-primary",
+        "id": "m-solo",
+        "text": "NEW RUN DESCEND a fresh seed, an unmapped dungeon, eighteen ",
+        "h": 152.4,
+        "w": 991.6,
+        "area": 151125,
+        "titleFont": 23,
+        "titleText": "DESCEND"
+      },
+      {
+        "cls": "m-tile hero gold",
+        "id": "m-daily",
+        "text": "DAILY CRAWL one dungeon, every crawler · rotates 01:00 your ",
+        "h": 121,
+        "w": 492.3,
+        "area": 59545,
+        "titleFont": 17,
+        "titleText": "DAILY CRAWL"
+      },
+      {
+        "cls": "m-tile hero rush",
+        "id": "m-rush",
+        "text": "THE RUSH four seats, second zero · rotates 01:00 your time",
+        "h": 121,
+        "w": 492.3,
+        "area": 59545,
+        "titleFont": 17,
+        "titleText": "THE RUSH"
+      },
+      {
+        "cls": "m-tile",
+        "id": "m-party",
+        "text": "PARTY CRAWL share a code, or find an open crew",
+        "h": 200,
+        "w": 317.2,
+        "area": 63438,
+        "titleFont": 17,
+        "titleText": "PARTY CRAWL"
+      },
+      {
+        "cls": "m-tile red",
+        "id": "m-rivals-card",
+        "text": "RIVALS four hostile crawlers, one contract",
+        "h": 200,
+        "w": 317.2,
+        "area": 63441,
+        "titleFont": 17,
+        "titleText": "RIVALS"
+      },
+      {
+        "cls": "m-tile roam",
+        "id": "m-roam-solo",
+        "text": "ROAM no clock — settlements, residents, contracts",
+        "h": 200,
+        "w": 317.2,
+        "area": 63438,
+        "titleFont": 17,
+        "titleText": "ROAM"
+      }
+    ],
+    "tokens": {
+      "--hero-h": "clamp(60px, 8.4vh, 124px)",
+      "--pri-h": "calc(clamp(60px, 8.4vh, 124px) * 1.26)",
+      "--pri-title": "clamp(17px, 1.18vw, 23px)",
+      "--pri-cut": "clamp(12px, 1.1vw, 18px)",
+      "--pri-prow": "clamp(16px, 1.3vw, 24px)"
+    },
+    "viewport": {
+      "w": 2560,
+      "h": 1440
+    }
+  }
+}

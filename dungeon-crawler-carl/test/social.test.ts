@@ -70,7 +70,11 @@ describe("the grade (COMPETITIVE.md 6.2 Beat 1)", () => {
       punished, null, 100,
     );
     expect(g.parts.find((p) => p.key === "SURVIVAL")!.score).toBe(100);
-    expect(g.basis).toContain("CAPPED BY DEPTH");
+    // ...and the caveat names what the PLAYER can see. It used to read
+    // "CAPPED BY DEPTH", a note about the composite score — which is no longer
+    // rendered on any surface since the letter left THE VERDICT, so it was a
+    // caveat about a number that does not exist in the product.
+    expect(g.basis).toContain("THE OTHER MEASURES FLATTER IT");
     expect(g.letter).toBe("D");
   });
 
@@ -533,6 +537,41 @@ describe("precision and copy (round-4 blocker 15)", () => {
     const shallow = gradeRun(
       facts({ floor: 2, elapsedSec: 90, kills: 4, floorsCleared: 1 }), [], null, 0);
     expect(shallow.letter).toBeTruthy();
+  });
+
+  it("never insults a run that has no weak measure", () => {
+    // THE VERDICT stopped showing a letter (owner, polish r1: "the grade
+    // doesn't mean anything"), which left `line` as the ONLY performance
+    // readout on the default face — and it was keyed purely on the weakest of
+    // four parts, which four scores always have. So a dominant clear (18
+    // floors at 50s each, i.e. FASTER than the house-curve median, barely
+    // scratched, every draft claimed) told the player "Slowly. The audience
+    // had time to order food." A false claim is worse than a meaningless
+    // letter. No part below NAG_FLOOR, no telling-off.
+    const dominant = gradeRun(
+      facts({
+        floor: 18, won: true, elapsedSec: 900, kills: 900, damageTaken: 120,
+        floorsCleared: 18, draftsOffered: 12, draftsClaimed: 12,
+      }),
+      [], null, 100,
+    );
+    expect(dominant.parts.every((p) => p.score >= 55)).toBe(true);
+    expect(dominant.line).not.toMatch(/Slowly|dawdled|Bleeding|Underpowered|On paper/);
+    // ...and it still says something specific, keyed on a measure the drill-down
+    // shows, so the praise is as auditable as the criticism was.
+    expect(dominant.line.length).toBeGreaterThan(10);
+
+    // The criticism still fires when a measure is genuinely weak: the same
+    // clear, dragged out and bled all the way, gets told about it.
+    const scrappy = gradeRun(
+      facts({
+        floor: 18, won: true, elapsedSec: 9000, kills: 200, damageTaken: 9000,
+        floorsCleared: 18, draftsOffered: 12, draftsClaimed: 2,
+      }),
+      [], null, 100,
+    );
+    expect(scrappy.parts.some((p) => p.score < 55)).toBe(true);
+    expect(scrappy.line).toMatch(/Slowly|Bleeding|Underpowered|On paper/);
   });
 });
 

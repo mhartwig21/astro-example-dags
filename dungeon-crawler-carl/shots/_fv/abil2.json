@@ -1,0 +1,50 @@
+{
+  "steps": [
+    {
+      "route": "loadout tile (slot 2), 1 click",
+      "before": "Melee",
+      "after": "Dash",
+      "changed": true
+    },
+    {
+      "route": "rail entry #10, 1 click",
+      "before": "Dash",
+      "after": "Extradition",
+      "changed": true
+    }
+  ],
+  "openStaged": "Melee",
+  "nextTakeableRead": {
+    "title": "Dash",
+    "rows": [
+      {
+        "text": "Shockstep Arrival burst: 150% damage along the path (hybrid: half steel, half arcane) · MA",
+        "cls": "nrow taken"
+      },
+      {
+        "text": "Quickstep A THIRD dash charge · OVERRANK +1",
+        "cls": "nrow taken"
+      },
+      {
+        "text": "Long Blink fork closed — you took Quickstep",
+        "cls": "nrow locked"
+      },
+      {
+        "text": "Smoke Break The dash leaves a blind puff: monsters inside DROP their target for 1.5s · fro",
+        "cls": "nrow untaken"
+      },
+      {
+        "text": "AFTERSHOCK Your dash also detonates at the arrival point · from level-up drafts",
+        "cls": "nrow untaken capstone"
+      }
+    ]
+  },
+  "fromShopTab": {
+    "clicks": 1,
+    "arrival": {
+      "title": "Extradition",
+      "nodeRows": 5,
+      "isChart": false
+    }
+  }
+}
