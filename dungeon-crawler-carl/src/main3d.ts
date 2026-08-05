@@ -7746,22 +7746,44 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
     // it is the only reason the ledger write lives down here at all.
     if (skippedAll) { if (a.tipId) recordTips([a.tipId]); hooks?.onShown?.(); return; }
     if (cleanMode) { hooks?.onDropped?.(); return; }
-    // THE CARD SURFACE IS THE CURRICULUM, NOT THE CHATTER (r5 major). A guarded
-    // cold run painted FOURTEEN cards on floor 1 at roughly ten-second
-    // intervals — the queue, not the game, deciding what was being taught, with
-    // a median act→card lag of 30.4s. Most of them were rule footnotes
-    // (staggers, bolts, afflictions) that no one ever claimed were onboarding.
-    // On floor 1 of a fresh crawler's session the card belongs to the twelve
-    // concepts; every other tip rides the ticker, where the System's ordinary
-    // chatter has always lived. A toast is still a paint, so it still spends.
-    if (!(onramp && state.floor === 1 && a.tipId && !CURRICULUM_TIPS.has(a.tipId))) {
-      showTutorialCard(a, hooks);
+    // THE COURTESY EXPLANATION STOPS FLOWING (owner, twice).
+    //
+    // r5 already ruled that "the card surface is the curriculum, not the
+    // chatter" — a guarded cold run painted FOURTEEN cards on floor 1 at ~10s
+    // intervals, mostly rule footnotes (staggers, bolts, afflictions) nobody
+    // ever called onboarding. But it scoped that rule to `state.floor === 1`,
+    // so from floor 2 down the ENTIRE 16-tip courtesy catalogue went back to
+    // taking dismissible cards, one interruption at a time, for the whole run.
+    // Owner: "Courtesy explanations are still flowing though which is annoying."
+    //
+    // Two changes, and the floor gate is the important one:
+    //   1. the curriculum rule applies on EVERY floor, not just the first;
+    //   2. a non-curriculum courtesy line is DROPPED rather than demoted to the
+    //      ticker. Demoting only moved the flow — the owner's word is
+    //      "flowing", and a tip nobody asked for is noise wherever it is
+    //      painted. It still reaches the HUD archive log (the separate
+    //      state.events drain), so nothing is lost, only un-shouted.
+    //
+    // What survives is CURRICULUM_TIPS: collapse, draftBanked, hype, glyph —
+    // the four systems a player genuinely cannot infer. Everything else is a
+    // footnote the game can afford to let someone discover.
+    //
+    // This is the floor, not the destination: the owner has asked for the
+    // System's teaching voice to be REPLACED by Mordecai, with checkable
+    // objectives (TUTORIAL.md redesign, still unbuilt). This stops the bleeding
+    // now and leaves that rebuild exactly as free.
+    if (a.tipId && !CURRICULUM_TIPS.has(a.tipId)) {
+      hooks?.onDropped?.(); // not shown => not spent (r4 blocker 1 holds)
       return;
     }
+    showTutorialCard(a, hooks);
+    return;
   }
-  // ...a tip never reaches the center banner whatever its priority: "high" on a
-  // teaching line means "this card's moment expires", never "shout".
-  if (a.priority === "high" && a.kind !== "tip") {
+  // A tip never reaches the center banner whatever its priority. It can no
+  // longer reach HERE at all — the `kind === "tip"` branch above always
+  // returns now — which tsc proved by calling the old `a.kind !== "tip"` guard
+  // a comparison with no overlap. Kept as a comment rather than a dead test.
+  if (a.priority === "high") {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
     if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
@@ -7778,9 +7800,10 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
   toastLayer.appendChild(el);
-  // A ticker-routed tip (the floor-1 curriculum rule above) is on the glass the
-  // moment it is appended, so this IS the paint that spends it.
-  if (a.kind === "tip" && a.tipId) recordTips([a.tipId]);
+  // No tip reaches the ticker any more (the curriculum branch above either
+  // paints a card or drops the line), so the ledger write that used to live
+  // here is gone. The card path spends in displayTutorialCard, which is now
+  // the ONLY place a sim tip becomes a once-EVER fact.
   // Fade the oldest out instead of yanking it instantly — a burst of
   // announcements (kill + loot + level-up) shouldn't cut one off mid-read.
   // `if`, not `while`: each call adds exactly one child, and the evicted
