@@ -50,7 +50,14 @@ try {
     await page.evaluate(() => {
       if (window.__vt) return;
       const raf = window.requestAnimationFrame.bind(window);
-      let t = performance.now();
+      // ABSOLUTE, not performance.now(). Every time-driven FX in the renderer
+      // (torch flicker, flame gutter, sconce streaks, sprite bob, shader uTime)
+      // is a function of the rAF timestamp, so seeding the frozen clock from
+      // wall time made the frame unreproducible BY CONSTRUCTION: two captures
+      // of the SAME build differed by mean 0.38 on floor 4 and 27.3 on floor 10.
+      // A gate that fails on its own noise floor cannot decide anything. Pinned
+      // here so the only thing that can move a pixel is the code under test.
+      let t = 1e6;
       window.__vt = { advance: (ms) => { t += ms; } };
       window.requestAnimationFrame = (cb) => raf(() => cb((t += 0.4)));
     });

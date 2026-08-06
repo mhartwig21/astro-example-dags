@@ -99,6 +99,67 @@ const MAP_SLOTS = [
   "clearcoatMap", "sheenColorMap", "transmissionMap", "iridescenceMap",
 ] as const;
 
+/**
+ * PER-BODY NUMERIC STATE — the single biggest source of per-frame garbage in
+ * this host, and it never looked like allocation at all.
+ *
+ * `Object3D.userData` is a plain `{}` that this renderer decorates with dozens
+ * of dynamic keys per body (clips, closures, flags, offsets). Once an object
+ * has collected that many dynamically-added properties V8 moves it to
+ * DICTIONARY mode, and a dictionary property slot is a generic tagged pointer:
+ * every `ud.someFloat = x` therefore BOXES A FRESH HeapNumber. The per-frame
+ * path writes ~11 such numbers per monster (velocity EMA, separation offset,
+ * knockback decay, flash envelope, four animation edge-detectors), so a floor
+ * of bodies mints thousands of 16-byte corpses every frame with no `new` in
+ * sight. Measured on the calm floor-2 scene: essentially 100% of update()'s
+ * sampled allocation was objects <=24 bytes.
+ *
+ * A class instance is the fix. Its fields are declared up front, so V8 keeps
+ * the object in fast mode with Double-representation fields, and a double
+ * store mutates the field's heap number IN PLACE instead of allocating a new
+ * one. Same arithmetic, same values, same frame — just somewhere V8 can write.
+ *
+ * NaN is the "unset" sentinel where the old code used `undefined`, because a
+ * field that holds both numbers and `undefined` gets a Tagged representation
+ * and boxes again — which would silently undo the whole point.
+ */
+class BodyNum {
+  /** smoothedVel: last sampled mesh position + the EMA'd velocity. */
+  lastX = NaN;
+  lastZ = NaN;
+  velX = 0;
+  velZ = 0;
+  /** Display-space separation offset (render-only crowd spacing). */
+  sepX = 0;
+  sepZ = 0;
+  /** Knockback impulse offset, decayed per frame. */
+  kbX = 0;
+  kbZ = 0;
+  /** applyHitFlash: previous sim hitFlash + the renderer-clocked envelope. */
+  prevHFVal = 0;
+  flashEnv = 0;
+  /** Animation edge detectors. */
+  prevStagger = 0;
+  prevHitFlash = 0;
+  flinchCd = 0;
+  prevPhase = 0;
+  stageT = 0;
+  gatherT = 0;
+  prevBlinkCd = NaN;
+  /** Dormant pose baseline (NaN = not currently dormant). */
+  dormYaw = NaN;
+  dormSy = NaN;
+}
+
+/** The body's numeric record, minted once per mesh (the reference write is the
+ *  only tagged store; every number after it lands in a Double field). */
+function bodyNum(o: THREE.Object3D): BodyNum {
+  const ud = o.userData as { num?: BodyNum };
+  let n = ud.num;
+  if (n === undefined) { n = new BodyNum(); ud.num = n; }
+  return n;
+}
+
 const GradeShader = {
   uniforms: {
     tDiffuse: { value: null as THREE.Texture | null },
@@ -2057,12 +2118,13 @@ export class Renderer3D {
     // narrower than a human glance (and narrower than a SwiftShader frame) —
     // an exponential renderer-clocked tail stretches the visible flash to
     // ~250ms without touching sim timing. Also drives the scale-punch.
-    const prevHF = (ud.prevHFVal as number) ?? 0;
-    ud.prevHFVal = hitFlash;
-    let env = (ud.flashEnv as number) ?? 0;
+    const num = bodyNum(mesh);
+    const prevHF = num.prevHFVal;
+    num.prevHFVal = hitFlash;
+    let env = num.flashEnv;
     if (hitFlash > prevHF + 1e-6) env = 1;
     else if (env > 0) { env *= Math.exp(-dt * 8); if (env < 0.02) env = 0; }
-    ud.flashEnv = env;
+    num.flashEnv = env;
 
 
     // Rage alone waits its turn for the clone budget; a real HIT never does.
@@ -3113,25 +3175,45 @@ export class Renderer3D {
     this.matSweepTick = this.matSweepEvery - 1;
   }
 
+  /** Reused sweep state (see sweepNewMaterials): the node currently being
+   *  visited, the fresh-object list, and the two callbacks — all allocated
+   *  once, at construction, instead of once per node per sweep. */
+  private sweepFresh: THREE.Object3D[] = [];
+  private sweepNode: THREE.Object3D | null = null;
+  private sweepIsNew = false;
+  private sweepClassify = (m: THREE.Material): void => {
+    // The common case, by a very long way: a material we have already
+    // classified. One WeakSet probe and nothing else.
+    if (this.seenMats.has(m)) return;
+    this.seenMats.add(m);
+    if (!this.compiledKeys.has(this.matKey(this.sweepNode!, m))) this.sweepIsNew = true;
+  };
+  private sweepClaim = (m: THREE.Material): void => {
+    this.compiledKeys.add(this.matKey(this.sweepNode!, m));
+  };
+  private sweepVisit = (o: THREE.Object3D): void => {
+    this.sweepIsNew = false;
+    this.sweepNode = o;
+    this.eachMaterial(o, this.sweepClassify);
+    if (this.sweepIsNew) this.sweepFresh.push(o);
+  };
+
   private sweepNewMaterials(): void {
     if (!this.matSweepArmed || this.matSweepBusy) return;
     if (this.matSweepEvery > 1
       && (this.matSweepTick = (this.matSweepTick + 1) % this.matSweepEvery) !== 0) return;
-    const fresh: THREE.Object3D[] = [];
-    this.scene.traverse((o) => {
-      let isNew = false;
-      this.eachMaterial(o, (m) => {
-        // The common case, by a very long way: a material we have already
-        // classified. One WeakSet probe and nothing else.
-        if (this.seenMats.has(m)) return;
-        this.seenMats.add(m);
-        if (!this.compiledKeys.has(this.matKey(o, m))) isNew = true;
-      });
-      if (isNew) fresh.push(o);
-    });
+    // GC: this walks EVERY node in the scene (thousands on a dressed floor) on
+    // a 4-frame cadence. The callbacks are hoisted to stable instance-bound
+    // functions rather than written inline, because an inline arrow inside the
+    // traverse callback is a fresh closure PER NODE — the sweep's real cost was
+    // never the WeakSet probe, it was minting a few thousand closures to run it.
+    const fresh = this.sweepFresh;
+    fresh.length = 0;
+    this.scene.traverse(this.sweepVisit);
     if (!fresh.length) return;
     for (const o of fresh) {
-      this.eachMaterial(o, (m) => this.compiledKeys.add(this.matKey(o, m)));
+      this.sweepNode = o;
+      this.eachMaterial(o, this.sweepClaim);
       this.matParked.set(o, o.layers.mask);
       o.layers.set(Renderer3D.COMPILE_LAYER);
     }
@@ -3805,7 +3887,13 @@ export class Renderer3D {
     const play = ud.play as (n: string, force?: boolean) => void;
     const playFirst = ud.playFirst as (...n: string[]) => void;
     const hasClip = ud.hasClip as (n: string) => boolean;
-    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
+    // Kept and MUTATED, not rebuilt: the tail of this method used to `set` a
+    // fresh record with a `{ ...cds }` spread inside it every frame per player.
+    let prev = this.animPrev.get(pl.id);
+    if (!prev) {
+      prev = { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
+      this.animPrev.set(pl.id, prev);
+    }
     const cds = pl.cd as Partial<Record<string, number>>;
     const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
 
@@ -3861,10 +3949,16 @@ export class Renderer3D {
       }
       else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
     }
-    this.animPrev.set(pl.id, {
-      swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
-      overcharged: pl.overcharged, cd: { ...cds }, flask: pl.flaskCharges,
-    });
+    prev.swing = pl.attackSwing;
+    prev.dash = pl.dashTime;
+    prev.alive = pl.alive;
+    prev.overcharged = pl.overcharged;
+    prev.flask = pl.flaskCharges;
+    // Copy the cooldowns across in place. A key that vanishes from `cds`
+    // leaves a stale entry behind, which reads identically: cdRose compares
+    // (cds[a] ?? 0) against (prev.cd[a] ?? 0) and 0 never rises above a
+    // non-negative number.
+    for (const k in cds) prev.cd[k] = cds[k];
     (ud.animTick as (dt: number) => void)(dt);
   }
 
@@ -3876,24 +3970,27 @@ export class Renderer3D {
    * reset the average instead of polluting it.
    */
   private smoothedVel(mesh: THREE.Group, dt: number): Vec2 {
-    const ud = mesh.userData;
-    const ix = ud.lastX === undefined ? 0 : (mesh.position.x - (ud.lastX as number)) / dt;
-    const iz = ud.lastZ === undefined ? 0 : (mesh.position.z - (ud.lastZ as number)) / dt;
-    ud.lastX = mesh.position.x;
-    ud.lastZ = mesh.position.z;
+    const num = bodyNum(mesh);
+    const ix = Number.isNaN(num.lastX) ? 0 : (mesh.position.x - num.lastX) / dt;
+    const iz = Number.isNaN(num.lastZ) ? 0 : (mesh.position.z - num.lastZ) / dt;
+    num.lastX = mesh.position.x;
+    num.lastZ = mesh.position.z;
     if (Math.hypot(ix, iz) > 25) {
-      ud.velX = 0; ud.velZ = 0; // teleport, not movement
+      num.velX = 0; num.velZ = 0; // teleport, not movement
     } else {
       const k = Math.min(1, dt / 0.1);
-      ud.velX = ((ud.velX as number) ?? 0) + (ix - ((ud.velX as number) ?? 0)) * k;
-      ud.velZ = ((ud.velZ as number) ?? 0) + (iz - ((ud.velZ as number) ?? 0)) * k;
+      num.velX += (ix - num.velX) * k;
+      num.velZ += (iz - num.velZ) * k;
     }
     // Reused scratch (GC sweep): one call per animated body per frame.
-    this.velOut.x = ud.velX as number;
-    this.velOut.y = ud.velZ as number;
+    this.velOut.x = num.velX;
+    this.velOut.y = num.velZ;
     return this.velOut;
   }
   private velOut: Vec2 = { x: 0, y: 0 };
+  /** Scratch point for fog probes that ask about a spot rather than an entity
+   *  (the lane telegraph's far end) — it used to be a fresh literal per body. */
+  private probeVec: Vec2 = { x: 0, y: 0 };
 
   /**
    * Feet vs facing: forward run/walk, backpedal when retreating under aim,
@@ -6994,6 +7091,156 @@ export class Renderer3D {
     b.dirty = true;
   }
 
+
+  /**
+   * Torch light pool, flame-sprite gutter, sconce streaks and the scrolling
+   * env-flow UVs — every light in the room, driven by float math only.
+   *
+   * Extracted from update() for the same measured reason as computeSeparation:
+   * update() is far too large for V8 to hand to TurboFan, and an unoptimized
+   * function BOXES EVERY INTERMEDIATE DOUBLE into a fresh HeapNumber. These
+   * loops run over every anchor, sprite and streak on the floor and do nothing
+   * but arithmetic, so inline they paid a HeapNumber per operand. Same values,
+   * same order, same frame — just somewhere the compiler can reach.
+   */
+  private updateFirelight(state: GameState, dt: number, time: number): void {
+    // Torch light pool: park the few real lights at the anchors nearest the
+    // player (off-screen torches don't need light). Reassignments FADE over
+    // ~0.3s — a sconce guttering out behind you, another catching ahead —
+    // instead of the old teleport-pop, then layered flicker on top.
+    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
+    if (this.heroLamp && lp) {
+      // The hero's warm counter-light rides just above and behind the crawler,
+      // guttering gently so it reads as carried firelight, not a headlamp.
+      // FIGHT KEY (r6 blocker: the crowd beat had no focal light): when a
+      // pack closes in the practical swells toward ~1.9x and lifts/widens —
+      // the fight becomes the brightest, warmest pixel cluster in the frame
+      // (LoL teamfight rule) and every ringed silhouette catches the kiss.
+      let packNear = 0;
+      for (const m of state.monsters) {
+        if (m.dormant || m.hp <= 0) continue;
+        const ddx = m.pos.x - lp.pos.x, ddy = m.pos.y - lp.pos.y;
+        if (ddx * ddx + ddy * ddy < 17.6 && ++packNear >= 6) break;
+      }
+      const fightK = Math.min(1, packNear / 4);
+      this.heroLamp.position.set(lp.pos.x + 0.3, 1.55 + 0.45 * fightK, lp.pos.y + 0.35);
+      this.heroLamp.distance = 7.5 + 4 * fightK;
+      this.heroLamp.intensity = this.heroLampBase * (1 + 1.25 * fightK)
+        * (0.93 + 0.07 * Renderer3D.torchFlicker(time, 4.2));
+    }
+    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
+      const order = this.torchOrder;
+      order.length = this.torchAnchors.length;
+      for (let i = 0; i < order.length; i++) order[i] = i;
+      const d2 = (i: number): number => {
+        const a = this.torchAnchors[i];
+        return (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2;
+      };
+      order.sort((a, b) => d2(a) - d2(b));
+      const desired = this.torchDesired;
+      desired.clear();
+      const nWant = Math.min(this.torchPool.length, order.length);
+      for (let i = 0; i < nWant; i++) desired.add(order[i]);
+      // First pass: lights already holding a desired anchor claim it.
+      for (const st of this.torchState) {
+        st.wanted = st.anchor >= 0 && desired.delete(st.anchor);
+      }
+      const fade = dt / 0.3;
+      for (let i = 0; i < this.torchPool.length; i++) {
+        const st = this.torchState[i];
+        const light = this.torchPool[i];
+        if (st.wanted) {
+          st.level = Math.min(1, st.level + fade);
+        } else {
+          st.level = Math.max(0, st.level - fade);
+          if (st.level === 0) {
+            // Dark: repark at an unclaimed near anchor (fades in from here).
+            for (const a of desired) { st.anchor = a; desired.delete(a); break; }
+          }
+        }
+        const t = st.anchor >= 0 ? this.torchAnchors[st.anchor] : null;
+        if (!t || st.level <= 0) { light.intensity = 0; continue; }
+        // ~8Hz flame dance: the SOURCE wanders a few cm and gutters, so the
+        // pool's edge crawls like firelight instead of breathing in place.
+        const fl = Renderer3D.torchFlicker(time, t.seed);
+        const w1 = Renderer3D.torchFlicker(time + 17.3, t.seed + 9.1) - 0.74;
+        const w2 = Renderer3D.torchFlicker(time + 31.7, t.seed + 23.7) - 0.74;
+        light.position.set(t.x + w1 * 0.55, 1.06 + (fl - 0.74) * 0.3, t.y + w2 * 0.55);
+        light.intensity = this.torchBase * st.level * fl;
+      }
+    }
+    // Flame glow layers: every anchor's core/mid/halo gutters with the same
+    // layered flicker the lights use (visible flicker gradient on the light
+    // pools), gated by the fog so unexplored sconces don't glow through the
+    // dark. Core dances hardest, the wide halo only breathes.
+    if (this.flameSprites.length > 0) {
+      const fAlphas = this.fogBank.alphas;
+      for (const f of this.flameSprites) {
+        const hidden = (fAlphas[f.tile] ?? 1) > 0.5;
+        if (hidden) {
+          // DISTANT EMBERS (critic r3 blocker: the unexplored field read as
+          // unrendered canvas): fogged sconces stay as faint guttering
+          // pinpricks in the murk — the dark reads as a place with lights
+          // burning in it, D2R-style, without lifting the murk's value floor.
+          if (f.role === 0) { f.s.visible = false; continue; }
+          f.s.visible = true;
+          const dfl = Renderer3D.torchFlicker(time * 0.55, f.seed);
+          const dmat = f.s.material as THREE.SpriteMaterial;
+          if (f.role === 1) {
+            dmat.opacity = 0.13 * (0.75 + 0.25 * dfl);
+            f.s.scale.setScalar(f.base * 0.5);
+          } else {
+            dmat.opacity = 0.06 * (0.85 + 0.15 * dfl);
+            f.s.scale.setScalar(f.base * 0.75);
+          }
+          continue;
+        }
+        f.s.visible = true;
+        const fl = Renderer3D.torchFlicker(time, f.seed);
+        const mat = f.s.material as THREE.SpriteMaterial;
+        if (f.role === 0) {
+          mat.opacity = f.baseOp * (0.7 + 0.3 * fl);
+          f.s.scale.setScalar(f.base * (0.72 + 0.5 * fl));
+        } else if (f.role === 1) {
+          mat.opacity = f.baseOp * (0.6 + 0.55 * Math.min(1, Math.max(0, (fl - 0.5) * 2)));
+          f.s.scale.setScalar(f.base * (0.78 + 0.38 * fl));
+        } else {
+          mat.opacity = f.baseOp * (0.85 + 0.2 * fl);
+          f.s.scale.setScalar(f.base * (0.94 + 0.1 * fl));
+        }
+      }
+    }
+    // Sconce wall streaks: gutter with their torch, hidden under fog.
+    if (this.torchStreaks.length > 0) {
+      const fAlphas = this.fogBank.alphas;
+      for (const t of this.torchStreaks) {
+        const hidden = (fAlphas[t.tile] ?? 1) > 0.5;
+        t.m.visible = !hidden;
+        if (hidden) continue;
+        const fl = Renderer3D.torchFlicker(time, t.seed);
+        (t.m.material as THREE.MeshBasicMaterial).opacity = t.baseOp * (0.72 + 0.28 * fl);
+      }
+    }
+    // Baked-pool gutter + fog-frontier drift for the world-lit materials.
+    this.wl.uWlFlick.value = 0.88 + 0.12 * Renderer3D.torchFlicker(time, 0.37);
+    this.wl.uWlTime.value = time;
+    this.chU.uChTime.value = time; // character accent-glow breathing
+    // Sewer channels etc: emissive water crawls along its run. Molten
+    // channels add a sinusoidal UV wobble — heat-shimmer on the emissive
+    // (r5 issue #3) without touching the shader.
+    for (const f of this.envFlow) {
+      if (f.wobble) {
+        const fq = f.freq ?? 1.6;
+        f.tex.offset.set(
+          time * f.sx + Math.sin(time * fq) * f.wobble,
+          time * f.sy + Math.sin(time * fq * 0.83 + 1.7) * f.wobble,
+        );
+      } else {
+        f.tex.offset.set(time * f.sx, time * f.sy);
+      }
+    }
+  }
+
   private updateFogTint(state: GameState, px: number, pz: number): void {
     const { map } = state;
     this.wl.uWlPlayer.value.set(px, pz);
@@ -7872,6 +8119,98 @@ export class Renderer3D {
   // dozen fresh Sets every frame.
   private setPool: Set<number>[] = [];
   private setPoolI = 0;
+  // Same idea for the render-side separation pass: it used to mint a Map plus
+  // one {x,z} per overlapping body EVERY frame. Both are pooled now — the map
+  // is cleared and the offsets are handed out from a growing free list, so a
+  // steady-state pack allocates nothing at all.
+  private sepTargets = new Map<number, { x: number; z: number }>();
+  private sepPool: { x: number; z: number }[] = [];
+  private sepPoolI = 0;
+  /**
+   * RENDER-SIDE SEPARATION: overlapping enemies push each other's DISPLAY
+   * position apart (sim untouched), so a pack rings the player instead of
+   * interpenetrating into one mass of heads. O(n^2) over live monsters — fine
+   * at pack sizes; offsets ease in/out and are clamped small.
+   *
+   * IT LIVES IN ITS OWN METHOD FOR A MEASURED REASON, and the reason is not
+   * tidiness. `update()` is ~2,100 lines; V8 will not hand a function that
+   * large to TurboFan, so it runs in the interpreter forever — and the
+   * interpreter BOXES EVERY INTERMEDIATE DOUBLE as a fresh HeapNumber. This
+   * pair loop is nothing but double arithmetic, so inline in update() it was
+   * the single largest allocator in the whole host: measured by ablation on
+   * the calm floor-2 scene (37 monsters, 666 pairs), removing it dropped
+   * update()'s own allocation from 145.8 to 45.1 KB/frame — ~150 bytes of
+   * garbage per pair iteration, from a loop that allocates no objects at all.
+   *
+   * Small enough to be optimized, the same arithmetic keeps its doubles in
+   * registers and allocates nothing. Identical maths, identical offsets: this
+   * is a move, not a rewrite.
+   */
+  private computeSeparation(state: GameState): void {
+    this.sepTargets.clear();
+    this.sepPoolI = 0;
+    const live = state.monsters;
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i];
+      if (a.dormant) continue;
+      const ra = 0.34 * (THEME.archetype[a.kind]?.scale ?? 1);
+      for (let j = i + 1; j < live.length; j++) {
+        const b = live[j];
+        if (b.dormant) continue;
+        const rb = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1);
+        let dx = a.pos.x - b.pos.x;
+        let dz = a.pos.y - b.pos.y;
+        const rr = ra + rb;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        let d = Math.sqrt(d2);
+        if (d < 1e-4) { // coincident: split on a stable per-id axis
+          dx = Math.sin(a.id * 1.7 + b.id);
+          dz = Math.cos(a.id * 1.7 + b.id);
+          d = 1;
+        }
+        const push = Math.min(0.4, (rr - d) * 0.5);
+        const nx = (dx / d) * push;
+        const nz = (dz / d) * push;
+        const ta = this.sepSlot(a.id);
+        ta.x += nx; ta.z += nz;
+        const tb = this.sepSlot(b.id);
+        tb.x -= nx; tb.z -= nz;
+      }
+    }
+    // Soft collision vs the HERO: overlapping mobs yield display-space ground
+    // around each player, so the crowd rings the crawler instead of clipping
+    // through the body (offset applied to the monster mesh only — the player
+    // mesh is the camera anchor and never shifts).
+    for (const plS of state.players) {
+      if (!plS.alive) continue;
+      for (const b of live) {
+        if (b.dormant) continue;
+        const rr = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1) + 0.4;
+        let dx = b.pos.x - plS.pos.x;
+        let dz = b.pos.y - plS.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        let d = Math.sqrt(d2);
+        if (d < 1e-4) { dx = Math.sin(b.id * 2.3); dz = Math.cos(b.id * 2.3); d = 1; }
+        const push = Math.min(0.45, (rr - d) * 0.8);
+        const tb = this.sepSlot(b.id);
+        tb.x += (dx / d) * push;
+        tb.z += (dz / d) * push;
+      }
+    }
+  }
+
+  private sepSlot(id: number): { x: number; z: number } {
+    const have = this.sepTargets.get(id);
+    if (have) return have;
+    let t = this.sepPool[this.sepPoolI];
+    if (!t) { t = { x: 0, z: 0 }; this.sepPool[this.sepPoolI] = t; }
+    this.sepPoolI++;
+    t.x = 0; t.z = 0;
+    this.sepTargets.set(id, t);
+    return t;
+  }
   private scratchSet(): Set<number> {
     let s = this.setPool[this.setPoolI];
     if (!s) {
@@ -8373,60 +8712,8 @@ export class Renderer3D {
     // position apart (sim untouched), so a pack rings the player instead of
     // interpenetrating into one mass of heads. O(n^2) over live monsters —
     // fine at pack sizes; offsets ease in/out and are clamped small.
-    const sepTargets = new Map<number, { x: number; z: number }>();
-    {
-      const live = state.monsters;
-      for (let i = 0; i < live.length; i++) {
-        const a = live[i];
-        if (a.dormant) continue;
-        const ra = 0.34 * (THEME.archetype[a.kind]?.scale ?? 1);
-        for (let j = i + 1; j < live.length; j++) {
-          const b = live[j];
-          if (b.dormant) continue;
-          const rb = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1);
-          let dx = a.pos.x - b.pos.x;
-          let dz = a.pos.y - b.pos.y;
-          const rr = ra + rb;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= rr * rr) continue;
-          let d = Math.sqrt(d2);
-          if (d < 1e-4) { // coincident: split on a stable per-id axis
-            dx = Math.sin(a.id * 1.7 + b.id);
-            dz = Math.cos(a.id * 1.7 + b.id);
-            d = 1;
-          }
-          const push = Math.min(0.4, (rr - d) * 0.5);
-          const nx = (dx / d) * push;
-          const nz = (dz / d) * push;
-          const ta = sepTargets.get(a.id) ?? { x: 0, z: 0 };
-          ta.x += nx; ta.z += nz; sepTargets.set(a.id, ta);
-          const tb = sepTargets.get(b.id) ?? { x: 0, z: 0 };
-          tb.x -= nx; tb.z -= nz; sepTargets.set(b.id, tb);
-        }
-      }
-      // Soft collision vs the HERO: overlapping mobs yield display-space
-      // ground around each player, so the crowd rings the crawler instead of
-      // clipping through the body (offset applied to the monster mesh only —
-      // the player mesh is the camera anchor and never shifts).
-      for (const plS of state.players) {
-        if (!plS.alive) continue;
-        for (const b of live) {
-          if (b.dormant) continue;
-          const rr = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1) + 0.4;
-          let dx = b.pos.x - plS.pos.x;
-          let dz = b.pos.y - plS.pos.y;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= rr * rr) continue;
-          let d = Math.sqrt(d2);
-          if (d < 1e-4) { dx = Math.sin(b.id * 2.3); dz = Math.cos(b.id * 2.3); d = 1; }
-          const push = Math.min(0.45, (rr - d) * 0.8);
-          const tb = sepTargets.get(b.id) ?? { x: 0, z: 0 };
-          tb.x += (dx / d) * push;
-          tb.z += (dz / d) * push;
-          sepTargets.set(b.id, tb);
-        }
-      }
-    }
+    const sepTargets = this.sepTargets;
+    this.computeSeparation(state);
 
     const sepEase = 1 - Math.exp(-10 * dt);
     this.flashCloneBudget = 4; // see applyHitFlash: Injunction enrages a FLOOR
@@ -8522,12 +8809,13 @@ export class Renderer3D {
       const rage = (mon.injRageT ?? 0) > 0 ? 0.3 + 0.1 * Math.sin(time * 5 + mon.id) : 0;
       this.applyHitFlash(mesh, mon.hitFlash, dt, rage);
       const bs = (mesh.userData.baseScale as number) ?? 1;
+      const num0 = bodyNum(mesh);
       {
         // Separation is a pure display offset layered over the sim position:
         // strip last frame's offset, chase the sim, ease toward the new one.
-        const udS = mesh.userData;
-        const oldX = (udS.sepX as number) || 0;
-        const oldZ = (udS.sepZ as number) || 0;
+        const udS = num0;
+        const oldX = udS.sepX;
+        const oldZ = udS.sepZ;
         mesh.position.x -= oldX;
         mesh.position.z -= oldZ;
         this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
@@ -8541,8 +8829,8 @@ export class Renderer3D {
         // KNOCKBACK (audit r4 juice stack): hits shove the DISPLAY body a few
         // inches along the impact direction, easing back over ~150ms — pure
         // renderer offset (emitHits sets the impulse), sim position untouched.
-        const kbx = (udS.kbX as number) || 0;
-        const kbz = (udS.kbZ as number) || 0;
+        const kbx = udS.kbX;
+        const kbz = udS.kbZ;
         if (kbx !== 0 || kbz !== 0) {
           mesh.position.x += kbx;
           mesh.position.z += kbz;
@@ -8559,13 +8847,13 @@ export class Renderer3D {
         // A blink is not a sprint: the sim moves it instantly, but smoothTo
         // would glide the mesh across the gap. On the blink edge (cooldown
         // jumps up), poof both ends and SNAP the body to the far one.
-        const prevB = ud0.prevBlinkCd as number | undefined;
-        if (prevB !== undefined && mon.blinkCd > prevB + 1e-6) {
+        const prevB = num0.prevBlinkCd;
+        if (!Number.isNaN(prevB) && mon.blinkCd > prevB + 1e-6) {
           this.spawnGlow(mesh.position.x, 0.7, mesh.position.z, 0xbfe4ff, 0.9, 0.4, 2);
           this.spawnGlow(mon.pos.x, 0.7, mon.pos.y, 0xbfe4ff, 0.9, 0.4, 2);
           mesh.position.set(mon.pos.x, mesh.position.y, mon.pos.y);
         }
-        ud0.prevBlinkCd = mon.blinkCd;
+        num0.prevBlinkCd = mon.blinkCd;
       }
       if (mon.kind === "filcher" && ud0.lootProp) {
         // The Repo Rat shows its work: the repossessed pile only rides along
@@ -8596,27 +8884,27 @@ export class Renderer3D {
           // rank never moves in unison; amplitudes sit at the edge of notice,
           // because the trap must stay a trap while the room reads inhabited.
           if (mon.kind === "greeter" || mon.kind === "toysoldier") {
-            if (ud.dormYaw === undefined) {
-              ud.dormYaw = mesh.rotation.y;
-              ud.dormSy = mesh.scale.y;
+            if (Number.isNaN(num0.dormYaw)) {
+              num0.dormYaw = mesh.rotation.y;
+              num0.dormSy = mesh.scale.y;
             }
             const ph = (mon.id % 61) * 0.618;
             // Breath: ~1.2% of height, ~4 s period.
-            mesh.scale.y = (ud.dormSy as number) * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
+            mesh.scale.y = num0.dormSy * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
             // The settle-tick: every ~5-8 s (per id) a quick 3-degree head
             // check that eases out over ~0.4 s. Smooth pulse, no RNG.
             const period = 5 + (mon.id % 4);
             const cyc = (time + ph * period) % period;
             const tick = Math.max(0, 1 - cyc / 0.4);
-            mesh.rotation.y = (ud.dormYaw as number) +
+            mesh.rotation.y = num0.dormYaw +
               0.016 * Math.sin(time * 0.45 + ph) +
               0.05 * tick * tick * Math.sin(ph * 9.7);
           }
         } else {
-        if (ud.dormYaw !== undefined) {
+        if (!Number.isNaN(num0.dormYaw)) {
           // Sprung: hand the body back to the live path exactly as it was.
-          mesh.scale.y = ud.dormSy as number;
-          ud.dormYaw = undefined;
+          mesh.scale.y = num0.dormSy;
+          num0.dormYaw = NaN;
         }
         if (ud.wasDormant) {
           ud.wasDormant = false;
@@ -8628,15 +8916,15 @@ export class Renderer3D {
           ud.revealed = true;
           playFirstM("awaken");
         }
-        const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        const staggerRose = mon.stagger > 0 && !(num0.prevStagger > 0);
         // FLINCH (combat-feel program #15.1): a fresh hit interrupts the body,
         // not just the tint. Rate-limited so DoT ticks and flurries read as
         // occasional twitches instead of stun-lock theater; never during a
         // committed windup (interrupting attacks is the stagger system's job),
         // never on bosses (their hit-react IS the stagger).
-        const flashRose = mon.hitFlash > 0 && !((ud.prevHitFlash as number) > 0);
-        ud.prevHitFlash = mon.hitFlash;
-        ud.flinchCd = Math.max(0, ((ud.flinchCd as number) ?? 0) - dt);
+        const flashRose = mon.hitFlash > 0 && !(num0.prevHitFlash > 0);
+        num0.prevHitFlash = mon.hitFlash;
+        num0.flinchCd = Math.max(0, num0.flinchCd - dt);
         if (state.encounter?.monsterId === mon.id) {
           // One performance per introduction — playFirst force-restarts, so gate it.
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
@@ -8644,8 +8932,8 @@ export class Renderer3D {
           ud.taunting = false;
           // Boss phase-up is a MOMENT: the large rig transforms; medium bosses
           // fall back to a taunt. Edge-detected so it plays exactly once.
-          const phaseRose = (mon.phase ?? 0) > ((ud.prevPhase as number) ?? 0);
-          ud.prevPhase = mon.phase ?? 0;
+          const phaseRose = (mon.phase ?? 0) > num0.prevPhase;
+          num0.prevPhase = mon.phase ?? 0;
           if (phaseRose) {
             playFirstM("transform", "taunt", "hit");
           } else if (staggerRose) {
@@ -8654,10 +8942,10 @@ export class Renderer3D {
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
             else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (
-            flashRose && (ud.flinchCd as number) <= 0 && mon.windup <= 0 &&
+            flashRose && num0.flinchCd <= 0 && mon.windup <= 0 &&
             mon.stagger <= 0 && mon.kind !== "boss" && mon.affix !== "shielded"
           ) {
-            ud.flinchCd = 0.7;
+            num0.flinchCd = 0.7;
             playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (mon.windup > 0) {
             // Prefer a clip matching the committed attack; fall back to the
@@ -8695,9 +8983,9 @@ export class Renderer3D {
                   !(mon.kind === "drummer" || mon.kind === "shieldbearer" || mon.kind === "duelist")) {
                 ud.stagedRise = act.rise ?? null; // armed for the scene-break edge
                 if (act.burst && hasClipM(act.burst)) {
-                  ud.stageT = ((ud.stageT as number) ?? 0) + dt;
-                  if ((ud.stageT as number) >= burstPeriod(act, mon.id)) {
-                    ud.stageT = 0;
+                  num0.stageT += dt;
+                  if (num0.stageT >= burstPeriod(act, mon.id)) {
+                    num0.stageT = 0;
                     playFirstM(act.burst);
                   } else if ((ud.animBusy as () => number)() <= 0) {
                     playM(act.clip);
@@ -8724,7 +9012,7 @@ export class Renderer3D {
           }
         }
         } // end non-dormant branch
-        ud.prevStagger = mon.stagger;
+        num0.prevStagger = mon.stagger;
         // Full rate on screen (and inside the mode's rig budget); everything
         // else accumulates and flushes at offscreenRigHz. See the rig gate above.
         (ud.animTick as (dt: number, minStep?: number) => void)(
@@ -8732,14 +9020,14 @@ export class Renderer3D {
         );
         // Lift + scale-punch ride the renderer flash envelope (audit r4): the
         // struck body pops ~9% and settles over ~250ms instead of 2 frames.
-        const hitEnv = (ud.flashEnv as number) ?? 0;
+        const hitEnv = num0.flashEnv;
         mesh.position.y = 0.1 * hitEnv;
         mesh.scale.setScalar(bs * (1 + 0.09 * hitEnv));
       } else {
         // Bob while chasing; recoil pop + squash when just hit or staggered;
         // rear up through a windup (scaled by archetype size).
         const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
-        const hitEnvP = (mesh.userData.flashEnv as number) ?? 0;
+        const hitEnvP = num0.flashEnv;
         mesh.position.y = 0.18 * hitEnvP + bob;
         const squash = hitEnvP > 0.25 || mon.stagger > 0 ? 1 + 0.25 * Math.max(hitEnvP, mon.stagger > 0 ? 1 : 0) : 1;
         const rear = mon.windup > 0 ? 1 + 0.14 * (1 - mon.windup / Math.max(mon.windupTotal, 1e-3)) : 1;
@@ -8783,13 +9071,14 @@ export class Renderer3D {
         mat.uniforms.uTime.value = time + mon.id * 0.7;
         // Far end must be in vision too (audit r5): a lane pointing into the
         // murk must not streak across unexplored darkness toward the HUD.
-        strip.visible = mesh.visible &&
-          inVision({ x: mon.pos.x + laneDir.x * len, y: mon.pos.y + laneDir.y * len });
+        this.probeVec.x = mon.pos.x + laneDir.x * len;
+        this.probeVec.y = mon.pos.y + laneDir.y * len;
+        strip.visible = mesh.visible && inVision(this.probeVec);
         // Lane windups gather too (charger crouch, lasher coil).
         if (mesh.visible) {
-          ud0.gatherT = ((ud0.gatherT as number) ?? 0) - dt;
-          if ((ud0.gatherT as number) <= 0) {
-            ud0.gatherT = 0.06;
+          num0.gatherT -= dt;
+          if (num0.gatherT <= 0) {
+            num0.gatherT = 0.06;
             this.fxp.gather(mesh.position.x, 0.8, mesh.position.z, laneHex, prog);
           }
         }
@@ -8872,9 +9161,9 @@ export class Renderer3D {
         // CAST ANTICIPATION: motes gather INTO the body while the tell runs —
         // the caster visibly draws power before the strike fires.
         if (mesh.visible) {
-          ud0.gatherT = ((ud0.gatherT as number) ?? 0) - dt;
-          if ((ud0.gatherT as number) <= 0) {
-            ud0.gatherT = 0.06;
+          num0.gatherT -= dt;
+          if (num0.gatherT <= 0) {
+            num0.gatherT = 0.06;
             this.fxp.gather(mesh.position.x, 0.9 * ((mesh.userData.baseScale as number) ?? 1), mesh.position.z, telColor, prog);
           }
         }
@@ -8938,10 +9227,18 @@ export class Renderer3D {
           this.scene.add(ring);
           this.statusRings.set(mon.id, ring);
         }
-        const kind = st.find((e) => e.kind === "burn") ? "burn"
-          : st.find((e) => e.kind === "poison") ? "poison" : "chill";
+        // Dominant effect, burn > poison > chill. A plain scan: the two
+        // `find` calls this replaces minted two closures per statused body
+        // per frame, which on a burning pack is the pack's own weight in
+        // garbage for a colour lookup.
+        let hasBurn = false, hasPoison = false;
+        for (let i = 0; i < st.length; i++) {
+          const k = st[i].kind;
+          if (k === "burn") { hasBurn = true; break; }
+          if (k === "poison") hasPoison = true;
+        }
         const mat = ring.material as THREE.MeshBasicMaterial;
-        mat.color.setHex(kind === "burn" ? 0xff7a2f : kind === "poison" ? 0x7ed957 : 0x7fd4ff);
+        mat.color.setHex(hasBurn ? 0xff7a2f : hasPoison ? 0x7ed957 : 0x7fd4ff);
         mat.opacity = 0.22 + 0.1 * Math.sin(time * 6 + mon.id);
         ring.position.set(mon.pos.x, 0.04, mon.pos.y);
         ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : mon.veteran ? CONFIG.veteranScale : 1));
@@ -9602,141 +9899,7 @@ export class Renderer3D {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }
     }
 
-    // Torch light pool: park the few real lights at the anchors nearest the
-    // player (off-screen torches don't need light). Reassignments FADE over
-    // ~0.3s — a sconce guttering out behind you, another catching ahead —
-    // instead of the old teleport-pop, then layered flicker on top.
-    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
-    if (this.heroLamp && lp) {
-      // The hero's warm counter-light rides just above and behind the crawler,
-      // guttering gently so it reads as carried firelight, not a headlamp.
-      // FIGHT KEY (r6 blocker: the crowd beat had no focal light): when a
-      // pack closes in the practical swells toward ~1.9x and lifts/widens —
-      // the fight becomes the brightest, warmest pixel cluster in the frame
-      // (LoL teamfight rule) and every ringed silhouette catches the kiss.
-      let packNear = 0;
-      for (const m of state.monsters) {
-        if (m.dormant || m.hp <= 0) continue;
-        const ddx = m.pos.x - lp.pos.x, ddy = m.pos.y - lp.pos.y;
-        if (ddx * ddx + ddy * ddy < 17.6 && ++packNear >= 6) break;
-      }
-      const fightK = Math.min(1, packNear / 4);
-      this.heroLamp.position.set(lp.pos.x + 0.3, 1.55 + 0.45 * fightK, lp.pos.y + 0.35);
-      this.heroLamp.distance = 7.5 + 4 * fightK;
-      this.heroLamp.intensity = this.heroLampBase * (1 + 1.25 * fightK)
-        * (0.93 + 0.07 * Renderer3D.torchFlicker(time, 4.2));
-    }
-    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
-      const order = this.torchOrder;
-      order.length = this.torchAnchors.length;
-      for (let i = 0; i < order.length; i++) order[i] = i;
-      const d2 = (i: number): number => {
-        const a = this.torchAnchors[i];
-        return (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2;
-      };
-      order.sort((a, b) => d2(a) - d2(b));
-      const desired = this.torchDesired;
-      desired.clear();
-      const nWant = Math.min(this.torchPool.length, order.length);
-      for (let i = 0; i < nWant; i++) desired.add(order[i]);
-      // First pass: lights already holding a desired anchor claim it.
-      for (const st of this.torchState) {
-        st.wanted = st.anchor >= 0 && desired.delete(st.anchor);
-      }
-      const fade = dt / 0.3;
-      for (let i = 0; i < this.torchPool.length; i++) {
-        const st = this.torchState[i];
-        const light = this.torchPool[i];
-        if (st.wanted) {
-          st.level = Math.min(1, st.level + fade);
-        } else {
-          st.level = Math.max(0, st.level - fade);
-          if (st.level === 0) {
-            // Dark: repark at an unclaimed near anchor (fades in from here).
-            for (const a of desired) { st.anchor = a; desired.delete(a); break; }
-          }
-        }
-        const t = st.anchor >= 0 ? this.torchAnchors[st.anchor] : null;
-        if (!t || st.level <= 0) { light.intensity = 0; continue; }
-        // ~8Hz flame dance: the SOURCE wanders a few cm and gutters, so the
-        // pool's edge crawls like firelight instead of breathing in place.
-        const fl = Renderer3D.torchFlicker(time, t.seed);
-        const w1 = Renderer3D.torchFlicker(time + 17.3, t.seed + 9.1) - 0.74;
-        const w2 = Renderer3D.torchFlicker(time + 31.7, t.seed + 23.7) - 0.74;
-        light.position.set(t.x + w1 * 0.55, 1.06 + (fl - 0.74) * 0.3, t.y + w2 * 0.55);
-        light.intensity = this.torchBase * st.level * fl;
-      }
-    }
-    // Flame glow layers: every anchor's core/mid/halo gutters with the same
-    // layered flicker the lights use (visible flicker gradient on the light
-    // pools), gated by the fog so unexplored sconces don't glow through the
-    // dark. Core dances hardest, the wide halo only breathes.
-    if (this.flameSprites.length > 0) {
-      const fAlphas = this.fogBank.alphas;
-      for (const f of this.flameSprites) {
-        const hidden = (fAlphas[f.tile] ?? 1) > 0.5;
-        if (hidden) {
-          // DISTANT EMBERS (critic r3 blocker: the unexplored field read as
-          // unrendered canvas): fogged sconces stay as faint guttering
-          // pinpricks in the murk — the dark reads as a place with lights
-          // burning in it, D2R-style, without lifting the murk's value floor.
-          if (f.role === 0) { f.s.visible = false; continue; }
-          f.s.visible = true;
-          const dfl = Renderer3D.torchFlicker(time * 0.55, f.seed);
-          const dmat = f.s.material as THREE.SpriteMaterial;
-          if (f.role === 1) {
-            dmat.opacity = 0.13 * (0.75 + 0.25 * dfl);
-            f.s.scale.setScalar(f.base * 0.5);
-          } else {
-            dmat.opacity = 0.06 * (0.85 + 0.15 * dfl);
-            f.s.scale.setScalar(f.base * 0.75);
-          }
-          continue;
-        }
-        f.s.visible = true;
-        const fl = Renderer3D.torchFlicker(time, f.seed);
-        const mat = f.s.material as THREE.SpriteMaterial;
-        if (f.role === 0) {
-          mat.opacity = f.baseOp * (0.7 + 0.3 * fl);
-          f.s.scale.setScalar(f.base * (0.72 + 0.5 * fl));
-        } else if (f.role === 1) {
-          mat.opacity = f.baseOp * (0.6 + 0.55 * Math.min(1, Math.max(0, (fl - 0.5) * 2)));
-          f.s.scale.setScalar(f.base * (0.78 + 0.38 * fl));
-        } else {
-          mat.opacity = f.baseOp * (0.85 + 0.2 * fl);
-          f.s.scale.setScalar(f.base * (0.94 + 0.1 * fl));
-        }
-      }
-    }
-    // Sconce wall streaks: gutter with their torch, hidden under fog.
-    if (this.torchStreaks.length > 0) {
-      const fAlphas = this.fogBank.alphas;
-      for (const t of this.torchStreaks) {
-        const hidden = (fAlphas[t.tile] ?? 1) > 0.5;
-        t.m.visible = !hidden;
-        if (hidden) continue;
-        const fl = Renderer3D.torchFlicker(time, t.seed);
-        (t.m.material as THREE.MeshBasicMaterial).opacity = t.baseOp * (0.72 + 0.28 * fl);
-      }
-    }
-    // Baked-pool gutter + fog-frontier drift for the world-lit materials.
-    this.wl.uWlFlick.value = 0.88 + 0.12 * Renderer3D.torchFlicker(time, 0.37);
-    this.wl.uWlTime.value = time;
-    this.chU.uChTime.value = time; // character accent-glow breathing
-    // Sewer channels etc: emissive water crawls along its run. Molten
-    // channels add a sinusoidal UV wobble — heat-shimmer on the emissive
-    // (r5 issue #3) without touching the shader.
-    for (const f of this.envFlow) {
-      if (f.wobble) {
-        const fq = f.freq ?? 1.6;
-        f.tex.offset.set(
-          time * f.sx + Math.sin(time * fq) * f.wobble,
-          time * f.sy + Math.sin(time * fq * 0.83 + 1.7) * f.wobble,
-        );
-      } else {
-        f.tex.offset.set(time * f.sx, time * f.sy);
-      }
-    }
+    this.updateFirelight(state, dt, time);
 
     this.updateParticles(dt);
     this.updateFxLights(dt);
@@ -10302,9 +10465,9 @@ export class Renderer3D {
             if (h.dir) {
               const dl = Math.hypot(h.dir.x, h.dir.y) || 1;
               const kb = (crit ? 0.3 : 0.18) * (h.killed ? 1.4 : 1);
-              const bud = best.userData;
-              bud.kbX = Math.max(-0.45, Math.min(0.45, ((bud.kbX as number) || 0) + (h.dir.x / dl) * kb));
-              bud.kbZ = Math.max(-0.45, Math.min(0.45, ((bud.kbZ as number) || 0) + (h.dir.y / dl) * kb));
+              const bud = bodyNum(best);
+              bud.kbX = Math.max(-0.45, Math.min(0.45, bud.kbX + (h.dir.x / dl) * kb));
+              bud.kbZ = Math.max(-0.45, Math.min(0.45, bud.kbZ + (h.dir.y / dl) * kb));
             }
           }
         }
