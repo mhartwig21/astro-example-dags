@@ -11863,6 +11863,15 @@ async function main(): Promise<void> {
     setBar();
     loadingCount.textContent = `WARMUP ${done} / ${total}`;
   });
+  // ...and the CAMPFIRE, the screen the card actually opens onto. openMenu()
+  // constructs the scene at module eval, but its cost is all on the first
+  // RENDERED frame — 8 skinned crawler clones, ~28 camp props, the scene's
+  // program variants, its first shadow map. That frame used to land 13 ms
+  // after the overlay lifted: a measured 554 ms freeze under the menu fade
+  // (+78 ms on the next one). Every model it clones is resident by now (init
+  // ran `full`), so pay it here, behind the opaque card. Same scene, same
+  // stream-in behaviour — warm() leaves the animation/camera state untouched.
+  charSelect?.warm();
   window.clearInterval(flavorTimer);
   loadingEl.classList.add("done");
   window.setTimeout(() => { loadingEl.style.display = "none"; }, 500);
