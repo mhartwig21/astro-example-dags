@@ -33,7 +33,7 @@ const TOUCH = {
 const phone = (): Coach => new Coach({ ...TOUCH });
 
 /** Unsolicited lectures: floor 1, budgeted. */
-const PROMPTS: CoachEvent[] = ["start", "contact", "pickup", "lowhp", "linger"];
+const PROMPTS: CoachEvent[] = ["start", "dashkit", "contact", "pickup", "lowhp", "linger"];
 /** Earned by an act (or, for the depth pair, by the encounter existing):
  *  any floor, unbudgeted. `elite`/`boss` are the floor-2+ pacing beats —
  *  past floor 1 the prompts are silent and Mordecai only footnotes the FIRST
@@ -42,8 +42,10 @@ const CONFIRMS: CoachEvent[] = [
   "ability", "cast", "slotted", "ult", "equipped", "autoequip", "drink",
   "elite", "boss",
 ];
-/** The three whose {key} is only true per-loadout, handed in at call time. */
-const KEYED: CoachEvent[] = ["ability", "slotted", "ult"];
+/** Those whose {key} is only true per-loadout, handed in at call time. */
+const KEYED: CoachEvent[] = ["dashkit", "ability", "slotted", "ult"];
+/** Note a prompt with a live label, so the call-keyed ones are not declined. */
+const prompt = (o: Coach, ev: CoachEvent, floor = 1): string | null => o.note(ev, floor, "Shift");
 
 /** Every beat in the module, wherever it lives. */
 const ALL_BEATS: [string, TeachBeat][] = [
@@ -129,17 +131,17 @@ describe("the inverted binding rule: he TEACHES first (the riddle fix)", () => {
 describe("the prompt budget is structural (carried from the onramp)", () => {
   it("every prompt fires once, and never more than the budget", () => {
     const o = desktop();
-    const lines = PROMPTS.map((ev) => o.note(ev, 1));
+    const lines = PROMPTS.map((ev) => prompt(o, ev));
     expect(lines.every((l) => typeof l === "string" && l.length > 0)).toBe(true);
     for (const ev of PROMPTS) o.commit(ev); // the paint is the spend
     expect(o.promptsSpent).toBe(PROMPTS.length);
     expect(o.promptsSpent).toBeLessThanOrEqual(COACH_MAX_PROMPTS);
-    for (const ev of PROMPTS) expect(o.note(ev, 1)).toBeNull();
+    for (const ev of PROMPTS) expect(prompt(o, ev)).toBeNull();
   });
 
   it("the budget counts lines still in flight, not just painted ones", () => {
     const o = desktop();
-    for (const ev of PROMPTS) expect(o.note(ev, 1)).toBeTruthy();
+    for (const ev of PROMPTS) expect(prompt(o, ev)).toBeTruthy();
     expect(o.promptsSpent).toBe(0); // nothing has reached the glass yet
     for (const ev of PROMPTS) o.commit(ev);
     expect(o.promptsSpent).toBe(PROMPTS.length);
@@ -147,7 +149,7 @@ describe("the prompt budget is structural (carried from the onramp)", () => {
 
   it("prompts retire at depth; a floor-2 refusal does not burn the line", () => {
     const o = desktop();
-    for (const ev of PROMPTS) expect(o.note(ev, 2)).toBeNull();
+    for (const ev of PROMPTS) expect(prompt(o, ev, 2)).toBeNull();
     expect(o.spent).toBe(0);
     expect(o.note("start", 1)).toContain("WASD");
   });
@@ -163,7 +165,61 @@ describe("the prompt budget is structural (carried from the onramp)", () => {
     const o = desktop();
     for (const ev of CONFIRMS) o.note(ev, 1, "K");
     expect(o.promptsSpent).toBe(0);
-    expect(PROMPTS.every((ev) => typeof o.note(ev, 1) === "string")).toBe(true);
+    expect(PROMPTS.every((ev) => typeof prompt(o, ev) === "string")).toBe(true);
+  });
+});
+
+describe("survival tools are taught, not awarded (r1 major)", () => {
+  it("the dash is a PROMPT — floor 1, uninvited, before anything is earned", () => {
+    const o = desktop();
+    const line = o.note("dashkit", 1, "Shift")!;
+    expect(line).toContain("Shift");
+    expect(line).toMatch(/dash/i);
+    // Budgeted like every other lecture, and silent at depth.
+    o.commit("dashkit");
+    expect(o.promptsSpent).toBe(1);
+    expect(desktop().note("dashkit", 2, "Shift")).toBeNull();
+  });
+
+  it("it names the key it was handed, never a padlocked one", () => {
+    expect(desktop().note("dashkit", 1, "")).toBeNull();
+    expect(phone().note("dashkit", 1, "a flick")).toMatch(/a flick/);
+  });
+});
+
+describe("a death does not end the curriculum (r1 major)", () => {
+  it("a new run re-arms the PROMPTS so the floor-1 script can run again", () => {
+    const o = desktop();
+    for (const ev of PROMPTS) { prompt(o, ev); o.commit(ev); }
+    expect(PROMPTS.every((ev) => prompt(o, ev) === null)).toBe(true);
+    expect(o.reteachPrompts()).toBe(true);
+    expect(PROMPTS.every((ev) => typeof prompt(o, ev) === "string")).toBe(true);
+    expect(o.promptsSpent).toBe(0); // the budget comes back with the script
+  });
+
+  it("confirmations are NOT re-armed — the act happened, and it still counts", () => {
+    const o = desktop();
+    o.note("autoequip", 1);
+    o.commit("autoequip");
+    o.reteachPrompts();
+    expect(o.note("autoequip", 1)).toBeNull();
+  });
+
+  it("re-teaching is capped, so a player dying a lot is not lectured forever", () => {
+    const o = desktop();
+    expect(o.reteachPrompts(2)).toBe(true);
+    expect(o.reteachPrompts(2)).toBe(true);
+    expect(o.reteachPrompts(2)).toBe(false);
+  });
+});
+
+describe("the strip names ONE device — the one in their hands (r1 minor)", () => {
+  it("setControls re-states the live labels mid-session", () => {
+    const o = new Coach({ ...LIVE, attack: "Left click" });
+    o.setControls({ ...LIVE, attack: "Space" });
+    const line = o.note("contact", 1)!;
+    expect(line).toContain("Space");
+    expect(line).not.toMatch(/click/i);
   });
 });
 
@@ -240,11 +296,11 @@ describe("a line is spent when it PAINTS (offer/commit/release, inherited)", () 
 
   it("a released prompt gives its budget back", () => {
     const o = desktop();
-    for (const ev of PROMPTS) o.note(ev, 1);
+    for (const ev of PROMPTS) prompt(o, ev);
     for (const ev of PROMPTS) o.release(ev);
     expect(o.spent).toBe(0);
     expect(o.promptsSpent).toBe(0);
-    expect(PROMPTS.every((ev) => typeof o.note(ev, 1) === "string")).toBe(true);
+    expect(PROMPTS.every((ev) => typeof prompt(o, ev) === "string")).toBe(true);
   });
 
   it("commit is idempotent and only counts a line that was actually offered", () => {

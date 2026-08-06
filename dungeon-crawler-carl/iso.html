@@ -467,10 +467,12 @@
                                  lines + curriculum tip translations + objective step
                                  lines), one at a time; touch mode slides it below the
                                  relocated minimap
-           objectives zone:     #objectives (z 6) — right rail between #party and
-                                 #quests (first-session checkable steps; persistent,
-                                 never auto-dismissed; compact/phone collapses it to
-                                 the one-line head chip)
+           objectives zone:     #objectives (z 6; z 26 under body.modal) — right rail
+                                 between #party and #quests (first-session checkable
+                                 steps; persistent, never auto-dismissed; compact/phone
+                                 collapses it to the one-line head chip). It is the ONE
+                                 transient-looking layer that survives a modal: the
+                                 panel a step points at must not hide the step
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -3280,6 +3282,10 @@
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
       body.checkin #skills, body.checkin #banner, body.checkin #show,
       body.checkin #minimap-frame, body.checkin #cockpit,
+      /* ...and the objectives card, which is dungeon furniture: RINGSIDE
+         CHECK-IN is the cover shot, and a checklist for a run that has not
+         started is both clutter and a card nobody can act on. */
+      body.checkin #objectives,
       body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
       #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
         color: #f5e6bf; text-shadow: 0 2px 12px #000; }
@@ -4076,7 +4082,12 @@
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       #saferoom .tip { color: #a99f8c; font-size: 12px; margin: 7px 0 2px; font-style: italic; }
-      #saferoom .tip::before { content: "MORDECAI: "; color: #6da356; font-weight: 700; font-style: normal; }
+      /* The speaker is CONTENT, not a ::before — a pseudo-element outlives the
+         textContent it labels, and a lime prefix with no sentence under it was
+         both a ghost and the only off-palette colour on the panel. Gold, in the
+         panel's own system; the strip already identifies him with a portrait. */
+      #saferoom .tip .tipwho { color: var(--gold); font-weight: 700; font-style: normal;
+        letter-spacing: 0.04em; }
       .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 348px;
         gap: 14px; margin-top: 8px; }
       .shop-shelf { overflow-y: auto; padding-right: 6px;
@@ -5754,11 +5765,21 @@
          toasts, or banners may bleed readably behind a modal scrim. body.modal
          is host-managed (style-attribute observer in main3d). ---- */
       body.modal #hud-log, body.modal #toasts, body.modal #tutorial,
-      body.modal #objectives,
       body.modal #headline, body.modal #draft-badge, body.modal #party,
       body.modal #mobplates {
         opacity: 0 !important; visibility: hidden;
         transition: opacity 0.15s ease, visibility 0s linear 0.15s; }
+      /* ...BUT NOT THE OBJECTIVES CARD (tutorial r1). Mordecai's STRIP must
+         not talk over a decision — that rule is right and it stays. The
+         checklist is not chatter, it is the ask the panel is an answer to: the
+         shrine is the first real decision a new player meets, and in the safe
+         room the open shop panel IS the objective ("Open the shop / Spend some
+         gold"), so hiding the list behind the thing it describes left the
+         player unable to cross-reference the ask with the offer. It rides
+         above the in-run panels' scrims (z 26 > #saferoom 24, #draft 25) and
+         still loses to the screens that own the whole frame — #recap 27,
+         #menu 28, #loading 29. */
+      body.modal #objectives { z-index: 26; }
       /* And the persistent HUD anchors RECEDE (r4 minor): the paused world's
          chrome dims to ~35% behind any modal scrim, so the panel owns the
          frame instead of fighting a full-brightness cockpit for attention. */
@@ -6016,6 +6037,20 @@
       .dlg-choice .dcost .micon { width: 11px; height: 11px; align-self: center; }
       .dlg-choice.quest .dlabel { color: #f2c14e; }
       .dlg-choice.bye { border-color: rgba(110,85,51,0.35); color: var(--ink-dim); }
+      /* THE SKIP LIVES OFF THE NUMBER ROW (tutorial r1 major). A destructive
+         choice must never occupy a slot a benign choice held a moment earlier:
+         answering "What am I in for?" used to promote "Skip the hand-holding"
+         into the index "Let's go." had just vacated, so a habitual double-tap
+         on 2 deleted the whole curriculum. It is now an unnumbered, quiet
+         control below the list, the digit handler cannot reach it, and taking
+         it only opens a confirmation. */
+      .dlg-skip { margin-top: 8px; align-self: flex-start; cursor: pointer;
+        font: inherit; font-size: 11.5px; color: var(--ink-faint);
+        background: none; border: 0; border-bottom: 1px dotted rgba(110,85,51,0.7);
+        padding: 2px 0; border-radius: 0;
+        transition: color 0.1s ease, border-color 0.1s ease; }
+      .dlg-skip:hover { color: var(--ink-dim); border-bottom-color: var(--bronze-hi); }
+      @media (pointer: coarse) { .dlg-skip { padding: 10px 0; font-size: 12.5px; } }
       .dlg-hint { margin-top: 9px; font-size: 10.5px; color: var(--ink-faint); text-align: right; }
       /* Guide moment: Mordecai's frame runs WARM — ember keyline + hearth glow,
          and the kicker names the man, not the channel. */
@@ -6050,6 +6085,28 @@
         color: var(--ember); }
       #recap .guide-aside .ga-body span { font-size: 12.5px; color: #ecdfc4;
         line-height: 1.4; }
+
+      /* ---- THE FIRST VERDICT (tutorial r1 major) ---------------------------
+         Before a player has finished a run or scored a season, the metagame
+         layer is DEFERRED, not deleted. A first-timer who had been alive 16.6
+         seconds was handed placement, CP, personal bests, a math drawer, a
+         submission chip, five buttons and a detached consent card — four of
+         the five metrics reading zero, so the screen's dominant message was a
+         list of things they had failed to earn. What is left is the death,
+         Mordecai, and the button that answers the only thought a first death
+         produces. Every row below returns the moment there is a career for it
+         to be about (see recapIsNovice in main3d). */
+      #recap.novice #recap-ladder,
+      #recap.novice .earned,
+      #recap.novice #recap-earned-detail,
+      #recap.novice #recap-share,
+      #recap.novice #recap-standings,
+      #recap.novice #recap-dismiss,
+      #recap.novice .rhint { display: none !important; }
+      /* ...and with .rmore emptied, the action bar is the two doors that mean
+         something on a first death. */
+      #recap.novice .rfoot.rmore { display: none; }
+      #recap.novice .guide-aside { margin-top: 12px; }
 
       /* Quest tracker (right rail, under the party roster zone): collapsible
          contract ledger in the glass HUD family — fight-screen chrome, not
@@ -6945,6 +7002,14 @@
              is the surface that promise needed. -->
         <div class="kb-row"><span class="kb-name">Submitting your runs<small>the proof is a 60Hz recording of everything you did — PRIVATE still ranks, it is just never handed out</small></span>
           <span class="kb-key" id="kb-consent">PUBLIC</span></div>
+        <!-- THE UNDO for the campfire skip (tutorial r1 major). The skip used
+             to be permanent, uncomfirmed and one mistyped digit away; it now
+             asks first, and this is the way back for everyone it already
+             caught. Clears the tut.* / obj.* ledger keys and reloads, because
+             the guide, the coach and the objectives sequencer are all
+             constructed once at boot from that ledger. -->
+        <div class="kb-row"><span class="kb-name">Mordecai's guidance<small>the guided first-session curriculum — turn it back on to run the whole thing again from the start</small></span>
+          <span class="kb-key" id="kb-ropes">SHOW ME AGAIN</span></div>
         </div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
@@ -7272,6 +7337,17 @@
           <div class="dhead" id="recap-death-head"></div>
           <div class="dctx" id="recap-death-ctx"></div>
         </div>
+        <!-- TUTORIAL.md B8: Mordecai's once-ever aside. MOVED (tutorial r1
+             major) from just above the button bar to directly under the death
+             headline: it is the one row on this screen a first-timer can use,
+             and down there it was buried between the ranking rows and five
+             buttons. It still sits above every CTA, which is what its old
+             placement note actually required. Hidden by default; renderRecap
+             shows it once. -->
+        <div class="guide-aside" id="recap-guide" style="display:none">
+          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
+          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
+        </div>
         <!-- THE LP LINE. It is the reason the player presses R, so it is never
              behind a drawer: tier or CP, rank of entrants, and what THIS run
              moved - including "+0 CP" when the run was a free seed, which is
@@ -7282,18 +7358,6 @@
           <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
-        <!-- TUTORIAL.md B8: Mordecai's once-ever aside, above the CTAs his
-             line points at. Hidden by default; renderRecap shows it once.
-             MERGE NOTE (preview-all): the tutorial branch put this above a
-             single .rfoot that still said NEW CONTRACT. The polish round split
-             the actions into two groups AND renamed that button, so the aside
-             keeps its place and the actions keep theirs — the aside's whole job
-             is to orient the player to the buttons under it, which means it has
-             to sit above the CURRENT ones. -->
-        <div class="guide-aside" id="recap-guide" style="display:none">
-          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
-          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
-        </div>
         <!-- Two groups: the phone flows .rmore with the body copy and pins
              only .rmain; the desktop folds both back into one flex row. -->
         <div class="racts">

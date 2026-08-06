@@ -93,11 +93,29 @@ section has the details): five objective steps (THE SHOW added as the
 closer), THE FIVE key by key via live `{token}` labels, `elite`/`boss` depth
 confirmations for floor-2+ pacing, and the S2 facts moved to sim-truth (the
 old dash fact read a bot-only intent flag — a human could never check it).
+**FIX ROUND 1 shipped** (third commit on the branch — TUTORIAL.md's
+`r6-fix-1` section is the full map). A harsh critic scored the r6 build 4.5/10
+off four cold passes; the two blockers were real and structural. THE FIVE
+armed, latched and completed in one `update()` call, and its facts are
+run-cumulative, so the step was born completed and the ledger spent it without
+the card ever painting — arming now returns early and completion is gated on
+4s of measured card-on-glass time. Dismiss-on-input ran off a 1.2s grace
+against keyboard AUTOREPEAT, so holding W deleted every teaching card 1.2s
+after it appeared — `e.repeat` is ignored and the floor is a read budget
+derived from the line (measured: 6689ms of card life under continuous held-key
+input, against ~1200ms before). Also: stale-lesson preconditions
+(`CardHooks.stillTrue`), the dash taught at T+10s instead of behind a 3-kill
+gate, post-death re-teaching, a campfire skip that is off the number row and
+asks first (plus an undo in the K panel), and a novice-tiered verdict.
+Two of the critic's findings were probe artifacts of reading `textContent` off
+`display:none` markup — see the section for the evidence, and HANDOFF §0.
 STILL OWED: the `tools/_tut_r6.mjs` cold-profile acceptance battery (the
-r1–r5 batteries assert COURTESY-era behavior and lie now; `_tut_r6_smoke.mjs`
-and `_tut_content_probe.mjs` cover boot/paint/label-substitution only), a
-full played-through browser round, and the owner's phone pass on the compact
-objectives chip. The design that got us here:
+r1–r5 batteries assert COURTESY-era behavior and lie now; `_tut_r6_smoke.mjs`,
+`_tut_fix_r1.mjs` and `_tut_content_probe.mjs` cover boot/paint/label-
+substitution and the fix round only), **floor-1 first-run mercy (a sim change,
+deliberately not taken in a UI round — TUTORIAL.md open edges)**, a floor-2+
+observed pass, and the owner's phone pass on the compact objectives chip. The
+design that got us here:
 
 - **One voice.** COURTESY EXPLANATION dies as a teaching format. The System
   keeps its announcer register for *events* (ringside intros, achievements,

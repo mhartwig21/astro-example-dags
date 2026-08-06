@@ -64,6 +64,7 @@ export function renderBeat(b: TeachBeat, key = ""): string {
 export type CoachEvent =
   // ---- prompts (floor 1, budgeted) ----
   | "start"     // gameplay is live (menu closed, sim running)
+  | "dashkit"   // SURVIVAL IS NOT A REWARD (r1): the dash, before the first pack
   | "contact"   // a monster is close enough to be the point — name the swing
   | "pickup"    // first ITEM in the bag (never gold)
   | "lowhp"     // visibly losing, still room to act (host's COACH_LOW_HP)
@@ -81,9 +82,9 @@ export type CoachEvent =
   | "elite"     // first named elite in reach — the affix lesson
   | "boss";     // first boss encounter — the telegraph lesson
 
-/** Lines that arrive uninvited. Floor 1 only, and never more than six. */
+/** Lines that arrive uninvited. Floor 1 only, and never more than the budget. */
 const PROMPTS: ReadonlySet<CoachEvent> = new Set<CoachEvent>([
-  "start", "contact", "pickup", "lowhp", "linger",
+  "start", "dashkit", "contact", "pickup", "lowhp", "linger",
 ]);
 
 /** The in-play beat table. {key} is the live control label the host passes —
@@ -95,6 +96,17 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     verb: "Walk", needsKey: true,
     instruction: "Walk with {key}.",
     wry: "Standing still is a genre of television down here, and it's a short one.",
+  },
+  // SURVIVAL TOOLS ARE NOT REWARDS FOR SURVIVING (r1 major). The dash lesson
+  // used to live inside THE FIVE, behind "put down three monsters" — a gate
+  // three of four cold runs died before clearing, so the one button that gets
+  // a first-timer out of a pack was taught to nobody who needed it. It is a
+  // PROMPT now, and the host fires it in the opening seconds, before the first
+  // pack rather than as a trophy for outliving one.
+  dashkit: {
+    verb: "Press", needsKey: true,
+    instruction: "Press {key} to dash clear when something has you cornered.",
+    wry: "You're untouchable for the length of it. Not long. Long enough.",
   },
   contact: {
     verb: "Hold", needsKey: true,
@@ -271,13 +283,18 @@ export interface CoachControls {
  *  live label passed at call time, or none. */
 const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
   start: "move", contact: "attack", pickup: "bag", lowhp: "flask",
+  // The dash key is a LOADOUT fact (the crawler may have benched it), so it is
+  // handed in at call time exactly like the ability row's.
+  dashkit: "call",
   ability: "call", slotted: "call", ult: "call",
   cast: null, autoequip: null, equipped: null, drink: null, linger: null,
   elite: null, boss: null,
 };
 
-/** The lecture budget. Confirmations do not count against it. */
-export const COACH_MAX_PROMPTS = 6;
+/** The lecture budget. Confirmations do not count against it. Seven, not six:
+ *  the dash prompt joined the floor-1 script (r1) and a budget that starved
+ *  `linger` to pay for it would just be the old bug in a new place. */
+export const COACH_MAX_PROMPTS = 7;
 
 export class Coach {
   private fired = new Set<CoachEvent>();
@@ -290,7 +307,43 @@ export class Coach {
   private prompts = 0;
   private lines = 0;
 
+  /** How many times the floor-1 script has been re-armed after a death. */
+  private reteaches = 0;
+
   constructor(private c: CoachControls) {}
+
+  /**
+   * ONE DEVICE, THE ONE IN THEIR HANDS (r1 minor). The static labels are the
+   * player's CURRENT controls, and "current" changes mid-session: a keyboard
+   * player who never touches the mouse should never be told "Left click or
+   * Space" at the moment of highest cognitive load. The host re-states the
+   * labels whenever the last input source changes, so the strip holds the
+   * same discipline the objectives card already does.
+   */
+  setControls(c: CoachControls): void {
+    this.c = c;
+  }
+
+  /**
+   * A DEATH ON STEP ONE TAUGHT NOTHING (r1 major). Four cold runs measured the
+   * same shape: the player dies on floor 1, presses R, and the strip never
+   * speaks again for the rest of the session — `fired` holds every prompt that
+   * painted in run 1, so the crawler who most needs the floor-1 script is the
+   * one guaranteed not to get it. A new run re-arms the PROMPTS (never the
+   * confirmations: those are earned by acts, and the act still counts), up to
+   * a small number of times, so the lecture cannot become a metronome for a
+   * player who is simply dying a lot.
+   */
+  reteachPrompts(max = 3): boolean {
+    if (this.reteaches >= max) return false;
+    this.reteaches++;
+    for (const ev of PROMPTS) {
+      this.fired.delete(ev);
+      this.offered.delete(ev);
+    }
+    this.prompts = 0;
+    return true;
+  }
 
   /** How many lines have actually been DELIVERED, of both kinds. */
   get spent(): number {

@@ -49,6 +49,14 @@ export class InputController {
     window.addEventListener("keyup", (e) => {
       this.keys.delete(e.key.toLowerCase());
     });
+    // A KEY THE WINDOW NEVER SAW RELEASED IS A DEAD BIND. Panel toggles fire
+    // on the DOWN edge (`!wasDown`), so a keyup swallowed by a focus change —
+    // alt-tab mid-press, a click into devtools, an OS overlay — leaves the key
+    // latched down and its action permanently unreachable until it is pressed
+    // and released again. Blur clears the whole set; nothing may be held
+    // through a window that is not listening (r1: the V claim that would not
+    // open with two drafts banked).
+    window.addEventListener("blur", () => this.keys.clear());
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 2) this.mouseBolt = true; // right-click = ranged bolt
       else this.mouseAttack = true;

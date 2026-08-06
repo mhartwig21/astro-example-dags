@@ -54,7 +54,7 @@ import { Renderer3D } from "./render3d/renderer3d";
 import { QUALITY_PRESETS, type QualityChoice } from "./render3d/quality";
 import { AudioEngine } from "./audio/engine";
 import { AudioDirector } from "./audio/director";
-import { clearRun, knownTips, loadRun, recordTips, saveRun, seedTips, type RunMode } from "./persist/save";
+import { clearRun, forgetTips, knownTips, loadRun, recordTips, saveRun, seedTips, type RunMode } from "./persist/save";
 
 import { careerBests, episodeCount, loadHistory, recordRun } from "./persist/history";
 import { dailySeed, dayFromMs } from "./sim/daily";
@@ -69,10 +69,10 @@ import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
   Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, coachTipLine, renderBeat,
-  type CoachEvent,
+  type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
-import { GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
+import { GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -805,12 +805,19 @@ function alltimeRes(cat: string, e: { floor: number; won: boolean; timeSec: numb
  *  used to be an 86px apology floating in a 254px module): the System's
  *  headline, the plain reason, and three ghost rows that hold the shape of
  *  the score to come. `ol.empty` centers it and owns the module's height. */
-function boardEmptyHtml(head: string, sub: string): string {
+function boardEmptyHtml(head: string, sub: string, ghosts = false): string {
+  // A SKELETON IS A LOAD, NOT AN EMPTY STATE (tutorial r1 minor). Ghost rows
+  // are the shape of rows that are COMING; painting them under a resolved
+  // "no crawler is on this board yet" reads as a load that failed — on the
+  // cover shot, the first frame of the game. So they now ride the in-flight
+  // state only (the `TUNING IN` markup in iso.html), and every resolved path
+  // shows its copy alone, which the copy was already written to do.
+  //
   // Eight ghosts, not three: rows 4-8 only show at tall viewports (CSS),
   // where the module is ~200px taller and three thin bars left a ~170px dead
   // band under the skeleton (r3).
   return `<li class="none"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
-    `${'<i class="ghost"></i>'.repeat(8)}</li>`;
+    (ghosts ? `${'<i class="ghost"></i>'.repeat(8)}` : "") + `</li>`;
 }
 
 /** One skeleton row: a ghost of `.brow`'s own grid (rank / name / seal chip /
@@ -828,13 +835,13 @@ function skelRowsHtml(n: number): string {
  *  the identical condition. One condition, one voice. The block centers in
  *  the frame (`.set-empty` is flex:1) and `fitPanel` refuses to hug it, so
  *  loading/offline tabs hold the same frame as their populated siblings. */
-function setEmptyHtml(head: string, sub: string): string {
+function setEmptyHtml(head: string, sub: string, ghosts = true): string {
   // r3: the skeleton mirrors the real board's geometry at the real board's
   // width (eight `.brow`-shaped rows; CSS shows five on a laptop, all eight
   // taller at 1440p) — the r2 version was five 13px stripes in a 560px block,
   // which at 2560x1440 read as a rendering mistake centered in a void.
   return `<div class="set-empty"><b>${esc(head)}</b><span>${esc(sub)}</span>` +
-    skelRowsHtml(8) + `</div>`;
+    (ghosts ? skelRowsHtml(8) : "") + `</div>`;
 }
 
 async function refreshBoard(): Promise<void> {
@@ -2639,14 +2646,31 @@ draftCards.addEventListener("click", (e) => {
   chooseDraft(Number(card.dataset.idx));
 });
 
-// Clicking the banked-draft badge claims, same as the key.
-draftBadge.addEventListener("click", () => {
+/**
+ * THE ONE CLAIM PATH (r1 minor). The V bind and the #draft-badge click had two
+ * copies of the same precondition, and the key's copy could fall in a hole the
+ * click's could not: `hideOverlay` leaves `display:flex` on the panel for its
+ * 130ms closing animation, so a V pressed inside that window read the modal as
+ * OPEN, called `dismissDraftModal` — which `hideOverlay` then no-ops, because a
+ * close is already in flight — and nothing happened. Press V, nothing opens;
+ * click the badge, it opens. That is precisely the shape the critic observed
+ * once and could not reproduce (a race is not reliably reproducible).
+ *
+ * So: one function, and OPEN means open — a panel mid-close is closed.
+ */
+function draftPanelOpen(): boolean {
+  return draftEl.style.display === "flex" && !draftEl.classList.contains("closing");
+}
+function claimBankedDrafts(): void {
+  if (draftPanelOpen()) { dismissDraftModal(); return; } // toggle off = dismiss
   const p = me(state);
-  if (p.pendingRewards.length > 0 || p.pendingUpgrades.length > 0) {
-    draftChain = true;
-    openDraftModal();
-  }
-});
+  if (p.pendingRewards.length === 0 && p.pendingUpgrades.length === 0) return;
+  draftChain = true;
+  openDraftModal();
+}
+// Clicking the banked-draft badge claims, same as the key — the SAME call, so
+// the two advertised routes to a draft cannot drift apart again.
+draftBadge.addEventListener("click", claimBankedDrafts);
 
 // Number keys pick an offer while the draft is up. Capture phase + stop so the
 // same digit doesn't also cast the skill bound to it underneath the overlay.
@@ -4242,13 +4266,7 @@ function fireAction(a: BindableAction): void {
   else if (a === "character") toggleSheet();
   else if (a === "ledger") toggleLedger();
   else if (a === "keybinds") toggleKeybinds();
-  else if (a === "draft") {
-    if (draftEl.style.display === "flex") dismissDraftModal(); // toggle off = dismiss
-    else if (me(state).pendingRewards.length > 0 || me(state).pendingUpgrades.length > 0) {
-      draftChain = true;
-      openDraftModal();
-    }
-  }
+  else if (a === "draft") claimBankedDrafts();
   else if (a === "mute") pushLogLine(`Sound ${audio.toggleMute() ? "muted" : "on"}.`);
   else if (a === "newRun") input.onReset?.();
 }
@@ -4845,8 +4863,16 @@ function renderSafeRoom(s: GameState): void {
   srDescend.textContent = roamShop ? "BACK TO THE STREET" : "DESCEND ▼";
   // r4 minor: he does not say the same thing twice in two typographies — see
   // guideSrBeatThisVisit. The portrait beat outranks the header line.
-  srTip.textContent = guideSrBeatThisVisit ? "" : (room.tip ||
+  // THE LABEL CANNOT OUTLIVE THE SENTENCE (r1). The prefix used to be a CSS
+  // ::before on `.tip`, which still paints over an element whose textContent
+  // has been cleared — so the visit where the beat plays (i.e. the visit the
+  // SAFE ROOM objective steers every guided player into) left a bare green
+  // "MORDECAI:" hanging above the shelves, attached to nothing. It is content
+  // now, and the row is hidden outright when there is nothing to say.
+  const tipText = guideSrBeatThisVisit ? "" : (room.tip ||
     (roamShop ? "The System franchises, the settlement retails. Prices final, exits free." : ""));
+  srTip.innerHTML = tipText ? `<b class="tipwho">MORDECAI:</b> ${esc(tipText)}` : "";
+  srTip.style.display = tipText ? "" : "none";
   // Zero-value currencies stay off the header until first earned — three
   // dead 0-chips are noise, not information.
   const wchips = [`<span class="chip">${coin}<b>${p.gold}</b></span>`];
@@ -6330,7 +6356,7 @@ function answerDialogue(choiceId: string): void {
 let mmFlashPending = false;
 
 dlgChoicesEl.addEventListener("click", (e) => {
-  const btn = (e.target as HTMLElement).closest(".dlg-choice") as HTMLElement | null;
+  const btn = (e.target as HTMLElement).closest(".dlg-choice, .dlg-skip") as HTMLElement | null;
   if (!btn?.dataset.choice) return;
   // A tutorial beat borrows the surface, not the sim: answers route to the
   // guide adapter below, never to state.dialogue.
@@ -6361,7 +6387,11 @@ window.addEventListener("keydown", (e) => {
   }
   const n = Number(e.key);
   if (Number.isInteger(n) && n >= 1 && n <= 9) {
-    (dlgChoicesEl.children[n - 1] as HTMLButtonElement | undefined)?.click();
+    // THE NUMBER ROW ONLY REACHES NUMBERED CHOICES (r1). Indexing raw children
+    // would let a digit land on the unnumbered skip control that sits below
+    // them — the exact class of accident this whole change exists to close.
+    const btns = dlgChoicesEl.querySelectorAll<HTMLButtonElement>(".dlg-choice");
+    btns[n - 1]?.click();
     if (guideBeat) e.stopImmediatePropagation();
   }
 }, true);
@@ -6434,10 +6464,30 @@ let guideSrBeatThisVisit = false;
 /** Tab the closing beat asked the auto-opening safe-room panel to show. */
 let guideSrTab: "shop" | "abil" | null = null;
 
+/**
+ * A DESTRUCTIVE CHOICE NEVER WEARS A NUMBER (r1 major).
+ *
+ * The campfire read "1 What am I in for? / 2 Let's go. / 3 Skip the
+ * hand-holding." Answer 1 and the list collapsed to "1 Let's go. / 2 Skip" —
+ * so SKIP migrated into the slot "Let's go" had occupied a moment earlier, and
+ * a player pressing 2 twice out of habit destroyed their entire onboarding
+ * with no confirm, no undo and no signal that anything had happened. A tester
+ * did exactly that, by accident, on their first attempt.
+ *
+ * Two structural answers, not a reorder: `skipAll` choices leave the number
+ * row entirely (they render as a quiet control below it, and the digit handler
+ * cannot reach them), and taking one only OPENS a confirmation whose safe
+ * option is first. A benign choice's index can no longer become the
+ * destructive one on the next screen, because the destructive one has no index.
+ */
 function guideRenderChoices(): void {
-  dlgChoicesEl.innerHTML = guideChoices.map((c, i) =>
+  const numbered = guideChoices.filter((c) => c.effect !== "skipAll");
+  const skips = guideChoices.filter((c) => c.effect === "skipAll");
+  dlgChoicesEl.innerHTML = numbered.map((c, i) =>
     `<button class="dlg-choice${c.effect === "close" ? " bye" : ""}" data-choice="${esc(c.id)}">` +
     `<span class="dnum">${i + 1}</span><span class="dlabel">${esc(c.label)}</span></button>`,
+  ).join("") + skips.map((c) =>
+    `<button class="dlg-skip" data-choice="${esc(c.id)}">${esc(c.label)}</button>`,
   ).join("");
 }
 
@@ -6481,8 +6531,18 @@ function guideClose(): void {
 
 /** Apply a beat choice (click or digit — the dialogue key handler routes). */
 function guideAnswer(choiceId: string): void {
+  const beat = guideBeat;
   const c = guideChoices.find((x) => x.id === choiceId);
-  if (!guideBeat || !c) return;
+  if (!beat || !c) return;
+  // BACKING OUT OF THE SKIP RESTORES THE ORIGINAL LIST. Treating it as an
+  // ordinary "asked and answered" reply would strike it off and leave
+  // "I'm sure. Skip it." alone in slot 1 — the migration bug, one screen down.
+  if (c.id === "skipno") {
+    guideChoices = [...beat.choices];
+    dlgStartType(beat.lines);
+    guideRenderChoices();
+    return;
+  }
   if (c.effect === "reply" && c.reply) {
     guideChoices = guideChoices.filter((x) => x !== c); // asked and answered
     dlgStartType([c.reply]);
@@ -6490,13 +6550,28 @@ function guideAnswer(choiceId: string): void {
     return;
   }
   if (c.effect === "skipAll") {
+    // ...and it ASKS FIRST. This is the one control in the tutorial that
+    // deletes a career's worth of onboarding, so it costs a second input, and
+    // the safe answer is the one sitting in slot 1.
+    guideChoices = [
+      { id: "skipno", label: "No — show me.", effect: "reply", reply: beat.lines[0] },
+      { id: "skipyes", label: "I'm sure. Skip it.", effect: "skipConfirm" },
+    ];
+    dlgStartType(["Sure? I don't offer twice. Everything I'd have told you down there goes with it."]);
+    guideRenderChoices();
+    return;
+  }
+  if (c.effect === "skipConfirm") {
     // The global skip: every beat ledgered, the remaining coach lines
     // silenced (guide.skipped — coachObserve reads it), the objectives
     // curriculum consumed (a refusal is a delivery), one goodbye left.
+    // Reversible, too: the K panel carries SHOW ME THE ROPES AGAIN, which
+    // clears these keys — a mistyped digit is no longer permanent.
     if (guide) recordTips(guide.skipAll());
     if (objectives) { recordTips(objectives.skipAll()); renderObjectivesCard(); }
     guideChoices = [{ id: "go", label: "Let's go.", effect: "close" }];
-    if (c.reply) dlgStartType([c.reply]);
+    dlgStartType(["Fine by me. Advice keeps. Go on, then — you'll pick it up the hard way, same as I did. " +
+      "Change your mind and it's under OPTIONS."]);
     guideRenderChoices();
     return;
   }
@@ -7725,6 +7800,15 @@ interface CardHooks {
   onShown?: () => void;
   onDropped?: () => void;
   momentMs?: number;
+  /**
+   * A LESSON IS NOT PACED, IT IS PRECONDITIONED (r1 major). "Walk with WASD"
+   * painted five seconds AFTER "walk somewhere that isn't here" had already
+   * struck through green: the queue was pacing-gated, which is correct for
+   * flood control and useless against staleness. A card may declare the
+   * condition its lesson is FOR; the pump re-asks at delivery time and drops
+   * the card unspent (onDropped) the moment the game has taught it instead.
+   */
+  stillTrue?: () => boolean;
 }
 
 function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
@@ -7899,13 +7983,23 @@ const TUT_QUEUE_MAX = 3;
  *  curriculum whitelist itself now lives in src/ui/coach.ts — COACH_TIP_BEATS
  *  is the tipId→Mordecai translation table, and untranslated tips drop.) */
 const SIM_TIP_MOMENT_MS: Record<string, number> = {
-  hype: 10000, collapse: 20000, draftBanked: 45000, glyph: 30000,
+  // `hype` fires on the crawler's first CRIT, which is the earliest honest
+  // hook for the game's whole premise — the cameras. r1 flagged that the
+  // premise otherwise sits at the END of the curriculum (obj.show, behind four
+  // gates most players never clear), so this line is the one that carries it
+  // in the first ninety seconds and it gets a little more runway. Still inside
+  // TUT_MOMENT_MS, so it keeps the moment lane's short gap and its priority
+  // over the evergreen rules.
+  hype: 12000, collapse: 20000, draftBanked: 45000, glyph: 30000,
 };
 
 /** ...and the same, per coach line. Prompts about permanent controls are
  *  evergreen; everything earned by an act is a moment. */
 const COACH_MOMENT_MS: Record<CoachEvent, number> = {
   start: 90000, linger: 60000, pickup: 45000,
+  // The dash is a permanent control taught in the opening seconds: evergreen,
+  // and cancelled by its own precondition (the first dash) rather than a clock.
+  dashkit: 90000,
   contact: 10000, lowhp: 8000,
   ability: 12000, cast: 12000, slotted: 20000, ult: 20000,
   // The gear pair sits between the two kinds: caused by an act, but the RULE
@@ -7948,7 +8042,11 @@ function dropStaleCards(): void {
   const now = performance.now();
   for (let i = tutorialQueue.length - 1; i >= 0; i--) {
     const c = tutorialQueue[i];
-    if (now - c.queuedAt <= cardMomentMs(c)) continue;
+    // Two ways to go stale: the moment expired, or THE GAME ALREADY TAUGHT IT.
+    // The second is the r1 fix — a movement prompt that arrives after the
+    // player has moved is not late, it is wrong, and no gap tuning fixes that.
+    const spoiled = c.hooks?.stillTrue ? !c.hooks.stillTrue() : false;
+    if (!spoiled && now - c.queuedAt <= cardMomentMs(c)) continue;
     tutorialQueue.splice(i, 1);
     c.hooks?.onDropped?.();
   }
@@ -7974,6 +8072,14 @@ function pumpTutorialQueue(): void {
   const wait = tutorialLastDismiss + gap - performance.now();
   if (head.a.priority !== "high" && wait > 0) {
     tutorialGapTimer = window.setTimeout(pumpTutorialQueue, wait + 50);
+    return;
+  }
+  // Re-ask the precondition at the LAST possible instant: the gap above is
+  // measured in seconds and a lesson can be demonstrated inside one.
+  if (head.hooks?.stillTrue && !head.hooks.stillTrue()) {
+    tutorialQueue.shift();
+    head.hooks.onDropped?.();
+    pumpTutorialQueue();
     return;
   }
   displayTutorialCard(tutorialQueue.shift()!);
@@ -8074,6 +8180,8 @@ function displayTutorialCard(card: QueuedCard): void {
     dismissed = true;
     window.clearInterval(tutorialAutoTimer);
     tutorialDismissActive = null;
+    tutorialAckActive = null;
+    tutorialVisibleMs = 0;
     el.classList.remove("show");
     setTimeout(() => el.remove(), 300);
     tutorialActive = false;
@@ -8082,8 +8190,7 @@ function displayTutorialCard(card: QueuedCard): void {
   };
   el.addEventListener("click", dismiss);
   tutorialDismissActive = dismiss;
-  tutorialShownAt = performance.now();
-  tutorialGraceMs = a.priority === "high" ? 2600 : 1200;
+  tutorialAckActive = dismiss; // GOT IT / Enter: an unambiguous "I've read it"
   // Auto-dismiss: a courtesy, not a squatter (r2: or any input). Two rules,
   // and the preview-all merge keeps BOTH because they fix different bugs:
   //
@@ -8097,34 +8204,57 @@ function displayTutorialCard(card: QueuedCard): void {
   // Taking either alone loses a real fix: a long line still gets its reading
   // time, and a card buried under a draft panel still spends none of it.
   const holdMs = Math.min(14000, Math.max(7000, 55 * body.length));
-  let visibleMs = 0;
+  // THE READ BUDGET (r1 blocker 2). Input-dismiss used to run off a 1.2s
+  // GRACE, and a browser fires repeated keydown for a HELD key — so a player
+  // holding W, which is the state a player is in for most of floor 1, deleted
+  // every card 1.2 seconds after it appeared. The grace period WAS the card's
+  // lifetime: 128 characters at 1.2s is 107 chars/sec, and nobody reads that.
+  // A deliberate keypress can still cut a card short, but only after a budget
+  // derived from the LINE (~36 chars/sec, roughly half the auto-hold above);
+  // GOT IT and Enter are exempt, because those mean "I have read it".
+  tutorialReadMs = Math.min(9000, Math.max(2500, 28 * body.length));
+  tutorialVisibleMs = 0;
   let lastTick = performance.now();
   tutorialAutoTimer = window.setInterval(() => {
     const now = performance.now();
-    if (!tutorialBlocked()) visibleMs += now - lastTick;
+    if (!tutorialBlocked()) tutorialVisibleMs += now - lastTick;
     lastTick = now;
-    if (visibleMs >= holdMs) dismiss();
+    if (tutorialVisibleMs >= holdMs) dismiss();
   }, 200);
 }
 
-// Any input clears the courtesy card (r2) — with a short grace so the key
-// the player was already holding when it appeared can't insta-kill it.
+// A card leaves on a DELIBERATE input, never on the keyboard's autorepeat and
+// never before it could have been read (r1 blocker 2 — the r5 "longer grace
+// for urgent cards" fix lengthened a mechanism that was wrong in kind).
 //
-// An URGENT card gets a longer one (r5). The flask line arrives while the
-// crawler is losing a fight, which is precisely when the player's hands are
-// busiest: the r4 critic measured its dwell in a real fight at 0.3 SECONDS,
-// blinked away by the movement key that was already down. A lesson nobody can
-// physically read is not delivered, and it has already been spent.
-let tutorialShownAt = 0;
-let tutorialGraceMs = 1200;
-function dismissTutorialOnInput(): void {
+// Three rules, and each closes a measured failure:
+//  - `e.repeat` is ignored outright. Held movement is not an acknowledgment.
+//  - a plain keydown only counts after the READ BUDGET above, measured in
+//    VISIBLE time (a modal opening mid-card must not spend the budget).
+//  - GOT IT (the click) and Enter dismiss immediately: they mean exactly one
+//    thing, and making the player wait on those would be its own bug.
+let tutorialReadMs = 2500;
+let tutorialVisibleMs = 0;
+/** The instant-dismiss path: the button, the card, Enter. */
+let tutorialAckActive: (() => void) | null = null;
+function dismissTutorialOnInput(e?: Event): void {
   if (tutorialBlocked()) return; // the input belongs to the modal; the card is hidden (r3)
-  if (tutorialDismissActive && performance.now() - tutorialShownAt > tutorialGraceMs) {
-    tutorialDismissActive();
+  if (!tutorialDismissActive) return;
+  if (e instanceof KeyboardEvent) {
+    if (e.repeat) return; // autorepeat is the keyboard talking, not the player
+    if (e.key === "Enter") { tutorialAckActive?.(); return; }
   }
+  if (tutorialVisibleMs < tutorialReadMs) return;
+  tutorialDismissActive();
 }
 
 window.addEventListener("keydown", dismissTutorialOnInput);
+
+// WHICH DEVICE IS IN THEIR HANDS (r1 minor). Sampled from real input, so the
+// teaching surfaces can name ONE control instead of hedging across two. Only
+// the swing is ambiguous — every other bind is a key on desktop either way.
+window.addEventListener("keydown", (e) => { if (!e.repeat) lastInputSource = "key"; }, true);
+window.addEventListener("mousedown", () => { lastInputSource = "mouse"; }, true);
 
 // HOLD TAB for the scoreboard and the splits. Binding the detail to a held key
 // is not a compromise - it is the gesture LoL trained everyone to make, and it
@@ -8190,6 +8320,13 @@ function coachSlotKeys(p: Player): string {
 function coachSlotKey(i: number): string {
   return touchMode ? "its new chip beside STRIKE" : coachKey(SLOT_ACTIONS[i]);
 }
+/** The dash, wherever the crawler has it benched — empty if they own no dash,
+ *  in which case the beat is DECLINED rather than naming a dead control. */
+function coachDashKey(p: Player): string {
+  const i = (p.abilities?.slots ?? []).findIndex((a) => a === "dash");
+  if (i < 1) return "";
+  return touchMode ? "a flick or a two-finger tap" : coachKey(SLOT_ACTIONS[i]);
+}
 // The coach RUNS UNDER NET too (r2 major, inherited): it is a pure observer —
 // no sim writes, no seed, no spawn — and the fresh browser whose first click
 // is THE RUSH deserves the same lines. (Mordecai's MODAL beats stay solo-only:
@@ -8197,22 +8334,42 @@ function coachSlotKey(i: number): string {
 //
 // The gate widened from freshCrawler to "enrolled and mid-curriculum": the
 // strip serves whoever the objectives card still serves, and retires with it.
+/**
+ * ONE SURFACE, ONE DEVICE (r1 minor). "Hold Left click or Space to keep
+ * swinging" named BOTH input devices in a keyboard session, at the moment of
+ * highest cognitive load — while the objectives card two inches away was
+ * correctly printing SPACE alone, because its labels are live tokens. The
+ * strike label is now derived the same way: from the device the player is
+ * DEMONSTRABLY using. `coachSay` re-states the whole control set before every
+ * line, so a mouse player who picks up the keyboard (or the reverse) is never
+ * told about a device they have put down.
+ */
+let lastInputSource: "key" | "mouse" = "key";
+function coachControls(): CoachControls {
+  if (touchMode) {
+    return {
+      move: "a drag on the left half of the glass",
+      attack: "the STRIKE chip",
+      flask: "the FLASK chip",
+      bag: "the ☰ menu",
+    };
+  }
+  return {
+    // Single-char labels read as one word ("WASD"); anything longer spaces out.
+    move: coachMove.every((k) => k.length === 1) ? coachMove.join("") : coachMove.join(" "),
+    attack: coachStrikeLabel(),
+    flask: bindingLabel(bindings, "flask"),
+    bag: coachKey("inventory"),
+  };
+}
+/** The strike, named for ONE device — the last one the player actually used. */
+function coachStrikeLabel(): string {
+  if (touchMode) return "the STRIKE chip";
+  return lastInputSource === "mouse" ? "Left click" : coachKey("slot1");
+}
 const coach: Coach | null = objEnrolled && !objCurriculumDone && !testMode && !cleanMode
   && !knownTips().includes(GUIDE_SKIP_KEY)
-  ? new Coach(touchMode
-    ? {
-        move: "a drag on the left half of the glass",
-        attack: "the STRIKE chip",
-        flask: "the FLASK chip",
-        bag: "the ☰ menu",
-      }
-    : {
-        // Single-char labels read as one word ("WASD"); anything longer spaces out.
-        move: coachMove.every((k) => k.length === 1) ? coachMove.join("") : coachMove.join(" "),
-        attack: `Left click or ${coachKey("slot1")}`,
-        flask: bindingLabel(bindings, "flask"),
-        bag: coachKey("inventory"),
-      })
+  ? new Coach(coachControls())
   : null;
 // THE OBJECTIVES (src/ui/objectives.ts): the guided go-do-x-y-z card. A pure
 // sequencer — zero sim writes, so it runs under net too. Completed steps ride
@@ -8235,6 +8392,12 @@ let coachEquipSig = "";
 /** Set for one step by the bag's own equip handler so the step loop's
  *  equipment-diff reads it as a DECISION rather than the sim dressing you. */
 let coachHandEquip = false;
+/** PRECONDITIONS for the evergreen prompts (r1): a lesson is cancelled by the
+ *  game demonstrating it. These are read by the queued cards' `stillTrue`. */
+let coachPosBase: { x: number; y: number } | null = null;
+let coachMoved = false;
+let coachDashed = false;
+let coachCast = false;
 // ---- objectives sampling (same edge-diff discipline, same run scope) ----
 let objPosBase: { x: number; y: number } | null = null;
 let objInvBase = -1;
@@ -8272,6 +8435,16 @@ function resetCoachSampling(): void {
   coachSwung = false;
   coachEquipSig = "";
   coachHandEquip = false;
+  coachPosBase = null;
+  coachMoved = false;
+  coachDashed = false;
+  coachCast = false;
+  // A DEATH ON STEP ONE TAUGHT NOTHING (r1 major). Four cold runs measured
+  // seven minutes of mute replay after the first death — the coach's `fired`
+  // ledger holds, so the player who most needs the floor-1 script is the one
+  // guaranteed never to hear it again. A new run re-arms the prompts while
+  // the curriculum is still owed; capped inside Coach so it cannot nag.
+  if (objectives && !objectives.finished) coach?.reteachPrompts();
   objPosBase = null;
   objInvBase = -1;
   objEquipBase = "";
@@ -8283,6 +8456,7 @@ function resetCoachSampling(): void {
   objDraftClaimed = false;
   objPrevOpenPicks = 0;
   objFavBase = -1;
+  objShopMs = 0;
 }
 
 /** THE COACH's one call into the card surface. Every line is OFFERED here and
@@ -8291,14 +8465,19 @@ function resetCoachSampling(): void {
  *  them. Calls showTutorialCard DIRECTLY: the skip/clean gates live at the
  *  coach's construction (and guide.skipped in coachObserve), and the tip
  *  translation seam in showAnnouncement is for SIM tipIds only. */
-function coachSay(ev: CoachEvent, keys = "", priority: Announcement["priority"] = "normal"): void {
+function coachSay(
+  ev: CoachEvent, keys = "", priority: Announcement["priority"] = "normal",
+  stillTrue?: () => boolean,
+): void {
   if (!coach) return;
+  coach.setControls(coachControls()); // one device, the current one (r1 minor)
   const line = coach.note(ev, state.floor, keys);
   if (!line) return;
   showTutorialCard({ text: line, kind: "tip", priority }, {
     onShown: () => coach.commit(ev),
     onDropped: () => coach.release(ev),
     momentMs: COACH_MOMENT_MS[ev],
+    stillTrue,
   });
 }
 
@@ -8324,7 +8503,19 @@ const COACH_CONTACT_TILES = 3;
  * two seconds of a life is not a lesson. 60% is the first honest moment the
  * crawler is visibly losing and still has room to do something about it.
  */
-const COACH_LOW_HP = 0.6;
+/**
+ * ...and r1 pushed it earlier again, to 0.78. 0.6 was measured arriving at
+ * 29/100 HP with the crawler already buried in a six-strong pack — the right
+ * words as a eulogy. The flask is a SURVIVAL TOOL and survival tools are
+ * taught before the pack, not as a footnote to it (the same argument that
+ * moved the dash out of THE FIVE and onto the floor-1 prompt script). The
+ * first honest scratch is a fine moment to be told there is a flask.
+ */
+const COACH_LOW_HP = 0.78;
+
+/** Seconds of live floor-1 play before the dash prompt. Early enough to be
+ *  before the first pack, late enough that the walk line got there first. */
+const COACH_DASH_AT_SEC = 10;
 
 /** Called once per sim step (solo) or intent pump (net): turns what just
  *  happened into at most one first-time Mordecai line on the strip. */
@@ -8349,9 +8540,28 @@ function coachObserve(intent: Intent): void {
   // is — therefore got the ability lecture at +0.9s, with the nearest monster
   // twenty tiles away, ELEVEN SECONDS AHEAD of the walk line. The script's
   // order is part of the script.
+  // THE PRECONDITION LATCHES (r1 major). A lesson is cancelled by the game
+  // demonstrating it, not by a clock: these are the facts the queued cards
+  // re-ask at delivery time (CardHooks.stillTrue).
+  if (!coachPosBase) coachPosBase = { x: p.pos.x, y: p.pos.y };
+  if (!coachMoved
+    && Math.abs(p.pos.x - coachPosBase.x) + Math.abs(p.pos.y - coachPosBase.y) >= 3) {
+    coachMoved = true;
+  }
+  if (p.dashTime > 0 || intent.dash) coachDashed = true;
+
   if (state.floor === 1) {
     if (coachItems < 0) coachItems = p.inventory.length;
-    say("start");
+    // ...and the walk prompt is DROPPED, not delivered late, the moment the
+    // player walks. "Walk with WASD" painting five seconds after the card had
+    // already struck through "walk somewhere that isn't here" is the single
+    // most visible tell that the curriculum is a queue rather than a script.
+    say("start", "", "normal", () => !coachMoved);
+    // SURVIVAL BEFORE THE PACK: the dash, on the clock, before anything has
+    // cornered them — and dropped unspent if they find it themselves first.
+    if (state.elapsed > COACH_DASH_AT_SEC) {
+      say("dashkit", coachDashKey(p), "normal", () => !coachDashed);
+    }
     // The swing is taught when there is finally something to swing at.
     if (inReach) say("contact");
     // ...and the BAG is only named once the bag has something in it (r5): gold
@@ -8361,7 +8571,14 @@ function coachObserve(intent: Intent): void {
       coachItems = p.inventory.length;
       say("pickup");
     }
-    if (p.alive && p.hp > 0 && p.hp < p.maxHp * COACH_LOW_HP) say("lowhp", "", "high");
+    // ...and the flask line is retired if the leak closes or the argument
+    // ends: a card about being in trouble is worthless once you are not.
+    if (p.alive && p.hp > 0 && p.hp < p.maxHp * COACH_LOW_HP) {
+      say("lowhp", "", "high", () => {
+        const now = me(state);
+        return now.alive && now.hp > 0 && now.hp < now.maxHp * COACH_LOW_HP;
+      });
+    }
     if (state.elapsed > 75) say("linger");
   }
 
@@ -8378,9 +8595,11 @@ function coachObserve(intent: Intent): void {
   // the slot lecture is a true sentence.
   if (!coachSwung && inReach && (intent.cast?.[0] || intent.attack)
     && (p.kills > 0 || (p.damageTaken ?? 0) > 0)) coachSwung = true;
-  if (coachSwung) say("ability", coachSlotKeys(p));
+  // ...and it is dropped once they have cast something: naming the ability
+  // keys to a player who is already using them is the stale-lesson bug again.
+  if (coachSwung) say("ability", coachSlotKeys(p), "normal", () => !coachCast);
   // "cast" means an ABILITY: slots past the basic strike, or the ultimate.
-  if (intent.cast?.slice(1).some(Boolean) || intent.nova) say("cast");
+  if (intent.cast?.slice(1).some(Boolean) || intent.nova) { coachCast = true; say("cast"); }
   // A slot FILLING is the moment its bind becomes true. Compare against last
   // step's loadout and name the slot that changed, never the whole row.
   const slotSig = (p.abilities?.slots ?? []).map((a) => a ?? "").join("|");
@@ -8446,12 +8665,37 @@ function objItemLabel(label: string): string {
   const dashSlot = slots.findIndex((a) => a === "dash");
   const castSlot = slots.findIndex((a, i) => i >= 1 && !!a && a !== "dash");
   return label
-    .replace(/\{strike\}/g, touchMode ? "the STRIKE chip" : `Left click or ${coachKey("slot1")}`)
+    // ONE DEVICE (r1 minor): the same discipline the strip now holds — the
+    // card names the input the player is demonstrably using, not both.
+    .replace(/\{strike\}/g, coachStrikeLabel())
     .replace(/\{dash\}/g, touchMode ? "a flick or a two-finger tap"
       : coachKey(SLOT_ACTIONS[dashSlot >= 0 ? dashSlot : 1]))
     .replace(/\{cast\}/g, touchMode ? "a chip beside STRIKE"
       : coachKey(SLOT_ACTIONS[castSlot >= 0 ? castSlot : 2]))
     .replace(/\{hypeline\}/g, String(CONFIG.interferenceHypeFloor));
+}
+
+/**
+ * THE CHEAPEST THING ON ANY SHELF, right now, for this crawler (r1). The
+ * obj.saferoom step asked for a purchase the economy had priced out of reach:
+ * a pass arrived with 24 gold against a 35-gold cheapest entry, so "Spend some
+ * gold" was an item the player could not complete no matter what they did —
+ * which reads as failing to find the right button. Infinity when there is no
+ * shop to price.
+ */
+function cheapestShelfPrice(s: GameState): number {
+  const room = shopRoomOf(s);
+  if (!room) return Infinity;
+  const p = me(s);
+  let cheapest = Infinity;
+  for (const e of CATALOG) {
+    if (!room.available.includes(e.id)) continue;
+    if (e.tier === "consumable" && (room.purchased[e.id] ?? 0) >= consumableStock(e)) continue;
+    if (e.buildsFrom?.length && missingComponents(p, e.id).length > 0) continue;
+    if ((e.sponsors ?? 0) > p.sponsors) continue;
+    cheapest = Math.min(cheapest, effectivePrice(p, e.id, room.nextFloor));
+  }
+  return cheapest;
 }
 
 function renderObjectivesCard(): void {
@@ -8467,10 +8711,38 @@ function renderObjectivesCard(): void {
     `<span class="obj-title">${esc(v.step.title)}</span>` +
     `<span class="obj-n">${n}/${v.step.items.length}</span></div>` +
     `<ul class="obj-items">` +
-    v.step.items.map((it) =>
-      `<li class="${v.done.has(it.id) ? "done" : ""}"><i class="obj-check"></i><span>${esc(objItemLabel(it.label))}</span></li>`,
-    ).join("") +
+    v.step.items.map((it) => {
+      // An ask the game cannot honour is worse than no ask: the item wears its
+      // alternative wording while the host says the primary one is unreachable.
+      const label = v.alt.has(it.id) && it.alt ? it.alt.label : it.label;
+      return `<li class="${v.done.has(it.id) ? "done" : ""}"><i class="obj-check"></i>` +
+        `<span>${esc(objItemLabel(label))}</span></li>`;
+    }).join("") +
     `</ul>`;
+}
+
+/**
+ * THE PAINT CLOCK for the objectives card (r1 blocker 1). The sequencer will
+ * not spend a step until its card has actually been readable for
+ * OBJ_MIN_VISIBLE_MS, and only the host knows whether the card is on the
+ * glass. Called once per rendered frame; also the shop-dwell clock the safe
+ * room's fallback item reads.
+ */
+let objVisPrev = 0;
+let objShopMs = 0;
+function objectivesPaintTick(now: number): void {
+  const dtMs = objVisPrev > 0 ? Math.min(250, now - objVisPrev) : 0;
+  objVisPrev = now;
+  if (srEl.style.display === "flex") objShopMs += dtMs;
+  if (!objectives || objectives.finished) return;
+  // ON THE GLASS means on the glass, in a live dungeon: the check-in menu
+  // hides the card (CSS), and a verdict screen is not reading time either.
+  if (state.status !== "playing") return;
+  if (document.body.classList.contains("checkin")) return;
+  const v = objectives.view();
+  if (!v || !v.armed) return;
+  if (objectivesEl.style.display === "none") return;
+  objectives.addVisibleMs(dtMs);
 }
 
 /** Called beside coachObserve at both intent seams (solo step loop + net
@@ -8539,6 +8811,11 @@ function objectivesObserve(intent: Intent): void {
     // fact — the panel is host furniture, so the host testifies)
     shop: srEl.style.display === "flex",
     spend: (p.goldSpent ?? 0) > objGoldBase,
+    // ...and the fallback the economy sometimes forces: nothing on any shelf
+    // is inside this crawler's purse, so the lesson is READING the shelf.
+    // Three seconds of the panel open is a look, not a glance.
+    browse: objShopMs > 3000 && cheapestShelfPrice(state) > p.gold,
+    brokeAtShop: cheapestShelfPrice(state) > p.gold,
     stairs: state.floor > objFloorBase,
     // S5 THE SHOW: the boredom line is the sim's own interference floor, and
     // a favorite is counted from the step's start so an old fan can't
@@ -8967,9 +9244,37 @@ function runClock(s: GameState): string {
   return runTicks > 0 ? social.ticksClock(runTicks) : fmt(s.elapsed);
 }
 
+/**
+ * TIER THE VERDICT BY CAREER STATE (r1 major).
+ *
+ * A first-timer who had been alive 16.6 seconds was handed: IN MEMORIAM, a
+ * named death, "PLACEMENT — 3 TO GO / 0 CP / no ranked contract scored yet",
+ * "no personal bests this run — the ledger is unmoved", a [SHOW THE MATH]
+ * toggle, a READY TO SUBMIT chip, five buttons, a HOLD TAB hint, and then a
+ * detached consent card about a metagame they had not been introduced to.
+ * Four of the five metrics read zero, so the screen's dominant message to a
+ * new player was a list of things they had failed to earn — and Mordecai's
+ * line, the only row a first-timer could use, was buried between the ranking
+ * rows and the button bar.
+ *
+ * NOVICE = no finished run in this browser's history and no submitted proof.
+ * The ledger, the shelf and the sharing surfaces stay behind that line until
+ * the player has a run worth ranking; what is left is the death, Mordecai,
+ * and RUN IT BACK. Everything is still WIRED — nothing here changes what the
+ * run earned, only what the screen leads with.
+ */
+function recapIsNovice(s: GameState): boolean {
+  if (net || s.status === "won") return false;
+  if (loadHistory().length > 0) return false;      // they have finished runs
+  if (myStanding && myStanding.eventsCounted > 0) return false; // ...or a season
+  return true;
+}
+
 function renderRecap(s: GameState): void {
   const p = me(s);
   const won = s.status === "won";
+  // The ladder/PB/share layer is deferred, not deleted (see recapIsNovice).
+  recapEl.classList.toggle("novice", recapIsNovice(s));
   const title = document.getElementById("recap-title")!;
   if (s.mode === "rivals" && won) {
     // The RACE has exactly one winner — everyone gets the same headline moment,
@@ -9782,6 +10087,13 @@ function offerProof(): void {
     return;
   }
   if (choice === "no") return;
+  // THE DISCLOSURE WAITS FOR A CAREER TO DISCLOSE (r1 major). On a first
+  // death the card arrived detached below a large gap, under a verdict whose
+  // ranking rows the player had never been introduced to — a layout break
+  // asking consent for a metagame they had not met. It is deferred to the
+  // first verdict that HAS a ledger behind it; the proof for this run is kept,
+  // unsent, exactly as a "not yet asked" profile always kept it.
+  if (recapEl.classList.contains("novice")) return;
   consentEl.classList.add("on");
   recapEl.classList.add("consenting"); // the verdict lifts clear of the card
   // ...by the card's MEASURED height. A hardcoded 236px was smaller than the
@@ -9855,6 +10167,37 @@ kbConsent.addEventListener("click", () => {
   }
 });
 renderConsentToggle();
+
+/**
+ * SHOW ME THE ROPES AGAIN (r1 major) — the campfire skip's undo, and the way
+ * back for anyone who took it before it learned to ask. It clears the guide,
+ * coach and objectives ledger keys and reloads: all three sequencers are
+ * constructed once at boot from that ledger, so re-arming them in place would
+ * be three half-live objects and a card whose state nobody owns.
+ *
+ * Two presses, not one — the button that undoes a destructive control must not
+ * itself be a destructive control fired by a stray click.
+ */
+{
+  const kbRopes = document.getElementById("kb-ropes")!;
+  let armed = false;
+  kbRopes.addEventListener("click", () => {
+    if (!armed) {
+      armed = true;
+      kbRopes.textContent = "PRESS AGAIN TO RESTART IT";
+      window.setTimeout(() => {
+        if (!armed) return;
+        armed = false;
+        kbRopes.textContent = "SHOW ME AGAIN";
+      }, 4000);
+      return;
+    }
+    forgetTips([...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, ...OBJ_STEP_IDS]);
+    recordTips([OBJ_ENROLLED_KEY]); // enrolled again, whatever this profile was
+    pushLogLine("MORDECAI: from the top, then. Try to look surprised.");
+    location.reload();
+  });
+}
 
 /**
  * Submit, then WATCH THE SEAL LAND. The seconds between VERIFYING and a gold
@@ -10566,8 +10909,10 @@ async function renderLadderBody(): Promise<void> {
     if (!events) events = (await competitive.events()) as social.EventsView;
     learnServerDay(events.daily.day);
   } catch {
+    // Resolved (the fetch came back empty-handed), so no skeleton: ghost rows
+    // under a settled answer read as a load that failed (r1 minor).
     body.innerHTML = setEmptyHtml("THE BOARD IS DARK",
-      "the server keeps the score, and it will still be there when the signal is back");
+      "the server keeps the score, and it will still be there when the signal is back", false);
     return;
   }
   if (ladderTab === "contracts") {
@@ -12169,6 +12514,9 @@ async function main(): Promise<void> {
   const frameBoss: BossEvent[] = [];
   function frame(now: number): void {
     hudNow = now; // the boss beat line + the call-out expire on the frame clock
+    // The objectives card's paint clock (r1 blocker 1): a step cannot be spent
+    // until its card has been on the glass long enough to read.
+    objectivesPaintTick(now);
     let dt = (now - prev) / 1000;
     prev = now;
     if (dt > MAX_FRAME) dt = MAX_FRAME;

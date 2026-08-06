@@ -67,11 +67,16 @@ export interface GuideChoice {
    * close    — farewell; the beat's surface proceeds (always last in the list,
    *            and ESC is its keyboard twin everywhere).
    * open     — farewell INTO a surface: the host arms the named panel/tab.
-   * skipAll  — B0 only: ledger every beat + silence the remaining coach
-   *            lines and objectives, answer with `reply`, then only a close
-   *            remains.
+   * skipAll  — B0 only: OFFER the global skip. It does not skip anything by
+   *            itself — the host replaces the choice list with a confirmation
+   *            whose safe answer is first, and only `skipConfirm` consumes the
+   *            curriculum. A destructive control that fires on one input, from
+   *            a slot a benign choice occupied a moment earlier, is a
+   *            data-loss defect wearing a dialogue costume (r1).
+   * skipConfirm — the second input. Host-synthesised; never authored in the
+   *            beat table, so no beat can ship a one-tap skip by accident.
    */
-  effect: "reply" | "close" | "open" | "skipAll";
+  effect: "reply" | "close" | "open" | "skipAll" | "skipConfirm";
   reply?: string;
   open?: "draft" | "shop" | "bench";
 }

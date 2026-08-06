@@ -10,6 +10,105 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r6-fix-1 — the harsh critic's round (branch `tutorial-mordecai`)
+
+A critic scored the r6 build 4.5/10 off four cold browser passes. Every finding
+below is fixed at the mechanism, not at the symptom; the two false positives
+are named as false positives, with the evidence.
+
+**Blockers (severity 5).**
+
+1. **THE FIVE self-consumed without ever painting.** `Objectives.update` armed
+   the step, latched every already-true fact and wrote `completed` in the SAME
+   call — and obj.five's facts (strike/dash/cast) are RUN-CUMULATIVE, so any
+   player who pressed a key during their first fight had all three true the
+   instant obj.move finished. The step was born completed, the ledger spent it,
+   and the only lesson that teaches the ability kit key by key was gone for
+   that profile forever. **Two gates now** (`src/ui/objectives.ts`): the arming
+   call returns `{started, checked: [], completed: null}` and reads no facts,
+   and a step cannot complete until the host has reported `OBJ_MIN_VISIBLE_MS`
+   (4s) of REAL card-on-glass time (`addVisibleMs`, fed by
+   `objectivesPaintTick` once per rendered frame, gated on a live dungeon).
+   Regression tests: `test/objectives.test.ts` "A STEP MUST PAINT BEFORE IT CAN
+   COMPLETE". Verified in the app — a profile seeded at obj.five with all three
+   facts true shows `The Five 2/3` on the card and does NOT hold `obj.five` on
+   the ledger.
+2. **The strip was deleted by the act of playing.** Dismiss-on-input ran off a
+   1.2s GRACE, and browsers fire repeated keydown for a HELD key — so a player
+   holding W (the state a player is in for most of floor 1) deleted every card
+   1.2s after it appeared. The grace period WAS the card's lifetime: 128
+   characters in 1.2s is 107 chars/sec. **`e.repeat` is now ignored outright**,
+   a plain keydown only counts after a READ BUDGET derived from the line
+   (~36 chars/sec, in VISIBLE time), and GOT IT / Enter still dismiss
+   instantly. Measured in the app under continuous held-key input: card
+   lifetime 6689ms (old build: ~1200ms).
+
+**Majors (severity 4).**
+
+3. **Lessons landed after the thing they teach.** Pacing gates are flood
+   control and do nothing about staleness. `CardHooks.stillTrue` is a
+   PRECONDITION re-asked at delivery time and at every stale sweep; a card
+   whose lesson has been demonstrated is dropped UNSPENT. Wired to `start`
+   (dropped once the crawler has walked), `dashkit` (once they have dashed),
+   `ability` (once they have cast) and `lowhp` (once the leak closes).
+4. **Three of four cold runs died on floor 1 and the tutorial went mute.**
+   (a) Survival tools are no longer rewards for surviving: the dash left THE
+   FIVE's gate and became a floor-1 PROMPT (`dashkit`) at T+10s, and
+   `COACH_LOW_HP` moved 0.6 → 0.78 so the flask arrives before the pack rather
+   than as a eulogy at 29/100. (b) `Coach.reteachPrompts()` re-arms the floor-1
+   script (prompts only — confirmations were earned by acts) on each new run
+   while the curriculum is still owed, capped at 3, which closes the seven
+   minutes of mute replay the critic measured after a first death. (c) Pack
+   size/aggro mercy is NOT done: it is a sim change and this round holds the
+   no-sim-numbers rule. Left in "open edges" below.
+5. **Double-tapping `2` at the campfire destroyed the curriculum.** Answering
+   "What am I in for?" promoted the SKIP into the index "Let's go." had just
+   vacated. Destructive choices now leave the number row entirely (`.dlg-skip`,
+   unreachable by the digit handler, which selects `.dlg-choice` only), taking
+   one only OPENS a confirmation whose safe answer is slot 1, and backing out
+   restores the ORIGINAL list rather than striking itself off. It is also
+   REVERSIBLE now: `forgetTips` + the K panel's "Mordecai's guidance — SHOW ME
+   AGAIN" (two presses) clears the `tut.*`/`obj.*` keys and reloads.
+6. **The first death dumped the whole competitive layer on a first-timer.**
+   `#recap.novice` (no finished run in history, no season) defers the ladder
+   line, the earned/PB block, the math drawer, SHARE/STANDINGS/WATCH THE ARENA
+   and the HOLD TAB hint, and `offerProof` defers the consent card to the first
+   verdict with a ledger behind it. Mordecai's aside MOVED to directly under
+   the death headline. Nothing is deleted — only what the screen leads with.
+
+**Minors (severity 3-2).** The safe room's `MORDECAI:` label became content
+(`<b class="tipwho">`, gold, hidden with its row) instead of a `::before` that
+outlived the sentence it labelled — and the guided path guaranteed that bug,
+because the beat that clears the tip is the one obj.saferoom steers you into.
+The objectives card now survives a modal (z 26, above #saferoom/#draft scrims,
+still under #recap/#menu): the strip must not talk over a decision, but the
+CHECKLIST is the ask the panel is an answer to. obj.saferoom's "Spend some
+gold" carries an `alt` form ("Look over the shelf") that arms when
+`cheapestShelfPrice() > gold` — the pass that arrived with 24 gold against a
+35-gold shelf was being asked for something the economy had made impossible.
+Coach lines name ONE device (`Coach.setControls` + `lastInputSource`), so
+"Left click or Space" is gone from a keyboard session. Both advertised draft
+routes call one `claimBankedDrafts()`, and OPEN now means open (a panel inside
+`hideOverlay`'s 130ms closing window is CLOSED — that race is the likeliest
+explanation for the un-reproduced V failure); `input.ts` also clears held keys
+on `blur`, so a swallowed keyup can no longer dead-lock a panel bind. Board
+skeletons render only for the in-flight state; every resolved-empty path shows
+its copy alone.
+
+**Two findings were probe artifacts, not bugs** — `#banner`'s eleven bindings
+and the shrine's `BANK IT FOR LATER` were both read out of `textContent`.
+`.topmenu` is `display: none` until `.tb.open`, and `.tp-x`/`.tp-done`/`.tp-seg`
+are `display: none` outside touch (iso.html:6185, and the note above it says
+so). `display:none` is out of the accessibility tree too, so neither is a
+screen-reader trap. Shot 10 confirms: the top bar paints "SYSTEM" and
+"CRAWLER", nothing else. **If a probe reads textContent, it is measuring the
+DOM, not the glass** (HANDOFF §0).
+
+Instrument: `tools/_tut_fix_r1.mjs` (one browser, port 5287). It measures card
+LIFETIME rather than presence-at-an-instant, because under software GL a
+"wait 12 iterations" loop is 12 seconds and kept catching the card's honest
+7s auto-dismiss and calling it an input kill.
+
 ## r6 — the ONE VOICE rebuild (HANDOFF §3a), plumbing shipped
 
 - `src/ui/onramp.ts` is DELETED; `src/ui/coach.ts` replaces it (same measured
@@ -419,3 +518,20 @@ in front of a first session and that this feature does not pretend to.**
 - **Touch farewell affordance**: beats close by tapping the farewell choice;
   a dedicated on-glass ESC affordance could come with the mobile merge (the
   mobile-wr branch is not on `tutorial`).
+- **FIRST-RUN MERCY on floor 1** (r6-fix-1 item 4c, NOT done). Three of four
+  cold passes died on floor 1 with GET MOVING at 1/3 or worse. The critic's
+  ask is Hades' Tartarus shape: reduce pack size/aggro until `obj.move`
+  completes. That is a `src/sim` change — it moves numbers, rotates
+  `RULES_HASH` and retires every recorded run proof, and it has to be a flag
+  the recorded run setup carries or replays diverge. It needs its own round
+  with `npx tsx scripts/simhash.ts --write` and a balance-test pass; doing it
+  quietly inside a UI round would have been exactly the wrong trade.
+- **Floor-2+ curriculum is still unobserved end to end.** No cold pass has
+  reached floor 2, so `obj.saferoom`, `obj.show` and the `elite`/`boss` depth
+  confirmations have never been seen by a critic. Drive `?test&floor=2`.
+  Related, and a design question rather than a bug: THE SHOW is the game's
+  premise and it is the LAST step, behind four gates. r6-fix-1 gave the
+  premise an early carrier instead of reordering the spine — the `hype` tip
+  fires on the crawler's first CRIT and translates to Mordecai's "the cameras
+  pay for loud", inside the first ninety seconds — but whether the closer
+  should MOVE is still open, and it is the owner's call.
