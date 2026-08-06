@@ -9,6 +9,7 @@ import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
+import { assetUrl } from "../assetUrl";
 import { roomTemplateById } from "../content/rooms";
 import { mobDefById } from "../content/mobs";
 import type { CustomMobDef } from "../content/types";
@@ -4513,7 +4514,7 @@ export class Renderer3D {
   private defTexFor(url: string): THREE.Texture {
     let t = this.defTex.get(url);
     if (!t) {
-      t = new THREE.TextureLoader().load(url);
+      t = new THREE.TextureLoader().load(assetUrl(url));
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
       this.defTex.set(url, t);
@@ -4529,7 +4530,7 @@ export class Renderer3D {
     if (!url) return null;
     let t = this.eliteTex.get(kind);
     if (!t) {
-      t = new THREE.TextureLoader().load(url);
+      t = new THREE.TextureLoader().load(assetUrl(url));
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
       this.eliteTex.set(kind, t);

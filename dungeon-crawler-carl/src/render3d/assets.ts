@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { assetUrl, assetInBuild } from "../assetUrl";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -353,6 +354,9 @@ const PRIORITY_KEYS = new Set([
   "player", "wall", "floor", "stairs", "torch_lit", "torch_mounted",
 ]);
 
+/** The builder bridge's output index (BUILDER.md). Absent from most builds. */
+const GENERATED_INDEX = "/assets/generated/index.json";
+
 export interface ModelStore {
   /** LIVE record — fills in as GLBs arrive. Hosts read it every frame. */
   models: Record<string, LoadedModel>;
@@ -378,6 +382,10 @@ export function startModelLoad(
   // Every shipped GLB is meshopt-compressed (scripts/compress-assets.mjs —
   // backlog #7's payload diet); without the decoder none of them parse.
   loader.setMeshoptDecoder(MeshoptDecoder);
+  // Manifest paths are the REAL filenames (the ones ASSETS.md licenses); a
+  // production build serves them under a content hash, so every load goes
+  // through assetUrl(). Dev/tools: it hands the path straight back.
+  const load = (url: string) => loader.loadAsync(assetUrl(url));
   const store: ModelStore = {
     models: {},
     onArrive: null,
@@ -425,7 +433,7 @@ export function startModelLoad(
 
   const loadModel = async (key: string, url: string): Promise<void> => {
     try {
-      const gltf = await loader.loadAsync(url);
+      const gltf = await load(url);
       store.models[key] = { scene: gltf.scene, animations: gltf.animations };
       finalizeCharacter(key);
       store.onArrive?.(key);
@@ -438,12 +446,21 @@ export function startModelLoad(
   const wave1 = entries.filter(([k]) => PRIORITY_KEYS.has(k));
   const wave2 = entries.filter(([k]) => !PRIORITY_KEYS.has(k));
 
+  // Does this build ship any builder-generated assets? A production build says
+  // so in its hash map, and when the answer is no there is nothing to fetch —
+  // that lookup used to be a guaranteed 404 sitting INSIDE the boot gate, and a
+  // phantom entry in the denominator the bar reports. Without a map (dev, where
+  // the builder bridge can write the index while the page is open) we cannot
+  // know, so the request goes out exactly as it always did.
+  const generated = assetInBuild(GENERATED_INDEX);
+
   // Progress = files SETTLED (loaded or missing-and-skipped) across the WHOLE
   // manifest — models, rig clip packs, hero clip packs, the generated index —
-  // the boot bar must never stall on an asset we'd gracefully skip anyway.
+  // the boot bar must never stall on an asset we'd gracefully skip anyway, and
+  // must never count one this build will not even ask for.
   const totalFiles = entries.length +
     RIG_CLIP_MANIFEST.medium.length + RIG_CLIP_MANIFEST.large.length +
-    HERO_CLIP_MANIFEST.length + 1; // +1: the generated-assets index
+    HERO_CLIP_MANIFEST.length + (generated ? 1 : 0);
   let settled = 0;
   const tick = () => onProgress?.(++settled, totalFiles);
 
@@ -460,7 +477,7 @@ export function startModelLoad(
         RIG_CLIP_MANIFEST[rig].map(async (url, slot) => {
           try {
             try {
-              rigSlots[rig][slot] = (await loader.loadAsync(url)).animations;
+              rigSlots[rig][slot] = (await load(url)).animations;
             } catch {
               return; // missing pack: rig characters just animate with less variety
             }
@@ -476,7 +493,7 @@ export function startModelLoad(
       ...HERO_CLIP_MANIFEST.map(async (url, slot) => {
         try {
           try {
-            heroSlots[slot] = (await loader.loadAsync(url)).animations;
+            heroSlots[slot] = (await load(url)).animations;
           } catch {
             return; // missing ability clip: the animator's playFirst fallbacks cover it
           }
@@ -490,21 +507,21 @@ export function startModelLoad(
       // committed ones ship like any other file). index.json maps key -> {url,
       // clips?}: props are plain models; creature entries carry armature-only
       // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
-      (async () => {
+      ...(!generated ? [] : [(async () => {
         try {
-          const ix = await (await fetch("/assets/generated/index.json")).json() as
+          const ix = await (await fetch(assetUrl(GENERATED_INDEX))).json() as
             Record<string, { url: string; clips?: string[] }>;
           await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
             try {
-              const gltf = await loader.loadAsync(entry.url);
+              const gltf = await load(entry.url);
               const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
-                (await loader.loadAsync(c)).animations));
+                (await load(c)).animations));
               store.models[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
               store.onArrive?.(key);
             } catch { /* one bad generated asset never blocks the rest */ }
           }));
         } catch { /* no generated index: nothing crafted yet */ }
-      })().finally(tick),
+      })().finally(tick)]),
     ]);
   };
   store.complete = background();

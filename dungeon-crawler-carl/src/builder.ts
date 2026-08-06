@@ -17,6 +17,7 @@ import { MOB_DEFS } from "./content/mobs";
 import { generateFloor } from "./sim/floor";
 import { floorSeed } from "./sim/game";
 import type { RoomTemplate, RoomProp, CustomMobDef } from "./content/types";
+import { assetUrl } from "./assetUrl";
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
@@ -1195,7 +1196,7 @@ void loadModels().then(async (m) => {
   // Generated assets join the palettes: props into the room palette,
   // creature entries (they carry clips) into the body list.
   try {
-    const ix = await (await fetch("/assets/generated/index.json")).json() as
+    const ix = await (await fetch(assetUrl("/assets/generated/index.json"))).json() as
       Record<string, { url: string; clips?: string[] }>;
     for (const [k, e] of Object.entries(ix)) {
       if (e.clips?.length) CHARACTER_KEYS.push(k);

@@ -160,6 +160,79 @@ calls `/auth/delete`, which erases the account row, identities, stats, and
 party seats. Tokens are stored plain (friends-scale) — hash them before a
 larger audience, as PERSISTENCE.md already notes.
 
+## Cache policy & the static payload (measured 2026-08-06)
+
+A boot pulls **394 files** — 260 models, 94 sounds, the icons a screen touches,
+4 fonts, 4 JS chunks. Vite content-hashed the four JS chunks and nothing else,
+so every one of the other 390 shipped under a name that could not be told apart
+from the previous deploy's, and the server had to hedge: `max-age=86400,
+stale-while-revalidate`. Past a day, a visit spent ~390 conditional requests
+proving nothing had changed. On a phone that bill is round trips, not bytes.
+
+**The build now makes every asset url name its own content** (vite.config.ts,
+`dcc-asset-hashing`; client side in `src/assetUrl.ts`):
+
+| url shape | who mints it | Cache-Control |
+|---|---|---|
+| `/_app/iso-CxWpyPOz.js` | rollup (chunks moved off `/assets/` to `/_app/`) | `public, max-age=31536000, immutable` |
+| `/assets/characters/skeleton.d48770b5.glb`, `/audio/sfx/hit.<hash>.ogg` | per-file content hash | same |
+| `/icons.<hash>/ui/eye.svg`, `/fonts.<hash>/Cinzel.ttf` | per-TREE version | same |
+| `iso.html` / `index.html` / `builder.html` | — | `no-cache` (a deploy lands on the next load) |
+| anything under the asset trees NOT carrying a hash | — | the old `max-age=86400` + ETag |
+
+Two schemes because the urls are written two ways. Models and audio are
+addressed from parts at runtime (`/assets/dungeon/${name}.glb`), so no
+build-time rewrite can see them: they get a per-file hash and a map inlined
+into each document, which `assetUrl()` resolves at the few places a url reaches
+the network. Per-file is what keeps a deploy cheap — change one model,
+re-download one model. Icons and fonts are written inline in dozens of template
+literals and in iso.html's CSS but always off a literal prefix, so the prefix is
+rewritten *before* rollup hashes the chunks (rewriting emitted JS instead would
+leave a chunk whose name no longer matched its bytes — served immutable, that is
+a permanently stale bundle).
+
+`public/` itself is untouched: **ASSETS.md remains the license index, keyed by
+the real filenames**, and renaming a copy in `dist/` modifies no work.
+
+Measured, real browser, production server, `dist/` from `npm run build`:
+
+| | requests that hit the network | transferred |
+|---|---|---|
+| cold cache | 380 | 14.7 MB |
+| repeat visit | **3** (`/auth`, `/rush`, `/boards`) | **0 bytes** |
+
+The 3 are live API calls; every asset and every chunk is a cache hit. Cost of
+the inlined hash map: iso.html 153.9 → 159.6 kB gzipped, on a document that was
+already `no-cache` and usually answers 304.
+
+### Why one machine still serves this fine
+
+The box is nowhere near its ceiling on the game side — RSS 107 MB idle, 155 MB
+at 48 players, ~7% of the tick budget (see Capacity below). Static serving is
+the one place it did real work per visitor, and this round removed it:
+
+- **The build precompresses.** `dcc-asset-hashing` writes a `.gz` sidecar for
+  every file that shrinks by >10% (493 files, 37.2 MB → 13.8 MB), and the server
+  streams the sidecar instead of compressing. Measured cost of the old path:
+  **~750 ms of level-6 gzip CPU per cold visitor** on a dev box, for a payload
+  that is now zero CPU and level 9. A file that does not shrink (the audio, and
+  any GLB a future mesh-compression round makes incompressible) gets no sidecar
+  and no attempt.
+- **Repeat visitors cost nothing.** Not a 304, not a stat — no request at all.
+  The old policy's 390 revalidations per visitor per day are gone.
+- Streaming a sidecar is `createReadStream().pipe(res)`: flat memory, no
+  buffering, and Fly's proxy handles the fan-out.
+
+One deploy-shaped caveat: the assets are immutable **and** the documents are
+`no-cache`, so a deploy that changes a model changes its url, and the document
+that names it is re-fetched. There is no combination that serves a stale mix.
+
+If you ever measure "gzip does nothing on our GLBs", check that the client
+**sent** `accept-encoding` — `curl` does not unless you pass `--compressed` or
+the header. Verified against production: with the header,
+`skeleton_warrior.glb` comes back gzip-encoded; without it, 2,629,440 bytes of
+identity. The file itself compresses ~80% (2,629,440 → 541,097).
+
 ## Capacity & sizing (measured 2026-08-01)
 
 Evidence from bot load tests against a local build of the production server

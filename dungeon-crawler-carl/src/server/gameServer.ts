@@ -530,26 +530,53 @@ export class GameServer {
       res.writeHead(404).end("not found");
       return;
     }
-    // Cache policy: we deploy many times a day, and a browser mixing old HTML
-    // with new hashed chunks (or vice versa) renders a dungeon that doesn't
-    // match the sim. HTML must always revalidate; Vite's content-hashed bundles
-    // are immutable. Assets (models/audio/icons/fonts) are the load-time
-    // budget — ~90MB across 200+ files — so they get a real TTL plus an ETag:
-    // within a day a repeat visit costs ZERO asset requests, after that each
-    // file revalidates to a 304 (no re-download) unless it actually changed.
+    // Cache policy (DEPLOY.md "Cache policy"): we deploy many times a day, and
+    // a browser mixing old HTML with new hashed chunks (or vice versa) renders
+    // a dungeon that doesn't match the sim. So HTML always revalidates, and
+    // ANY url that carries its own content hash is immutable for a year —
+    // a repeat visit spends ZERO requests on it, forever, and a deploy that
+    // changes the file changes the url instead of racing a TTL.
+    //
+    // Three shapes of self-describing url, all minted by the build
+    // (vite.config.ts): rollup's own chunks under /_app/ (`iso-m9S46dDd.js`),
+    // per-file asset hashes (`skeleton.1a2b3c4d.glb`), and the versioned
+    // icon/font trees (`/icons.1a2b3c4d/...`). Anything else under the asset
+    // trees — a dist built before hashing existed, a file dropped in by hand —
+    // falls back to the old day-long TTL plus an ETag, so it still costs a
+    // conditional request rather than a download.
     const ext = extname(file);
     const st = statSync(file);
-    const hashed = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(file);
-    const assetish = /^(assets|audio|icons|fonts)[/\\]/.test(clean);
+    const url0 = clean.replace(/\\/g, "/");
+    const base = url0.slice(url0.lastIndexOf("/") + 1);
+    const selfDescribing = /-[A-Za-z0-9_-]{8,}\.(js|css)$/.test(base) // rollup chunk
+      || /\.[0-9a-f]{8}\.[A-Za-z0-9]+$/.test(base) // per-file asset hash
+      || /^[a-z]+\.[0-9a-f]{8}\//.test(url0); // versioned tree
+    const assetish = /^(assets|audio|icons|fonts)\//.test(url0);
     const cache = ext === ".html"
       ? "no-cache"
-      : hashed
+      : selfDescribing
         ? "public, max-age=31536000, immutable"
         : assetish
           ? "public, max-age=86400, stale-while-revalidate=604800"
           : "public, max-age=300";
+    // Compression, cheapest path first:
+    //  1. the build's precompressed sidecar (`foo.glb.gz`) — no CPU here at all,
+    //     level 9 instead of 6, and it can send a real content-length. The build
+    //     only writes one where it actually pays, so its absence is a fact about
+    //     the file, not a missing step.
+    //  2. on-the-fly gzip, for a dist built before precompression existed and
+    //     for the dev/test servers that point STATIC_DIR at something hand-made.
+    // Worth doing either way: the shipped GLBs are ~80% air (skeleton_warrior
+    // 2,629,440 -> 541,097). If you ever measure "gzip does nothing here", check
+    // that the client SENT `accept-encoding` — curl doesn't unless you ask.
+    const acceptsGzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
+    const wantsGzip = acceptsGzip && COMPRESSIBLE.has(ext);
+    const pre = wantsGzip && existsSync(`${file}.gz`) ? statSync(`${file}.gz`) : null;
     // Weak ETag from size+mtime — cheap, and correct for whole-file replaces.
-    const etag = `W/"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}"`;
+    // The encoding is IN the tag: one url with two representations must not
+    // hand both of them the same validator, or a shared cache can answer an
+    // identity request with gzipped bytes.
+    const etag = `W/"${st.size.toString(16)}-${Math.round(st.mtimeMs).toString(16)}${wantsGzip ? "-gz" : ""}"`;
     const headers: Record<string, string> = {
       "cache-control": cache,
       etag,
@@ -561,11 +588,15 @@ export class GameServer {
       return;
     }
     headers["content-type"] = MIME[ext] ?? "application/octet-stream";
-    // On-the-fly gzip for compressible types. GLBs are mostly raw geometry
-    // buffers and shrink ~60%; PNGs/OGGs are already compressed and skipped.
-    // Streaming (no buffering) keeps memory flat on the single Fly machine.
-    const acceptsGzip = /\bgzip\b/.test(String(req.headers["accept-encoding"] ?? ""));
-    if (acceptsGzip && COMPRESSIBLE.has(ext)) {
+    if (pre) {
+      headers["content-encoding"] = "gzip";
+      headers["content-length"] = String(pre.size);
+      res.writeHead(200, headers);
+      createReadStream(`${file}.gz`).pipe(res);
+      return;
+    }
+    if (wantsGzip) {
+      // Streaming (no buffering) keeps memory flat on the single machine.
       headers["content-encoding"] = "gzip";
       res.writeHead(200, headers);
       createReadStream(file).pipe(createGzip({ level: 6 })).pipe(res);

@@ -4,6 +4,14 @@
 > in the owner's KayKit Complete Collection zip but not yet used — including the
 > full rigged-character census — see `KAYKIT-INVENTORY.md`.
 
+> **Filenames here are the `public/` ones, and `public/` is the source of
+> truth.** A production build copies each file into `dist/` under a
+> content-hashed name (`skeleton.d48770b5.glb`, `/icons.<hash>/…`) so it can be
+> cached immutably — see DEPLOY.md "Cache policy". That renames a copy; it does
+> not modify, adapt, or re-license anything, and no attribution obligation
+> changes. If you ever need to map a hashed name back to a licensed one, the
+> build writes `dist/asset-hashes.json`.
+
 The 3D isometric renderer (`src/render3d/`) currently draws **procedural low-poly
 placeholder meshes** so we can confirm art direction without any downloads. It's
 built to load real **glTF/GLB** models the moment they're present under
