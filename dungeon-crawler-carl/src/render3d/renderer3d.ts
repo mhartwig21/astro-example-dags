@@ -55,7 +55,10 @@ export interface QualityNotice {
   readonly meanMs: number;
 }
 import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeFissureMat, makeAnchorMat, makeDissolving } from "./fx";
-import { BossFx } from "./bossFx";
+import {
+  BossFx, makeShieldMat, makeTetherMat, makePunishMat, makeArenaMat, makePlateMat,
+  makeSporeMat, makeLanesMat, makePropsMat, makeCellsMat, makeSetMat, makeMarkMat, makeAideMat,
+} from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
   AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, buildRangeRing, disposeAimShape,
@@ -2734,14 +2737,33 @@ export class Renderer3D {
     skinGeo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(wt, 4));
 
     const out: THREE.Object3D[] = [];
-    // (side, alphaTest) rungs. FrontSide/0 is the common case and carries the
-    // full injected-shader chain; the others exist only to reach their DEPTH
-    // permutations, so they ride `plain`.
-    const SHAPES: Array<{ side: THREE.Side; alphaTest: number; chains: string[] }> = [
+    // (side, alphaTest, transparent, emissiveMap) rungs.
+    //
+    // EVERY RUNG NOW CARRIES THE FULL INJECTED-SHADER CHAIN (opt1-shader-
+    // prewarm). The previous cut paired flash/dissolve with FrontSide only, on
+    // the reasoning that side/alphaTest "fork the DEPTH material and not the
+    // lit one" — which is wrong for doubleSided: it is in the LIT program's
+    // cache key too (boolean layer 11), so the hero's double-sided cloth
+    // minted `chr1|dissolve` doubleSided programs on the first decoy expiry /
+    // death mid-fight (guard-caught: `paladin`, masks 134147/134179).
+    //
+    // TWO NEW AXES, both guard-caught on the floor-10 probe:
+    //   transparent   — GLB packs ship transparent character materials
+    //                   (`glass`), and `opaque` is in the cache key, so every
+    //                   glass mob's first appearance (and first death) built
+    //                   programs mid-fight.
+    //   emissiveMap   — generated creatures carry baked glow maps
+    //                   (`4GTN_glow`); USE_EMISSIVEMAP forks the program.
+    const SHAPES: Array<{
+      side: THREE.Side; alphaTest: number; transparent?: boolean; emissive?: boolean;
+      chains: string[];
+    }> = [
       { side: THREE.FrontSide, alphaTest: 0, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
-      { side: THREE.DoubleSide, alphaTest: 0, chains: ["plain"] },
-      { side: THREE.FrontSide, alphaTest: 0.5, chains: ["plain"] },
-      { side: THREE.DoubleSide, alphaTest: 0.5, chains: ["plain"] },
+      { side: THREE.DoubleSide, alphaTest: 0, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0.5, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.DoubleSide, alphaTest: 0.5, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0, transparent: true, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0, emissive: true, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
     ];
     for (const mapped of [false, true]) {
       for (const skinned of [false, true]) {
@@ -2753,6 +2775,12 @@ export class Renderer3D {
               // alphaTest > 0 is what sets USE_ALPHATEST; the value is not in
               // the cache key, only whether it is non-zero.
               alphaTest: shape.alphaTest,
+              transparent: shape.transparent ?? false,
+              opacity: shape.transparent ? 0.5 : 1,
+              // Presence forks USE_EMISSIVEMAP; the 1x1 white pixel stands in
+              // for every glow map, same as `map` above.
+              emissiveMap: shape.emissive ? tex : null,
+              emissive: shape.emissive ? 0xffffff : 0x000000,
             });
             mat.name = `zoo_${mapped ? "map" : "flat"}`;
             let mesh: THREE.Mesh;
@@ -2767,6 +2795,7 @@ export class Renderer3D {
             }
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            this.armZooDepth(mesh, mat);
             const g = new THREE.Group();
             g.add(mesh);
             // Same call the real mobs take, so the same rimCache/uniform path
@@ -2808,6 +2837,44 @@ export class Renderer3D {
       this.scene.add(g);
       out.push(g);
     }
+    // THE WORLD-LIT PROP GRID (opt1-shader-prewarm / WebKit smoke). The
+    // streamed-prop warm mesh in prewarm() covers instanced+unmapped only.
+    // The WebKit smoke run logged post-boot builds of the MAPPED prop
+    // permutations: the lit `wl3p` program with USE_MAP (floor props arrive
+    // with textures behind the running game), and the instanced DEPTH program
+    // with USE_MAP — WebGLShadowMap copies `result.map = material.map` onto
+    // the shared shadow depth material, so a mapped instanced shadow caster
+    // forks a depth program nothing else builds. Close the whole
+    // map x instancing grid; castShadow on all so the depth permutations
+    // build in the same prewarm render pass (these sit at the focus point,
+    // inside the shadow camera, exactly like the rest of the zoo).
+    {
+      const pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      this.zooScrap.push(pGeo);
+      for (const mapped of [false, true]) {
+        for (const instanced of [false, true]) {
+          const pm = this.worldLit(new THREE.MeshStandardMaterial({
+            color: 0x8a8079, map: mapped ? tex : null,
+          }), { prop: true });
+          let mesh: THREE.Mesh;
+          if (instanced) {
+            const im = new THREE.InstancedMesh(pGeo, pm, 1);
+            im.setMatrixAt(0, new THREE.Matrix4());
+            mesh = im;
+          } else {
+            mesh = new THREE.Mesh(pGeo, pm);
+          }
+          mesh.castShadow = mesh.receiveShadow = true;
+          this.armZooDepth(mesh, pm);
+          const g = new THREE.Group();
+          g.add(mesh);
+          g.scale.setScalar(0.003);
+          g.position.set(fx, 0.5, fz);
+          this.scene.add(g);
+          out.push(g);
+        }
+      }
+    }
     // The geometries and the 1x1 stand-in texture are only needed while the zoo
     // is resident; the caller releases them (see prewarm). The MATERIALS are
     // deliberately never disposed — three.js refcounts programs and destroys
@@ -2819,6 +2886,44 @@ export class Renderer3D {
 
   /** Disposable, non-program-bearing leftovers of buildCharacterZoo(). */
   private zooScrap: Array<THREE.Texture | THREE.BufferGeometry> = [];
+
+  /**
+   * Per-zoo-caster DEPTH materials (opt1-shader-prewarm), so every depth
+   * permutation compiles DETERMINISTICALLY.
+   *
+   * Why the zoo alone could not: the shadow pass runs every caster through
+   * three's ONE shared MeshDepthMaterial, and setProgram only recomputes a
+   * material's program on a version bump (or an explicitly-checked axis:
+   * skinning/instancing/envMap/fog — side and map are NOT checked). Which
+   * (map, side) depth permutations prewarm actually built therefore depended
+   * on caster ITERATION ORDER — whichever object happened to be current when
+   * an alphaTest polarity flip bumped the version got its program built, and
+   * the rest reused it. Measured: the mapped double-sided depth programs were
+   * built at the idle light count but not the combat one, and the first
+   * mid-fight version bump landing on such a caster linked them live
+   * (guard-caught: masks 142336/142368 with USE_MAP at 14 point lights).
+   *
+   * A custom depth material per zoo mesh gives each permutation its own
+   * materialProperties, so the first shadow render builds every program and
+   * the GLOBAL program cache (keyed on the cache string, not the material)
+   * hands them to the shared depth material whenever it recomputes later.
+   * getDepthMaterial overwrites side/map/alphaTest from the source material
+   * either way, so these compile the exact keys the shared one would.
+   * Never disposed (disposal would release the just-built programs); the
+   * list is cleared once prewarm's passes are done.
+   */
+  private zooDepthMats: THREE.MeshDepthMaterial[] = [];
+  private armZooDepth(mesh: THREE.Mesh, src: THREE.Material): void {
+    const m = src as THREE.MeshStandardMaterial;
+    const dm = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking,
+      map: m.map ?? null,
+      alphaTest: m.alphaTest,
+      side: m.side,
+    });
+    mesh.customDepthMaterial = dm;
+    this.zooDepthMats.push(dm);
+  }
 
   // ---- POST-BOOT SHADER-BUILD GUARD (dev only) --------------------------
   //
@@ -3238,6 +3343,69 @@ export class Renderer3D {
     const cataWarm = this.buildFxRing("cataclysm");
     cataWarm.position.set(WX + 8, 0.06, WZ);
     warm.push(cataWarm);
+    // BOSS SIGNATURE RIGS (opt1-shader-prewarm). Every per-boss shader —
+    // shield dome + storm shell, tether cord (also the pooled adds cord),
+    // punish beacon, arena ring, armour plate, spore pod, the four ask
+    // silhouettes (lanes/props/cells/set), the mark reticle and the aide
+    // plate — is minted LAZILY on the first beat that needs it, i.e.
+    // mid-boss-fight by construction. Measured on the floor-10 probe:
+    // renderer programs grew 148 -> 164 during the fight, with
+    // getProgramParameter at ~1 s self-time and 0.6-1.7 s hitch frames.
+    // One warm mesh per distinct shader pair pays all of them here.
+    // ShaderMaterial cache keys still carry the scene light counts, so these
+    // must stay resident across BOTH compile passes below — they ride the
+    // same `warm` list as everything else.
+    {
+      const bwPlane = new THREE.PlaneGeometry(1, 1, 4, 1);
+      const bwSphere = new THREE.SphereGeometry(1, 8, 6);
+      this.zooScrap.push(bwPlane, bwSphere);
+      const bossWarm: Array<[THREE.BufferGeometry, THREE.ShaderMaterial]> = [
+        [bwSphere, makeShieldMat()],
+        [bwPlane, makeTetherMat()],
+        [bwPlane, makePunishMat()],
+        [TELEGRAPH_GEO, makeArenaMat()],
+        [bwPlane, makePlateMat()],
+        [TELEGRAPH_GEO, makeSporeMat()],
+        [TELEGRAPH_GEO, makeLanesMat()],
+        [TELEGRAPH_GEO, makePropsMat()],
+        [TELEGRAPH_GEO, makeCellsMat()],
+        [TELEGRAPH_GEO, makeSetMat()],
+        [bwPlane, makeMarkMat()],
+        [bwPlane, makeAideMat()],
+      ];
+      bossWarm.forEach(([geo, mat], i) => addWarm(new THREE.Mesh(geo, mat), WX + i * 2, WZ + 6));
+    }
+    // Hazard fissure scar + the player anchor ring: the same lazy-mint shape
+    // (first molten hazard / first post-boot frame with an anchor), so they
+    // compiled mid-play too. Seed/hue are uniforms, not GLSL literals — one
+    // instance covers every hazard and kit colour.
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makeFissureMat(0x8b1a1a, 0xffb057, 1)), WX + 10, WZ + 4);
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makeAnchorMat(0x39c8e8)), WX + 12, WZ + 4);
+    // The aim telegraph's shared basic-material singletons (fill, the faded
+    // vertexColors ribbon, core, outline, range fill/edge): the first drag of
+    // a run used to build them mid-aim. Built through the exact factories the
+    // live drag uses, so the permutations (and the MATS singletons that keep
+    // the programs referenced) match by construction.
+    {
+      const aim = new THREE.Group();
+      for (const m of buildAimShape("line", 3, 0.6, 0, 0.12, 1)) aim.add(m);
+      for (const m of buildRangeRing(3, 0.12)) aim.add(m);
+      addWarm(aim, WX + 14, WZ + 4);
+    }
+    // The basic-material vertexColors permutations the WebKit smoke logged as
+    // post-boot builds (front- and back-sided; double-sided rides along for
+    // the aim ribbon's fork). Synthesized like the character zoo: only the
+    // permutation matters, not which object first wants it.
+    {
+      const cg = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      cg.setAttribute("color",
+        new THREE.BufferAttribute(new Float32Array(cg.attributes.position.count * 3).fill(1), 3));
+      this.zooScrap.push(cg);
+      const sides: THREE.Side[] = [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide];
+      sides.forEach((side, i) => addWarm(new THREE.Mesh(cg, new THREE.MeshBasicMaterial({
+        transparent: true, vertexColors: true, depthWrite: false, side,
+      })), WX + 16 + i * 2, WZ + 4));
+    }
     onStep?.(2, TOTAL);
     await breathe();
 
@@ -3264,6 +3432,13 @@ export class Renderer3D {
     // numPointLights 10 vs 14.
     const zoo = this.buildCharacterZoo();
     await this.compileForComposer();
+    // Force the manual shadow pass on BOTH warm renders (opt1-shader-prewarm).
+    // render() only rebuilds the shadow map on the preset's cadence or when
+    // dirty, so whichever of the two light counts missed the cadence got no
+    // shadow render — and its DEPTH permutations (e.g. mapped double-sided
+    // casters at the combat count) were then built mid-fight (guard-caught:
+    // masks 142336/142368 with USE_MAP at 14 point lights).
+    this.shadowDirty = true;
     this.render(); // NOT composer.render — render() arms the manual shadow pass
 
     // Put the FX light pool to sleep, then do it all again at the idle count.
@@ -3274,6 +3449,12 @@ export class Renderer3D {
     this.updateFxLights(31);
     this.updateFxLights(0.016);
     await this.compileForComposer();
+    // Depth materials are not lit, so the light-count change alone does not
+    // make them recompute — but numPointLights IS in their cache key. Bump
+    // every zoo depth material so the idle-count depth permutations build in
+    // the render below instead of on the first idle frame that needs one.
+    for (const dm of this.zooDepthMats) dm.needsUpdate = true;
+    this.shadowDirty = true; // same forced shadow pass at the idle count
     this.render(); // depth/shadow permutations at the idle light count too
 
     // Only now: expire the warmup FX and drop the props. Materials are
@@ -3282,6 +3463,9 @@ export class Renderer3D {
     // release). The pooled systems (particles, lights) live for the run.
     for (const o of warm) this.scene.remove(o);
     for (const o of zoo) this.scene.remove(o);
+    // Drop the tracking list only — the depth materials themselves are never
+    // disposed, so the programs they just built stay in the global cache.
+    this.zooDepthMats = [];
     // Geometry + the 1x1 stand-in texture hold no programs, so releasing them
     // is free and keeps a routine whose whole subject is memory discipline from
     // leaking its own scratch.

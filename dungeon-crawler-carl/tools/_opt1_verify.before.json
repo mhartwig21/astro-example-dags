@@ -1,0 +1,92 @@
+{
+  "_meta": {
+    "fingerprint": "iso-m9S46dDd.js",
+    "at": "2026-08-06T21:37:46.828Z"
+  },
+  "a_floor2_calm": {
+    "progsAtPlayable": 148,
+    "progsAtEnd": 148,
+    "progsGrownDuringFight": 0,
+    "sweepFires": 0,
+    "sweepBuilt": 0,
+    "monstersAlive": 37,
+    "shaderGuardPostArmBuilds": 2,
+    "shaderGuardArmed": "[shader-guard] armed: 146 programs prewarmed; any further build will be logged.",
+    "guardLines": [
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,3,144384,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): texture\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132099,srgb,wl3p\n  Prewarm must cover this permutation — see Renderer3D.prewarm()."
+    ],
+    "callsPerRaf": 230,
+    "trisPerRaf": 480056,
+    "rafsIn4s": 132,
+    "geoms": 52,
+    "tex": 114,
+    "progsAtDcWindow": 148,
+    "allocRateMBs": 6.23,
+    "gcDrops": 4,
+    "gcDropTotalMB": 92.1
+  },
+  "b_floor10_combat": {
+    "progsAtPlayable": 151,
+    "progsAtEnd": 166,
+    "progsGrownDuringFight": 15,
+    "sweepFires": 6,
+    "sweepBuilt": 5,
+    "monstersAlive": 119,
+    "shaderGuardPostArmBuilds": 18,
+    "shaderGuardArmed": "[shader-guard] armed: 148 programs prewarmed; any further build will be logged.",
+    "guardLines": [
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,3,144384,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): texture\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132099,srgb,wl3p\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): glass\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,1059,srgb,chr1\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132131,srgb,chr1\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): texture\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132099,srgb,wl3p\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132131,srgb,chr1\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): glass\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,1059,srgb,chr1\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,3,144384,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,1,142336,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,1,142368,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): glass\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,1059,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): glass\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,1059,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132131,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): paladin\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,134179,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): paladin\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,14,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,134147,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): 4GTN_glow\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132131,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): paladin\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,134179,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): paladin\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,134147,srgb,chr1|dissolve\n  Prewarm must cover this permutation — see Renderer3D.prewarm()."
+    ],
+    "callsPerRaf": 548.7,
+    "trisPerRaf": 970011,
+    "rafsIn4s": 37,
+    "geoms": 131,
+    "tex": 317,
+    "progsAtDcWindow": 160,
+    "allocRateMBs": 1.26,
+    "gcDrops": 3,
+    "gcDropTotalMB": 28.5
+  },
+  "c_floor16_combat": {
+    "progsAtPlayable": 155,
+    "progsAtEnd": 155,
+    "progsGrownDuringFight": 0,
+    "sweepFires": 5,
+    "sweepBuilt": 2,
+    "monstersAlive": 192,
+    "shaderGuardPostArmBuilds": 3,
+    "shaderGuardArmed": "[shader-guard] armed: 152 programs prewarmed; any further build will be logged.",
+    "guardLines": [
+      "[shader-guard] program built AFTER boot (this is a frame hitch): texture\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,132099,srgb,wl3p\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): \n  cacheKey: depth,highp,srgb-linear,false,,uv,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,false,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,3201,3,144384,srgb,onBeforeCompile(){}\n  Prewarm must cover this permutation — see Renderer3D.prewarm().",
+      "[shader-guard] program built AFTER boot (this is a frame hitch): glass\n  cacheKey: physical,STANDARD,,highp,srgb-linear,306,16,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,false,,,false,0,,2,10,0,0,1,0,1,0,0,0,0,2,0,0,0,0,33,1059,srgb,chr1\n  Prewarm must cover this permutation — see Renderer3D.prewarm()."
+    ],
+    "callsPerRaf": 231,
+    "trisPerRaf": 875227,
+    "rafsIn4s": 90,
+    "geoms": 145,
+    "tex": 268,
+    "progsAtDcWindow": 155,
+    "allocRateMBs": 5.82,
+    "gcDrops": 5,
+    "gcDropTotalMB": 91.1
+  }
+}
