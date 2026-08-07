@@ -438,6 +438,15 @@ export class CompetitiveApi {
     if (h.startKind !== "fresh") {
       return refuse("a test-mode start is never eligible for a board");
     }
+    // THE DEBUT IS NOT A CONTEST (TUTORIAL.md first-run mercy). A fresh
+    // profile's first descent runs floor 1 with a stipend, a held clock and
+    // killing blows converted to knockdowns. That run is honest, replayable
+    // and worth watching — it is simply not the same game as everyone else's,
+    // so it holds no rank. Structural and server-side, exactly like the test
+    // start above: the client's own refusal is a courtesy, not the rule.
+    if (h.firstRun) {
+      return refuse("a first-run descent plays floor 1 under the debut mercy — it is never eligible for a board");
+    }
     // THE RULESET GATE, STRUCTURAL AND SERVER-SIDE (blocker 14).
     // `validateProofShape` never looked at `mode` or `runKind`, and
     // `ReplaySession` builds the world straight from them - so a ROAM header

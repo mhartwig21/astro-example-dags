@@ -340,6 +340,41 @@ export interface QualityProfile {
 // multisampled HDR target at all, not the sample count. Geometry AA moves to
 // SMAA, ~3 fullscreen LDR passes, measured under the noise floor.
 //
+// POST-CHAIN PASS AUDIT (opt r4). The composed frame ran renderer.render() 23
+// times per rAF — RenderPass, GTAO (AO + denoise + blend), UnrealBloom's ~12
+// internal steps, OutputPass, a Grade ShaderPass, and SMAA's three. Three
+// things were checked and only one of them was waste:
+//
+//   * A DISABLED PASS IS FREE. EffectComposer's loop is `if (pass.enabled ===
+//     false) continue` — no target bind, no quad, no resolve. A preset that
+//     turns gtao/bloom/smaa off genuinely pays nothing, so `postWeight()` is
+//     not understating anything.
+//   * THERE IS NO TRAILING COPY BLIT TO MERGE. The composer marks the LAST
+//     ENABLED pass `renderToScreen`, so SMAA's blend step already writes the
+//     default framebuffer directly. Nothing to fuse with it.
+//   * THE GRADE PASS WAS A WHOLE ROUND TRIP FOR SIX ALU OPS, and it is gone:
+//     it now runs at the end of OutputPass's own fragment shader
+//     (OutputGradePass in renderer3d.ts). 23 -> 22 renderer.render() calls and
+//     one fewer full-resolution RGBA16F read+write — ~30 MB/frame of traffic
+//     at the 1652x1148 backbuffer, on a part with no dedicated VRAM.
+//
+//     Floor-16 fight, Intel part, CPU throttle 4x, 1180x820 @ dsf2, two runs
+//     per arm, 30 s windows: p50 50.0/50.1 -> 33.3/33.3 ms, delivered 17.4/19.4
+//     -> 34.7/34.9 fps. The size of that step is the vsync grid, not the size
+//     of the pass: the frame was sitting just ABOVE 33.3 ms, so shaving a
+//     millisecond or two off it moves the delivered frame from three vsyncs to
+//     two. The same removal on a frame that is not near a boundary would buy
+//     the millisecond and nothing else. (Session was contended — 82 foreign
+//     chrome processes — so read the A/B, not the absolutes.)
+//
+//     Pixel-identical by construction and it was checked, not assumed: the two
+//     shader paths were rendered into ONE frozen frame in one synchronous task
+//     (tools/postchain_pixgate.mjs). With SMAA off, max channel delta 1 on all
+//     three scenes. With SMAA on, 32-76 isolated pixels of 1.9 M exceed delta
+//     4 — a thresholded edge classifier reclassifying a pixel whose input
+//     moved by one LSB, which is what any 1-LSB change anywhere in the chain
+//     does to it.
+//
 // NOTE ON LIGHT COUNTS: a forward renderer compiles a distinct program per
 // light count, and both pools are pre-built and pre-compiled during
 // Renderer3D.prewarm(). Changing either number AFTER prewarm would trigger a

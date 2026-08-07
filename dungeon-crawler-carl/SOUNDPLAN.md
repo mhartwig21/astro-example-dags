@@ -44,9 +44,18 @@ the commit message, verified firing in-game by `tools/audio/probe.mjs`.
 
 ### 1.3 Director mappings today (src/audio/director.ts)
 
-- HitEvent kind → clip, distance-attenuated + iso-panned; `killed` layers `kill`.
-- StatusKind DoT ticks → element clips (don't pin the battle bed).
-- Windup edge per monster → `tell`; boss telegraph pitched via `signatureFor`.
+**Everything below now goes through the MIX LAYER (§2.5, `src/audio/mix.ts`) —
+a tiered voice budget with self-overlap caps and focus windows, plus
+director-side coalescing. Read §2.5 before adding a cue: what a mapping ASKS
+for and what SOUNDS are no longer the same thing, on purpose.**
+
+- HitEvent kind → clip, distance-attenuated + iso-panned; blows capped per
+  frame (biggest first) and the `killed` flag drives the coalesced KILL
+  CHANNEL — one thump, or one emphatic multi-kill, never N (§2.5).
+- StatusKind DoT ticks → element clips (don't pin the battle bed); one voice
+  per element per frame.
+- Windup edge per monster → `tell`, ONE per frame, the nearest wind-up; boss
+  telegraph pitched via `signatureFor`.
 - Cast edge per player per ability → its own cue (`cd` rising edge; the two
   charge abilities read their counters — see director.ts CHARGE_CASTS). One
   general rule replaced five ad-hoc ones. Re-primes on a run boundary (floor
@@ -69,9 +78,12 @@ a replacement the owner has cleared.
 
 | sound | verdict (owner, verbatim) | status |
 |---|---|---|
-| `dash` | "The dash sound effect sucks" | REGENERATED + WIRED (audio r2): `cast_dash.ogg` from gen-sfx-casts.mjs replaces it, the manifest id is now `cast_dash` and the Kenney file is deleted, so a stale id fails loud. **The verdict stays open until the owner clears the replacement by ear** (§9 audition sheet). Original scope note follows — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
+| **THE MIX AT DENSITY** (not one clip — the whole late-floor pile) | "The sound effects for kills is way too much I think... there needs to be a masking layer which prioritizes certain sounds over others." (2026-08-07, after playing the integrated build) | **THE MIX LAYER HAS SHIPPED AND AWAITS THE OWNER'S EAR — THE VERDICT REMAINS OPEN.** `src/audio/mix.ts` + the director-side coalescing; the policy, the before/after measurements and the caveats are §2.5. In one line: the density that earned the complaint is measured down from 18–24 audible voices/second and 55–59 concurrent to 6–11 and 10–15, one kill costs 4.7–6.3 clip starts instead of 10.8–23.3, `player_hurt` and `tell` go from 39–63% silenced-at-random to 0%, and the §2.2 headroom breach (peakPre 1.146 at the boss) is gone. **NOT ONE GAIN MOVED** — a lone kill is byte-identical to what shipped, which is the constraint the fix was built under. What no instrument can say: whether it now sounds RIGHT, and whether the room went too thin (creature barks drop from 29–35% of the voice budget to 1–10% at pack density). Owner clears this row by ear or nothing is cleared. |
+| `dash` | "The dash sound effect sucks" | REGENERATED + WIRED (audio r2): `cast_dash.ogg` from gen-sfx-casts.mjs replaces it, the manifest id is now `cast_dash` and the Kenney file is deleted, so a stale id fails loud. **SUPERSEDED BY AUDIO r3** — the r2 replacement was itself rejected in the robotic-set verdict below, and `cast_dash` is now a recorded swish (ASSETS.md, r3 sources). **The verdict stays open until the owner clears the r3 replacement by ear** (§9 audition sheet). Original scope note follows — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
 | `step_*` (all 12) | "the footsteps are really annoying.. let's not have any footsteps sound effects" | REMOVED outright (director, manifest, files, generator, tests). Not a volume problem — a sound the game should not have. |
-| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATED + WIRED (audio r2 **fix round** — it was silently NOT DONE in the first r2 cut, which shipped this row unchanged while updating the `dash` row directly above it). `gen-sfx-announcer.mjs` now renders it: THE SYSTEM FILES A PROMOTION — a stamp and two notes a fourth apart (G5→C6) in the house bell timbre, over before it can become a jingle. The measurement agreed with the ear about the old clip: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp, centroid 4773Hz / rolloff85 11813Hz — the brightest, most out-of-house object in the 22-clip survey, on `cur.level > prev.level`. New: 0.33s, centroid 1593Hz, and it PLAYS 6.0dB quieter (-15.3 → -21.3, §2.2a). Kept on the `sfx` bus, not `announcer`: that bus is the sidechain duck SOURCE and this edge would pump the bed all run. **The verdict stays open until the owner clears it by ear** (§9 row 2). |
+| `music_battle_c` (`battle_winter.ogg`) | **NO VERDICT YET — the owner has not heard the trim.** Opened by the payload work (HANDOFF §3d), not by a complaint. | **OPEN — needs the ear.** The bed is cut 262.45s → **88.40s** (`tools/audio/fix-beds.mjs battle_winter`). Two rounds independently trimmed this file and the LONGER, measured cut is what ships: the cut point is chosen by a deterministic continuation-correlation search over 60–90s (Pearson correlation of the 10ms RMS envelope of what FOLLOWS the cut against what the loop actually delivers, penalised for the level step across the blend), then a 1.2s equal-power crossfade — two beats at the track's ~100 BPM. What the instruments CAN say: the 95.1dB seam step is gone, measured **Δ0.8dB with no click** (`tools/audio/measure.mjs --loop`), inside the 0.1–1.5dB bound the six shipped band beds pass (§3); silence share 2% → 0%; -23.5 LUFS-I / -7.5 dBTP, so the §2.2 headroom contract still holds. What they CANNOT say, and nobody in this loop can hear: whether **88s is long enough before the repeat becomes obvious**, and whether this is the right 88 seconds musically. The director drops this bed 6s after the last blow, so a typical exposure is well under one pass — but a long fight loops it. **If the owner says it repeats, the fix is a longer window, not a revert**: re-run the tool against the `main@b7c15f3` source with a wider search range. Wire cost, for what the verdict is buying: 3,719,544 → 1,235,092 bytes, fetched MID-FIGHT on the floors where BATTLE_TRACKS picks this bed (floor % 3 === 2). |
+| **the r2 generated SFX set** (`cast_*` x13, `cast_dash`, `level_up` — the 23-clip §9 audition sheet) | "hmm it all sounds very robotic -- not necessarily what i was looking for sound effects" (2026-08-05, first ear pass over the audition sheet) | **REJECTED as a set.** The verdict is about CHARACTER, not levels: the `gen-sfx-*.mjs` synthesis pipeline produces measurement-clean renders that read as robotic. Audio r3 queued: rebuild the rejected cues from RECORDED/organic sources (CC0-first per ASSETS.md; layered foley — real cloth/air whoosh + physical impact + elemental texture), processed to the house loudness/seam targets; the generators demote to verifiers. The `dash` and `level_up` rows below stay OPEN and inherit this verdict — their r2 replacements are rejected too. Owner clears r3 by ear via a fresh audition sheet or nothing is cleared. <br><br>**AUDIO r3 HAS SHIPPED AND AWAITS THE OWNER'S EAR — THE VERDICT REMAINS OPEN.** All 14 cues are rebuilt by `tools/audio/build-casts-r3.mjs` from CC0 RECORDINGS (per-recording origin + license: ASSETS.md, "Audio r3 recorded sources" — 20 OpenGameArt submissions, every one CC0, so nothing is owed the credits screen). Not one oscillator is left in the family; the only synthesis is silence. Every layer is an edit of a real thing: real air displaced (Swishes Pack), a real circuit breaker thrown, a real chain winch paying out, a real cave-in, a real tree under load, a real machine spinning down, real thunder, a real typewriter, a real bell. `gen-sfx-casts.mjs`/`gen-sfx-announcer.mjs` are demoted to verifiers as specified, and still own `chain_line`/`weapon_flash`, which carry no verdict. <br><br>**The defect r3's first cut carried, found and fixed in this round** (it is the reason a recorded family is not just a synthesized one with better samples): a recording does not begin where the sound does. Every `r3_src` snippet carries pre-roll — metal_slam's slam is 43ms into the take, breaker_on's throw 142ms, sword_clash's clash 109ms, mech_clank's 65ms, the bell's strike 80ms — and the first cut enveloped them as though t=0 were the strike. That multiplied each transient by whatever the attack ramp had already decayed to, and in five cases (`cast_cutto`'s arrival, `cast_orbit`'s un-ship bite, `cast_cables`' pins, `cast_bullettime`'s jam, `cast_overcharge`'s breaker) kept nothing but room tone, so the layer the brief was built around was NOT IN THE FILE. `level_up` shipped a promotion with a stamp and no bell at all. The fix is `onset()`/`crest()` in the build script — align to where the recording speaks, then envelope. <br><br>**Measured, from the encoded files** (`tools/audio/measure.mjs`): nine actives -17.0…-17.4 LUFS momentary, peaks -4.9…-7.2 dBFS (ceiling -4.5); four ultimates -14.5…-14.7, peaks -3.3…-5.0 (ceiling -3.0); `level_up` -19.5 / -7.0. Every row inside §2.2a. **Distinctness** (`tools/audio/contactsheet.mjs`, 14 clips): ZERO flagged pairs; closest pair 1.91 (`cast_dash`/`cast_stance`) against a 1.68 adaptive threshold, up from the inherited 1.07 (`cast_bulwark`/`cast_cataclysm`, which was flagged). The flagged pair is fixed at its root: `cast_bulwark`'s plant now carries the peak (attack 19.6ms, was 294ms — it was 294ms because the plant was room tone, not because the dome was too loud). Build is deterministic: a rerun reproduces the bytes. A fresh audition sheet is regenerated by `tools/audio/mk-audition.mjs`. **Nothing here is cleared. Only the owner's ear can close this row, and it has not been given.** |
+| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATED + WIRED (audio r2 **fix round** — it was silently NOT DONE in the first r2 cut, which shipped this row unchanged while updating the `dash` row directly above it). `gen-sfx-announcer.mjs` now renders it: THE SYSTEM FILES A PROMOTION — a stamp and two notes a fourth apart (G5→C6) in the house bell timbre, over before it can become a jingle. The measurement agreed with the ear about the old clip: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp, centroid 4773Hz / rolloff85 11813Hz — the brightest, most out-of-house object in the 22-clip survey, on `cur.level > prev.level`. New: 0.33s, centroid 1593Hz, and it PLAYS 6.0dB quieter (-15.3 → -21.3, §2.2a). Kept on the `sfx` bus, not `announcer`: that bus is the sidechain duck SOURCE and this edge would pump the bed all run. **SUPERSEDED BY AUDIO r3**: the r2 render described above was rejected with the rest of the set, and `level_up` is now a real typewriter strike plus a real bell stepping G5→C6 (`build-casts-r3.mjs`; 0.33s, -19.5 LUFS momentary / -7.0 dBFS peak). The r3 cut also repaired a defect the r2 story could not see: the first r3 attempt trimmed the bell take before its 80ms strike, so it shipped a stamp with NO BELL. **The verdict stays open until the owner clears the r3 replacement by ear** (§9 row 2). |
 
 ### 1.4 THE SILENT MOMENTS (the gap list this track exists to close)
 
@@ -246,6 +258,21 @@ a replacement the owner has cleared.
     `musicSeam()`, and that probe is UNRUN (browser forbidden in the fix
     round). P0 for the next round that is allowed to launch one.
 
+23. **(E-23) OPEN — THE LOOP LADDER: rung 1 ships, rungs 2/3 are prepared,
+    and only an ear can say whether they are needed.** Streamed music loops
+    via native `el.loop` (rung 1) — a decoder seek-to-zero that MAY gap
+    audibly at the wrap, per browser/codec. The live instrument is
+    `engine.debugHook.musicSeam()` (null = UNPROVEN, never a pass) and it
+    needs a browser this round was not allowed. **Owner: listen for a
+    hiccup/silence at any bed's wrap** — fastest places are `music_collapse`
+    (wraps every ~24.7s; let the collapse timer run) and any band bed after
+    ~80s of ambience. If a bed audibly gaps, the escalation path is already
+    built, nothing to design: rung 2 = the spare deck in `src/audio/deck.ts`
+    (ping-pong crossfade across two elements); rung 3 = `stream: false` on
+    that one id in `src/audio/manifest.ts`, sending just that bed back to
+    sample-accurate buffered looping. If no gap is audible, close this row
+    and rungs 2/3 die unbuilt — which is the good outcome.
+
 Priority: P0 = 1.2's missing files + rows 1, 10, 11, 13, 21, 22. P1 = rows 3, 4,
 5, 6, 8, 9, 12, 14, 15, 16, 17. P2 = rows 2, 7, 18, 19, 20 (19/20 are
 trivially scriptable and fund the budget — do them early even though they're
@@ -321,21 +348,26 @@ load-bearing sentences above were, as shipped, FALSE:
 `tools/audio/played.mjs` is the instrument that measures at the right node
 (file momentary + 20log10(volume), plus the same figure through a 250Hz
 highpass), and `test/audioMix.test.ts` is the guard that keeps its verdict
-from drifting. Measured, shipped, r2 fix round:
+from drifting. Measured, shipped, **audio r3** (the r2 fix-round figures this
+replaces moved by tenths — r3 changed what the clips are made of, not what
+level they play at, which was never the complaint):
 
 | clip | file mom | vol | **as played** | on a laptop (250Hz HP) |
 |---|---|---|---|---|
 | `hit` — THE REFERENCE | -22.1 | 1.00 | **-22.1** | -29.0 |
 | `kill` (layers over hit) | -14.9 | 0.90 | **-15.8** | -39.5 |
-| actives (nine) | -16.9…-17.4 | 0.45 | **-23.9…-24.4** | -24.8…-30.7 |
-| `cast_stance` (the fatigue bet) | -16.9 | 0.36 | **-25.8** | -27.1 |
-| ultimates (four) | -14.5…-14.6 | 0.60 | **-18.9…-19.1** | -22.1…-31.6 |
+| actives (eight) | -17.0…-17.4 | 0.45 | **-23.9…-24.4** | -24.6…-33.5 |
+| `cast_stance` (the fatigue bet) | -17.1 | 0.36 | **-26.0** | -27.4 |
+| ultimates (four) | -14.5…-14.7 | 0.60 | **-19.0…-19.1** | -19.4…-33.1 |
 | `chain_line`, `weapon_flash` | -27.9 / -28.3 | 0.70 | **-31.0 / -31.4** | -34.6 / -31.5 |
-| `level_up` (§1.3a) | -19.3 | 0.80 | **-21.3** | -22.7 |
+| `level_up` (§1.3a) | -19.5 | 0.80 | **-21.4** | -21.7 |
 
-So the invariant now holds in the PRODUCT, not just in the files: every active
-sits 1.8–3.7dB under `hit`; every ultimate is above an ordinary hit and still
-3.1dB under a `kill`, so a death out-punches the cast that caused it.
+So the invariant still holds in the PRODUCT, not just in the files: every
+active sits 1.8–3.9dB under `hit`; every ultimate is above an ordinary hit and
+still 3.2dB under a `kill`, so a death out-punches the cast that caused it.
+(r3 moved the spread's wide end from 3.7 to 3.9dB, because `cast_stance` is
+now a real hardwood chock rather than a synthesized one and sits a fifth of a
+dB lower; the ordering, which is the tested invariant, is unchanged.)
 
 **The honest caveat about the -15 impact row.** The impacts do not meet their
 own target either: `hit` plays at -22.1 against a stated -15, because SFX r2
@@ -383,6 +415,15 @@ A duck you can hear working is a bug — slow releases, fast attacks.
 
 ### 2.4 Rate limits (manifest throttleMs, per family)
 
+**These numbers are now the FLOOR, not the whole rule.** The mix layer (§2.5)
+honours every `throttleMs` below off the SIM clock and then adds tier
+ceilings, self-overlap caps and per-frame coalescing on top; nothing here can
+retrigger faster than its number says, and at density most cues retrigger
+considerably slower. Telegraph- and critical-tier cues are additionally FORCED
+past the engine's own guard, so the list of documented `force: true` escapes
+below is no longer exhaustive — §2.5 is.
+
+
 impacts 70-90 · swing 120 · tell 150 · steps 100 · DoT ticks 450-600 ·
 status applies 300 · smash 90 · barks 250/family + one bark per monster per
 4s (director-side set, like `winding`) · crowd 1500 · announcer idents 400 ·
@@ -409,6 +450,154 @@ director, where the test sink has no throttle, and discarded at the engine —
 the same "verified upstream of the engine" failure as §2.2a. Forcing is
 correct here for the reason the boss beats force: `overcharged` can only fall
 once per bank, per player, so the SIM is the rate limit.
+
+### 2.5 THE MIX LAYER — prioritisation and masking (`src/audio/mix.ts`)
+
+**SHIPPED. THE OWNER'S EAR HAS NOT CLEARED IT.** Everything below is a count,
+an overlap or a headroom reading. Nobody in the build loop can hear; §1.3a is
+the only register where quality is ever settled, and this layer has no row
+there yet.
+
+**`MIX-REPORT.md` (repo root) is the owner-facing summary of this section and
+its UI twin** — both verdicts verbatim, an independent verification pass over
+the shipping build (`tools/_shots/mixverify/`), frames read by eye
+(`tools/_shots/mixfilm/`), the numbered list of what only the owner's ear and
+eye can settle, and the tuning knob behind each question. The verification pass
+re-confirmed every row below and closed the headroom breach at the boss
+(peakPre **1.146 → 0.874**); the row to watch is f15_pack at **0.983**, inside
+the contract but only just.
+
+**The verdict that opened it** (2026-08-07, after playing the integrated
+build): *"The sound effects for kills is way too much I think... there needs
+to be a masking layer which prioritizes certain sounds over others."*
+
+**The census that measured it** (`tools/_mixsim.ts` — real sim + real
+director + the engine's own throttle rule replicated + ffprobe durations;
+`tools/_mixbrowser.mjs` — the shipping build, headed, via `__dcc.audio`):
+floor-15/17 pack density ran **18–24 audible voices/second sustained** (p99 of
+73–83 in a single second) against 9.0/s on floor 3; **peak 55–59 concurrent
+voices**; **23.3 clip starts inside the 300ms around one kill**; 35–50% of all
+voices starting while another copy of the SAME clip still sounded
+(`player_hurt` 92.8%, five deep); and the §2.2 headroom contract **breached**
+at peakPre **1.146** (floor-15 boss) / 1.003 (floor-15 pack).
+
+**The diagnosis.** Masking already existed and was BLIND: the engine's per-id
+spam guard was discarding **49–63%** of what the director asked for at
+late-floor density, first-come-first-served, with no notion of importance —
+so the cue it silenced most often was `tell`, the telegraph (290 of 420
+attempts at f17 pack), while `hit` ate the budget. The missing piece was a
+policy, not a mechanism.
+
+**The policy**, applied in this order (`src/audio/mix.ts`, in front of the
+sink; the director half is the coalescing described below):
+
+1. **TIER** — critical (`player_hurt`, `death`, `victory`, `warning`,
+   `count_go`) > telegraph (`tell`, the boss beats, `ident_high`, `verdict`) >
+   progression > act (casts, `kill`, pickups) > impact (`hit`/`crit`/`swing`)
+   > chatter (barks, DoT ticks, room-tone ticks). Tiers 4–5 are never refused
+   for crowding and are FORCED past the engine's guard — the director is now
+   their rate limit, the pattern the boss beats already used.
+2. **VOICE BUDGET** — a cue is admitted only while fewer than its tier's
+   ceiling of voices are already sounding (chatter 6, impact 11, act 13,
+   progression 15). The cheap tiers drop out from the bottom as the pile
+   grows. A lone kill pays nothing: it arrives into an empty room.
+3. **SELF-OVERLAP** — 1–2 copies of one id at a time, per tier.
+4. **FOCUS** — a critical cue or a headline (`level_up`, `achievement`,
+   `lootbox`, `band_sting`, `descend`, the boss beats, `ident_high`) opens a
+   220ms window in which chatter is refused and the impact/act ceilings halve.
+   This is the ducking, expressed as admission rather than gain, so §2.3's
+   "at most ONE duck source" rule is untouched and **`level_up` stays off the
+   `announcer` bus** exactly as §1.3a requires — it measured 90% buried on
+   FLOOR 3 and now clears its own space without pumping the bed.
+
+**Director-side coalescing** (`src/audio/director.ts`), because a budget can
+only pick in arrival order and the director knows six deaths on one frame are
+ONE event: the kill channel is gated (a lone kill fires instantly and shuts
+the gate for 260ms; kills inside the gate are counted, not played; ≥3 counted
+reopens as **one emphatic multi-kill** — the same clip at rate 0.86 plus the
+crowd, then 620ms quiet); blows are capped at 4/frame, biggest first; the
+player's own hurt is one voice/frame, the worst blow; the telegraph is one
+voice/frame, the NEAREST wind-up; barks are capped at 3/frame, deaths before
+aggro before pain, nearest first; DoT ticks are one voice per element per
+frame. The old `state.killsThisStep >= 3` crowd roar is retired into the
+multi-kill emphasis. `castEdges` now walks the LOCAL crawler first, so §2.4's
+"two crawlers pressing the same button yield one cue" resolves in favour of
+your own cast instead of party join order.
+
+**THE FEEL RULE, which is the thing most likely to be got wrong next time:
+NOT ONE GAIN MOVED.** No clip is quieter than it was. The emphasis is a rate
+change. The owner's complaint was density, and "turn the kill down" would
+break a lone kill to fix twenty of them.
+
+**Measured, before → after.** Sim harness (`tools/_mixsim.ts`, 1:1 clock,
+identical seeds/scenarios; `tools/_mixdiff.mjs` prints the table):
+
+| scenario | voices/s | p99 in one second | peak concurrent | cues within ±300ms of a kill |
+|---|---|---|---|---|
+| f03_natural | 9.0 → **6.0** | 46 → **17** | 39 → **14** | 10.8 → **4.7** |
+| f13_natural | 16.0 → **8.8** | 42 → **18** | 36 → **13** | 10.3 → **4.5** |
+| f15_natural | 17.8 → **10.0** | 38 → **21** | 31 → **13** | 9.7 → **4.8** |
+| f17_natural | 16.6 → **8.8** | 52 → **20** | 45 → **13** | 14.6 → **5.3** |
+| f13_pack | 19.2 → **6.7** | 65 → **19** | 50 → **15** | 19.9 → **5.5** |
+| f15_pack | 23.6 → **9.3** | 73 → **20** | 59 → **13** | 23.3 → **5.7** |
+| f17_pack | 18.3 → **7.9** | 83 → **22** | 55 → **14** | 19.3 → **6.3** |
+| f15_boss | 21.2 → **10.9** | 45 → **23** | 34 → **13** | 12.1 → **4.7** |
+
+The floor-number spread collapses: late-floor pack density now sits where
+floor-3 natural density used to (6–11 voices/s everywhere), which is the
+whole claim — the mix no longer runs away with the monster count.
+
+**Do the cues that must read get through?** Same harness, floor 15 pack —
+`fired / silenced by the guard / voices sounding at their own onset / share
+landing under ≥4 impact+bark voices`:
+
+| cue | before | after |
+|---|---|---|
+| `player_hurt` | 226 / **88 silenced** / 24.6 live / 79% buried | 55 / **0** / 5.4 / **7%** |
+| `tell` | 292 / **183 silenced** / 27.0 live / 86% buried | 105 / **0** / 6.0 / **7%** |
+| `boss_phase` | 3 / 0 / 26.7 live / 100% buried | 3 / 0 / **10.0** / 33% |
+| `boss_punish` | 3 / 0 / 19.0 live / 67% buried | 3 / 0 / **7.3** / 0% |
+| `ident_high` | 5 / 0 / 16.2 live / 80% buried | 4 / 0 / **7.3** / 25% |
+| `level_up` (floor 3) | 10 / 0 / 18.7 live / **90% buried** | 10 / 0 / **8.3** / **20%** |
+
+**The shipping build, in the browser** (`tools/_mixbrowser.mjs`, headed d3d11,
+30s per staged scenario; before-numbers from the census, after-numbers from
+this round — dilation differs run to run, so read the ratios, not the wall
+rates):
+
+| scenario | voices/sim-s | peak concurrent | thrown away by the blind guard | self-overlap | **peakPre** |
+|---|---|---|---|---|---|
+| f03_pack | 15.9 → **9.4** | 22 → **11** | 53.0% → **0.0%** | 62.9% → 39.5% | 0.880 → **0.789** |
+| f13_pack | 33.1 → **11.3** | 39 → **11** | 60.3% → **0.0%** | 35.7% → 19.2% | 0.875 → **0.887** |
+| f15_pack | 47.8 → **14.6** | 48 → **10** | 51.0% → **0.0%** | 44.0% → 21.8% | **1.003 → 0.871** |
+| f17_pack | 60.2 → **14.9** | 36 → **10** | 59.3% → **0.0%** | 32.6% → 24.3% | 0.925 → **0.626** |
+| f15_elite | 10.4 → **7.3** | 12 → **7** | 12.2% → **0.0%** | 46.8% → 24.5% | 0.785 → **0.642** |
+| f15_boss | 27.7 → **13.7** | 36 → **11** | 32.8% → **0.0%** | 43.1% → 24.3% | **1.146 → 0.922** |
+
+Two readings worth stating plainly. **(a) The blind guard now discards
+nothing** — 0.0% throttled in every scenario, because the priority-aware layer
+upstream is the rate limit and what it admits is what sounds. The two-thirds
+of the mix that used to be thrown away at random is now thrown away on
+purpose, and the telegraph is on the surviving side of that choice.
+**(b) The §2.2 headroom contract holds again**: peakPre is under full scale
+everywhere, including the floor-15 boss that measured 1.146. peakPost was
+never clipping (0.81–0.84 → 0.66–0.78); what the density was buying was
+continuous compressor gain-riding, which is masking expressed as a level.
+
+**Guard**: `test/audioMask.test.ts` — the tier ordering, the budget bound, the
+force rule, "no gain the caller asked for is modified", the self-overlap cap,
+the focus window, and the two feel assertions (a lone kill is untouched;
+twenty kills are one emphatic event at the same gain and a lower rate).
+
+**What is NOT verified.** Whether it SOUNDS better. Whether the room is now
+too thin — creature barks fall from 29–35% of the voice budget to 1–10% at
+pack density, which is the intended target (they were the largest single
+contributor and the 48-voice peak contained twenty of them) but is a real
+change of texture at exactly the moment there are sixteen monsters on screen.
+Whether the multi-kill emphasis reads as a reward or as a swallowed kill. The
+mixer's clock is SIM time, so under a dilated frame rate its windows are
+longer in wall terms than in the harness — the harness numbers are the strict
+ones and the browser is more permissive. **Only the owner's ear closes this.**
 
 ---
 
@@ -447,7 +636,7 @@ lap: 60-96s for ambient beds.
 | Menu / campfire | The check-in. Small, warm-ish, tired: soft pad + slow filtered arp, the only near-friendly cue in the game. | ~65 BPM | 60-75s | Synth |
 | Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. **r2: the source's fade-out tail trimmed + 2s loop crossfade** (`fix-beds.mjs`; seam step 20.7dB→0.8dB, LUFS preserved). | — | as-is | Existing |
 | (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. **Music r1: demoted as planned** — it now plays only when another bed is not PLAYABLE (fallback via sink.has, extended in the r2 fix round from the six band beds to every bed the director can request). Note "playable", not "decoded": under streaming (row E-22) no bed is ever decoded, so availability is optimistic and turns false when the element actually fails — 404, undecodable, CORS-tainted, or stalled past the deck watchdog. The seam flaw ships only in a degraded state nobody should reach; repair stays out of scope unless the audit disagrees. | — | — | Existing |
-| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). | — | as-is | Existing |
+| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). **Release-fixes: `battle_winter.ogg` trimmed 262.45s→88.40s / 3.55MB→1.18MB** (`fix-beds.mjs battle_winter` — HANDOFF §3d's mid-fight phone-stall fix; cut chosen by a deterministic continuation-correlation search, 1.2s loop crossfade; measured seam Δ0.8dB, no click, -23.5 LUFS-I / -7.5 dBTP). | — | 88s | Existing (CC-BY, change marked in ASSETS.md) |
 | Boss themes | Keep epic/tides/colossal (+ shipped final-phase escalation to colossal). Optional P2: a generated percussion LAYER the engine adds at low HP instead of a full bed swap. | — | as-is | Existing (CC-BY credited) |
 | Collapse | Keep, re-encode WAV→OGG. **r2: seam click + true peak fixed** (`fix-beds.mjs`: -2.0dB, 25ms loop crossfade → -1.4 dBTP, seam 0.3dB). Level vs the -20 LUFS family target stays phase C's. | — | as-is | Existing |
 

@@ -16,25 +16,52 @@
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
          Dungeon stone lit by torchfire, framed in bronze, announced in gold.
          Tokens first; every component below derives from them. */
+      /* WOFF2 SUBSETS, not raw TTF (asset budget). The four TTFs cost 436 KB
+         gzipped on the boot path; the same four as brotli-compressed WOFF2
+         subsets cost 168 KB. Two independent wins stacked:
+
+           - WOFF2 is brotli-with-a-font-model. It beats gzip-over-TTF by ~2x
+             on its own, and unlike gzip it survives the `immutable` cache
+             headers as a real file rather than a transport encoding.
+           - The subset drops whole SCRIPTS this game cannot render — full
+             Cyrillic, polytonic Greek, Vietnamese, IPA: 768 of Alegreya's
+             1235 codepoints. It does NOT drop symbols. Every codepoint the
+             font has above U+2000 is kept (─ § · → × … ✕ ◆ ± ≈ ° ≤ ≥ │ ▼ ▶ ☰
+             and the rest are typed straight into this document), and so are
+             Latin-1 + Latin Extended-A so a crawler name with accents still
+             renders in-family. Real small caps survive too: `smcp`/`c2sc` are
+             intact, which the whole --display treatment depends on.
+
+         Regenerate with `tools/subset-fonts.mjs`; the unmodified upstream TTFs
+         are kept in `tools/fonts-src/`. ASSETS.md records the modification —
+         both families are OFL 1.1 with no Reserved Font Name, so subsetting is
+         permitted, and the `name` table is preserved unchanged.
+
+         No TTF fallback `src` is declared on purpose: WOFF2 has been supported
+         since Safari 10 / iOS 10, and listing an unreachable second source
+         would only put 900 KB back in the deploy image. */
       @font-face {
         font-family: "Cinzel";
-        src: url("/fonts/Cinzel.ttf") format("truetype");
+        src: url("/fonts/Cinzel.woff2") format("woff2");
+        /* Cinzel is VARIABLE (wght 400..900) and stays variable: fvar/gvar/
+           avar/HVAR/STAT all survive the subset, so the 600/700/900 weights
+           this UI asks for are still real instances, not synthesized bold. */
         font-weight: 400 900;
         font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Regular.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Regular.woff2") format("woff2");
         font-weight: 400; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Bold.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Bold.woff2") format("woff2");
         font-weight: 700; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Italic.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Italic.woff2") format("woff2");
         font-weight: 400; font-style: italic; font-display: swap;
       }
       :root {
@@ -239,6 +266,15 @@
       .hh-collapse.stayed > i { background: linear-gradient(90deg, #5e0c07, #e0402e); }
       .hh-collapse.stayed { box-shadow: 0 0 10px rgba(224,64,46,0.45); }
       @keyframes stayPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+      /* THE DEBUT (TUTORIAL.md first-run mercy): floor 1 of a fresh profile's
+         first run never goes lethal -- the clock counts down THROUGH the
+         warning and then stops at the hold. A stopped clock has to look
+         DECIDED or it looks broken, so the row states HELD in the warning's
+         gold and sits perfectly still: nothing is happening, which is the
+         point. (No pulse. The stay above pulses because it is spending
+         something; this is spending nothing.) */
+      .hh-phase.held { color: var(--gold-hi); text-shadow: 0 0 8px rgba(212,175,55,0.35); }
+      .hh-collapse.held > i { background: linear-gradient(90deg, #6b6153, #a8854f); }
       /* The HP cockpit anchor: gold-bezel framed bar with segment ticks, a
          damage-lag ghost trail, and the smoothed readout engraved on top. */
       .hpframe { margin-top: 6px; padding: 2px; position: relative; border-radius: 3px;
@@ -411,6 +447,37 @@
          pop + arc + fade in main3d.spawnDamageNumber) — no CSS transitions,
          no layout thrash, transform/opacity only. */
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+
+      /* THE EXIT BEACON (r11 wayfinding — zone map: world markers). A minimap
+         says where the exit is on a map; this says WHICH WAY TO WALK, which is
+         the question a player in a 3D view is actually asking and the one two
+         of four cold profiles never answered. Same gold as the chart's stairs
+         mark and the Location Scout diamond, so the three surfaces read as one
+         fact. Positioned by transform only (no layout), pointer-events off. */
+      #exitmark { position: fixed; left: 0; top: 0; display: none;
+        flex-direction: column; align-items: center; gap: 1px;
+        pointer-events: none; z-index: 6; will-change: transform;
+        text-shadow: 0 1px 3px #000, 0 0 10px rgba(0,0,0,0.85); }
+      #exitmark i { display: block; width: 0; height: 0;
+        border-left: 7px solid transparent; border-right: 7px solid transparent;
+        border-bottom: 11px solid #ffd23e;
+        filter: drop-shadow(0 0 6px rgba(255,210,62,0.7)); }
+      #exitmark b { font-family: var(--display); font-size: 11px; letter-spacing: 0.16em;
+        color: #ffd23e; }
+      #exitmark em { font-style: normal; font-size: 10px; color: var(--ink-dim);
+        letter-spacing: 0.06em; }
+      /* On the edge of the glass the chevron IS the message — the label shrinks
+         out of the way rather than competing with the fight it is over. */
+      #exitmark.edge b { font-size: 10px; opacity: 0.85; }
+      #exitmark.edge em { display: none; }
+      /* A marker over a cinematic or a paused world is furniture, not guidance. */
+      body.cine #exitmark, body.checkin #exitmark, body.modal #exitmark,
+      body.dlg #exitmark { display: none !important; }
+      /* Two slow warm breaths so a static frame still reads as a live beacon,
+         with no motion for anyone who has asked the OS for none. */
+      #exitmark i { animation: exitpulse 1.9s ease-in-out infinite; }
+      @keyframes exitpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) { #exitmark i { animation: none; } }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
       /* NOTE: the numerals themselves are canvas glyphs (paintNumeral in
@@ -462,13 +529,33 @@
            settlement plaque:   #settle-plaque (Roam arrival card, ~26% center —
                                   below the headline zone, transient)
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; dismissible
-                                 first-contact tip cards (kind:"tip"), one at a time;
-                                 touch mode slides it below the relocated minimap
+           coach column:        #coach (z 7; z 26 under body.modal) — right rail
+                                 between #party and #quests, and THE ONE PLACE A
+                                 FIRST-TIMER LOOKS FOR WHAT TO DO NEXT. One plate,
+                                 three children, top to bottom: #coach-head (Mordecai's
+                                 plaque — portrait + nameplate, shown only while the
+                                 curriculum is live), #objectives (the step head, THE
+                                 STANDING ASK — one sentence of prose for whatever is
+                                 being asked right now, rebuilt every frame and never
+                                 spent — and the checkable items: persistent, never
+                                 auto-dismissed; compact/phone drops the checkboxes and
+                                 keeps the ask) and #tutorial
+                                 (MORDECAI'S STRIP: dismissible non-pausing teaching
+                                 cards — coach lines, curriculum tip translations,
+                                 objective step lines — one at a time). The checklist
+                                 is the ONE transient-looking layer that survives a
+                                 modal (the panel a step points at must not hide the
+                                 step); the strip stands down under one, because it
+                                 must not talk over a decision. Touch mode moves the
+                                 whole column below the relocated minimap
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
-                                  System chatter)
+                                  System chatter). THE COLUMN IS CAPPED, NOT GROWN
+                                  (src/ui/notify.ts): at most 3 lines plus ONE
+                                  ".toast-more" chip carrying the held backlog. It
+                                  never scrolls and it stands down inside a climax
+                                  lock, so a boss bar or a death beat gets clean glass
            modals (z 20-28):    #inv/#abil/#sheet/#ledger 20 (#ledger = THE CRAWL
                                   LEDGER, NICHE.md 4.3: contracts/stamps/streak,
                                   toggled by the "ledger" binding, default L)
@@ -489,6 +576,15 @@
                                   pointer-events off elsewhere so the campfire lineup on the
                                   canvas beneath stays clickable)
                                 · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
+           world markers (z 6): #exitmark — THE EXIT BEACON, the debut's
+                                  wayfinding to the stairs (main3d renderExitMark;
+                                  TUTORIAL.md r11). World-anchored, not a HUD
+                                  corner: it follows the projected stairs and
+                                  pins to the frame edge as a chevron when they
+                                  are behind the camera. It exists only while
+                                  exitLit() is true — a fresh crawler who has not
+                                  yet taken a staircase — and stands down under
+                                  every modal, the check-in and any cinematic
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
            orientation gate (z 40): #rotate — phone portrait only; outranks everything
          New overlays must pick a zone here first. */
@@ -504,6 +600,14 @@
          bar. While it is up, the System's headline band steps down so the two
          never share pixels (host toggles body.bossplate). */
       body.bossplate #headline { top: max(28%, 232px); }
+      /* ...and the CALL-OUT (#bosscall, top max(27%, min(236px,34vh))) lands on
+         the same pixels as that stepped-down band. A census capture caught the
+         boss's "UNLOAD / EXPOSED CORE" painted straight through the System's
+         headline text — two System sentences, both unreadable, neither surface
+         aware the other existed. The call-out is the beat the fight is FOR and
+         it lasts ~3s, so the banner yields to it (host toggles body.bosscall),
+         the same stand-down grammar as body.bossplate #banner. */
+      body.bosscall #headline { visibility: hidden; }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
@@ -513,20 +617,46 @@
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
 
-      /* Tutorial cards (kind:"tip", COURTESY EXPLANATIONs): each one fires
-         exactly once per crawler ever (Player.tipsSeen), so unlike toasts it
-         gets an explicit dismiss instead of an auto-fade — a rule you have
-         to acknowledge, not miss in a blur of chatter. Top-left, clear of
-         the centered headline/toast zones. */
+      /* MORDECAI'S STRIP (kind:"tip" cards): the non-pausing teaching surface.
+         Every card is his — the System no longer teaches on any surface (ONE
+         VOICE, HANDOFF §3a). Once-ever lines get an explicit dismiss instead
+         of an auto-fade — an instruction you have to acknowledge, not miss in
+         a blur of chatter. Top-left, clear of the centered headline/toast
+         zones. */
       /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
          mode minimap (z 5) or taps land on movement instead of GOT IT. */
-      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none;
-        z-index: 7; }
-      /* Touch mode parks the minimap in this corner — the iPad slides below
-         it; the phone hasn't the height, so the transient card sits OVER the
-         minimap instead (z 7 beats its z 5; one tap and it's gone). */
-      body.touch #tutorial { top: 284px; }
-      body.phone #tutorial { top: 96px; max-width: 30ch; }
+      /* ONE TEACHING SURFACE (tutorial r3, finding 3). r2 moved the strip onto
+         the objectives card's axis and measured the two boxes' gap with a CSS
+         variable (--obj-h, published from JS). A third cold pass still counted
+         five teaching surfaces in four corners, and it was right to: two fixed
+         overlays stacked by arithmetic are two overlays. They are ONE PLATE
+         now — #coach, a single fixed box holding one Mordecai plaque, the
+         checklist, and the strip beneath it, in normal flow. No measurement,
+         no variable, no gap to keep in sync, one portrait instead of two, and
+         one place a first-timer looks for what to do next.
+
+         (The strip keeps its own plaque when it is the only child on screen —
+         a veteran who never enrolled still gets curriculum tip translations,
+         and a nameless line of text in the corner is not Mordecai.) */
+      /* z 7: the column must out-stack the touch stick zone (z 4) and the
+         touch-mode minimap (z 5), or taps land on movement instead of GOT IT. */
+      #coach { position: fixed; top: 148px; right: 12px; width: 238px;
+        z-index: 7; pointer-events: none; }
+      body.coaching #coach { background: var(--noise),
+          linear-gradient(180deg, rgba(38,29,19,0.82), rgba(13,10,6,0.86) 62%);
+        backdrop-filter: blur(3px);
+        border: 1px solid #8a6d3b; border-top-color: #e2b06a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.85); outline-offset: 1px; border-radius: 4px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 0 26px rgba(217,142,74,0.14),
+          0 10px 30px rgba(0,0,0,0.6);
+        overflow: hidden; }
+      /* The column's plaque: ONE portrait and ONE nameplate for the whole
+         surface, borrowed wholesale from the strip's .tut-head so the man on
+         the checklist is visibly the man in the dialogue panel. */
+      #coach-head { display: none; }
+      body.coaching #coach-head { display: flex; }
+      #tutorial { position: static; width: auto; max-width: none;
+        pointer-events: none; }
       body.phone .tut-body { font-size: 12px; }
       /* THE COURTESY CARD WAS A NAVY PLATE WITH A DANGER BUTTON (r3 majors).
          Rule four sanctions cool GLASS for anything overlaid on live gameplay —
@@ -539,27 +669,160 @@
          And its dismiss carried an oxblood fill on the most benign action in
          the product — rule 2 says blood is HP and threat, nothing else. GOT IT
          is a stone secondary now, like every other acknowledge in the set. */
-      .tut { background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
-        border: 1px solid #c9a24b; border-radius: 6px;
-        color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
+      /* ...AND IT HAS TO LOOK LIKE THE SAME MAN AS THE MODAL (r2 minor). Next
+         to #dialogue — painted portrait in a house plate frame, engraved
+         nameplate, kicker rule, key caps — a flat translucent rectangle with a
+         20px round avatar read as an unfinished placeholder for the same
+         character. The strip borrows the dialogue panel's actual material
+         tokens: the noise+gradient slab, the three-tone bronze keyline with the
+         lit top edge, the offset outline, and the portrait as a SQUARE framed
+         chip rather than a circular icon. It stays glass (the dungeon reads
+         through it, rule four) — this is the same body at a higher polish, not
+         an opaque panel parked on the floor. */
+      .tut { background: var(--noise), linear-gradient(180deg, rgba(38,29,19,0.82), rgba(13,10,6,0.86) 62%);
+        backdrop-filter: blur(3px);
+        border: 1px solid #8a6d3b; border-top-color: #e2b06a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.85); outline-offset: 1px; border-radius: 4px;
+        color: #e8e0cc;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 0 26px rgba(217,142,74,0.14),
+          0 10px 30px rgba(0,0,0,0.6);
+        opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
       .tut.show { opacity: 1; transform: translateY(0); }
-      .tut-head { background: rgba(201,162,75,0.18); border-bottom: 1px solid #c9a24b;
-        padding: 6px 10px; font-size: var(--t-small); font-weight: 700;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        color: #c9a24b; display: flex; align-items: center; }
-      .tut-body { padding: 10px 12px; font-size: var(--t-body); line-height: 1.5; }
-      .tut-dismiss { display: block; width: 100%; margin-top: 8px; padding: 5px 0;
+      /* Mordecai's plaque: the ember tokens the #dialogue .guide frame already
+         owns (#b8945a / #f5cf82) with his portrait as a chip — one face for
+         one voice, strip and modal alike. The gold System ribbon is retired. */
+      .tut-head, #coach-head { background: linear-gradient(180deg, rgba(217,142,74,0.2), rgba(217,142,74,0.06));
+        border-bottom: 1px solid rgba(168,133,79,0.5);
+        padding: 6px 10px; display: flex; align-items: center; gap: 8px; }
+      .tut-face { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 3px;
+        object-fit: cover; background: #100c08;
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px; }
+      /* The nameplate: name in the display face, the role as a kicker under it
+         — the #dialogue .dlg-nameplate hierarchy, at strip scale. */
+      .tut-name { display: flex; flex-direction: column; line-height: 1.1;
+        font-family: var(--display); font-variant: small-caps; font-weight: 700;
+        font-size: var(--t-small); letter-spacing: 0.14em; color: #f5cf82;
+        text-shadow: 0 1px 2px #000; }
+      .tut-name small { font-size: 9.5px; letter-spacing: 0.24em; font-weight: 600;
+        color: var(--ink-faint); margin-top: 2px; }
+      .tut-body { padding: 10px 12px 9px; font-size: var(--t-body); line-height: 1.5; }
+      /* A CONTROL IS A CAP, NOT A WORD. The one thing the player has to press
+         is drawn the way the hotbar and the draft badge draw it, so it can be
+         found without reading the sentence. Shared with the objectives card
+         (.obj-key) — one key affordance across the teaching column. */
+      .tut-key, .obj-key { display: inline-block; font-family: var(--display);
+        font-size: 0.92em; font-weight: 700; letter-spacing: 0.06em; font-variant: normal;
+        color: #f5e6bf; background: linear-gradient(180deg, #3a2d1c, #17110a);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        border-radius: 3px; padding: 0 5px; margin: 0 1px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 1px 2px rgba(0,0,0,0.6);
+        white-space: nowrap; }
+      /* GOT IT is an acknowledge, not a call to action: it shrinks to its own
+         words, sits at the end of the line like the dialogue panel's hint, and
+         carries the key that also does it. */
+      .tut-dismiss { display: block; width: fit-content; margin: 9px 0 0 auto; padding: 4px 12px;
         background: linear-gradient(180deg, var(--raised), #14100c);
         border: 1px solid var(--bronze); border-radius: var(--r-panel);
         color: var(--gold); font-family: var(--display); font-variant: small-caps;
         font-size: var(--t-small); font-weight: 700; letter-spacing: 0.14em; cursor: pointer; }
+      .tut-dismiss kbd { font-family: var(--display); font-variant: normal;
+        margin-left: 7px; padding: 0 4px; border-radius: 2px; font-size: 0.9em;
+        color: #f5e6bf; background: rgba(8,5,3,0.55); border: 1px solid rgba(168,133,79,0.6); }
       .tut-dismiss:hover { border-color: var(--bronze-hi); color: var(--gold-hi);
         background: linear-gradient(180deg, var(--hover), var(--raised)); }
       @media (pointer: coarse) {
         .tut { touch-action: manipulation; } /* never a double-tap zoom */
         .tut-dismiss { padding: 12px 0; font-size: var(--t-small); } /* thumb-sized */
       }
+      /* INSIDE THE COLUMN THE CARD IS NOT A CARD, it is the column's body: the
+         plate, the keyline and the plaque all belong to #coach, and the strip
+         contributes only a hairline above its text. Two nested frames with two
+         portraits reads as two systems that happen to be adjacent, which is
+         precisely what the pass counted. */
+      body.coaching #tutorial .tut { background: none; backdrop-filter: none;
+        border: 0; border-top: 1px solid rgba(168,133,79,0.4); outline: none;
+        border-radius: 0; box-shadow: none; }
+      body.coaching #tutorial .tut-head { display: none; }
+
+      /* THE OBJECTIVES CHECKLIST (#objectives — the coach column's middle
+         child): the guided first-session steps. PERSISTENT — no auto-dismiss,
+         no moment expiry, no pointer events; it stays until the step's items
+         are done, hides itself when the room the player is standing in has no
+         step to ask for, and unmounts forever when the curriculum is over. It
+         wears no frame of its own: the column is the plate. */
+      #objectives { position: static; width: auto; display: none;
+        pointer-events: none; color: #e8e0cc; }
+      .obj-head { display: flex; align-items: center; gap: 7px;
+        background: rgba(217,142,74,0.14); border-bottom: 1px solid #b8945a;
+        padding: 5px 9px; font-family: var(--display); font-variant: small-caps;
+        font-weight: 700; font-size: var(--t-small); letter-spacing: 0.12em;
+        color: #f5cf82; }
+      /* ONE PORTRAIT PER COLUMN: the plaque above owns the face (there is no
+         .obj-face any more — see renderObjectivesCard), so the step head is
+         just the step: its title, its count, and the rule under it. */
+      body.coaching .obj-head { background: none; border-bottom-color: rgba(168,133,79,0.4); }
+      .obj-title { flex: 1 1 auto; min-width: 0; white-space: nowrap;
+        overflow: hidden; text-overflow: ellipsis; }
+      .obj-n { flex: 0 0 auto; color: #c9a24b; font-size: 11px; letter-spacing: 0.06em; }
+      /* THE STANDING ASK (tutorial r10, the root cause): the instruction for
+         the thing being asked RIGHT NOW, in prose, permanently. It sits
+         between the step head and its checkboxes because that is the reading
+         order — what am I doing, then what is left to tick. It is a
+         PROJECTION of the sequencer (rebuilt every frame, never dismissed,
+         never "spent"), so unlike the strip's cards it has no lifetime, no
+         queue and no way to go stale; and it rides the card, which is the one
+         teaching surface that survives a modal, so the panel a step points at
+         cannot hide the step's instruction. `.hot` is the escalated form —
+         the player has been on this item long enough that the ask has been
+         replaced by its concrete version, and the line says so quietly rather
+         than shouting: warmer ink, a lit left edge, no motion. */
+      .obj-ask { padding: 7px 9px 6px; font-size: 12.5px; line-height: 1.45;
+        color: #e2d7bd; border-bottom: 1px solid rgba(168,133,79,0.22); }
+      .obj-ask.hot { color: #f2e2bd; background: rgba(217,142,74,0.1);
+        box-shadow: inset 2px 0 0 #d98e4a; }
+      /* ESCALATION IS DELIVERED IN PLACE. The first build of r10 queued the
+         concrete form as a strip card as well, and the frame showed the same
+         sentence twice in one column sixty pixels apart — r8's "five surfaces
+         in four corners" walking back in. So the prose changes where the
+         player is already reading and the change announces itself: two slow
+         warm sweeps, no motion, no new box. */
+      @keyframes obj-ask-pulse {
+        0%, 100% { background: rgba(217,142,74,0.1); }
+        50% { background: rgba(217,142,74,0.28); }
+      }
+      .obj-ask.pulse { animation: obj-ask-pulse 1.3s ease-in-out 2; }
+      @media (prefers-reduced-motion: reduce) { .obj-ask.pulse { animation: none; } }
+      .obj-items { list-style: none; margin: 0; padding: 6px 9px 8px; }
+      .obj-items li { display: flex; align-items: center; gap: 7px; padding: 3px 0;
+        font-size: 12.5px; line-height: 1.35; color: #cfc6b2;
+        transition: color 0.4s ease, opacity 0.4s ease; }
+      .obj-items li.done { color: #8fae72; opacity: 0.8; }
+      .obj-items li.done span { text-decoration: line-through; }
+      .obj-check { width: 12px; height: 12px; flex: 0 0 12px; position: relative;
+        border: 1px solid #b8945a; border-radius: 3px;
+        transition: background 0.3s ease, border-color 0.3s ease; }
+      .obj-items li.done .obj-check { background: rgba(143,174,114,0.28); border-color: #8fae72; }
+      .obj-items li.done .obj-check::after { content: "✓"; position: absolute;
+        top: -3px; left: 1px; color: #a9d48f; font-size: 11px; }
+      /* Compact/phone: the checklist collapses to the one-line head chip (the
+         step title + n/m count) tucked under #hud-tr — the ~100px of
+         uncontested width a landscape phone actually has. Owner's phone pass
+         (against production) is the acceptance for this placement. */
+      body[data-uiclass="compact"] #coach,
+      body[data-uiclass="phone"] #coach { top: 46px; right: 8px; width: auto;
+        max-width: 44vw; }
+      body[data-uiclass="compact"] #objectives .obj-items,
+      body[data-uiclass="phone"] #objectives .obj-items { display: none; }
+      /* ...but NOT the standing ask: the checkboxes are a progress readout and
+         the ask is the instruction, and dropping the instruction is the exact
+         defect r10 fixed. It clamps instead — three lines of the only sentence
+         that says what to press, never a scrollbar. */
+      body[data-uiclass="compact"] #objectives .obj-ask,
+      body[data-uiclass="phone"] #objectives .obj-ask { font-size: 11.5px;
+        line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical; overflow: hidden; }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already
@@ -577,6 +840,18 @@
       .toast-boss { --tc: #c0392f; } .toast-progress { --tc: #c9a24b; } .toast-levelup { --tc: #5a87c6; }
       .toast-loot { --tc: #9a6bd0; } .toast-achievement { --tc: #f2c14e; } .toast-show { --tc: #a99f8c; }
       .toast-flavor { --tc: #a99f8c; }
+      /* THE COALESCE TICK: a repeated line takes a count instead of a second
+         slot (src/ui/notify.ts rule 3 — at floor-13 pack density 43 of every
+         67 toasts a minute were the same sentence). The tick is how the player
+         can tell the counter moved rather than the line simply sitting there. */
+      .toast.bumped { animation: toast-bump 0.24s ease-out; }
+      @keyframes toast-bump { 40% { transform: translateY(-3px) scale(1.035); } }
+      /* GRACEFUL OVERFLOW, NOT A SCROLLING LOG: the backlog the mix is holding
+         is ONE compact chip in the column's own slot. It never grows, it never
+         scrolls, and it stands down entirely inside a climax lock. */
+      .toast.toast-more { --tc: #5f5a4e; background: rgba(12,10,20,0.62);
+        color: #8e8878; font-size: 11px; letter-spacing: 0.16em; padding: 2px 9px;
+        font-variant: small-caps; border-bottom-width: 1px; }
 
       /* Minimap: framed like an instrument, not a raw canvas — bronze bezel,
          corner-cap diamonds, inner vignette (house frame language). */
@@ -976,8 +1251,8 @@
         max-width: none; transform: none; }
       body[data-uiclass="compact"] #bossbar::before,
       body[data-uiclass="phone"] #bossbar::before { display: none; }
-      body[data-uiclass="compact"].bossplate #tutorial,
-      body[data-uiclass="phone"].bossplate #tutorial { display: none; }
+      body[data-uiclass="compact"].bossplate #coach,
+      body[data-uiclass="phone"].bossplate #coach { display: none; }
       #bossbar::before { content: ""; position: absolute; top: -4px; left: 50%; margin-left: -4px;
         width: 8px; height: 8px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
@@ -1369,7 +1644,9 @@
          headline mechanic, not chrome. What it covers instead is the
          SYSTEM/CRAWLER menu bar, which is the least urgent thing on screen
          while the System is explaining a mechanic. */
-      body.touch #tutorial { top: var(--gut-t); left: var(--card-x, 12px);
+      /* (The column moves as one — the strip is a child of #coach now, so the
+         touch placement is the COLUMN's, not the card's.) */
+      body.touch #coach { top: var(--gut-t); left: var(--card-x, 12px);
         right: auto; width: var(--card-w, 40vw); max-width: none;
         transform: none; text-align: left; pointer-events: none; z-index: 7; }
       body.touch #tutorial .tut { pointer-events: none; }
@@ -1530,8 +1807,15 @@
       body[data-uiclass="phone"] #tutorial .tut-head { min-height: 44px;
         box-sizing: border-box; padding: 6px 10px 6px 116px;
         justify-content: flex-end; }
-      body[data-uiclass="compact"] #tutorial .tut-hx,
-      body[data-uiclass="phone"] #tutorial .tut-hx { display: none; }
+      /* The role kicker under the name is desktop-only: on a 44px thumb band
+         the plate is the name and the button, nothing else. (Was .tut-hx —
+         the inline " — GUIDE" suffix the nameplate replaced.) */
+      body[data-uiclass="compact"] #tutorial .tut-name small,
+      body[data-uiclass="phone"] #tutorial .tut-name small { display: none; }
+      body[data-uiclass="compact"] #tutorial .tut-face,
+      body[data-uiclass="phone"] #tutorial .tut-face { width: 22px; height: 22px; flex-basis: 22px; }
+      body[data-uiclass="compact"] #tutorial .tut-dismiss kbd,
+      body[data-uiclass="phone"] #tutorial .tut-dismiss kbd { display: none; }
       body[data-uiclass="compact"] #tutorial .tut-body,
       body[data-uiclass="phone"] #tutorial .tut-body { line-height: 1.35;
         padding: 8px 10px; }
@@ -3223,6 +3507,10 @@
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
       body.checkin #skills, body.checkin #banner, body.checkin #show,
       body.checkin #minimap-frame, body.checkin #cockpit,
+      /* ...and the whole coach column, which is dungeon furniture: RINGSIDE
+         CHECK-IN is the cover shot, and a checklist for a run that has not
+         started is both clutter and a card nobody can act on. */
+      body.checkin #coach,
       body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
       #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
         color: #f5e6bf; text-shadow: 0 2px 12px #000; }
@@ -3277,6 +3565,20 @@
         grid-template-columns: minmax(0, 1fr) minmax(292px, clamp(292px, 20vw, 360px));
         gap: var(--g-col); flex: 1; min-height: 0; overflow-y: auto;
         align-items: start; }
+      /* COLD BOOT: one door (see the #m-more comment in the markup). The
+         featured band, the mode grid, the test chamber and the whole boards
+         column stand down until a first crawl exists, and the grid collapses
+         to the single column that is left so nothing is centred around a
+         hole. Undone for the session by #m-more, and never set again once
+         the player has any history. */
+      body.coldboot #menu .m-cols { grid-template-columns: minmax(0, 1fr); }
+      body.coldboot #menu .m-side,
+      body.coldboot #menu #m-hero-row,
+      body.coldboot #menu .m-modes,
+      body.coldboot #menu #m-test,
+      body.coldboot #menu #m-test-form { display: none; }
+      #menu #m-more { display: none; }
+      body.coldboot #menu #m-more { display: block; }
       /* ---- THE MODE BOARD (r1 blocker) ----
          Was `repeat(auto-fit, minmax(190px,1fr))` with rows sized by copy: a
          ragged 3+2 with a 210x152 hole, row heights differing 130 vs 152 purely
@@ -4019,7 +4321,12 @@
         mask-size: contain; mask-repeat: no-repeat; mask-position: center;
         -webkit-mask-size: contain; -webkit-mask-repeat: no-repeat; -webkit-mask-position: center; }
       #saferoom .tip { color: #a99f8c; font-size: 12px; margin: 7px 0 2px; font-style: italic; }
-      #saferoom .tip::before { content: "MORDECAI: "; color: #6da356; font-weight: 700; font-style: normal; }
+      /* The speaker is CONTENT, not a ::before — a pseudo-element outlives the
+         textContent it labels, and a lime prefix with no sentence under it was
+         both a ghost and the only off-palette colour on the panel. Gold, in the
+         panel's own system; the strip already identifies him with a portrait. */
+      #saferoom .tip .tipwho { color: var(--gold); font-weight: 700; font-style: normal;
+        letter-spacing: 0.04em; }
       .shop-body { flex: 1; min-height: 0; display: grid; grid-template-columns: 1fr 348px;
         gap: 14px; margin-top: 8px; }
       .shop-shelf { overflow-y: auto; padding-right: 6px;
@@ -4192,6 +4499,14 @@
         0 0 7px rgba(242,193,78,0.18); }
       .itile.ready .iprice { color: #f2c14e; }
       .tier-h .tnote.ready { color: #b99648; }
+      /* FILLS AN EMPTY SLOT (r9): the debut crawler's read. "Ready" says what
+         you can click; this says which of the ready tiles you are not already
+         wearing a better version of — a green corner flag, the same green the
+         OWNED pip uses, on the opposite corner so the two never collide. */
+      .itile.fits .ibox::after { content: ""; position: absolute; right: 0; bottom: 0;
+        border: 5px solid transparent; border-right-color: #6da356; border-bottom-color: #6da356;
+        opacity: 0.9; }
+      .itile.fits .ibox { border-color: #6da356; }
       /* BUILD LINKAGE: selecting a completed work lights its components (green
          = in the bag, amber-dashed = the next thing to buy); selecting a
          component lights what it builds into. */
@@ -5696,11 +6011,46 @@
          transient HUD chatter leaves the frame ENTIRELY — no log lines, tips,
          toasts, or banners may bleed readably behind a modal scrim. body.modal
          is host-managed (style-attribute observer in main3d). ---- */
-      body.modal #hud-log, body.modal #toasts, body.modal #tutorial,
+      body.modal #hud-log, body.modal #toasts,
       body.modal #headline, body.modal #draft-badge, body.modal #party,
       body.modal #mobplates {
         opacity: 0 !important; visibility: hidden;
         transition: opacity 0.15s ease, visibility 0s linear 0.15s; }
+      /* MORDECAI'S STRIP STANDS DOWN UNDER A DECISION — and inside the coach
+         column it must stand down by LEAVING THE FLOW, not by going
+         transparent: an invisible card holding its height inside the column's
+         plate is a blank panel with a gap in it. (The card's own clocks
+         already know: tutorialBlocked() pauses the auto-dismiss, the read
+         budget and the queue while either modal class is set.) */
+      body.modal #tutorial, body.dlg #tutorial { display: none; }
+      /* ...BUT NOT THE OBJECTIVES CARD (tutorial r1). Mordecai's STRIP must
+         not talk over a decision — that rule is right and it stays. The
+         checklist is not chatter, it is the ask the panel is an answer to: the
+         shrine is the first real decision a new player meets, and in the safe
+         room the open shop panel IS the objective ("Open the shop / Spend some
+         gold"), so hiding the list behind the thing it describes left the
+         player unable to cross-reference the ask with the offer. It rides
+         above the in-run panels' scrims (z 26 > #saferoom 24, #draft 25) and
+         still loses to the screens that own the whole frame — #recap 27,
+         #menu 28, #loading 29. */
+      /* ONE RULE, BOTH MODALS (tutorial r2 minor). The card was crisp and on
+         top of the safe-room shop (z 26 > #saferoom 24) and simultaneously
+         dimmed to illegibility behind the #dialogue backdrop — including at
+         its very FIRST paint, so the first time a player could read the run's
+         goals it was behind a blur. Two opposite z-behaviours for one
+         persistent surface teaches that the card is "the thing that hides
+         sometimes" rather than a dependable anchor. It is readable over both
+         now (body.dlg is set by the host beside dlgOpen), and it wears an
+         opaque plate while it is: the 1100px shop panel is 96vw at the sizes
+         where a gutter would have been the alternative, so there is no inset
+         that clears it on every viewport — the honest fix is to look
+         deliberate rather than to look like a bleed-through. */
+      body.modal #coach, body.dlg #coach { z-index: 26; }
+      body.modal.coaching #coach, body.dlg.coaching #coach {
+        background: var(--noise), linear-gradient(180deg, rgba(30,23,15,0.97), rgba(11,9,6,0.98) 62%);
+        backdrop-filter: none;
+        border-color: #a8854f; outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: 0 0 24px rgba(217,142,74,0.16), 0 14px 40px rgba(0,0,0,0.75); }
       /* And the persistent HUD anchors RECEDE (r4 minor): the paused world's
          chrome dims to ~35% behind any modal scrim, so the panel owns the
          frame instead of fighting a full-brightness cockpit for attention. */
@@ -5958,6 +6308,20 @@
       .dlg-choice .dcost .micon { width: 11px; height: 11px; align-self: center; }
       .dlg-choice.quest .dlabel { color: #f2c14e; }
       .dlg-choice.bye { border-color: rgba(110,85,51,0.35); color: var(--ink-dim); }
+      /* THE SKIP LIVES OFF THE NUMBER ROW (tutorial r1 major). A destructive
+         choice must never occupy a slot a benign choice held a moment earlier:
+         answering "What am I in for?" used to promote "Skip the hand-holding"
+         into the index "Let's go." had just vacated, so a habitual double-tap
+         on 2 deleted the whole curriculum. It is now an unnumbered, quiet
+         control below the list, the digit handler cannot reach it, and taking
+         it only opens a confirmation. */
+      .dlg-skip { margin-top: 8px; align-self: flex-start; cursor: pointer;
+        font: inherit; font-size: 11.5px; color: var(--ink-faint);
+        background: none; border: 0; border-bottom: 1px dotted rgba(110,85,51,0.7);
+        padding: 2px 0; border-radius: 0;
+        transition: color 0.1s ease, border-color 0.1s ease; }
+      .dlg-skip:hover { color: var(--ink-dim); border-bottom-color: var(--bronze-hi); }
+      @media (pointer: coarse) { .dlg-skip { padding: 10px 0; font-size: 12.5px; } }
       .dlg-hint { margin-top: 9px; font-size: 10.5px; color: var(--ink-faint); text-align: right; }
       /* Guide moment: Mordecai's frame runs WARM — ember keyline + hearth glow,
          and the kicker names the man, not the channel. */
@@ -5992,6 +6356,28 @@
         color: var(--ember); }
       #recap .guide-aside .ga-body span { font-size: 12.5px; color: #ecdfc4;
         line-height: 1.4; }
+
+      /* ---- THE FIRST VERDICT (tutorial r1 major) ---------------------------
+         Before a player has finished a run or scored a season, the metagame
+         layer is DEFERRED, not deleted. A first-timer who had been alive 16.6
+         seconds was handed placement, CP, personal bests, a math drawer, a
+         submission chip, five buttons and a detached consent card — four of
+         the five metrics reading zero, so the screen's dominant message was a
+         list of things they had failed to earn. What is left is the death,
+         Mordecai, and the button that answers the only thought a first death
+         produces. Every row below returns the moment there is a career for it
+         to be about (see recapIsNovice in main3d). */
+      #recap.novice #recap-ladder,
+      #recap.novice .earned,
+      #recap.novice #recap-earned-detail,
+      #recap.novice #recap-share,
+      #recap.novice #recap-standings,
+      #recap.novice #recap-dismiss,
+      #recap.novice .rhint { display: none !important; }
+      /* ...and with .rmore emptied, the action bar is the two doors that mean
+         something on a first death. */
+      #recap.novice .rfoot.rmore { display: none; }
+      #recap.novice .guide-aside { margin-top: 12px; }
 
       /* Quest tracker (right rail, under the party roster zone): collapsible
          contract ledger in the glass HUD family — fight-screen chrome, not
@@ -6887,6 +7273,14 @@
              is the surface that promise needed. -->
         <div class="kb-row"><span class="kb-name">Submitting your runs<small>the proof is a 60Hz recording of everything you did — PRIVATE still ranks, it is just never handed out</small></span>
           <span class="kb-key" id="kb-consent">PUBLIC</span></div>
+        <!-- THE UNDO for the campfire skip (tutorial r1 major). The skip used
+             to be permanent, uncomfirmed and one mistyped digit away; it now
+             asks first, and this is the way back for everyone it already
+             caught. Clears the tut.* / obj.* ledger keys and reloads, because
+             the guide, the coach and the objectives sequencer are all
+             constructed once at boot from that ledger. -->
+        <div class="kb-row"><span class="kb-name">Mordecai's guidance<small>the guided first-session curriculum — turn it back on to run the whole thing again from the start</small></span>
+          <span class="kb-key" id="kb-ropes">SHOW ME AGAIN</span></div>
         </div>
         <div class="kb-reset"><button id="kb-reset">Reset to defaults</button></div>
         <div class="credits">Ability, item &amp; stat icons by Lorc, Delapouite, Skoll &amp; sbed — game-icons.net (CC BY 3.0) ·
@@ -7077,11 +7471,29 @@
       </div>
     </div>
     <div id="fx"></div>
+    <!-- THE EXIT BEACON (zone map: world markers) — the debut's only piece of
+         wayfinding furniture. Placed each frame by main3d's renderExitMark from
+         the projected stairs position; pins to the edge of the glass with the
+         chevron rotated toward them when they are off-frame or behind you.
+         Exists only while exitLit() is true and removes itself for good once
+         obj.payday is on the ledger. -->
+    <div id="exitmark" aria-hidden="true"><i></i><b>EXIT</b><em></em></div>
     <div id="downed" data-overlay="none"></div>
     <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>
     <div id="headline"></div>
-    <div id="tutorial"></div>
+    <!-- THE COACH COLUMN (zone map: coach column) — one plate, one voice, one
+         place to look for what to do next. The plaque shows only while the
+         curriculum is live (body.coaching, set by renderObjectivesCard); the
+         checklist hides itself when the room the player is standing in has no
+         step to ask for; the strip below carries the live line and stands down
+         under a modal. -->
+    <div id="coach" data-overlay="none">
+      <div id="coach-head"><img class="tut-face" src="/icons/portraits/mordecai.svg" alt="">
+        <span class="tut-name">MORDECAI<small>THE GUIDE</small></span></div>
+      <div id="objectives"></div>
+      <div id="tutorial"></div>
+    </div>
     <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
     <!-- ROAM: the settlement conversation cut (only the interacting player's
          host shows it; sim session playerId gates rendering). -->
@@ -7210,6 +7622,17 @@
           <div class="dhead" id="recap-death-head"></div>
           <div class="dctx" id="recap-death-ctx"></div>
         </div>
+        <!-- TUTORIAL.md B8: Mordecai's once-ever aside. MOVED (tutorial r1
+             major) from just above the button bar to directly under the death
+             headline: it is the one row on this screen a first-timer can use,
+             and down there it was buried between the ranking rows and five
+             buttons. It still sits above every CTA, which is what its old
+             placement note actually required. Hidden by default; renderRecap
+             shows it once. -->
+        <div class="guide-aside" id="recap-guide" style="display:none">
+          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
+          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
+        </div>
         <!-- THE LP LINE. It is the reason the player presses R, so it is never
              behind a drawer: tier or CP, rank of entrants, and what THIS run
              moved - including "+0 CP" when the run was a free seed, which is
@@ -7220,18 +7643,6 @@
           <span id="recap-seal"></span>
         </div>
         <div class="edetail" id="recap-earned-detail" style="display:none"></div>
-        <!-- TUTORIAL.md B8: Mordecai's once-ever aside, above the CTAs his
-             line points at. Hidden by default; renderRecap shows it once.
-             MERGE NOTE (preview-all): the tutorial branch put this above a
-             single .rfoot that still said NEW CONTRACT. The polish round split
-             the actions into two groups AND renamed that button, so the aside
-             keeps its place and the actions keep theirs — the aside's whole job
-             is to orient the player to the buttons under it, which means it has
-             to sit above the CURRENT ones. -->
-        <div class="guide-aside" id="recap-guide" style="display:none">
-          <span class="ga-portrait"><img src="/icons/portraits/mordecai.svg" alt=""></span>
-          <span class="ga-body"><b>MORDECAI — THE GUIDE</b><span id="recap-guide-line"></span></span>
-        </div>
         <!-- Two groups: the phone flows .rmore with the body copy and pins
              only .rmain; the desktop folds both back into one flex row. -->
         <div class="racts">
@@ -7468,6 +7879,18 @@
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE<i class="go-arrow"></i></button>
               </div>
             </div>
+            <!-- FIRST BOOT HAS ONE DOOR (tutorial r2 minor). A brand-new
+                 profile used to meet DESCEND plus DAILY CRAWL, THE RUSH,
+                 PARTY CRAWL, RIVALS, ROAM, TEST CHAMBER, THE STANDINGS,
+                 CAREER and an empty leaderboard — nine competing affordances
+                 and an empty-state board a player has no context for, on the
+                 strongest visual moment in the product. Hades' first run has
+                 a single exit; D4's has a single Create Character. Everything
+                 except DESCEND is folded behind this link until one crawl is
+                 on the ledger (body.coldboot, set by main3d from the same
+                 fresh-crawler read the tutorial enrolls on). It is a fold,
+                 not a lock: one click and the full board is there. -->
+            <button class="m-testlink" id="m-more">MORE WAYS TO CRAWL — daily, rivals, party, the boards</button>
             <button class="m-testlink" id="m-test">TEST CHAMBER — practice floors, nothing is saved</button>
             <div class="m-form" id="m-test-form" style="display:none">
               <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>

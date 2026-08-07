@@ -1657,6 +1657,10 @@ export interface SavedProgress {
   // Roam campaign overlay (quest progress, consumed stock/hoards) — applied
   // after the floor rebuilds. Absent on Race saves and pre-Roam saves.
   roam?: RoamSaveState;
+  // THE DEBUT (TUTORIAL.md): a fresh profile's first run, so a resume after a
+  // refresh rebuilds the same merciful floor 1 rather than quietly promoting
+  // a first-timer into the real game mid-lesson. Absent = an ordinary run.
+  firstRun?: boolean;
   player: {
     hp: number;
     level: number;
@@ -1829,13 +1833,18 @@ export function applySavedPlayer(p: Player, save: SavedProgress): void {
 export function restoreGame(save: SavedProgress): GameState {
   // BACKLOG #11 fixed: the run kind round-trips — CONTINUE on a Roam
   // campaign resumes a Roam campaign instead of silently rebuilding as Race.
-  const state = createGame(save.seed, "coop", save.runKind ?? "race");
+  const state = createGame(save.seed, "coop", save.runKind ?? "race", null, !!save.firstRun);
   // BOSSES V2 §4.1/§4.4 — hand the cross-run memory in BEFORE the floor
   // builds, because the arena layout and the boss identity are both drawn
   // during buildFloor and both read it.
   if (save.bosses?.lastLineup) state.bossPrevLineup = { ...save.bosses.lastLineup };
   if (save.bosses?.defeats) state.bossDefeats = { ...save.bosses.defeats };
   applySavedPlayer(state.players[0], save);
+  // A resumed debut keeps its mercy but not its opening line: the float was
+  // announced (and possibly spent) in the session that granted it, and the
+  // save's gold is the truth. Announcing "40 gold advanced" to a crawler
+  // holding 12 would be the System lying about its own ledger.
+  if (state.firstRun) state.firstRunFloatSaid = true;
   buildFloor(state, save.floor);
   // Roam: overlay the campaign's quest/stock/hoard state onto the rebuilt
   // floor (quests match by key — generation is deterministic per seed+floor).
@@ -1953,11 +1962,17 @@ export function createGame(
   // the day string (dailyRuleFor) — the sim never touches a calendar. Null =
   // base game; every rule seam collapses to a no-op.
   dailyRule: DailyRuleId | null = null,
+  // THE DEBUT (TUTORIAL.md): the host's fresh-profile read. Off for every
+  // other world the game ever builds — including createTestGame's, the
+  // server's, and the bot's — so the three floor-1 mercy rules are unreachable
+  // outside a first-timer's first descent.
+  firstRun = false,
 ): GameState {
   const state: GameState = {
     mode,
     runKind,
     dailyRule,
+    firstRun: firstRun || undefined,
     npc: null,
     quests: [],
     strongholdLeaderId: -1,
@@ -2001,6 +2016,22 @@ export function createGame(
     elapsed: 0,
   };
   buildFloor(state, 1);
+  // THE DEBUT'S FLOAT (TUTORIAL.md, the affordable first shelf). Two cold
+  // rounds arrived at the first shop with 24 then 16 gold against a 35-gold
+  // cheapest entry: the shop step asked the player to spend money the
+  // curriculum had not given them, and the panel was a wall of red. The fix is
+  // at the cause and it is deterministic — a debut crawler is ADVANCED enough
+  // to clear the cheapest shelf entry before they have killed anything, so the
+  // first shelf is guaranteed to hold something they can buy whatever floor 1
+  // paid them. Never a drop-rate change: ordinary runs earn exactly what they
+  // always earned.
+  // (The gold lands here so the HUD and the first save are right from second
+  // zero; the LINE is said on the first step — see stepFloor — because step()
+  // clears the announcement buffer at the top of every frame and a line
+  // emitted at construction is deleted before any host can drain it.)
+  if (state.firstRun) {
+    for (const p of state.players) p.gold += CONFIG.firstRunStipendGold;
+  }
   // TODAY'S RULE announces itself at second zero, in the System's voice —
   // after the floor build so it lands on top of the band introduction.
   if (dailyRule) {
@@ -4845,6 +4876,25 @@ function updateTimer(state: GameState, dt: number): void {
   state.timeRemaining -= dt;
   const warnAt = state.timeBudget * CONFIG.warningFraction;
 
+  // THE DEBUT'S RUNTIME (TUTORIAL.md — first-run mercy, the clock half).
+  // Floor 1's budget is 120 seconds, and a first-timer spends most of that
+  // learning which key walks. Converting killing blows and then letting the
+  // FLOOR kill them anyway would be a mercy that lies, and a knockdown loop
+  // inside a collapsing floor is the "reads as broken" failure this round was
+  // told to avoid. So on floor 1 of a debut the clock counts down normally —
+  // through the WARNING, whose System line is the collapse lesson the
+  // curriculum is built on — and then HOLDS. It is announced, once, as the
+  // production decision it is, and floor 2's clock is a real clock.
+  if (state.firstRun && state.floor === 1 && state.timeRemaining < CONFIG.firstRunClockHoldSeconds) {
+    state.timeRemaining = CONFIG.firstRunClockHoldSeconds;
+    if (!state.firstRunClockHeld) {
+      state.firstRunClockHeld = true;
+      announce(state, "progress",
+        `PRODUCTION NOTE: the debut episode runs long. The floor-one clock HOLDS at `
+        + `${CONFIG.firstRunClockHoldSeconds} seconds. It will not hold on floor two — take the stairs.`, "high");
+    }
+  }
+
   if (state.timeRemaining <= 0) {
     if (state.phase !== "collapse") {
       state.phase = "collapse";
@@ -4856,6 +4906,33 @@ function updateTimer(state: GameState, dt: number): void {
       if (!p.alive) continue;
       addHype(state, p, CONFIG.show.hypeCollapsePerSec * dt); // clutch escape = ratings gold
       const dmg = dps * dt;
+      // THE DEATH, NAMED — and the collapse must name ITSELF (r13, critic
+      // severity 5). This loop deliberately bypasses damagePlayerHit (the
+      // dungeon, not an attacker, is dealing this damage), and that funnel is
+      // the ONLY writer of `lastHitSrc`. So a collapse execution rendered
+      // whatever monster last grazed the crawler, with that hit's stale
+      // hpBefore — two of three measured collapse deaths read "SHOT — 17
+      // damage, from 0% HP" and "SHOT — 12 damage, from 74% HP", the second of
+      // which is arithmetically impossible. The verdict screen is the one
+      // screen a player is guaranteed to read, and the collapse timer is the
+      // mechanic the first session most needs to learn, so it was teaching the
+      // wrong lesson at the best possible moment. `social.ts`'s
+      // `if (raw === "collapse") return "THE COLLAPSE"` was written for this
+      // path and was unreachable on it.
+      //
+      // Ticks ACCUMULATE: one frame of collapse damage is a rounding error, so
+      // the card would otherwise read "THE COLLAPSE — 2 damage, from 1% HP".
+      // The reading a player can parse is the whole bite — how much of the bar
+      // the floor ate, and what it started from. A monster hit in the middle
+      // re-takes the field (damagePlayerHit overwrites), and the accumulation
+      // restarts from there, which is also the honest account.
+      const carry = p.lastHitSrc && p.lastHitSrc.by === "collapse" ? p.lastHitSrc : null;
+      p.lastHitSrc = {
+        by: "collapse",
+        dmg: (carry?.dmg ?? 0) + dmg,
+        hpBefore: carry?.hpBefore ?? p.hp,
+        maxHp: p.maxHp,
+      };
       p.hp -= dmg;
       p.damageTaken += dmg;
       hit(state, p.pos, Math.max(1, Math.round(dmg)), "player", { killed: p.hp <= 0 });
@@ -4961,7 +5038,53 @@ function generateSafeRoom(state: GameState, nextFloor: number): SafeRoom {
     const t = available.indexOf("tome");
     if (t >= 0) available.splice(t, 1);
   }
-  return { nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor), ready: [], purchased: {}, boughtThisShop: [] };
+  const room: SafeRoom = {
+    nextFloor, available, tomeAbility, tip: safeRoomTip(rng, nextFloor),
+    ready: [], purchased: {}, boughtThisShop: [],
+  };
+  // THE DEBUT'S SHELF IS NOT A WINDOW (TUTORIAL.md — the affordable first
+  // shop). The production float at createGame already covers the cheapest
+  // entry, but the guarantee is stated HERE, against the shelf that actually
+  // generated, so it survives a price change, a shuffled shelf, or a crawler
+  // who spent the float on the way down: a debut crawler standing at their
+  // FIRST shop can always afford at least one useful thing. The difference is
+  // advanced, not gifted — it is the same float, topped up, and it happens
+  // exactly once because shop 1 happens exactly once.
+  if (state.firstRun && shopIndex === 1) {
+    for (const p of state.players) {
+      const need = cheapestUsefulShelfPrice(p, room);
+      if (need <= 0 || p.gold >= need) continue;
+      p.gold = need;
+      announce(state, "show",
+        `THE FLOAT IS TOPPED UP to ${need} gold. The System does not run a shop a debut crawler cannot shop in. `
+        + "It runs one they cannot afford to leave.");
+    }
+  }
+  return room;
+}
+
+/**
+ * The cheapest thing on a shelf that a crawler could buy TODAY and be glad of:
+ * gear (a stat stick is always a stat stick) and the plain consumables. The
+ * gated curiosities are excluded on purpose — a tome needs an ability nobody
+ * in the party lacks, a Favor buys a draft, a legendary wants sponsors and
+ * trophies — because "affordable" has to mean "buyable by this crawler, now".
+ * Returns 0 when the shelf holds nothing of the kind (never true at shop 1).
+ * Exported: the first-shelf guarantee above and its test read the same number.
+ */
+export function cheapestUsefulShelfPrice(p: Player, room: SafeRoom): number {
+  let best = 0;
+  for (const id of room.available) {
+    const e = CATALOG_BY_ID[id];
+    if (!e || e.tier === "legendary") continue;
+    const useful = e.slot !== undefined
+      || e.effect === "heal" || e.effect === "time" || e.effect === "maxHp";
+    if (!useful) continue;
+    if (missingComponents(p, id).length > 0) continue; // a build you cannot buy yet
+    const price = effectivePrice(p, id, room.nextFloor);
+    if (best === 0 || price < best) best = price;
+  }
+  return best;
 }
 
 /**
@@ -7478,8 +7601,100 @@ function castAbility(state: GameState, p: Player, ability: AbilityId, aim: Vec2,
 // so existing importers keep working.
 export { hasPassive };
 
+/**
+ * THE DEBUT'S SAFETY NET (TUTORIAL.md — first-run mercy). Is this crawler
+ * inside the one window where the game refuses to end their run?
+ *
+ * The window is deliberately the narrowest one that covers the measured
+ * failure: FLOOR 1 of a world the host flagged as a fresh profile's FIRST run,
+ * co-op only. It opens at second zero and closes the instant they take the
+ * stairs — there is no counter to read, no step to finish, nothing a player
+ * can be confused about, and nothing a competitive run can reach (a flagged
+ * world is unrankable by header, and no other constructor sets the flag).
+ */
+export function firstRunMercyActive(state: GameState, p: Player): boolean {
+  return !!state.firstRun && state.floor === 1 && state.mode !== "rivals" && !p.safeRoom;
+}
+
+/**
+ * CUT TO COMMERCIAL: the killing blow a debut crawler does not die from.
+ *
+ * Hades' Tartarus and Diablo IV's prologue are unloseable by design, and this
+ * is the same promise made in the System's idiom: the production does not let
+ * the pilot end on a floor-1 wipe, it EDITS. What the crawler loses is real —
+ * their position on the floor (they wake at the entrance, whatever they had
+ * fought their way past is between them and the stairs again), most of their
+ * bar, and every point of hype the fight had earned. What they keep is the
+ * run. It is not a resource, it cannot be hoarded, and it cannot be reached on
+ * floor 2, which is where the game starts meaning it.
+ *
+ * Pure: no RNG is drawn, so a mercied run replays byte-exactly.
+ */
+/**
+ * ...AND THE THIRD ONE IS AN ESCORT (r11, the critic's severity-9 pair: "two of
+ * four deaths were collapse-timer executions at full HP with zero wayfinding"
+ * and "floor 1 is unloseable and also unleaveable — mercy has no escalation or
+ * diagnosis").
+ *
+ * The edit above is unanswerable the first time and a shrug the third: waking a
+ * crawler at the entrance is the RIGHT punishment for a fight they lost and the
+ * WRONG answer for a floor they cannot find their way off, because it puts them
+ * back at the start of the search that already beat them. Measured, that reads
+ * as a room that will not kill you and will not let you leave — a worse session
+ * than a death, which is the finding this round exists to answer.
+ *
+ * So the mercy notices. On the Nth save (`firstRunEscortSaves`) the production
+ * stops re-staging the same scene: security walks the crawler to the stairs and
+ * the show says so out loud. What it does NOT do is descend for them — the
+ * descend key is the curriculum's verb and the player still presses it — and it
+ * cannot leak past the debut, because every caller is already inside
+ * `firstRunMercyActive` (a flagged world, floor 1, co-op, not in a safe room).
+ * Pure: no RNG, one known position, so the run still replays byte-exactly.
+ */
+function firstRunKnockdown(state: GameState, p: Player): void {
+  p.mercySaves = (p.mercySaves ?? 0) + 1;
+  const escort = p.mercySaves >= CONFIG.firstRunEscortSaves;
+  p.hp = Math.max(1, Math.round(p.maxHp * CONFIG.firstRunMercyHpFraction));
+  p.statuses = [];
+  p.knock = undefined;
+  p.rootT = 0;
+  p.reviveGraceT = CONFIG.firstRunMercyGraceSeconds;
+  const to = escort ? state.map.stairs : state.map.spawn;
+  p.pos = { x: to.x, y: to.y };
+  p.hype = 0; // the crowd watched you fold; excitement is not free
+  p.lowHpNow = false;
+  if (escort) {
+    // A ping is the game's existing "over THERE" verb (it pierces fog on both
+    // the chart and the floor), so the exit is marked in the world as well as
+    // named in the line — the crawler wakes standing in a gold ring.
+    state.pings.push({
+      id: state.nextEntityId++, pos: { x: to.x, y: to.y }, byId: p.id,
+      t: CONFIG.pingTtl, total: CONFIG.pingTtl,
+    });
+    announce(state, "show",
+      `${p.name} goes down again — and PRODUCTION HAS SEEN ENOUGH. `
+      + "Security walks you to the stairwell on the network's dime. "
+      + "You are standing on the way down. Take it.", "high");
+    state.events.push(`${p.name} was escorted to the stairs by the debut edit.`);
+    return;
+  }
+  announce(state, "show",
+    `${p.name} goes down — and the broadcast CUTS TO COMMERCIAL. `
+    + "Debut episode: the network does not air a floor-one funeral. "
+    + "You wake at the entrance. The edit comes out of your hype.", "high");
+  state.events.push(`${p.name} was saved by the debut edit (floor 1 only).`);
+}
+
 /** A player died; the run only ends when the whole party is down. */
 export function handlePlayerDeath(state: GameState, p: Player, line: string): void {
+  // THE DEBUT (TUTORIAL.md): every death in the game — monsters, hazards,
+  // statuses, bombers, the collapsing floor — arrives HERE, which is why the
+  // mercy sits here and not at any one of the twenty-odd call sites. A first
+  // run cannot be failed out of floor 1; nothing else in the game changes.
+  if (firstRunMercyActive(state, p)) {
+    firstRunKnockdown(state, p);
+    return;
+  }
   p.hp = 0;
   p.alive = false;
   p.reviveProgress = 0;
@@ -7714,6 +7929,18 @@ export function step(state: GameState, intent: Intent | PartyIntents, dt: number
   const intents: PartyIntents =
     "move" in intent ? { [state.players[0]?.id ?? 0]: intent as Intent } : (intent as PartyIntents);
 
+  // THE DEBUT'S FLOAT, SAID WHERE IT CAN BE HEARD (TUTORIAL.md: a line is
+  // delivered when it PAINTS, not when something decides to say it). The gold
+  // is granted in createGame — the HUD and the first save need it at second
+  // zero — but the buffer above is cleared at the top of every frame, so a
+  // construction-time announcement is deleted before any host drains it.
+  if (state.firstRun && !state.firstRunFloatSaid) {
+    state.firstRunFloatSaid = true;
+    announce(state, "show",
+      `PRODUCTION FLOAT: ${CONFIG.firstRunStipendGold} gold advanced against your first paycheck. `
+      + "Spend it in the safe room. The System itemizes everything.");
+  }
+
   // RIVALS: several floor worlds run concurrently; each is mounted into the
   // classic slots and stepped with its own residents (see stepRivals).
   if (state.mode === "rivals") {
@@ -7767,6 +7994,14 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
         }
       }
     }
+    // THE DEBUT, as a property of the STATE rather than of call sites: a
+    // damage source that drops a crawler to zero without routing its own
+    // death (any caller that ignores damagePlayerHit's return) would otherwise
+    // leave a floor-1 first-runner walking around at zero until something else
+    // finished the job. Asked once per player per step, so "cannot be failed
+    // out of floor 1" does not depend on twenty callers remembering.
+    if (p.alive && p.hp <= 0 && firstRunMercyActive(state, p)) firstRunKnockdown(state, p);
+
     const ptime = statusTimeMult(p);
 
     // Near-death brush bookkeeping (r3): the "currently low" latch opens
@@ -7799,6 +8034,13 @@ function stepFloor(state: GameState, intents: PartyIntents, dt: number): void {
     }
     if (p.attackSwing > 0) p.attackSwing = Math.max(0, p.attackSwing - dt);
     if (p.dashTime > 0) p.dashTime = Math.max(0, p.dashTime - dt);
+    // The untouchable beat after a rivals revive — and after a DEBUT's cut to
+    // commercial (firstRunKnockdown). Rivals ticks it in its own outer loop,
+    // where downed racers are counted; co-op has no such loop, and a grace
+    // that never decays is permanent invulnerability, so it decays HERE.
+    if (state.mode !== "rivals" && (p.reviveGraceT ?? 0) > 0) {
+      p.reviveGraceT = Math.max(0, (p.reviveGraceT ?? 0) - dt);
+    }
     if (p.rootT > 0) p.rootT = Math.max(0, p.rootT - dt);
     if ((p.cursedT ?? 0) > 0) p.cursedT = Math.max(0, (p.cursedT ?? 0) - dt);
     if (p.novaFlash > 0) p.novaFlash = Math.max(0, p.novaFlash - dt);

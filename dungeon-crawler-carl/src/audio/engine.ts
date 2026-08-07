@@ -1,5 +1,6 @@
 import { AUDIO_MANIFEST, type SoundDef, type SoundId } from "./manifest";
 import { MusicDeckPool, type MusicDeck } from "./deck";
+import { assetUrl } from "../assetUrl";
 
 // WebAudio playback engine. Silent-by-default: load() decodes whatever clips
 // exist under public/audio/ and skips the rest, so play() on a missing sound is
@@ -62,6 +63,14 @@ export interface AudioSink {
   // music_dungeon, a regression the fake-sink tests cannot see. Streamed ids
   // are optimistically available and demoted on a real element error.
   has?(id: SoundId): boolean;
+  // THE MIX LAYER (mix.ts): how long this clip sounds, in seconds. The voice
+  // budget has to know when a voice stops occupying the room, and only the
+  // engine knows the real decoded length. Optional — sinks without it fall
+  // back to a nominal length, which keeps the policy deterministic in tests.
+  // Undefined for a clip that never decoded (a missing file makes no sound and
+  // must not hold a slot) and for streamed beds (music never comes through
+  // play() at all).
+  duration?(id: SoundId): number | undefined;
 }
 
 const STORE_KEY = "dcc:audio:v1";
@@ -269,7 +278,7 @@ export class AudioEngine implements AudioSink {
       ids.map(async (id) => {
         if (this.streamed(id)) { onProgress?.(++settled, ids.length); return; }
         try {
-          const res = await fetch(AUDIO_MANIFEST[id].url);
+          const res = await fetch(assetUrl(AUDIO_MANIFEST[id].url));
           if (!res.ok) return;
           const data = await res.arrayBuffer();
           this.buffers.set(id, await ctx.decodeAudioData(data));
@@ -302,6 +311,13 @@ export class AudioEngine implements AudioSink {
   has(id: SoundId): boolean {
     if (this.buffers.has(id)) return true;
     return this.streamed(id) && !this.streamBad.has(id);
+  }
+
+  /** Decoded length in seconds, for the mix layer's voice budget. Undefined
+   *  for anything that has no buffer — a clip whose file is missing occupies
+   *  no room and must not be charged for one. */
+  duration(id: SoundId): number | undefined {
+    return this.buffers.get(id)?.duration;
   }
 
   toggleMute(): boolean {
@@ -426,7 +442,7 @@ export class AudioEngine implements AudioSink {
     if (this.streamed(id)) {
       const sid = id;
       const prev = this.current;
-      const deck: MusicDeck | null = this.decks?.claim(sid, def.url, {
+      const deck: MusicDeck | null = this.decks?.claim(sid, assetUrl(def.url), {
         volume: def.volume ?? 1,
         loop: def.loop ?? true,
         fade: FADE,

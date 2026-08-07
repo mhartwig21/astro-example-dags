@@ -250,3 +250,18 @@ design doc — see `PHYSICALITY.md`.
     full runs. Retuned in config.ts with the sweep as the instrument;
     receipts in BALANCE-NOTES.md round 3. The daily board / named winner /
     rule-rotation gate is LIFTED.
+
+31. **169 mojibake em dashes in `src/sim/ai.ts`.** `â€"` where `—` belongs
+    (UTF-8 em-dash bytes that were once read back as cp1252 and re-saved).
+    They are pushed straight into `state.events`, so they render verbatim in
+    the LIVE FEED — e.g. "A cleric CONSECRATES the ground â€" it heals them
+    and burns you" (`ai.ts:708`), "The DARLING shields her entourage â€" and
+    takes the spotlight's price herself" (`ai.ts:1529`). Comment prose in
+    `src/sim/config.ts` and `src/sim/types.ts` has the same corruption but is
+    invisible. NOT a font or charset-header problem — the bad bytes are in the
+    committed source, and other em dashes on the same screen render correctly.
+    Found while reading the closing asset-budget stills
+    (`tools/_abshots/floor10.png`). Fix is a scripted re-decode of the
+    affected literals; touching `src/sim/` moves no number, so `RULES_HASH`
+    should not rotate, but re-run `npx tsx scripts/simhash.ts --write` and
+    confirm rather than assume.
