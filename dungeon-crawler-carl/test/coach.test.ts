@@ -17,9 +17,9 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  COACH_BEATS, COACH_MAX_PROMPTS, COACH_TIP_BEATS, COACH_TIP_IDS, Coach,
-  OBJ_DONE_LINES, OBJ_INTRO_BEATS, TOPIC_COLLAPSE, castSlotIndices, coachTipLine,
-  renderBeat,
+  COACH_BEATS, COACH_MAX_PROMPTS, COACH_SHOP_BEATS, COACH_TIP_BEATS, COACH_TIP_IDS,
+  Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, TOPIC_BAG, TOPIC_COLLAPSE, castKeyIndex,
+  castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
   type CoachEvent, type TeachBeat,
 } from "../src/ui/coach";
 import { DEFAULT_BINDINGS, keyLabel } from "../src/input/bindings";
@@ -57,6 +57,9 @@ const ALL_BEATS: [string, TeachBeat][] = [
   ...Object.entries(COACH_BEATS),
   ...Object.entries(COACH_TIP_BEATS).map(([k, b]) => [`tip:${k}`, b] as [string, TeachBeat]),
   ...Object.entries(OBJ_INTRO_BEATS).map(([k, b]) => [`intro:${k}`, b] as [string, TeachBeat]),
+  // The shelf lines live on the shop panel rather than the strip (body.modal
+  // hides the strip), but a beat is a beat: same shape, same binding rule.
+  ...Object.entries(COACH_SHOP_BEATS).map(([k, b]) => [`shop:${k}`, b] as [string, TeachBeat]),
 ];
 /** Every player-facing line the module can emit. */
 const ALL_LINES: string[] = [
@@ -332,13 +335,51 @@ describe("the teach-by-doing pairs (carried from the onramp)", () => {
   });
 
   it("the loot lesson has a by-hand half and a reachable auto-equip half", () => {
-    const o = desktop();
-    expect(o.note("pickup", 1)).toMatch(/bag/i);
-    expect(o.note("equipped", 1)).toMatch(/Compare the numbers/);
-    const auto = o.note("autoequip", 1)!;
+    expect(desktop().note("pickup", 1)).toMatch(/bag/i);
+    expect(desktop().note("equipped", 1)).toMatch(/Compare the numbers/);
+    const auto = desktop().note("autoequip", 1)!;
     expect(auto).toMatch(/dressed itself/);
     // The two halves must not be the same paragraph twice.
     expect(auto).not.toMatch(/Compare the numbers/);
+  });
+});
+
+describe("GEAR, EQUIPPING AND THE SHELF ARE TAUGHT BY SOMEBODY (r3, finding 4)", () => {
+  // Three cold passes finished a session having never been told where gear
+  // lives, what "equipped" means, or a single word of the shop's own
+  // vocabulary. The bag half failed for a structural reason: `pickup` needs an
+  // item to LAND IN THE BAG, and floor-1 loot mostly auto-equips, so the one
+  // gear moment floor 1 reliably provides was spent on a line that named
+  // neither the bag nor a key.
+  it("the reliable floor-1 gear moment names the bag key and the word EQUIPPED", () => {
+    const line = desktop().note("autoequip", 1, "")!;
+    expect(line).toMatch(/bag with I/);
+    expect(line).toMatch(/equipped/i);
+  });
+
+  it("...and the bag key is taught ONCE, whichever gear moment gets there first", () => {
+    for (const [first, second] of [["pickup", "autoequip"], ["autoequip", "pickup"]] as const) {
+      const o = desktop();
+      expect(o.note(first, 1)).toBeTruthy();
+      o.commit(first);
+      expect(o.topicTaught(TOPIC_BAG)).toBe(true);
+      expect(o.note(second, 1)).toBeNull(); // declined, not repeated
+      expect(o.spent).toBe(1);
+    }
+  });
+
+  it("the shelf beats define the panel's own words, off the shelf that generated", () => {
+    const afford = shopBeatLine("afford", "Field Dressing", 35, 40);
+    expect(afford).toContain("Field Dressing");
+    expect(afford).toContain("35 gold");
+    expect(afford).toMatch(/COMPONENTS/); // the tile label the panel prints
+    expect(afford).toMatch(/sell/i);      // ...and that the bag is a source of gold
+    const broke = shopBeatLine("broke", "Field Dressing", 35, 16);
+    expect(broke).toContain("35 gold");
+    expect(broke).toContain("16");        // the number in their purse, said plainly
+    expect(broke).toMatch(/keeps between floors/);
+    // No token survives to the glass in either form.
+    for (const line of [afford, broke]) expect(line).not.toMatch(/\{[a-z]+\}/);
   });
 });
 
@@ -374,6 +415,26 @@ describe("SHIFT IS THE DASH, AND THE STRIP MAY NOT SAY OTHERWISE (r2 blocker)", 
     // an empty label is DECLINED, never printed with a lie in it.
     expect(castSlotIndices(["strike", "dash", null, null])).toEqual([]);
     expect(desktop().note("ability", 1, "")).toBeNull();
+  });
+
+  // ...AND THE OBJECTIVES CARD'S FALLBACK IS THE SAME RULE (r3, finding 5).
+  // The card's `{cast}` token re-derived the live cast slot correctly and then
+  // fell back to a hardcoded slot index when the crawler owned no castable
+  // ability — which is the DASH's slot for anyone who benched it there, so
+  // "Cast with Shift" was still reachable from the one surface that is on the
+  // glass permanently. The exclusion has to hold at every branch.
+  it("castKeyIndex never returns the dash slot, on any loadout", () => {
+    expect(castKeyIndex(["strike", "dash", "bolt", null])).toBe(2);   // fresh crawler
+    expect(castKeyIndex(["strike", "bolt", "dash", "nova"])).toBe(1);
+    // No castable ability at all: it falls back to a slot that can HOLD one,
+    // and the dash's slot is not a candidate wherever it sits.
+    for (let d = 1; d <= 3; d++) {
+      const slots: (string | null)[] = ["strike", null, null, null];
+      slots[d] = "dash";
+      const i = castKeyIndex(slots);
+      expect(i, `dash in slot ${d}`).toBeGreaterThanOrEqual(1);
+      expect(slots[i], `dash in slot ${d}`).not.toBe("dash");
+    }
   });
 });
 

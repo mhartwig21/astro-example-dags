@@ -10,6 +10,82 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r8 — THE COLUMN AND THE ROOM: the third critic round, host-side
+
+Five host findings, each fixed at its cause. Zero sim changes — `RULES_HASH` is
+untouched, and r7's DEBUT rules are exactly as they shipped. Measured in the
+app by `tools/_tut_r3_probe.mjs` (one cold profile, one browser, port 5287:
+boot → floor 1 → the stairs → the shelf → floor 2), frames in
+`tools/_shots/r3_saferoom.png` and `r3_floor2.png`.
+
+1. **THE CHECKLIST DESYNCED FROM THE WORLD, in both directions.** It asked for
+   three kills while the player stood at the shop counter, and the safe room's
+   card was still on the glass a floor later. Three causes, three fixes:
+   - **Place is now a property of every step** (`ObjectiveStep.where`:
+     `field` | `shop`). The card is the first not-yet-done step whose place is
+     the place the crawler is standing in, and **when no step matches, there is
+     no card**. r2's `preempt`/`armFact` pair was the same idea as a special
+     case on one step, and it left the symmetric hole wide open: once
+     `obj.saferoom` was COMPLETE the pre-empt stood down and handed the card
+     straight back to "put down three monsters" — in a room with nothing to
+     kill. (r2's own test asserted that behavior; it is inverted now.)
+   - **The sequencer sampled the world on the SIM clock.** Every intent seam
+     sits inside `while (acc >= SIM_DT)`, and solo play zeroes `acc` for every
+     open panel — so a curriculum fed only from there is blind for exactly as
+     long as the player is at a counter, which is when its own shop step is the
+     ask. `objectivesObserve` now latches only the facts that need the consumed
+     intent; `objectivesSync` computes the rest and feeds the sequencer **once
+     per rendered frame, paused or not**. That is why "Open the shop" can tick
+     while the shop is open, which it demonstrably never did.
+   - **The card repainted only on a fact EDGE**, and a change of PLACE is an
+     edge in no fact. `renderObjectivesCard` builds the HTML from `view()`
+     every frame and writes the DOM only when it differs.
+2. **THE DESCENT FIRED THREE SUBTITLES AND FOUR DUPLICATED FEED LINES AT ONCE.**
+   - The duplication was a RACE, not a rule. `announce()` pushes the same string
+     to `state.announcements` and `state.events`, and the solo loop drained
+     events *inside* the sub-step loop while announcements were presented at the
+     *end* of the frame — so the quiet surface always got there first and r2's
+     3.4s window plus its 900ms retro-active pull-back were left trying to
+     un-print it. `presentSimOutput` now drains both from ONE seam with the
+     announcer given first refusal: an event that IS an announcement never
+     enters the visible feed. The archive `log` array still gets every line.
+   - The stack was fixed by DELETING news: r2 collapsed the burst to the newest
+     line, so the first two sentences flicked past unread (and, being a 350ms
+     fade, were all on the glass while it happened — which is what the pass
+     photographed). Arrival lines are **metered** now: inside the floor
+     transition window they release one at a time, each with a dwell scaled to
+     its own length, the previous one fading as the next arrives. Ordinary
+     combat chatter is untouched. Measured at the door: 3 lines delivered, peak
+     **1** on the glass, 0 duplicated feed lines.
+3. **TEACHING WAS FIVE SURFACES IN FOUR CORNERS.** r2 moved the strip onto the
+   objectives card's axis and kept them apart with a JS-published CSS variable
+   (`--obj-h`); two fixed overlays stacked by arithmetic are still two
+   overlays. They are **one plate** now — `#coach`, holding one Mordecai plaque
+   (`#coach-head`), the checklist and the strip in normal flow. No measurement,
+   no variable, no gap to keep in sync, ONE portrait, one place to look for
+   what to do next. The zone map has one `coach column` entry where it had two.
+   The System keeps its own two surfaces, and finding 2 stopped one of them
+   being a copy of the other.
+4. **GEAR / EQUIP / SHOP VOCABULARY WAS TAUGHT BY NOBODY.** The bag half failed
+   structurally: `pickup` needs an item to LAND IN THE BAG and floor-1 loot
+   mostly auto-equips, so the one gear moment floor 1 reliably provides
+   (`autoequip`) was spent on "check the number that moved" — no key, no bag,
+   not the word *equipped*. It names all three now, and `pickup`/`autoequip`
+   share `TOPIC_BAG` so the bag key is taught exactly once, by whichever moment
+   the dungeon reaches first. The shelf gets real beats (`COACH_SHOP_BEATS`,
+   same shape and same binding rule as every other line, rendered into the
+   panel's own Mordecai row because `body.modal` hides the strip by design):
+   the one affordable item by name and price, what a COMPONENTS tile is, that
+   the bag sells here, that gold survives a floor.
+5. **RE-VERIFIED, and one hole closed.** The strip survives six seconds of held
+   W in the real app (`e.repeat` ignored outright); THE FIVE still cannot
+   complete before it paints (arm-and-return + `OBJ_MIN_VISIBLE_MS`, and a step
+   the player's place is hiding now banks no dwell at all). The Shift/dash rule
+   had a live hole: the card's `{cast}` token derived the cast slot correctly
+   and then **fell back to a hardcoded slot index**, which is the dash's slot
+   for anyone who benched it there. `castKeyIndex` excludes the dash at every
+   branch by construction and is the one function both surfaces read.
+
 ## r7 — THE DEBUT: the two owed SIM changes (branch `tutorial-mordecai`)
 
 Both r6 rounds ended with the same two items owed, and both were owed because
@@ -707,18 +783,18 @@ in front of a first session and that this feature does not pretend to.**
 - **Touch farewell affordance**: beats close by tapping the farewell choice;
   a dedicated on-glass ESC affordance could come with the mobile merge (the
   mobile-wr branch is not on `tutorial`).
-- **The DEBUT has never been watched by a critic.** r7 shipped the mercy and
-  the shelf and proved both in the sim (plus a cold-profile host probe), but
-  nobody has yet played a first session end to end under them. The open
-  questions are presentational and all of one kind — does the knockdown read
-  as GENEROUS or as weightless, does `HELD` read as a decision, does the
-  topped-up float read as help or as charity — and only a cold pass can answer
-  them. The `alt` form of obj.saferoom's "Spend some gold" (`cheapestShelfPrice
-  () > gold`) should now be unreachable on a debut: if a pass sees it, the
-  guarantee has a hole.
-- **Floor-2+ curriculum is still unobserved end to end.** No cold pass has
-  reached floor 2, so `obj.saferoom`, `obj.show` and the `elite`/`boss` depth
-  confirmations have never been seen by a critic. Drive `?test&floor=2`.
+- **The DEBUT's knockdown and its HELD clock have never been watched by a
+  critic.** r7 shipped the mercy and the shelf and proved both in the sim; r8's
+  probe has now watched the SHELF half in the app (40 gold against a 35-gold
+  Field Ration, the `browse` alt form correctly unreachable — that hole is
+  closed), but nobody has yet been killed on floor 1 under the mercy. The open
+  questions are presentational and all of one kind: does the knockdown read as
+  GENEROUS or as weightless, does `HELD` read as a decision, does the topped-up
+  float read as help or as charity.
+- **Floor-2+ curriculum is still unobserved end to end.** r8's probe reached
+  floor 2 and watched `obj.saferoom` complete on the shelf, but `obj.show` and
+  the `elite`/`boss` depth confirmations have still never been seen by a
+  critic. Drive `?test&floor=2`.
   Related, and a design question rather than a bug: THE SHOW is the game's
   premise and it is the LAST step, behind four gates. r6-fix-1 gave the
   premise an early carrier instead of reordering the spine — the `hype` tip

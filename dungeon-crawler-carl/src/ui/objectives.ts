@@ -9,18 +9,28 @@
  * auto-dismisses; the card stays until the step's items are all done.
  *
  * The rules, held structurally:
- *  - STEPS ARE SEQUENTIAL, EXCEPT WHERE THE WORLD OVERRULES THEM (r2 major).
- *    Only the current step's items can check; a later step's fact being true
- *    early does nothing until that step is current. Item order WITHIN a step
- *    is free. BUT a step may declare itself CONTEXTUAL (`preempt`): while its
- *    trigger fact is live, it becomes the current step wherever the spine has
- *    got to, and the spine resumes untouched when the trigger goes away. The
- *    measurement that forced this: a crawler standing in the first safe room
- *    with the System Shop open, the objectives card in the corner reading
- *    "Get Moving 2/3 — put down three monsters". A persistent always-on
- *    surface telling the player to do something the world has moved past is
- *    worse than no surface at all, and the SAFE ROOM lesson did not exist at
- *    the one moment the player was standing in a safe room.
+ *  - EVERY STEP DECLARES WHERE IT IS TRUE, AND THE CARD SHOWS ONLY A STEP THE
+ *    PLAYER'S CURRENT PLACE CAN HONOUR (r3 major). Steps are sequential WITHIN
+ *    a place: the card is the first not-yet-done step whose `where` matches the
+ *    place the crawler is standing in, and when no step matches there is NO
+ *    CARD. Item order within a step is free; only the shown step's items check.
+ *
+ *    r2 wrote this as a one-off (`preempt` + `armFact` on the safe-room step)
+ *    and a third cold pass measured what a one-off leaves behind: the card
+ *    still read "Get Moving — put down three monsters" while the player was
+ *    standing at the shop counter (obj.saferoom had already been completed, so
+ *    the pre-empt stood down and handed the card straight back to the spine),
+ *    and the safe room's card was still on the glass one floor later (the
+ *    HOST only re-rendered on a fact edge, so a change of PLACE — which is not
+ *    an edge in any fact — never repainted it).
+ *
+ *    So place is a first-class property of a step now, not a special case
+ *    bolted to one of them. "Put down three monsters" cannot be the ask in a
+ *    room with no monsters in it; "open the shop" cannot be the ask in a
+ *    corridor with no shop in it. A persistent always-on surface telling the
+ *    player to do something the world has moved past is worse than no surface
+ *    at all — so where the world has moved past every remaining step, the
+ *    surface goes away until it hasn't.
  *  - A STEP MUST BE TAUGHT BEFORE IT CAN BE SPENT (r1 blocker 1). Two gates,
  *    and both exist because THE FIVE was born completed: `update` ARMS a step
  *    and returns immediately (checked:[], completed:null), so the card and
@@ -51,9 +61,9 @@
  *    objSessionKills.
  *  - FLOOR TRANSITIONS CARRY A STEP FORWARD (objectives are the curriculum,
  *    not floor decoration) — there is deliberately no floor gate anywhere in
- *    this module. The one gate is S4's: it ARMS only once the crawler has
- *    actually stood in a safe room this run (`armFact`), because "open the
- *    shop" is a lie anywhere else.
+ *    this module. PLACE is not depth: a field step is as true on floor 5 as on
+ *    floor 1, and the only thing `where` refuses is a step whose ask the room
+ *    the player is standing in cannot answer.
  *  - THE SKIP CONSUMES EVERYTHING (a refusal is a delivery — the shipped
  *    convention): `skipAll` marks every step done and returns the ledger keys.
  *
@@ -98,20 +108,23 @@ export interface ObjectiveItem {
  *  threshold (CONFIG.interferenceHypeFloor), printed as a number. */
 export const OBJ_LABEL_TOKENS = ["strike", "dash", "cast", "hypeline"] as const;
 
+/**
+ * WHERE THE CRAWLER IS STANDING, in the only two kinds of place this game has
+ * asks for: the dungeon proper (`field` — monsters, loot, stairs, a clock) and
+ * a shop counter (`shop` — a safe room's shelf, or a settlement outfitter's).
+ * The host reports it every frame; a step is only ever the ask in its own
+ * place. Deliberately coarse: it is a property of the ASK, not a map region.
+ */
+export type ObjWhere = "field" | "shop";
+
 export interface ObjectiveStep {
   id: ObjStepId;
   title: string;
   items: readonly ObjectiveItem[];
-  /** The step only arms (card shows, items check) once this fact has been
-   *  true this run. S4: a safe room must exist before it can be a lesson. */
-  armFact?: "inSafeRoom";
-  /** CONTEXTUAL: while `armFact` is live, this step PRE-EMPTS the spine — it
-   *  becomes the current step wherever the sequence had got to, and the spine
-   *  resumes (with its latches intact) the moment the trigger goes away. The
-   *  lesson has to exist at the moment the world provides it, or it doesn't
-   *  exist: a competent player descends fast and finishes the run before a
-   *  strictly-queued safe-room step would ever arm. */
-  preempt?: boolean;
+  /** The place this step's ask is true in (default `field`). A step is never
+   *  shown, never checked and never completed anywhere else — which is both
+   *  the safe room's arm gate and its pre-empt, said once. */
+  where?: ObjWhere;
 }
 
 /** The first-session curriculum, in teaching order. Every item is provable
@@ -162,14 +175,14 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
     ],
   },
   {
-    // CONTEXTUAL: it arms and pre-empts the moment the crawler is standing in
-    // a safe room, whatever the spine is doing — that is the only moment the
-    // lesson is true. Its items are both completable INSIDE the room: the old
-    // third item ("take the stairs down") could only be satisfied by leaving,
-    // it duplicated obj.payday's descend, and it was one of the two
-    // near-identical "find the stairs" lines the r2 pass counted.
-    id: "obj.saferoom", title: "The Safe Room",
-    armFact: "inSafeRoom", preempt: true,
+    // THE ONE SHOP STEP. It is the card the moment the crawler is standing at
+    // a counter, whatever the spine was doing, and it is never the card
+    // anywhere else — one property, both halves of that. Its items are both
+    // completable INSIDE the room: the old third item ("take the stairs down")
+    // could only be satisfied by leaving, it duplicated obj.payday's descend,
+    // and it was one of the two near-identical "find the stairs" lines the r2
+    // pass counted.
+    id: "obj.saferoom", title: "The Safe Room", where: "shop",
     items: [
       { id: "shop", label: "Open the shop" },
       {
@@ -220,8 +233,6 @@ export interface ObjectivesView {
   step: ObjectiveStep;
   /** Item ids already checked (this run). */
   done: ReadonlySet<string>;
-  /** False while an armFact step waits for its moment — the card stays hidden. */
-  armed: boolean;
   /** Item ids whose ALTERNATIVE wording is the live one right now. */
   alt: ReadonlySet<string>;
 }
@@ -248,17 +259,17 @@ export class Objectives {
   private itemDone = new Set<string>();
   /** Per-session intro latch: a step introduces itself once, not once per run. */
   private introduced = new Set<ObjStepId>();
-  /** Per-run arm latches for armFact steps. */
-  private armed = new Set<ObjStepId>();
   /** Card-on-glass time the host has reported, per step (ms). The completion
    *  gate reads this: a step that never painted was never taught. */
   private seenMs = new Map<ObjStepId, number>();
   /** The last facts observed — the card reads them to choose an item's live
    *  wording (ObjectiveItem.alt). */
   private lastFacts: ObjectiveFacts = {};
-  /** The contextual step currently pre-empting the spine, if any. Recomputed
-   *  every `update` from the live facts (see ObjectiveStep.preempt). */
-  private preempting: ObjStepId | null = null;
+  /** Where the crawler is standing, as of the last `update`. The host is the
+   *  only thing that knows, and it reports it every frame — including the
+   *  frames where the sim is paused, which is exactly when a player is at a
+   *  shop counter (main3d's objectivesSync). */
+  private where: ObjWhere = "field";
 
   constructor(seen: Iterable<string> = []) {
     const known = new Set(seen);
@@ -270,14 +281,17 @@ export class Objectives {
     return OBJ_STEP_IDS.every((id) => this.doneSteps.has(id));
   }
 
-  /** The step the card is showing: a contextual step whose trigger is live,
-   *  else the first not-yet-done step in curriculum order. */
+  /** Where the sequencer believes the crawler is standing right now. */
+  get place(): ObjWhere {
+    return this.where;
+  }
+
+  /** The step the card is showing: the first not-yet-done step whose place is
+   *  the place the crawler is standing in. NULL when this place has no ask
+   *  left — a checklist that cannot be honoured here is not shown here. */
   currentStep(): ObjectiveStep | null {
-    if (this.preempting) {
-      const ctx = OBJECTIVE_STEPS.find((s) => s.id === this.preempting);
-      if (ctx && !this.doneSteps.has(ctx.id)) return ctx;
-    }
-    return OBJECTIVE_STEPS.find((s) => !this.doneSteps.has(s.id)) ?? null;
+    return OBJECTIVE_STEPS.find((s) =>
+      !this.doneSteps.has(s.id) && (s.where ?? "field") === this.where) ?? null;
   }
 
   /** What the card should show right now (null: show nothing). */
@@ -292,7 +306,7 @@ export class Objectives {
       // an OPEN item re-reads the world for which ask is honest right now.
       else if (it.alt && this.lastFacts[it.alt.altFact]) alt.add(it.id);
     }
-    return { step, done, alt, armed: !step.armFact || this.armed.has(step.id) };
+    return { step, done, alt };
   }
 
   /**
@@ -315,18 +329,14 @@ export class Objectives {
    *  a fact that flickers back to false un-checks nothing. */
   update(facts: ObjectiveFacts): ObjectivesUpdate {
     this.lastFacts = facts;
-    // THE WORLD OVERRULES THE QUEUE. A contextual step takes the card for as
-    // long as its trigger is live; when it goes away the spine picks up
-    // exactly where it was, latches and dwell intact.
-    const ctx = OBJECTIVE_STEPS.find((s) =>
-      s.preempt && s.armFact && !this.doneSteps.has(s.id) && !!facts[s.armFact]);
-    this.preempting = ctx?.id ?? null;
+    // WHERE THE PLAYER ACTUALLY IS, asked first and asked every call: the card
+    // follows the crawler, not the queue. Standing at a counter hands the card
+    // to the shop step wherever the spine had got to; walking out hands it
+    // back, latches and dwell intact; and a place with no ask left shows
+    // nothing rather than the nearest ask from somewhere else.
+    this.where = facts.inSafeRoom ? "shop" : "field";
     const step = this.currentStep();
     if (!step) return NOTHING;
-    if (step.armFact && !this.armed.has(step.id)) {
-      if (!facts[step.armFact]) return NOTHING; // not armed: card hidden, items inert
-      this.armed.add(step.id);
-    }
     // ARMING IS NOT CHECKING (r1 blocker 1). The call that introduces a step
     // reads no facts and completes nothing: the card and the intro beat get
     // the next frame to exist before the step can be spent against them.
@@ -357,15 +367,14 @@ export class Objectives {
 
   /**
    * A new run is a new crawler in the dungeon, but the SAME PERSON at the
-   * keyboard (r2 blocker — see the header). Arm latches are re-earned, because
-   * "you are in a safe room" is a fact about the world and the new run has not
-   * found one yet. Item latches are NOT cleared: they record what the player
-   * has been taught, and erasing tuition on death is what made the curriculum
-   * unreachable for two of three cold sessions.
+   * keyboard (r2 blocker — see the header). Item latches are NOT cleared: they
+   * record what the player has been taught, and erasing tuition on death is
+   * what made the curriculum unreachable for two of three cold sessions. All
+   * that resets is the PLACE — the new crawler starts in the field, and the
+   * next `update` re-reads it from the world anyway.
    */
   resetRun(): void {
-    this.armed.clear();
-    this.preempting = null;
+    this.where = "field";
   }
 
   /** The global skip (B0 / GUIDE_SKIP_KEY): every step consumed. Returns the

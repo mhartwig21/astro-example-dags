@@ -109,6 +109,18 @@ const PROMPTS: ReadonlySet<CoachEvent> = new Set<CoachEvent>([
 export const TOPIC_COLLAPSE = "collapse";
 
 /**
+ * THE BAG KEY IS TAUGHT ONCE, BY WHICHEVER GEAR MOMENT ARRIVES FIRST (r3,
+ * finding 4). `pickup` (an item landed in the bag) and `autoequip` (the sim
+ * dressed the crawler) are two halves of the loot lesson and both of them have
+ * to name where gear LIVES — which on floor 1 is the half that never fired,
+ * because floor-1 loot mostly auto-equips and the bag stays empty, so three
+ * cold passes were never told the word "equipped" or the key that opens the
+ * bag by anybody. Both name it now, and the topic makes sure the player hears
+ * it exactly once whichever way the dungeon gets there first.
+ */
+export const TOPIC_BAG = "bag";
+
+/**
  * THE CAST KEYS, AND ONLY THE CAST KEYS (r2 blocker). Slot 0 is the strike and
  * the dash is an ability like any other — it lives in whichever slot the
  * crawler benched it in, which on a fresh crawler is slot 2 (Shift). Any label
@@ -122,6 +134,29 @@ export function castSlotIndices(slots: readonly (string | null | undefined)[]): 
     if (slots[i] && slots[i] !== "dash") out.push(i);
   }
   return out;
+}
+
+/**
+ * THE ONE SLOT A "CAST" LABEL MAY NAME (r3, finding 5). `castSlotIndices` was
+ * the rule for the strip; the objectives card's `{cast}` token re-derived it
+ * and then fell back to `slots[2]` when the crawler owned no castable ability
+ * — which is the dash's slot for anyone who benched it there, so the card
+ * could still print the dash key under the word "Cast". The exclusion has to
+ * be structural in the FALLBACK too, not only in the happy path.
+ *
+ * First choice: a slot that actually holds a castable ability. Failing that,
+ * the first slot on the row that is NOT the dash — a key that is padlocked
+ * today and will hold an ability when the draft fills it. Never the dash, at
+ * any branch. -1 when the crawler has no such slot at all (the host then has
+ * no honest label and must decline the line, per the coach's law).
+ */
+export function castKeyIndex(slots: readonly (string | null | undefined)[]): number {
+  const live = castSlotIndices(slots);
+  if (live.length > 0) return live[0];
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i] !== "dash") return i;
+  }
+  return -1;
 }
 
 /** The in-play beat table. {key} is the live control label the host passes —
@@ -180,18 +215,23 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     wry: "The cooldown runs in minutes, so spend it on something the audience would rewind.",
   },
   pickup: {
-    verb: "Open", needsKey: true,
-    instruction: "Open your bag with {key} and wear the upgrade.",
+    verb: "Open", needsKey: true, topic: TOPIC_BAG,
+    instruction: "Open your bag with {key} and equip the piece of gear you just picked up.",
     wry: "Underdressed crawlers make great television, briefly.",
   },
+  // GEAR AND EQUIPPING WERE TAUGHT BY NOBODY (r3, finding 4). This beat fires
+  // on the one gear moment floor 1 reliably provides — the sim dressing the
+  // crawler — and it used to spend that moment on "check the number that
+  // moved", naming no key, no bag, and not the word EQUIPPED. It names the
+  // vocabulary now: gear, equipped, and the key that opens the place it lives.
   autoequip: {
-    verb: "Check", needsKey: false,
-    instruction: "Check the number that moved — that upgrade dressed itself.",
-    wry: "Strict improvements go straight on; judgement calls wait in the bag for yours.",
+    verb: "Open", needsKey: true, topic: TOPIC_BAG,
+    instruction: "Open your bag with {key} to see everything you have equipped.",
+    wry: "That upgrade dressed itself on the way past. Strict improvements go straight on; the judgement calls wait in there for yours.",
   },
   equipped: {
     verb: "Compare", needsKey: false,
-    instruction: "Compare the numbers before you wear anything.",
+    instruction: "Compare the numbers before you equip anything.",
     wry: "Gear is a decision, not a collection, and nobody down here grades you on a full bag.",
   },
   lowhp: {
@@ -259,6 +299,46 @@ export const COACH_TIP_BEATS: Record<string, TeachBeat> = {
 };
 
 export const COACH_TIP_IDS: readonly string[] = Object.keys(COACH_TIP_BEATS);
+
+// ---------------------------------------------------------------------------
+// THE SHELF (r3, finding 4) — the shop's own vocabulary, in Mordecai's voice,
+// on the shop's own surface.
+//
+// Nothing in the product had ever defined a shop word for anybody: three cold
+// passes met 21 tiles reading IN STOCK / COMPONENTS / THE CHASE with prices in
+// red and no sentence anywhere on the glass saying what a component is, that a
+// bag sells, or that gold survives a floor. The strip cannot carry this — the
+// panel is a modal and `body.modal` hides the strip by design (r3's card
+// visibility contract) — so these beats are rendered INSIDE the panel, on the
+// row that already carries Mordecai's name. Same TeachBeat shape, same binding
+// rule, same tests; only the surface differs.
+//
+// `{item}` / `{price}` / `{gold}` are host substitutions, live off the shelf
+// that actually generated (main3d's shopLessonLine), so the lesson can never
+// name a tile that is not there or a price that is not the one on it.
+// ---------------------------------------------------------------------------
+export const COACH_SHOP_BEATS: Record<"afford" | "broke", TeachBeat> = {
+  afford: {
+    verb: "Buy", needsKey: false,
+    instruction: "Buy the {item} for {price} gold — it is the one thing on this shelf your purse can reach.",
+    wry: "Gold you spend is gear; gold you hoard is ballast. Tiles marked COMPONENTS are parts rather than gear — they build into the real thing at a later shelf — and anything already in your bag sells here.",
+  },
+  broke: {
+    verb: "Read", needsKey: false,
+    instruction: "Read the shelf anyway — the cheapest thing on it is the {item} at {price} gold and you are carrying {gold}.",
+    wry: "Sell what is in your bag here if you want the difference. Gold keeps between floors, so the shelf you cannot afford today is a price list for the one that matters.",
+  },
+};
+
+/** Render a shop beat with the live shelf numbers substituted. */
+export function shopBeatLine(
+  which: "afford" | "broke", item: string, price: number, gold: number,
+): string {
+  return renderBeat(COACH_SHOP_BEATS[which])
+    .replace(/\{item\}/g, item)
+    .replace(/\{price\}/g, String(price))
+    .replace(/\{gold\}/g, String(gold));
+}
 
 /** The host-side translation seam: a curriculum tipId in, Mordecai's line
  *  out; null means DROP (the System never teaches again, on any surface). */
@@ -341,12 +421,12 @@ export interface CoachControls {
 /** Which control label each beat's {key} takes: a constructor control, a
  *  live label passed at call time, or none. */
 const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
-  start: "move", contact: "attack", pickup: "bag", lowhp: "flask",
+  start: "move", contact: "attack", pickup: "bag", autoequip: "bag", lowhp: "flask",
   // The dash key is a LOADOUT fact (the crawler may have benched it), so it is
   // handed in at call time exactly like the ability row's.
   dashkit: "call",
   ability: "call", slotted: "call", ult: "call",
-  cast: null, autoequip: null, equipped: null, drink: null, linger: null,
+  cast: null, equipped: null, drink: null, linger: null,
   elite: null, boss: null,
 };
 

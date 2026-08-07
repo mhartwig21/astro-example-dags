@@ -68,8 +68,8 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
-  COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, castSlotIndices,
-  coachTipLine, renderBeat,
+  COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, castKeyIndex,
+  castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
   type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
@@ -1775,8 +1775,28 @@ function noteFloorForAnnouncements(floor: number): void {
   if (!first) floorSwitchAt = performance.now();
 }
 
-function pushLogLine(text: string): void {
+/**
+ * ONE SENTENCE, ONE SURFACE — DECIDED, NOT RACED (r3, finding 2). Every
+ * `announce()` in the sim pushes the SAME string to `state.announcements` and
+ * `state.events`, so the announcer and the live feed are handed identical
+ * copies by construction. r2 un-doubled them with a 3.4s "is this on a louder
+ * surface right now" window plus a retro-active pull-back of any feed line
+ * still inside its 900ms arrival flash — a race whose outcome depended on
+ * which surface a given frame happened to drain first, and the solo loop
+ * drains events INSIDE the sub-step loop and announcements at the END of the
+ * frame, i.e. always the wrong way round. Measured at the descent: four feed
+ * lines duplicating what was on the toast stack in the same instant.
+ *
+ * The rule is now decided before either surface is touched: a frame's events
+ * are drained against that frame's announcement texts (`presentSimOutput`),
+ * and an event that IS an announcement never enters the visible feed at all.
+ * The archive `log` array still gets every line — nothing is lost, only
+ * un-doubled — and the timing window survives for the cross-frame case
+ * (a click-time flush answering a line the announcer showed a moment ago).
+ */
+function pushLogLine(text: string, spokenAloud = false): void {
   log.push(text);
+  if (spokenAloud) return;
   // The ringside title card owns the boss-intro moment — no third echo in the
   // visible feed (the line stays in the archive `log` array).
   if (text.includes("RINGSIDE INTRODUCTION")) return;
@@ -1798,6 +1818,20 @@ function pushLogLine(text: string): void {
   requestAnimationFrame(() => el.classList.add("show"));
   setTimeout(() => el.classList.remove("fresh"), 900);
   setTimeout(() => fadeOutLogLine(el), LOG_HOLD_MS);
+}
+
+/**
+ * Drain one frame's sim output to the System's two surfaces, in ONE order and
+ * under ONE rule (see pushLogLine): the announcer speaks, and the feed prints
+ * only what the announcer did not. Every drain site goes through here — the
+ * solo step loop, the net batch, and the click-time flush the paused safe room
+ * needs — so no site can reintroduce the ordering bug on its own.
+ */
+function presentSimOutput(anns: readonly Announcement[], events: readonly string[]): void {
+  for (const a of anns) showAnnouncement(a);
+  if (events.length === 0) return;
+  const spoken = new Set(anns.map((a) => annKey(a.text)));
+  for (const e of events) pushLogLine(e, spoken.has(annKey(e)));
 }
 
 function clearLogFeed(): void {
@@ -5477,8 +5511,7 @@ function shopStamp(verb: string, name: string, color: string): void {
 }
 
 function flushFeedback(s: GameState): void {
-  for (const a of s.announcements) showAnnouncement(a);
-  for (const e of s.events) pushLogLine(e);
+  presentSimOutput(s.announcements, s.events);
   s.announcements = [];
   s.events = [];
 }
@@ -7993,27 +8026,81 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   if (a.kind === "levelup") return;
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
-  // ONE ANNOUNCEMENT AT A TIME THROUGH A DOOR (r2 major). Floor 2's arrival —
-  // the biggest teaching beat after first blood — was measured as THREE
-  // stacked System subtitles (TIMED VAULT / NEIGHBOURHOOD BOSS / "Descending
-  // to floor 2") landing in one second, with the same lines duplicated in the
-  // live feed. The floor's announcements all fire in the same frame by
-  // construction, so during a transition the stack is collapsed to the newest
-  // line: they are sequential news, and the feed keeps every one of them.
+  // ...and the feed does not echo a line the player is reading centre-screen
+  // right now (see pushLogLine): identical text on two surfaces in the same
+  // instant is noise, not redundancy. Claimed here, at the moment the line is
+  // ACCEPTED for the louder surface, not when it eventually paints.
+  noteLiveAnnouncement(a.text);
+  queueToast(a);
+}
+
+/**
+ * ONE ANNOUNCEMENT AT A TIME THROUGH A DOOR (r2 major, rebuilt r3 finding 2).
+ *
+ * Floor 2's arrival — the biggest teaching beat after first blood — puts three
+ * System lines (TIMED VAULT / NEIGHBOURHOOD BOSS / "Descending to floor 2") on
+ * the glass in ONE frame, because the floor's announcements all fire inside
+ * `buildFloor`. r2 answered that by collapsing the stack to the newest line,
+ * which stopped the pile-up by DELETING the first two: the player never read
+ * the news, they watched two sentences flick past. A third pass counted the
+ * same three subtitles stacked anyway (the collapse is a 350ms fade, so every
+ * one of them is still on the glass while it happens).
+ *
+ * They are sequential news, so they are delivered sequentially: during a floor
+ * transition — and for as long as the backlog it created lasts — toasts are
+ * released one every TOAST_STAGGER_MS. Ordinary combat chatter is untouched
+ * (a kill/loot burst stacking is the game's texture, not a wall of text at a
+ * door): the meter only engages inside the transition window.
+ */
+/** How long a metered line owns the glass before the next one is released:
+ *  its own reading time, floored and capped. Nothing is deleted unread — the
+ *  previous line has had this long, alone, before the next arrives. */
+function toastDwellMs(text: string): number {
+  return Math.min(2600, Math.max(1400, 26 * text.length));
+}
+/** A door's worth of news. Past it the OLDEST queued line is dropped — the
+ *  archive feed still has every one of them, and a trickle that outlives the
+ *  moment it belongs to is the metronome bug in a different surface. */
+const TOAST_QUEUE_MAX = 5;
+const toastQueue: Announcement[] = [];
+let toastTimer = 0;
+let toastNextAt = -Infinity;
+function queueToast(a: Announcement): void {
   const transition = performance.now() - floorSwitchAt < FLOOR_QUIET_MS;
-  if (transition) {
-    for (const old of [...toastLayer.children] as HTMLElement[]) {
-      if (!old.dataset.dying) { old.dataset.dying = "1"; old.classList.remove("show"); }
-      setTimeout(() => old.remove(), 350);
-    }
+  if (!transition && toastQueue.length === 0 && toastTimer === 0) { showToast(a); return; }
+  toastQueue.push(a);
+  while (toastQueue.length > TOAST_QUEUE_MAX) toastQueue.shift();
+  drainToastQueue();
+}
+function drainToastQueue(): void {
+  if (toastTimer !== 0 || toastQueue.length === 0) return;
+  toastTimer = window.setTimeout(() => {
+    toastTimer = 0;
+    const next = toastQueue.shift();
+    // ONE AT A TIME MEANS ONE ON THE GLASS. The line being replaced has had
+    // its whole dwell alone; fading it as the next arrives is what makes a
+    // burst read as sequential news instead of as a wall that grew.
+    if (next) { fadeToasts(); showToast(next); }
+    drainToastQueue();
+  }, Math.max(0, toastNextAt - performance.now()));
+}
+/** Retire whatever is on the toast layer now (mid-fade, never yanked). */
+function fadeToasts(): void {
+  for (const old of [...toastLayer.children] as HTMLElement[]) {
+    if (old.dataset.dying) continue;
+    old.dataset.dying = "1";
+    old.classList.remove("show");
+    setTimeout(() => old.remove(), 350);
   }
+}
+
+function showToast(a: Announcement): void {
+  // Every line, metered or not, books its own reading time — so the first
+  // arrival line through a door cannot yank the corridor line it followed.
+  toastNextAt = performance.now() + toastDwellMs(a.text);
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
   el.textContent = a.text;
-  // ...and the feed does not echo a line the player is reading centre-screen
-  // right now (see pushLogLine): identical text on two surfaces in the same
-  // instant is noise, not redundancy.
-  noteLiveAnnouncement(a.text);
   toastLayer.appendChild(el);
   // No tip reaches the ticker any more (the curriculum branch above either
   // paints a card or drops the line), so the ledger write that used to live
@@ -8870,17 +8957,25 @@ function objItemLabel(label: string): string {
   const p = me(state);
   const slots = p?.abilities?.slots ?? [];
   const dashSlot = slots.findIndex((a) => a === "dash");
-  // The cast slot is the first slot past the strike that is NOT the dash —
-  // the same rule the strip's ability line runs on (coach castSlotIndices).
-  const castSlot = castSlotIndices(slots)[0] ?? -1;
+  // SHIFT IS THE DASH, AND THE CARD MAY NOT SAY OTHERWISE — including in the
+  // fallback (r3, finding 5). The happy path already excluded the dash slot;
+  // the fallback was a hardcoded `slots[2]`, which IS the dash for any crawler
+  // who benched it there, so a card could still print the dash bind under the
+  // word "Cast". `castKeyIndex` excludes it at every branch, by construction,
+  // and it is the same function the strip's ability line runs on.
+  const castSlot = castKeyIndex(slots);
+  const slotKey = (i: number): string =>
+    coachKey(SLOT_ACTIONS[Math.max(0, Math.min(SLOT_ACTIONS.length - 1, i))]);
   return label
     // ONE DEVICE (r1 minor): the same discipline the strip now holds — the
     // card names the input the player is demonstrably using, not both.
     .replace(/\{strike\}/g, coachStrikeLabel())
     .replace(/\{dash\}/g, touchMode ? "a flick or a two-finger tap"
-      : coachKey(SLOT_ACTIONS[dashSlot >= 0 ? dashSlot : 1]))
+      : slotKey(dashSlot >= 1 ? dashSlot : 1))
+    // (castKeyIndex only returns -1 for a crawler with no ability row at all,
+    // which is also a crawler with no dash — slot 2 is honest there.)
     .replace(/\{cast\}/g, touchMode ? "a chip beside STRIKE"
-      : coachKey(SLOT_ACTIONS[castSlot >= 1 && castSlot < SLOT_ACTIONS.length ? castSlot : 2]))
+      : slotKey(castSlot >= 1 ? castSlot : 2))
     .replace(/\{hypeline\}/g, String(CONFIG.interferenceHypeFloor));
 }
 
@@ -8938,52 +9033,52 @@ function cheapestShelfPrice(s: GameState): number {
  * CHASE / COMPONENTS / THE SYSTEM PROVIDES) had never been defined for anyone.
  * The first economy lesson in a loot ARPG was a wall of things you cannot buy.
  *
- * The guaranteed-affordable shelf is a SIM change and is still owed (see
- * TUTORIAL.md open edges); what the host can do is stop the panel being silent
- * about it. While the curriculum is live, the shop's own Mordecai line names
- * the ONE thing worth buying and what it costs — or, when the shelf really is
- * out of reach, says so plainly and gives the player the lesson that IS
- * available (read the prices, bank the gold), which is exactly what the
- * objectives card's `browse` fallback asks for. It prints INSIDE the panel
- * because that is where the player is looking: the strip is suppressed under
- * body.modal by design, so a card is the wrong surface for a shop lesson.
+ * r7 shipped the guaranteed-affordable first shelf in the sim; what the host
+ * owes is the VOCABULARY (r3, finding 4). While the curriculum is live, the
+ * shop's own Mordecai row carries a real beat — the ONE thing worth buying and
+ * what it costs, or, when the shelf really is out of reach, that number said
+ * plainly — and in both cases the words the panel uses and never defines:
+ * what a COMPONENT tile is, that the bag sells here, that gold survives a
+ * floor. The lines are `COACH_SHOP_BEATS`, so they obey the same binding rule
+ * (instruction first, with the ask in it; wry second) and the same tests as
+ * every other thing Mordecai says. It prints INSIDE the panel because that is
+ * where the player is looking: the strip is suppressed under body.modal by
+ * design, so a card is the wrong surface for a shop lesson.
  */
 function shopLessonLine(s: GameState): string {
   const p = me(s);
   const cheapest = cheapestShelfEntry(s);
   if (!cheapest) return "";
-  if (cheapest.price > p.gold) {
-    return `Nothing here is inside your purse yet — the cheapest thing on the shelf is ${cheapest.name}`
-      + ` at ${cheapest.price} gold and you are carrying ${p.gold}. Read the prices, then go and earn them;`
-      + ` gold keeps between floors and the next shelf will be deeper.`;
-  }
-  return `Buy the ${cheapest.name} — ${cheapest.price} gold, the one thing on this shelf your purse can reach.`
-    + ` Gold you spend is gear; gold you hoard is ballast.`;
+  return shopBeatLine(cheapest.price > p.gold ? "broke" : "afford",
+    cheapest.name, cheapest.price, p.gold);
 }
 
-/** ONE TEACHING COLUMN (r2 minor). Mordecai's strip stacks UNDER the
- *  objectives card on the same right-rail axis, so instruction and checklist
- *  read as one surface instead of two corners 1300px apart. The strip's top is
- *  the card's live height, published here because only the host can measure a
- *  card whose item count changes per step. */
-function publishObjectivesHeight(): void {
-  const h = objectivesEl.style.display === "none" ? 0 : objectivesEl.offsetHeight;
-  document.body.style.setProperty("--obj-h", `${h}px`);
-}
-
+/**
+ * THE CARD IS A PROJECTION OF THE SEQUENCER, NOT A MESSAGE FROM IT (r3 major).
+ * r2 repainted only on a fact EDGE — a step arming, an item checking, a step
+ * completing — and a change of PLACE is an edge in no fact at all. So the safe
+ * room's checklist stayed on the glass a floor after the safe room (the player
+ * left, `currentStep()` went back to the spine, and nothing asked the DOM to
+ * catch up), and any step whose card should have stood down while the world
+ * moved simply didn't. It is rebuilt from `view()` every frame now and written
+ * to the DOM only when the HTML actually differs, which is the same cost as a
+ * dirty flag and cannot go stale by construction.
+ */
+let objCardHtml = "";
 function renderObjectivesCard(): void {
   const v = objectives?.view() ?? null;
-  if (!objectives || !v || !v.armed) {
-    objectivesEl.style.display = "none";
-    publishObjectivesHeight();
-    return;
-  }
-  const n = v.step.items.filter((it) => v.done.has(it.id)).length;
-  objectivesEl.style.display = "block";
-  objectivesEl.innerHTML =
-    `<div class="obj-head"><img class="obj-face" src="/icons/portraits/mordecai.svg" alt="">` +
+  // ONE COLUMN (r3, finding 3): the plaque, the checklist and the strip are one
+  // plate while the curriculum is live — `body.coaching` is what glues them.
+  document.body.classList.toggle("coaching", !!objectives && !objectives.finished);
+  // ONE PORTRAIT PER COLUMN: the plaque above owns Mordecai's face, so the
+  // step's head is just the step — its title and its count. (Not hidden in
+  // CSS: an element that exists is an element a probe will count, and the
+  // finding was about how many faces are on the glass.)
+  const html = !objectives || !v ? "" :
+    `<div class="obj-head">` +
     `<span class="obj-title">${esc(v.step.title)}</span>` +
-    `<span class="obj-n">${n}/${v.step.items.length}</span></div>` +
+    `<span class="obj-n">${v.step.items.filter((it) => v.done.has(it.id)).length}` +
+    `/${v.step.items.length}</span></div>` +
     `<ul class="obj-items">` +
     v.step.items.map((it) => {
       // An ask the game cannot honour is worse than no ask: the item wears its
@@ -8993,7 +9088,10 @@ function renderObjectivesCard(): void {
         `<span>${objItemHtml(label)}</span></li>`;
     }).join("") +
     `</ul>`;
-  publishObjectivesHeight();
+  if (html === objCardHtml) return;
+  objCardHtml = html;
+  objectivesEl.style.display = html ? "block" : "none";
+  objectivesEl.innerHTML = html;
 }
 
 /**
@@ -9014,31 +9112,43 @@ function objectivesPaintTick(now: number): void {
   // hides the card (CSS), and a verdict screen is not reading time either.
   if (state.status !== "playing") return;
   if (document.body.classList.contains("checkin")) return;
-  const v = objectives.view();
-  if (!v || !v.armed) return;
+  if (!objectives.view()) return;
   if (objectivesEl.style.display === "none") return;
   objectives.addVisibleMs(dtMs);
 }
 
-/** Called beside coachObserve at both intent seams (solo step loop + net
- *  pump): computes the current step's facts from state diffs and host-surface
- *  edges, feeds the pure sequencer, and turns its edges into paint + ledger.
- *  Completion is FACT-spent (the player DID the step — exempt from the paint
- *  rule by design); the intro/sign-off LINES ride the card queue and may be
- *  dropped without consequence, because the persistent card itself is the
- *  durable copy of the instruction. */
+/**
+ * WHERE THE CRAWLER IS STANDING, as the player would say it: at a counter, or
+ * in the dungeon. `state.safeRoom` is the sim's word for it in a race; the
+ * settlement outfitter is the same posture on a Roam floor; and the panel
+ * being open is the same posture in the ~half second between the two. The
+ * objectives sequencer takes this as its `inSafeRoom` fact and picks a step
+ * the room can actually honour (src/ui/objectives.ts, ObjWhere).
+ */
+function atShopCounter(): boolean {
+  return state.safeRoom !== null || settlementShopOpen || srEl.style.display === "flex";
+}
+
+/**
+ * THE ACT SEAM. Called beside coachObserve at both intent seams (solo step
+ * loop + net pump): the only facts that need the INTENT the sim just consumed
+ * (MUST-3: the wire format has already been applied), latched here and read by
+ * `objectivesSync` below.
+ *
+ * It does NOT feed the sequencer, and that split is r3's major fix. Every
+ * intent seam in this host sits inside `while (acc >= SIM_DT)`, and solo play
+ * ZEROES `acc` while a safe room, a draft or any panel is open — so a
+ * checklist fed only from here is blind for exactly as long as the player is
+ * standing at a shop counter, which is when its own shop step is the ask. The
+ * measured shape of that: "Open the shop" never ticked while the shop was
+ * open, "Spend some gold" never ticked when gold was spent, and the card the
+ * player was looking at while shopping was still the one about killing three
+ * monsters.
+ */
 function objectivesObserve(intent: Intent): void {
   if (!objectives || objectives.finished || state.status !== "playing") return;
   if (guide?.skipped) return; // the mid-session skip path already consumed the steps
   const p = me(state);
-  // Baselines: the first observe of the run is the zero point for every diff.
-  if (!objPosBase) objPosBase = { x: p.pos.x, y: p.pos.y };
-  if (objInvBase < 0) objInvBase = p.inventory.length;
-  const equipSig = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
-  if (!objEquipBase) objEquipBase = equipSig;
-  if (objGoldBase < 0) objGoldBase = p.goldSpent ?? 0;
-  if (objFloorBase < 0) objFloorBase = state.floor;
-  if (objFavBase < 0) objFavBase = p.favorites;
   // SIM-TRUTH ACTS (the canonical intent the sim just consumed — MUST-3 —
   // cross-checked against what the sim says actually happened):
   // - a DASH is p.dashTime running (the i-frames exist), whatever gesture
@@ -9061,7 +9171,32 @@ function objectivesObserve(intent: Intent): void {
     && state.monsters.some((m) => m.hp > 0
       && Math.abs(m.pos.x - p.pos.x) <= COACH_CONTACT_TILES
       && Math.abs(m.pos.y - p.pos.y) <= COACH_CONTACT_TILES)) objStruck = true;
-  // A draft CLAIM is the open picks emptying (chooseUpgrade clears the set).
+}
+
+/**
+ * THE WORLD SEAM, once per rendered frame, paused or not. Computes the current
+ * step's facts from state diffs and host-surface edges, feeds the pure
+ * sequencer, and turns its edges into paint + ledger.
+ *
+ * Completion is FACT-spent (the player DID the step — exempt from the paint
+ * rule by design); the intro/sign-off LINES ride the card queue and may be
+ * dropped without consequence, because the persistent card itself is the
+ * durable copy of the instruction.
+ */
+function objectivesSync(): void {
+  if (!objectives || objectives.finished || state.status !== "playing") return;
+  if (guide?.skipped) return; // the mid-session skip path already consumed the steps
+  const p = me(state);
+  // Baselines: the first sync of the run is the zero point for every diff.
+  if (!objPosBase) objPosBase = { x: p.pos.x, y: p.pos.y };
+  if (objInvBase < 0) objInvBase = p.inventory.length;
+  const equipSig = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
+  if (!objEquipBase) objEquipBase = equipSig;
+  if (objGoldBase < 0) objGoldBase = p.goldSpent ?? 0;
+  if (objFloorBase < 0) objFloorBase = state.floor;
+  if (objFavBase < 0) objFavBase = p.favorites;
+  // A draft CLAIM is the open picks emptying (chooseUpgrade clears the set) —
+  // which happens under a MODAL, with the sim paused, so it is sampled here.
   const openPicks = p.pendingUpgrades.length;
   if (objPrevOpenPicks > 0 && openPicks === 0) objDraftClaimed = true;
   objPrevOpenPicks = openPicks;
@@ -9071,7 +9206,8 @@ function objectivesObserve(intent: Intent): void {
   objKillsThisRun = p.kills;
 
   const res = objectives.update({
-    inSafeRoom: state.safeRoom !== null,
+    // WHERE THE PLAYER ACTUALLY IS — the fact the whole card now follows.
+    inSafeRoom: atShopCounter(),
     // S1 GET MOVING
     moved: Math.abs(p.pos.x - objPosBase.x) + Math.abs(p.pos.y - objPosBase.y) >= 3,
     blood: p.kills > 0 || (p.damageDealt ?? 0) > 0,
@@ -9086,8 +9222,9 @@ function objectivesObserve(intent: Intent): void {
     loot: p.inventory.length > objInvBase || equipSig !== objEquipBase,
     draft: objDraftClaimed,
     descend: state.floor > objFloorBase,
-    // S4 THE SAFE ROOM (armed by inSafeRoom above; `shop` is a host-surface
-    // fact — the panel is host furniture, so the host testifies)
+    // S4 THE SAFE ROOM (only ever the ask while inSafeRoom above is true;
+    // `shop` is a host-surface fact — the panel is host furniture, so the host
+    // testifies, and it can only testify from a frame the sim is not running)
     shop: srEl.style.display === "flex",
     spend: (p.goldSpent ?? 0) > objGoldBase,
     // ...and the fallback the economy sometimes forces: nothing on any shelf
@@ -9137,7 +9274,6 @@ function objectivesObserve(intent: Intent): void {
     recordTips([res.completed]);
     showTutorialCard({ text: OBJ_DONE_LINES[res.completed], kind: "tip", priority: "normal" }, { momentMs: 20000 });
   }
-  if (res.started || res.checked.length > 0 || res.completed) renderObjectivesCard();
 }
 
 // The card exists from boot (an empty checklist is still an instruction) —
@@ -12745,7 +12881,11 @@ async function main(): Promise<void> {
       netHits.push(...batch.hits);
       netAnns.push(...batch.announcements);
       if (batch.bossEvents) netBoss.push(...batch.bossEvents);
-      for (const e of batch.events) pushLogLine(e);
+      // The batch's own announcements are the louder copy of these lines, and
+      // they are presented a frame later — so the feed is filtered against the
+      // BATCH rather than against a 3.4s clock (see pushLogLine).
+      const spoken = new Set(batch.announcements.map((a) => annKey(a.text)));
+      for (const e of batch.events) pushLogLine(e, spoken.has(annKey(e)));
     };
     net.onDisconnect = () => {
       pushLogLine("Disconnected from the server. Attempting to reconnect…");
@@ -12813,6 +12953,9 @@ async function main(): Promise<void> {
   // Feedback buffers reused across frames (GC sweep: no per-frame arrays).
   const frameHits: typeof state.hits = [];
   const frameAnns: Announcement[] = [];
+  /** The frame's LOG lines, held until the announcer has had first refusal on
+   *  them (r3, finding 2 — see presentSimOutput). */
+  const frameEvents: string[] = [];
   // Boss beats are per-STEP transients (cleared exactly like state.hits), so
   // they have to be drained inside the sub-step loop or a phase edge that
   // lands on a non-final sub-step is silently lost.
@@ -12832,6 +12975,7 @@ async function main(): Promise<void> {
     // Buffer feedback across every sub-step (step() clears these each call).
     frameHits.length = 0;
     frameAnns.length = 0;
+    frameEvents.length = 0;
     frameBoss.length = 0;
 
     if (net) {
@@ -12993,7 +13137,13 @@ async function main(): Promise<void> {
         if (coach) coachObserve(intent);
         objectivesObserve(intent);
         runTicks++;
-        for (const e of state.events) pushLogLine(e);
+        // BUFFERED, NOT PRINTED (r3, finding 2). The feed used to be written
+        // here, inside the sub-step loop, while the announcements it duplicates
+        // were presented at the end of the frame — so every sentence the sim
+        // says reached the quiet surface FIRST and the dedupe was left trying
+        // to un-print it. Both surfaces are now written from one seam, at the
+        // end of the frame, with the announcer given first refusal.
+        frameEvents.push(...state.events);
         frameHits.push(...state.hits);
         frameAnns.push(...state.announcements);
         if (state.bossEvents) frameBoss.push(...state.bossEvents);
@@ -13236,7 +13386,17 @@ async function main(): Promise<void> {
     }
     // Damage numbers need the camera positioned (done in update) to project.
     for (const h of frameHits) spawnDamageNumber(h);
-    for (const a of frameAnns) showAnnouncement(a);
+    presentSimOutput(frameAnns, frameEvents);
+    // THE CHECKLIST SAMPLES THE WORLD ON THE PRESENTATION CLOCK (r3 major),
+    // not on the sim's — solo play zeroes `acc` for every open panel, and the
+    // safe room is a panel, so a curriculum fed only from the step loop was
+    // blind at the one moment its own shop step was the ask. Late in the
+    // frame, so `state` is the displayed state (net) and the panel display
+    // flags are this frame's, not last frame's. The card is then rebuilt from
+    // the view — a change of PLACE is an edge in no fact, so nothing else can
+    // be trusted to repaint it.
+    objectivesSync();
+    renderObjectivesCard();
     updateDowned(state);
     maybeShowRecap(state);
     updateHud(state);

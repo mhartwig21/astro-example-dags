@@ -471,17 +471,22 @@
            settlement plaque:   #settle-plaque (Roam arrival card, ~26% center —
                                   below the headline zone, transient)
            boss intro zone:     #bossintro ringside splash, BELOW the headline zone
-           tutorial zone:       #tutorial (z 7) — top-left, below #hud-tl; MORDECAI'S
-                                 STRIP: dismissible non-pausing teaching cards (coach
-                                 lines + curriculum tip translations + objective step
-                                 lines), one at a time; touch mode slides it below the
-                                 relocated minimap
-           objectives zone:     #objectives (z 6; z 26 under body.modal) — right rail
-                                 between #party and #quests (first-session checkable
-                                 steps; persistent, never auto-dismissed; compact/phone
-                                 collapses it to the one-line head chip). It is the ONE
-                                 transient-looking layer that survives a modal: the
-                                 panel a step points at must not hide the step
+           coach column:        #coach (z 7; z 26 under body.modal) — right rail
+                                 between #party and #quests, and THE ONE PLACE A
+                                 FIRST-TIMER LOOKS FOR WHAT TO DO NEXT. One plate,
+                                 three children, top to bottom: #coach-head (Mordecai's
+                                 plaque — portrait + nameplate, shown only while the
+                                 curriculum is live), #objectives (the checkable step:
+                                 persistent, never auto-dismissed; compact/phone
+                                 collapses it to the one-line head chip) and #tutorial
+                                 (MORDECAI'S STRIP: dismissible non-pausing teaching
+                                 cards — coach lines, curriculum tip translations,
+                                 objective step lines — one at a time). The checklist
+                                 is the ONE transient-looking layer that survives a
+                                 modal (the panel a step points at must not hide the
+                                 step); the strip stands down under one, because it
+                                 must not talk over a decision. Touch mode moves the
+                                 whole column below the relocated minimap
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
@@ -538,24 +543,38 @@
          zones. */
       /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
          mode minimap (z 5) or taps land on movement instead of GOT IT. */
-      /* ONE TEACHING COLUMN (tutorial r2 minor). The strip used to live
-         top-LEFT while the objectives card lived top-RIGHT — ~1300px apart,
-         with the live feed bottom-left and the System's toasts bottom-centre,
-         so a new player was reading instruction out of four corners at once.
-         Hades keeps instruction in ONE place at a time. The strip now stacks
-         directly under the objectives card on the same right-rail axis: the
-         ask and the explanation are one column, and --obj-h (published by
-         main3d's publishObjectivesHeight, because only the host can measure a
-         card whose item count changes per step) keeps them touching without
-         ever overlapping. */
-      #tutorial { position: fixed; top: calc(148px + var(--obj-h, 0px) + 8px);
-        right: 12px; left: auto; width: 238px; max-width: 34ch;
-        pointer-events: none; z-index: 7; }
-      /* Touch mode parks the minimap in this corner — the iPad slides below
-         it; the phone hasn't the height, so the transient card sits OVER the
-         minimap instead (z 7 beats its z 5; one tap and it's gone). */
-      body.touch #tutorial { top: 284px; }
-      body.phone #tutorial { top: 96px; max-width: 30ch; }
+      /* ONE TEACHING SURFACE (tutorial r3, finding 3). r2 moved the strip onto
+         the objectives card's axis and measured the two boxes' gap with a CSS
+         variable (--obj-h, published from JS). A third cold pass still counted
+         five teaching surfaces in four corners, and it was right to: two fixed
+         overlays stacked by arithmetic are two overlays. They are ONE PLATE
+         now — #coach, a single fixed box holding one Mordecai plaque, the
+         checklist, and the strip beneath it, in normal flow. No measurement,
+         no variable, no gap to keep in sync, one portrait instead of two, and
+         one place a first-timer looks for what to do next.
+
+         (The strip keeps its own plaque when it is the only child on screen —
+         a veteran who never enrolled still gets curriculum tip translations,
+         and a nameless line of text in the corner is not Mordecai.) */
+      /* z 7: the column must out-stack the touch stick zone (z 4) and the
+         touch-mode minimap (z 5), or taps land on movement instead of GOT IT. */
+      #coach { position: fixed; top: 148px; right: 12px; width: 238px;
+        z-index: 7; pointer-events: none; }
+      body.coaching #coach { background: var(--noise),
+          linear-gradient(180deg, rgba(38,29,19,0.82), rgba(13,10,6,0.86) 62%);
+        backdrop-filter: blur(3px);
+        border: 1px solid #8a6d3b; border-top-color: #e2b06a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.85); outline-offset: 1px; border-radius: 4px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 0 26px rgba(217,142,74,0.14),
+          0 10px 30px rgba(0,0,0,0.6);
+        overflow: hidden; }
+      /* The column's plaque: ONE portrait and ONE nameplate for the whole
+         surface, borrowed wholesale from the strip's .tut-head so the man on
+         the checklist is visibly the man in the dialogue panel. */
+      #coach-head { display: none; }
+      body.coaching #coach-head { display: flex; }
+      #tutorial { position: static; width: auto; max-width: none;
+        pointer-events: none; }
       body.phone .tut-body { font-size: 12px; }
       /* THE COURTESY CARD WAS A NAVY PLATE WITH A DANGER BUTTON (r3 majors).
          Rule four sanctions cool GLASS for anything overlaid on live gameplay —
@@ -591,7 +610,7 @@
       /* Mordecai's plaque: the ember tokens the #dialogue .guide frame already
          owns (#b8945a / #f5cf82) with his portrait as a chip — one face for
          one voice, strip and modal alike. The gold System ribbon is retired. */
-      .tut-head { background: linear-gradient(180deg, rgba(217,142,74,0.2), rgba(217,142,74,0.06));
+      .tut-head, #coach-head { background: linear-gradient(180deg, rgba(217,142,74,0.2), rgba(217,142,74,0.06));
         border-bottom: 1px solid rgba(168,133,79,0.5);
         padding: 6px 10px; display: flex; align-items: center; gap: 8px; }
       .tut-face { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 3px;
@@ -635,27 +654,33 @@
         .tut { touch-action: manipulation; } /* never a double-tap zoom */
         .tut-dismiss { padding: 12px 0; font-size: var(--t-small); } /* thumb-sized */
       }
+      /* INSIDE THE COLUMN THE CARD IS NOT A CARD, it is the column's body: the
+         plate, the keyline and the plaque all belong to #coach, and the strip
+         contributes only a hairline above its text. Two nested frames with two
+         portraits reads as two systems that happen to be adjacent, which is
+         precisely what the pass counted. */
+      body.coaching #tutorial .tut { background: none; backdrop-filter: none;
+        border: 0; border-top: 1px solid rgba(168,133,79,0.4); outline: none;
+        border-radius: 0; box-shadow: none; }
+      body.coaching #tutorial .tut-head { display: none; }
 
-      /* THE OBJECTIVES CARD (#objectives — zone map above): the guided
-         first-session checklist. PERSISTENT — no auto-dismiss, no moment
-         expiry, no pointer events; it stays until the step's items are done
-         and unmounts forever when the curriculum is. Ember frame + portrait
-         chip: it is Mordecai's list, same voice as the strip. Right rail,
-         between the roster (96px) and the Roam contract ledger (210px) —
-         quests is Roam furniture and objectives is a first-session race, so
-         they never meaningfully coexist, but each claims its own zone. */
-      #objectives { position: fixed; top: 148px; right: 12px; width: 236px; z-index: 6;
-        display: none; pointer-events: none;
-        background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
-        border: 1px solid #b8945a; border-radius: 6px; color: #e8e0cc;
-        box-shadow: 0 6px 24px rgba(0,0,0,0.45); overflow: hidden; }
+      /* THE OBJECTIVES CHECKLIST (#objectives — the coach column's middle
+         child): the guided first-session steps. PERSISTENT — no auto-dismiss,
+         no moment expiry, no pointer events; it stays until the step's items
+         are done, hides itself when the room the player is standing in has no
+         step to ask for, and unmounts forever when the curriculum is over. It
+         wears no frame of its own: the column is the plate. */
+      #objectives { position: static; width: auto; display: none;
+        pointer-events: none; color: #e8e0cc; }
       .obj-head { display: flex; align-items: center; gap: 7px;
         background: rgba(217,142,74,0.14); border-bottom: 1px solid #b8945a;
         padding: 5px 9px; font-family: var(--display); font-variant: small-caps;
         font-weight: 700; font-size: var(--t-small); letter-spacing: 0.12em;
         color: #f5cf82; }
-      .obj-face { width: 18px; height: 18px; border-radius: 50%; flex: 0 0 18px;
-        border: 1px solid #b8945a; object-fit: cover; background: #14100c; }
+      /* ONE PORTRAIT PER COLUMN: the plaque above owns the face (there is no
+         .obj-face any more — see renderObjectivesCard), so the step head is
+         just the step: its title, its count, and the rule under it. */
+      body.coaching .obj-head { background: none; border-bottom-color: rgba(168,133,79,0.4); }
       .obj-title { flex: 1 1 auto; min-width: 0; white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }
       .obj-n { flex: 0 0 auto; color: #c9a24b; font-size: 11px; letter-spacing: 0.06em; }
@@ -675,8 +700,8 @@
          step title + n/m count) tucked under #hud-tr — the ~100px of
          uncontested width a landscape phone actually has. Owner's phone pass
          (against production) is the acceptance for this placement. */
-      body[data-uiclass="compact"] #objectives,
-      body[data-uiclass="phone"] #objectives { top: 46px; right: 8px; width: auto;
+      body[data-uiclass="compact"] #coach,
+      body[data-uiclass="phone"] #coach { top: 46px; right: 8px; width: auto;
         max-width: 44vw; }
       body[data-uiclass="compact"] #objectives .obj-items,
       body[data-uiclass="phone"] #objectives .obj-items { display: none; }
@@ -1096,8 +1121,8 @@
         max-width: none; transform: none; }
       body[data-uiclass="compact"] #bossbar::before,
       body[data-uiclass="phone"] #bossbar::before { display: none; }
-      body[data-uiclass="compact"].bossplate #tutorial,
-      body[data-uiclass="phone"].bossplate #tutorial { display: none; }
+      body[data-uiclass="compact"].bossplate #coach,
+      body[data-uiclass="phone"].bossplate #coach { display: none; }
       #bossbar::before { content: ""; position: absolute; top: -4px; left: 50%; margin-left: -4px;
         width: 8px; height: 8px; transform: rotate(45deg);
         background: linear-gradient(135deg, var(--bronze-hi), var(--bronze));
@@ -1489,7 +1514,9 @@
          headline mechanic, not chrome. What it covers instead is the
          SYSTEM/CRAWLER menu bar, which is the least urgent thing on screen
          while the System is explaining a mechanic. */
-      body.touch #tutorial { top: var(--gut-t); left: var(--card-x, 12px);
+      /* (The column moves as one — the strip is a child of #coach now, so the
+         touch placement is the COLUMN's, not the card's.) */
+      body.touch #coach { top: var(--gut-t); left: var(--card-x, 12px);
         right: auto; width: var(--card-w, 40vw); max-width: none;
         transform: none; text-align: left; pointer-events: none; z-index: 7; }
       body.touch #tutorial .tut { pointer-events: none; }
@@ -3350,10 +3377,10 @@
       body.checkin #hud-tl, body.checkin #hud-tr, body.checkin #hud-log,
       body.checkin #skills, body.checkin #banner, body.checkin #show,
       body.checkin #minimap-frame, body.checkin #cockpit,
-      /* ...and the objectives card, which is dungeon furniture: RINGSIDE
+      /* ...and the whole coach column, which is dungeon furniture: RINGSIDE
          CHECK-IN is the cover shot, and a checklist for a run that has not
          started is both clutter and a card nobody can act on. */
-      body.checkin #objectives,
+      body.checkin #coach,
       body.checkin #t-stick, body.checkin #t-stairs { visibility: hidden; }
       #m-skin-label { position: absolute; left: 4vw; bottom: 7vh; pointer-events: none;
         color: #f5e6bf; text-shadow: 0 2px 12px #000; }
@@ -5846,11 +5873,18 @@
          transient HUD chatter leaves the frame ENTIRELY — no log lines, tips,
          toasts, or banners may bleed readably behind a modal scrim. body.modal
          is host-managed (style-attribute observer in main3d). ---- */
-      body.modal #hud-log, body.modal #toasts, body.modal #tutorial,
+      body.modal #hud-log, body.modal #toasts,
       body.modal #headline, body.modal #draft-badge, body.modal #party,
       body.modal #mobplates {
         opacity: 0 !important; visibility: hidden;
         transition: opacity 0.15s ease, visibility 0s linear 0.15s; }
+      /* MORDECAI'S STRIP STANDS DOWN UNDER A DECISION — and inside the coach
+         column it must stand down by LEAVING THE FLOW, not by going
+         transparent: an invisible card holding its height inside the column's
+         plate is a blank panel with a gap in it. (The card's own clocks
+         already know: tutorialBlocked() pauses the auto-dismiss, the read
+         budget and the queue while either modal class is set.) */
+      body.modal #tutorial, body.dlg #tutorial { display: none; }
       /* ...BUT NOT THE OBJECTIVES CARD (tutorial r1). Mordecai's STRIP must
          not talk over a decision — that rule is right and it stays. The
          checklist is not chatter, it is the ask the panel is an answer to: the
@@ -5873,7 +5907,8 @@
          where a gutter would have been the alternative, so there is no inset
          that clears it on every viewport — the honest fix is to look
          deliberate rather than to look like a bleed-through. */
-      body.modal #objectives, body.dlg #objectives { z-index: 26;
+      body.modal #coach, body.dlg #coach { z-index: 26; }
+      body.modal.coaching #coach, body.dlg.coaching #coach {
         background: var(--noise), linear-gradient(180deg, rgba(30,23,15,0.97), rgba(11,9,6,0.98) 62%);
         backdrop-filter: none;
         border-color: #a8854f; outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
@@ -7302,11 +7337,18 @@
     <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>
     <div id="headline"></div>
-    <div id="tutorial"></div>
-    <!-- The guided first-session checklist (zone map: objectives zone).
-         Rendered by main3d's renderObjectivesCard; display:none until a step
-         is armed, gone forever once the curriculum is done. -->
-    <div id="objectives" data-overlay="none"></div>
+    <!-- THE COACH COLUMN (zone map: coach column) — one plate, one voice, one
+         place to look for what to do next. The plaque shows only while the
+         curriculum is live (body.coaching, set by renderObjectivesCard); the
+         checklist hides itself when the room the player is standing in has no
+         step to ask for; the strip below carries the live line and stands down
+         under a modal. -->
+    <div id="coach" data-overlay="none">
+      <div id="coach-head"><img class="tut-face" src="/icons/portraits/mordecai.svg" alt="">
+        <span class="tut-name">MORDECAI<small>THE GUIDE</small></span></div>
+      <div id="objectives"></div>
+      <div id="tutorial"></div>
+    </div>
     <div id="minimap-frame"><canvas id="minimap" width="150" height="150"></canvas><i class="mm-vignette"></i><i class="mm-rose"></i></div>
     <!-- ROAM: the settlement conversation cut (only the interacting player's
          host shows it; sim session playerId gates rendering). -->
