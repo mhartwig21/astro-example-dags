@@ -189,12 +189,25 @@ BINDINGS panel footer in `iso.html`) — keep both in sync when adding rows.
 | Work | Author | License | Source | Our file |
 |---|---|---|---|---|
 | Battle Music | Alexandr Zhelanov | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-music) | `music/battle_music.ogg` |
-| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` |
+| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` — **TRIMMED derivative**, see the note below |
 | Colossal Boss Battle Theme | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/colossal-boss-battle-theme) | `music/boss_colossal.ogg` |
 | Blackmoor Tides (Epic Pirate Battle Theme) | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/blackmoor-tides-epic-pirate-battle-theme) | `music/boss_blackmoor.ogg` |
 
 The `.ogg` files are re-encodes of the authors' seamless-loop WAV/MP3 releases
-(format conversion only, no creative changes). Rejected during sourcing:
+(format conversion only, no creative changes) — with ONE exception, recorded
+here because "no creative changes" has to stay literally true or it stops
+being worth reading. `music/battle_winter.ogg` is a **TRIMMED DERIVATIVE**:
+`tools/audio/fix-beds.mjs battle_winter.ogg` keeps a single 64.0s window of
+the A section (source 12.8s–78.4s, 40 bars at 150bpm) with a one-bar seam
+crossfade, replacing the 262.45s original. No content was added and nothing
+was re-pitched or re-mixed; it is a cut plus a loop-point blend. CC BY 3.0
+permits derivatives with attribution, which the row above and the in-game
+credits provide. Reason: the director drops this bed 6s after the last blow,
+and the full track was 3.63MB streamed MID-FIGHT (measured: 3,654,308 bytes
+arriving 12.9s into a floor-11 fight). It also fixed a real defect — the
+original looped over a 6s fade to digital silence, a 95.1dB seam step, the
+worst in the folder. The 262.45s source is in git at `main@b7c15f3`.
+Rejected during sourcing:
 "Orchestral Battle Music" (Zefz) — CC-BY-SA/GPL only, and the author states the
 samples come from a commercial MAGIX sample DVD, so the relicensing chain is
 unclear. Don't ship it.
@@ -373,6 +386,15 @@ alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
 |---|---|---|---|
 | Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
 | AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+
+The `.woff2` beside each TTF is a **derivative** of that same OFL original —
+subset to the ranges the UI types and recompressed (927 KB -> 224 KB on the
+cold-boot wire). It is what `iso.html` loads; the TTF stays as the second
+`src:` for pre-woff2 WebKit and as the license-bearing master. The OFL permits
+this (modified copies stay under the OFL, and neither the reserved family
+names nor the license texts change). Regenerate both with
+`python tools/fonts/subset.py` — its header documents the two settings that
+must not drift (keep all layout features, don't instance variable Cinzel).
 
 ## AI-generated assets — `tools/asset-pipeline/`
 

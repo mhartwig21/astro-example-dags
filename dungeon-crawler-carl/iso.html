@@ -16,25 +16,39 @@
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
          Dungeon stone lit by torchfire, framed in bronze, announced in gold.
          Tokens first; every component below derives from them. */
+      /* The four faces ship as SUBSET WOFF2 (927 KB of raw TTF -> 224 KB on
+         the wire — the single biggest non-model item on the cold-boot path).
+         The TTF masters stay in public/fonts as the second src: anything
+         older than iOS 10 / IE11-era WebKit still gets real type instead of
+         a fallback serif, and they remain the license-bearing originals
+         ASSETS.md points at. Regenerate with tools/fonts/subset.py — read
+         its header before changing the subset: `font-variant: small-caps`
+         and `font-variant-numeric: tabular-nums` are everywhere in this
+         file, so the smcp/c2sc/tnum layout features must survive, and
+         Cinzel is a variable font that must not get instanced. */
       @font-face {
         font-family: "Cinzel";
-        src: url("/fonts/Cinzel.ttf") format("truetype");
+        src: url("/fonts/Cinzel.woff2") format("woff2"),
+             url("/fonts/Cinzel.ttf") format("truetype");
         font-weight: 400 900;
         font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Regular.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Regular.woff2") format("woff2"),
+             url("/fonts/AlegreyaSans-Regular.ttf") format("truetype");
         font-weight: 400; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Bold.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Bold.woff2") format("woff2"),
+             url("/fonts/AlegreyaSans-Bold.ttf") format("truetype");
         font-weight: 700; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Italic.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Italic.woff2") format("woff2"),
+             url("/fonts/AlegreyaSans-Italic.ttf") format("truetype");
         font-weight: 400; font-style: italic; font-display: swap;
       }
       :root {
