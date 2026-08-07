@@ -59,3 +59,8 @@ tools/audio/_r2_sheets/**/*.png
 # rebuilds it from the clips + descriptors). The generator is the artifact;
 # the base64 bundle is not.
 tools/audio/_r2_sheets/audition.html
+
+# Tutorial round captures (tools/_tut_shoot_*.mjs, tools/_tut_fix_r2.mjs):
+# same rule as every other harness above — the probe scripts are committed,
+# the 135 MB of PNGs they photograph are not.
+tools/_shots/
