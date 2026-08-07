@@ -28,6 +28,7 @@ import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressin
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { surfaceDetailMap } from "./surfaceMaps";
 import { FogOfWar } from "./fogOfWar";
+import { dedupeSkeletons } from "./rigMerge";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
 import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight, type BakeStain } from "./lightGrid";
@@ -3740,6 +3741,12 @@ export class Renderer3D {
     // SkeletonUtils.clone: a plain .clone() leaves skinned meshes bound to the
     // source skeleton, which renders as a mangled/collapsed pose.
     const g = cloneSkinned(m.scene) as THREE.Group;
+    // ...and it mints a FRESH Skeleton per skinned mesh even where the source
+    // shared one, which costs a bone texture and a per-frame matrix upload
+    // apiece. After rigMerge a body's meshes genuinely share bones AND
+    // inverses, so the duplicates are provably interchangeable; dedupeSkeletons
+    // re-checks that element by element and collapses only what passes.
+    dedupeSkeletons(g);
     g.userData.modelKey = key; // capture-harness prop identification (propprobe)
     // KayKit characters ship their whole class arsenal visible at once; show one
     // clean canonical loadout instead (players get theirs from equipment).
