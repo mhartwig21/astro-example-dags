@@ -318,6 +318,10 @@ let runProof: RunProof | null = null;
 function beginRecording(
   seed: number, runKind: GameState["runKind"], mode: GameState["mode"],
   dailyRule: DailyRuleId | null = null,
+  // THE DEBUT: the run is recorded (it is a real, replayable run and the
+  // verdict screen is the same screen) and the header says so, which is what
+  // makes the board refusal structural instead of polite.
+  firstRun = false,
 ): void {
   rec = null;
   recBlocked = "";
@@ -361,6 +365,9 @@ function beginRecording(
     // TODAY'S RULE rides the proof header: a ruled run replayed without its
     // rule diverges on tick one (sim/replay.ts executes the header's rule).
     dailyRule,
+    // ...and so does THE DEBUT, for exactly the same reason: a merciful floor
+    // 1 replayed as an ordinary one diverges the first time it tries to kill.
+    firstRun,
   });
 }
 
@@ -443,11 +450,16 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
     ? forcedRule
     : mode.kind === "daily" && mode.day ? dailyRuleFor(mode.day) : null;
   forcedRule = undefined;
-  state = createGame(seed, "coop", runKind, rule);
+  // THE DEBUT (TUTORIAL.md first-run mercy): the one world the game builds
+  // with a floor-1 safety net — decided here, once, and carried by the state
+  // (so a mid-run refresh resumes merciful) and by the proof header (so the
+  // run replays exactly and can never take a board slot). See isDebutRun.
+  const debut = isDebutRun(mode, runKind, seed);
+  state = createGame(seed, "coop", runKind, rule, debut);
   state.players[0].name = crawlerName();
   state.players[0].skin = chosenSkin; // the campfire decision walks in with you
   seedTips(state.players[0]); // first-contact tips are once EVER, not once per run
-  beginRecording(seed, runKind, state.mode, rule);
+  beginRecording(seed, runKind, state.mode, rule, debut);
   saveRun(state, runMode);
   // FUNNEL RUNG 4 (NICHE.md §7): "second run started within 24h" is a query
   // over run_start rows keyed by account — so every solo run start is one row.
@@ -8437,6 +8449,33 @@ if (freshCrawler && !testMode && !cleanMode) {
 }
 const objEnrolled = knownTips().includes(OBJ_ENROLLED_KEY);
 const objCurriculumDone = OBJ_STEP_IDS.every((id) => knownTips().includes(id));
+/**
+ * THE DEBUT (TUTORIAL.md first-run mercy) — the HOST half of the gate; the sim
+ * half is `firstRunMercyActive` (floor 1 only) and the competitive half is the
+ * server refusing a `firstRun` header a board slot.
+ *
+ * Every clause is a reason this run is not a contest:
+ *  - the profile is the fresh one this boot enrolled in the curriculum, and
+ *    the curriculum is still owed (a graduate never gets the net back);
+ *  - NO run is on the history yet. This is the literal FIRST descent — read
+ *    at start time, not sampled at boot, so the second run of a session is
+ *    the real game even though the boot-time `freshCrawler` read is stale;
+ *  - it is an ordinary solo race on a free seed: no daily, no signed event
+ *    ticket, no challenge card being answered (all three are comparisons, and
+ *    a comparison with a safety net under it is a lie), and never test/clean.
+ *
+ * A run that passes builds a merciful world AND is recorded with the flag, so
+ * the proof replays byte-exactly and is refused a rank by the server rather
+ * than by anyone's good manners.
+ */
+function isDebutRun(mode: RunMode, runKind: GameState["runKind"], seed: number): boolean {
+  return freshCrawler && objEnrolled && !objCurriculumDone
+    && !testMode && !cleanMode && !net
+    && runKind === "race" && mode.kind === "random"
+    && loadHistory().length === 0
+    && !pendingTicket
+    && !(cardChallenge && seed === cardChallenge.seed);
+}
 // "Skip the hand-holding" (TUTORIAL.md B0 choice 3) silences Mordecai's strip
 // too: a persisted skip suppresses the coach on later boots (the live-session
 // half of the same rule is the guide.skipped check inside coachObserve).
@@ -12069,10 +12108,16 @@ function updateHud(s: GameState): void {
   // it will cost. The freeze is the visible half of the button; the DEBT is
   // the half the crawler forgets, so it rides on the same row.
   const stayT = p.injunctionT ?? 0;
-  const phaseKey = stayT > 0 ? "stayed" : s.phase;
+  // THE DEBUT (TUTORIAL.md first-run mercy): floor 1 of a first run holds its
+  // clock instead of going lethal. The sim already announced why; the readout
+  // has to agree with the announcement, because a countdown that silently
+  // stops is indistinguishable from a countdown that broke.
+  const heldClock = !!s.firstRunClockHeld && s.floor === 1 && stayT <= 0;
+  const phaseKey = stayT > 0 ? "stayed" : heldClock ? "held" : s.phase;
   setHudText(
     hhPhase, "phase",
-    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s` : s.phase.toUpperCase(),
+    stayT > 0 ? `STAYED ${stayT.toFixed(1)}s · OWES ${Math.round(p.injunctionDebt ?? 0)}s`
+      : heldClock ? "HELD" : s.phase.toUpperCase(),
   );
   if (hudCache.phaseCls !== phaseKey) {
     hudCache.phaseCls = phaseKey;

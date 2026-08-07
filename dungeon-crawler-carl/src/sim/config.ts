@@ -54,6 +54,35 @@ export const CONFIG = {
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
 
+  // ---- THE DEBUT: the first run of a fresh profile (TUTORIAL.md) ----------
+  // Four cold passes measured the same wall: three of four first-timers died
+  // on floor 1 without finishing the FIRST objective, and two of three never
+  // reached the step that teaches the kit. A first hour that can be failed
+  // into confusion is a first hour nobody finishes, so floor 1 of a DEBUT
+  // (GameState.firstRun, set by the host from the fresh-profile read and
+  // carried in the proof header) has no fail state — and pays for it by being
+  // structurally unrankable. Every knob below reads ONLY under that flag;
+  // ordinary and competitive play never touches this block.
+  //
+  // The knockdown: a killing blow becomes a CUT TO COMMERCIAL — the crawler
+  // wakes at the floor entrance with this much of their bar, briefly
+  // untouchable, with the crowd's excitement spent. It costs position, health
+  // and hype; it cannot cost the run.
+  firstRunMercyHpFraction: 0.6,
+  firstRunMercyGraceSeconds: 2, // untouchable while the broadcast comes back
+  // The clock: the debut episode gets its full runtime. Floor 1 counts down
+  // normally (so the WARNING phase — and the collapse lesson it carries —
+  // lands with its real drums) and then HOLDS here instead of going lethal.
+  // Must sit below timerBaseSeconds * warningFraction (48s) or the warning
+  // never fires; test/tutorial-firstrun.test.ts asserts exactly that.
+  firstRunClockHoldSeconds: 30,
+  // The float: a floor-1 take is 3-8 kills at goldMin..goldMax, i.e. 16-30
+  // gold, against a cheapest first-shelf entry of 35 — the first shop was a
+  // locked door in two consecutive cold rounds. The System advances a debut
+  // crawler this much against future earnings, so the first shelf is a shelf
+  // and not a window. Must cover cheapestFirstShelfPrice(); the test proves it.
+  firstRunStipendGold: 40,
+
   // Player
   playerMaxHp: 100,
   playerSpeed: 4.2, // tiles/sec

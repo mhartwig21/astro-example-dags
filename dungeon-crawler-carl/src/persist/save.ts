@@ -92,6 +92,11 @@ export interface SaveData {
   // Roam campaigns: quest progress, consumed vendor stock, smashed hoards
   // (#25) — overlaid onto the deterministically rebuilt floor on CONTINUE.
   roam?: RoamSaveState;
+  // THE DEBUT (TUTORIAL.md first-run mercy): was this world created as a fresh
+  // profile's first run? It has to round-trip, or a first-timer who refreshes
+  // the tab mid-floor-1 resumes into a world where the mercy silently stopped
+  // existing. Absent on every save written before the flag existed.
+  firstRun?: boolean;
   // Character progression only — the floor itself is regenerated from seed + floor,
   // so we never persist transient monster/loot/timer state. Effective stats
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
@@ -138,6 +143,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
       mode,
       runKind: state.runKind,
       roam: state.runKind === "roam" ? toRoamSave(state) : undefined,
+      firstRun: state.firstRun || undefined,
       player: {
         name: p.name,
         skin: p.skin,

@@ -239,6 +239,15 @@
       .hh-collapse.stayed > i { background: linear-gradient(90deg, #5e0c07, #e0402e); }
       .hh-collapse.stayed { box-shadow: 0 0 10px rgba(224,64,46,0.45); }
       @keyframes stayPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.55; } }
+      /* THE DEBUT (TUTORIAL.md first-run mercy): floor 1 of a fresh profile's
+         first run never goes lethal -- the clock counts down THROUGH the
+         warning and then stops at the hold. A stopped clock has to look
+         DECIDED or it looks broken, so the row states HELD in the warning's
+         gold and sits perfectly still: nothing is happening, which is the
+         point. (No pulse. The stay above pulses because it is spending
+         something; this is spending nothing.) */
+      .hh-phase.held { color: var(--gold-hi); text-shadow: 0 0 8px rgba(212,175,55,0.35); }
+      .hh-collapse.held > i { background: linear-gradient(90deg, #6b6153, #a8854f); }
       /* The HP cockpit anchor: gold-bezel framed bar with segment ticks, a
          damage-lag ghost trail, and the smoothed readout engraved on top. */
       .hpframe { margin-top: 6px; padding: 2px; position: relative; border-radius: 3px;

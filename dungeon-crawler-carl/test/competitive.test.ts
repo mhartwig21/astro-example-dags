@@ -381,6 +381,24 @@ describe("events, tickets and CP (COMPETITIVE.md 3.2)", () => {
   });
 });
 
+describe("THE DEBUT IS NOT A CONTEST (TUTORIAL.md first-run mercy)", () => {
+  it("a first-run header is refused a board slot, structurally and server-side", async () => {
+    H.link("acct-debut");
+    const { proof } = run(101, 3);
+    // The one thing that makes this run different: floor 1 was played with a
+    // stipend, a held clock and killing blows converted to knockdowns. The
+    // client refuses to offer it; this is the refusal that does not depend on
+    // the client, exactly like the test-mode start beside it.
+    proof.header.firstRun = true;
+    const out = await H.api.submit(reseal(proof), "acct-debut", "Rookie", "5.5.5.5");
+    if ("error" in out) throw new Error(out.error);
+    expect(out.queued).toBe(false);
+    expect(out.state).toBe("claimed");
+    expect(out.reason).toContain("debut mercy");
+    expect(H.api.queue.depth).toBe(0);
+  }, 60_000);
+});
+
 describe("abuse guards (COMPETITIVE.md 2.7)", () => {
   it("an anonymous account can submit, but never enters the verify queue", async () => {
     // An account is FREE, so an unlinked one may not buy the box's CPU. It is

@@ -10,6 +10,68 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r7 — THE DEBUT: the two owed SIM changes (branch `tutorial-mordecai`)
+
+Both r6 rounds ended with the same two items owed, and both were owed because
+they are `src/sim` changes and those rounds were scoped to UI. This round is
+the sim round. **`RULES_HASH` rotated** (`npx tsx scripts/simhash.ts --write`)
+— every previously recorded run proof is retired, which is expected and
+documented (COMPETITIVE.md §2.6a) and is the price of both fixes.
+
+**One flag, three rules, one floor.** `GameState.firstRun` is set at
+`createGame` by the host that read the profile (`isDebutRun` in main3d), round
+-trips through the save (`SavedProgress.firstRun` — a refresh mid-lesson must
+not silently promote a first-timer into the real game), and rides the run-proof
+header (`RunProofHeader.firstRun`) so a replay rebuilds the same world. Nothing
+else in the codebase sets it: not `createTestGame`, not the server, not the
+bot, not the balance harness. The gate the player can feel is even narrower —
+**floor 1** (`firstRunMercyActive`), which opens at second zero and closes the
+instant they take the stairs. No counter, no step to finish, nothing to be
+confused by.
+
+1. **THE FIRST RUN CANNOT BE FAILED.** Three of four cold passes died on floor
+   1 without finishing the first objective; one cycled `0/3 → 2/3 → reset`
+   twelve times over seven minutes. Two mechanisms, because floor 1 has two
+   ways to kill you:
+   - **The cut to commercial.** Every death in the game funnels through
+     `handlePlayerDeath` — monsters, hazards, statuses, bombers, the floor
+     itself — so the mercy sits THERE and not at the twenty-odd call sites. A
+     killing blow puts the crawler at the floor entrance on
+     `firstRunMercyHpFraction` of their bar, briefly untouchable, with hype at
+     zero and the System narrating the edit. It costs position, health and the
+     crowd; it cannot cost the run. The step loop asks the same question of the
+     STATE each frame (`p.hp <= 0 && alive`), so a damage source that forgets
+     to route its own death cannot fail the run either.
+   - **The held clock.** Floor 1's budget is 120 seconds and a first-timer
+     spends most of it learning which key walks. Converting killing blows and
+     then letting the FLOOR kill them would be a mercy that lies, and a
+     knockdown loop inside a collapsing floor is exactly the "reads as broken"
+     failure this round was told to avoid. So the clock counts down normally —
+     through the WARNING, whose System line is the collapse lesson the whole
+     curriculum is built on — and then HOLDS at `firstRunClockHoldSeconds`,
+     announced once as the production decision it is. The HUD says `HELD` in
+     the warning's gold and sits still (`.hh-phase.held`): a countdown that
+     silently stops is indistinguishable from one that broke.
+2. **THE FIRST SHELF IS A SHELF, NOT A WINDOW.** Two cold rounds measured 24
+   then 16 gold against a 35-gold cheapest entry. Fixed at the cause, twice
+   over: a debut crawler is advanced `firstRunStipendGold` at construction (the
+   line is SAID on the first step — a construction-time announcement is cleared
+   by `step()` before any host can drain it), and the guarantee is restated at
+   `generateSafeRoom` against the shelf that actually generated, so a crawler
+   who arrives broke is topped up to `cheapestUsefulShelfPrice`. That helper is
+   the shared definition of "affordable AND useful" — gear, or a consumable
+   that heals/plates/buys time; never a tome nobody can read or a legendary
+   wanting sponsors. Shop 1 only; the second shelf is the real economy.
+
+**A debut is not a contest.** The run records and replays exactly (the flag is
+in the header for the same reason the daily rule is), and the server refuses it
+a board slot by header — `competitiveApi` and `verifyWorker`, structural, the
+same class of refusal as a test-mode start. Ordinary play is untouched: an
+ordinary run built from the same seed still starts broke, still collapses,
+still dies, and `test/tutorial-firstrun.test.ts` asserts each of those as the
+control beside every mercy claim (16 tests; the host half is measured by
+`tools/_tut_debut_probe.mjs` against a cold profile on port 5287).
+
 ## r6-fix-2 — the second critic round (branch `tutorial-mordecai`)
 
 A harsh critic scored the fixed build 5.5/10 off three cold browser passes
@@ -130,9 +192,9 @@ the mechanism. The two sim-side asks stay open and are named at the bottom.
     DESCEND as the door. A fold, not a lock, and never set once any history
     exists.
 
-**Still open after this round** (both are `src/sim` changes and this was a UI
-round — see "open edges"): the guaranteed-affordable floor-1 shelf, and the
-floor-1 first-run mercy. And the critic is right that System pacing is
+**Still open after this round** (both were `src/sim` changes and that was a UI
+round): the guaranteed-affordable floor-1 shelf, and the floor-1 first-run
+mercy. **Both shipped in r7 above.** And the critic is right that System pacing is
 UNMEASURED: the round-3 battery must sample `#headline` and `#toasts` with
 timestamps (the r2 probe read `#banner`, which is the menu bar) and re-shoot at
 1280x720 and a 3:2 laptop ratio.
@@ -645,22 +707,15 @@ in front of a first session and that this feature does not pretend to.**
 - **Touch farewell affordance**: beats close by tapping the farewell choice;
   a dedicated on-glass ESC affordance could come with the mobile merge (the
   mobile-wr branch is not on `tutorial`).
-- **FIRST-RUN MERCY on floor 1** (r6-fix-1 item 4c, NOT done). Three of four
-  cold passes died on floor 1 with GET MOVING at 1/3 or worse. The critic's
-  ask is Hades' Tartarus shape: reduce pack size/aggro until `obj.move`
-  completes. That is a `src/sim` change — it moves numbers, rotates
-  `RULES_HASH` and retires every recorded run proof, and it has to be a flag
-  the recorded run setup carries or replays diverge. It needs its own round
-  with `npx tsx scripts/simhash.ts --write` and a balance-test pass; doing it
-  quietly inside a UI round would have been exactly the wrong trade.
-- **A GUARANTEED-AFFORDABLE FLOOR-1 SHELF** (r6-fix-2 item 4, NOT done). Two
-  cold rounds have now measured the same wall: 24 gold against a 35-gold
-  cheapest entry, then 16 against 35. The host can only narrate it
-  (`shopLessonLine`) and offer the `browse` fallback; making the first shelf
-  hold one thing a median floor-1 take can buy is a `src/sim` change (catalog
-  or floor-1 gold), which moves numbers, rotates `RULES_HASH` and needs
-  `npx tsx scripts/simhash.ts --write` plus a balance pass. Same round as the
-  first-run mercy below.
+- **The DEBUT has never been watched by a critic.** r7 shipped the mercy and
+  the shelf and proved both in the sim (plus a cold-profile host probe), but
+  nobody has yet played a first session end to end under them. The open
+  questions are presentational and all of one kind — does the knockdown read
+  as GENEROUS or as weightless, does `HELD` read as a decision, does the
+  topped-up float read as help or as charity — and only a cold pass can answer
+  them. The `alt` form of obj.saferoom's "Spend some gold" (`cheapestShelfPrice
+  () > gold`) should now be unreachable on a debut: if a pass sees it, the
+  guarantee has a hole.
 - **Floor-2+ curriculum is still unobserved end to end.** No cold pass has
   reached floor 2, so `obj.saferoom`, `obj.show` and the `elite`/`boss` depth
   confirmations have never been seen by a critic. Drive `?test&floor=2`.
