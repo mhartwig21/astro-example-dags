@@ -17,11 +17,11 @@
  */
 import { describe, expect, it } from "vitest";
 import {
-  ASK_DRAFT_KEY, ASK_MAX_CARDS, ASK_REPEAT_MS, ASK_STUCK_MS,
+  ASK_DRAFT_KEY, ASK_LOST_KEY, ASK_MAX_CARDS, ASK_REPEAT_MS, ASK_STUCK_MS,
   COACH_BEATS, COACH_MAX_PROMPTS, COACH_SHOP_BEATS, COACH_TIP_BEATS, COACH_TIP_IDS,
   Coach, OBJ_ASKS, OBJ_DONE_LINES, OBJ_INTRO_BEATS, StandingAsk,
   TOPIC_BAG, TOPIC_COLLAPSE, TOPIC_SHOW, castKeyIndex,
-  castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
+  castSlotIndices, coachTipLine, diagnoseKnockdown, renderBeat, shopBeatLine,
   type CoachEvent, type TeachBeat,
 } from "../src/ui/coach";
 import { DEFAULT_BINDINGS, keyLabel } from "../src/input/bindings";
@@ -50,9 +50,13 @@ const CONFIRMS: CoachEvent[] = [
   "elite", "boss",
   // THE SHOW's three nouns, fired by its readout first moving (r10, sev 7).
   "showbar",
+  // THE KNOCKDOWN DIAGNOSIS (r11, sev 9): the act that earns them is going
+  // down, so they are confirmations — unbudgeted, and never floor-gated even
+  // though only floor 1 of a debut can currently produce one.
+  "downdash", "downflask", "downescort",
 ];
 /** Those whose {key} is only true per-loadout, handed in at call time. */
-const KEYED: CoachEvent[] = ["dashkit", "ability", "slotted", "ult"];
+const KEYED: CoachEvent[] = ["dashkit", "ability", "slotted", "ult", "downdash", "downescort"];
 /** Note a prompt with a live label, so the call-keyed ones are not declined. */
 const prompt = (o: Coach, ev: CoachEvent, floor = 1): string | null => o.note(ev, floor, "Shift");
 
@@ -520,6 +524,10 @@ describe("THE TEACHING CHANNEL IS CONTINUOUS (r10 root cause)", () => {
     ...OBJECTIVE_STEPS.flatMap((s) => s.items.flatMap((it) =>
       [`${s.id}/${it.id}`, ...(it.alt ? [`${s.id}/${it.alt.id}`] : [])])),
     ASK_DRAFT_KEY,
+    // ...and the two PRE-EMPTS, which are asks the WORLD produces rather than
+    // the sequencer: a banked draft (r10) and a crawler who has stopped getting
+    // closer to the stairs (r11).
+    ASK_LOST_KEY,
   ];
 
   it("EVERY item the curriculum can stall on has an ask and an escalation", () => {
@@ -675,6 +683,88 @@ describe("THE SHOW is taught, not merely surfaced", () => {
     const show = renderBeat(OBJ_INTRO_BEATS["obj.show"]);
     expect(show).toMatch(/favorite/i);
     expect(show).toMatch(/attention|crowd/i);
+  });
+});
+
+/**
+ * THE EXIT (r11, severity 9): "the tutorial no longer kills its players, it
+ * strands them ... two of four deaths were collapse-timer executions at full HP
+ * with zero wayfinding", and "floor 1 is unloseable and also unleaveable —
+ * mercy has no escalation or diagnosis".
+ */
+describe("a lost crawler is given a DIRECTION, not another checkbox", () => {
+  it("the lost ask carries a live bearing and the escalation carries the key", () => {
+    const beat = OBJ_ASKS[ASK_LOST_KEY];
+    // The ask is a heading (the host substitutes {bearing} from the world every
+    // frame); the escalation additionally names the control that spends it.
+    expect(beat.ask).toContain("{bearing}");
+    expect(beat.stuck).toContain("{bearing}");
+    expect(beat.stuck).toContain("{stairs}");
+    expect(beat.ask).toMatch(/stairs|map/i);
+  });
+
+  it("...and it escalates FASTER than an ordinary step ask", () => {
+    // The host does not raise this until a measured stall, so by the time it is
+    // on the glass the player has already been lost for a while.
+    const beat = OBJ_ASKS[ASK_LOST_KEY];
+    expect(beat.after).toBeLessThan(ASK_STUCK_MS);
+    const a = new StandingAsk();
+    a.observe(ASK_LOST_KEY, 0);
+    expect(a.observe(ASK_LOST_KEY, beat.after!)).toBeTruthy();
+    expect(a.line()).toContain(beat.stuck);
+  });
+
+  it("progress toward the exit hands the ask straight back to the spine", () => {
+    // The pre-empt is a projection of the world, exactly like the draft one: a
+    // key change is progress, and progress resets the clock and the escalation.
+    const a = new StandingAsk();
+    a.observe(ASK_LOST_KEY, 0);
+    a.observe(ASK_LOST_KEY, 60000);
+    expect(a.escalated).toBe(true);
+    a.observe("obj.payday/descend", 0);
+    expect(a.escalated).toBe(false);
+    expect(a.line()).toBe(OBJ_ASKS["obj.payday/descend"].ask);
+  });
+
+  it("the descend item's own escalation points at the marked exit", () => {
+    // The one item that can strand a player names the surfaces that answer it.
+    const beat = OBJ_ASKS["obj.payday/descend"];
+    expect(beat.stuck).toMatch(/map|marker|EXIT/);
+    expect(beat.stuck).toContain("{stairs}");
+  });
+});
+
+describe("the debut mercy DIAGNOSES instead of repeating itself", () => {
+  it("names the survival tool the crawler is measurably not using", () => {
+    // Never dashed beats everything but the escort: the dash is the one button
+    // that ends the situation that is knocking them down.
+    expect(diagnoseKnockdown({ escorted: false, dashed: false, flasks: 3 })).toBe("downdash");
+    // Dashing but dying with flasks on the belt is the other measured shape
+    // ("You died holding 3 flasks", r5's verdict line).
+    expect(diagnoseKnockdown({ escorted: false, dashed: true, flasks: 2 })).toBe("downflask");
+  });
+
+  it("the ESCORT outranks every diagnosis — the world just changed under them", () => {
+    expect(diagnoseKnockdown({ escorted: true, dashed: false, flasks: 3 })).toBe("downescort");
+    expect(diagnoseKnockdown({ escorted: true, dashed: true, flasks: 0 })).toBe("downescort");
+  });
+
+  it("a crawler using both tools is told NOTHING — they are losing, not stranded", () => {
+    // Silence is the honest answer here: the coach's ordinary combat lines own
+    // that player, and a diagnosis that fires on everybody diagnoses nobody.
+    expect(diagnoseKnockdown({ escorted: false, dashed: true, flasks: 0 })).toBeNull();
+  });
+
+  it("every note the selector can return has a line, and the escort names the key", () => {
+    for (const note of ["downdash", "downflask", "downescort"] as const) {
+      expect(COACH_BEATS[note], note).toBeTruthy();
+    }
+    // The escort's whole job is "you are standing on the stairs, press this".
+    const line = desktop().note("downescort", 1, ">")!;
+    expect(line).toContain(">");
+    expect(line).toMatch(/stairs/i);
+    expect(desktop().note("downdash", 1, "Shift")).toMatch(/dash/i);
+    expect(desktop().note("downflask", 1)).toContain("X"); // the flask control
   });
 });
 

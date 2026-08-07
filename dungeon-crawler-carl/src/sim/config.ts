@@ -70,6 +70,20 @@ export const CONFIG = {
   // and hype; it cannot cost the run.
   firstRunMercyHpFraction: 0.6,
   firstRunMercyGraceSeconds: 2, // untouchable while the broadcast comes back
+  // ...AND THE KNOCKDOWN ESCALATES (r11 — the critic's severity-9 finding, in
+  // its words: "the tutorial no longer kills its players, it strands them ...
+  // mercy has no escalation or diagnosis"). The edit above is the right answer
+  // ONCE. Repeated verbatim it becomes a room that will not kill you and will
+  // not let you leave, which measured worse than dying: half a cohort finished
+  // a 7.5-minute first session on floor 1 at level 1.
+  //
+  // So on the Nth save the production stops re-staging the same scene and walks
+  // the crawler to the exit: they wake ON the stairs, not at the entrance. The
+  // player still presses the descend key themselves — the curriculum's verb is
+  // never performed for them — but the search that defeated them is over.
+  // Three, not two: the first knockdown is drama, the second is a pattern, the
+  // third is the production admitting the crawler is stuck.
+  firstRunEscortSaves: 3,
   // The clock: the debut episode gets its full runtime. Floor 1 counts down
   // normally (so the WARNING phase — and the collapse lesson it carries —
   // lands with its real drums) and then HOLDS here instead of going lethal.

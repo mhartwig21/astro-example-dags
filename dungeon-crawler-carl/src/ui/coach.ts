@@ -91,7 +91,12 @@ export type CoachEvent =
   //      Mordecai footnotes the FIRST of each new thing the depth introduces) ----
   | "elite"     // first named elite in reach — the affix lesson
   | "boss"      // first boss encounter — the telegraph lesson
-  | "showbar";  // the hype reading first moves — THE SHOW's three nouns, defined
+  | "showbar"   // the hype reading first moves — THE SHOW's three nouns, defined
+  // ---- THE KNOCKDOWN DIAGNOSIS (r11): the debut mercy caught them again, and
+  //      the game says WHY rather than repeating the same edit in silence ----
+  | "downdash"  // they have gone down without ever dashing
+  | "downflask" // they went down holding flask charges
+  | "downescort"; // the production has walked them to the exit — take it
 
 /** Lines that arrive uninvited. Floor 1 only, and never more than the budget.
  *
@@ -292,7 +297,62 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     instruction: "Watch your hype climb: it is the crowd's attention, it rises when you fight fast and loud, and it sinks the moment you go quiet.",
     wry: "Viewers are how many are watching right now. Favorites are the ones who stay yours and keep paying after they look away. Those numbers are the Show, and the Show is who is funding this.",
   },
+  // ---- THE KNOCKDOWN DIAGNOSIS (r11, severity 9: "mercy has no escalation or
+  // diagnosis"). The debut mercy converts a killing blow into a knockdown, and
+  // before this round it did so IDENTICALLY, forever, saying nothing about why
+  // it kept happening. A safety net that never comments is indistinguishable
+  // from a floor that will not kill you and will not let you leave. These are
+  // CONFIRMATIONS — the act that earns them is going down — and each names the
+  // one survival tool this crawler is measurably not using (diagnoseKnockdown).
+  downdash: {
+    verb: "Press", needsKey: true,
+    instruction: "Press {key} the moment something closes on you — the dash carries you clear and nothing can touch you while it runs.",
+    wry: "You have not used it once yet. That is most of the difference between a bad fight and a short one.",
+  },
+  downflask: {
+    verb: "Drink", needsKey: true,
+    instruction: "Drink with {key} at half a bar, not at the end — you went down with charges still on your belt.",
+    wry: "Kills refill it. Corpses do not.",
+  },
+  downescort: {
+    verb: "Press", needsKey: true,
+    instruction: "Press {key} where you are standing — the production has walked you onto the stairs and down is the only thing left to do.",
+    wry: "Nobody gets a fourth edit. The next floor is the one that counts, and you get to arrive on it standing up.",
+  },
 };
+
+/**
+ * THE DIAGNOSIS (r11). What the game says to a crawler the debut mercy has just
+ * caught. The critic's finding, verbatim: "Floor 1 is unloseable and also
+ * unleaveable — mercy has no escalation or diagnosis", against two of four cold
+ * deaths that were executions at full HP with zero wayfinding. A knockdown that
+ * repeats without ever naming a cause teaches the player that nothing they do
+ * matters, which is the worst thing a tutorial can teach.
+ *
+ * Pure, so the priority order is testable off the facts alone: the ESCORT
+ * outranks everything (the world just changed under the player and the line
+ * that explains it is the only one worth saying), then the tool they have never
+ * once used, then the tool they were still carrying when they folded. Null when
+ * the crawler is already using both — that player is not stranded, they are
+ * losing a fight, and the coach's ordinary lines own that.
+ */
+export interface KnockdownFacts {
+  /** Has the production just walked them to the exit (the sim's escalation)? */
+  escorted: boolean;
+  /** Has this crawler EVER dashed this session? */
+  dashed: boolean;
+  /** Flask charges still unspent at the moment they went down. */
+  flasks: number;
+}
+
+export type KnockdownNote = "downescort" | "downdash" | "downflask" | null;
+
+export function diagnoseKnockdown(f: KnockdownFacts): KnockdownNote {
+  if (f.escorted) return "downescort";
+  if (!f.dashed) return "downdash";
+  if (f.flasks > 0) return "downflask";
+  return null;
+}
 
 /**
  * THE TIP TRANSLATIONS. The sim's curriculum tips (Player.tipsSeen and the
@@ -502,6 +562,27 @@ void OBJ_STEP_IDS;
  *  the player can always act on, from any room, and it is pure gain. */
 export const ASK_DRAFT_KEY = "draft.banked";
 
+/**
+ * THE ASK BECOMES A DIRECTION WHEN THE PLAYER IS LOST (r11, severity 9: "two of
+ * four deaths were collapse-timer executions at full HP with zero wayfinding",
+ * and "floor 1 is unloseable and also unleaveable").
+ *
+ * This pre-empt OUTRANKS THE DRAFT, which outranks the spine — and the order is
+ * the finding. A crawler who cannot find the stairs is not making a mistake
+ * inside a step; the step has stopped being the problem. Claiming a draft in a
+ * room you cannot leave is still a stranded session, and the draft ask stands
+ * un-actioned indefinitely for exactly the player this pre-empt exists for, so
+ * leaving it in front would guarantee the direction never gets a turn.
+ *
+ * The host only raises it after a MEASURED stall — real on-glass time in which
+ * the crawler's own best distance to the exit has not improved — so a player
+ * who is fighting, looting or exploring toward the stairs never sees it.
+ * `{bearing}` is the live heading and range, recomputed from the world every
+ * frame like every other part of the standing ask: it is a projection, so it
+ * cannot point at where the stairs used to be.
+ */
+export const ASK_LOST_KEY = "lost.stairs";
+
 export interface AskBeat {
   /** THE STANDING ASK: one imperative sentence naming the control, on the
    *  glass for as long as this item is the thing being asked. */
@@ -581,9 +662,14 @@ export const OBJ_ASKS: Record<string, AskBeat> = {
     stuck: "Press {draft}, then take one of the offered cards with 1, 2 or 3 — a draft you never claim is a level you are not wearing.",
     wry: "The System banks them because it expects you to forget. Disappoint it.",
   },
+  // THE ONE ITEM THAT CAN STRAND A PLAYER (r11). It used to ask a crawler to
+  // stand on something without ever saying where it was; the whole cohort
+  // finding — "unloseable and also unleaveable" — is downstream of that. The
+  // ask carries the live heading now, and the escalation names the two surfaces
+  // that are answering it while the exit is lit: the beacon and the chart.
   "obj.payday/descend": {
-    ask: "Stand on the stairs and press {stairs}.",
-    stuck: "Read the minimap for the stairs, walk onto them, and press {stairs} — the clock on this floor does not stop for a tidy floor.",
+    ask: "Walk {bearing} to the stairs and press {stairs}.",
+    stuck: "Follow the gold EXIT marker on your glass, or the gold diamond on your map, until the stairs are under you and press {stairs} — the clock on this floor does not stop for a tidy floor.",
     wry: "Down is the only direction that has ever paid anybody.",
   },
   "obj.saferoom/shop": {
@@ -610,6 +696,15 @@ export const OBJ_ASKS: Record<string, AskBeat> = {
     ask: "Hold your hype over {hypeline} until the crowd picks a favorite.",
     stuck: "Keep fighting with hype above {hypeline} — viewers are the people watching right now, and a favorite is one who stays yours and keeps paying after they look away.",
     wry: "Viewers are weather. Favorites are income.",
+  },
+  [ASK_LOST_KEY]: {
+    ask: "Walk {bearing} — that is where the stairs are, and they are marked on your map.",
+    stuck: "Follow the gold EXIT marker {bearing} until you are standing on the stairs, then press {stairs} — the floor has nothing else left to give you.",
+    wry: "Every floor down here is a room you are meant to leave. Wandering one is not a strategy, it is just a long scene.",
+    // The player is already visibly lost when this ask is raised — the host
+    // does not raise it until a measured stall — so the concrete form is owed
+    // sooner than a step's ordinary instruction.
+    after: 12000,
   },
   [ASK_DRAFT_KEY]: {
     ask: "Press {draft} to claim the draft you have banked.",
@@ -725,6 +820,9 @@ const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
   ability: "call", slotted: "call", ult: "call",
   cast: null, equipped: null, drink: null, linger: null,
   elite: null, boss: null, showbar: null,
+  // The diagnosis names a control the crawler owns RIGHT NOW: the dash wherever
+  // they benched it, the flask, the stairs bind. All handed in at call time.
+  downdash: "call", downescort: "call", downflask: "flask",
 };
 
 /** The lecture budget. Confirmations do not count against it. Seven, not six:

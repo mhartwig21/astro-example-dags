@@ -10,6 +10,104 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r11 — THE EXIT: wayfinding, and a mercy that escalates
+
+The sixth critic round scored 6.5 and named the new failure in one sentence:
+**"the tutorial no longer kills its players, it strands them."** Two findings
+under it, severity 9 and 8 — *"two of four deaths were collapse-timer
+executions at full HP with zero wayfinding"* and *"floor 1 is unloseable and
+also unleaveable — mercy has no escalation or diagnosis"* — and they are one
+defect seen twice. r7 deleted floor 1's fail state and left the SEARCH
+untouched, so a first-timer who cannot find the stairs became immortal AND
+trapped, which measures worse than dying: half the cohort finished a 7.5-minute
+first session at level 1, floor 1, ~0 gold, still on step 2 of 5.
+
+**`RULES_HASH` ROTATED** (`98b1470a → 414aae37 → f74b6823`) — one sim change,
+below, and every previously recorded run proof is retired (COMPETITIVE.md
+§2.6a). Measured on the glass by `tools/_tut_r11_exit.mjs` (one browser, port
+5287, cold profile, 12/12 green); frames in `tools/_shots/tut_r11/`.
+
+1. **THE EXIT IS FIXED, NOT THE TIMER.** The game already owned every piece of
+   wayfinding it needed — fog of war, a `stairs` room role, a chart, a "mark
+   this spot" verb — and granted none of it to the one crawler who has never
+   seen a staircase. Three affordances now exist for exactly as long as the
+   lesson does, behind ONE predicate (`exitLit` in main3d), so the chart, the
+   beacon and the prose can never disagree about whether a player is being
+   wayfound:
+   - **The chart marks it.** `drawMinimap`'s Location Scout branch (the chase
+     legendary that marks stairs through fog) is granted to a debut crawler on
+     identical terms, plus the one thing a legendary owner does not need: the
+     word `EXIT` under the diamond.
+   - **The world marks it.** `#exitmark` (zone map: *world markers*, z 6)
+     projects the stairs through the live camera and pins to the edge of the
+     glass as a chevron when they are behind you. A minimap answers "where is
+     the exit on a map"; only this answers "which way do I walk", which is the
+     question a player in a 3D view is actually asking. Measured cold: painted
+     31x26, in frame, reading `EXIT / 75 paces`, re-derived every frame.
+   - **Mordecai says it** — through the channel r10 built rather than a new
+     one. `ASK_LOST_KEY` is a second standing-ask PRE-EMPT, and it outranks the
+     draft pre-empt, which is the finding: a crawler who cannot find the stairs
+     is not making a mistake inside a step, and a draft claimed in a room you
+     cannot leave is still a stranded session. `{bearing}` joins
+     `OBJ_LABEL_TOKENS` as the first token that is a READING rather than a
+     control — the live compass heading and range, quantised to five paces so a
+     sentence rebuilt sixty times a second does not read as noise. Measured:
+     *"Walk south-east, about 75 paces — that is where the stairs are, and they
+     are marked on your map."* `obj.payday/descend`'s own ask carries the same
+     heading, because the item that can strand a player used to ask them to
+     stand on something without ever saying where it was.
+
+   **The trigger is a MEASURED stall**, in the same real on-glass ms the ask
+   escalation and `OBJ_MIN_VISIBLE_MS` are paid in: 40s in which the crawler's
+   own BEST distance to the exit has not improved. Deliberately not "explored
+   no new tiles" — a player can map two hundred tiles and be no nearer the way
+   out, and that player is the one this exists for. Any real progress stands it
+   down within a frame, which is what makes it safe to put first. One defect
+   the browser found and the unit tests could not: after the escort below drops
+   a crawler ON the stairs, `wayBest` is zero and no improvement is
+   arithmetically possible, so the clock ran forever and the ask told a player
+   standing five paces from a marked exit that they were lost. A best-so-far is
+   the right progress test for a search and the wrong one for an arrival:
+   `WAYFIND_NEAR_TILES` makes arrival its own answer.
+
+   All three retire together, by themselves, when `obj.payday` reaches the
+   ledger (`Objectives.isDone`) — the step whose items include taking the
+   stairs. Training furniture that outlives its lesson is just a permanent HUD
+   affordance nobody chose to add.
+2. **THE MERCY ESCALATES AND DIAGNOSES.** The knockdown was the right answer
+   ONCE and a shrug the third time: waking a crawler at the entrance is correct
+   for a lost FIGHT and wrong for a floor they cannot find their way off,
+   because it restarts the search that already beat them.
+   - **THE SIM CHANGE, and the only one** (`firstRunKnockdown` +
+     `CONFIG.firstRunEscortSaves`): on the third save the production stops
+     re-staging the same scene and walks the crawler to the exit — they wake ON
+     the stairs, with the game's own "over THERE" verb (a ping) marking it in
+     the world, and the System says so out loud, because a silent teleport
+     reads as a bug. It does NOT descend for them: the descend key is the
+     curriculum's verb and the player still presses it. It cannot leak past the
+     debut — every caller is already inside `firstRunMercyActive` — and it
+     draws no RNG, so a mercied run still replays byte-exactly.
+   - **THE HOST CHANGE:** `diagnoseKnockdown` (pure, tested off the facts
+     alone) names the one survival tool this crawler is measurably not using —
+     the escort first (the world just changed under them), then a dash they
+     have never once pressed, then the flask charges they folded while holding
+     ("You died holding 3 flasks" was r5's verdict line). A crawler using both
+     is told nothing: they are losing a fight, not stranded, and a diagnosis
+     that fires on everybody diagnoses nobody.
+
+**Verified on the glass** (`_tut_r11_exit.mjs`, cold profile, every text read
+paired with a rect and the chart read as PIXELS rather than as DOM): the beacon
+paints and tracks; the chart carries the marker's own gold through the fog; an
+idle crawler is handed a compass heading; a staged third knockdown wakes them
+exactly on `map.stairs` with the run still live, and the strip carries *"Press
+E where you are standing — the production has walked you onto the stairs."*
+
+**Still owed after this round**: monotonic first-session progress and the
+verdict screen's nine choices. And the standing question this round does not
+answer: nobody has yet watched a cold cohort COMPLETE the curriculum with the
+exit lit. That is the next battery's job, and it must measure completion, not
+arming (HANDOFF §0).
+
 ## r10 — THE TEACHING CHANNEL BECOMES CONTINUOUS (the r9-owed root cause)
 
 The fifth critic round scored 6.5 and named one cause under every remaining
@@ -93,6 +191,9 @@ banked.").
 progress, stairs wayfinding under the collapse clock, mercy escalation/diagnosis
 on a stuck floor 1, and the verdict screen's nine choices. The standing ask is
 the channel those fixes will speak through; it is not a substitute for them.
+**(The wayfinding and the mercy escalation both shipped in r11 above — and the
+ask was indeed the channel: `ASK_LOST_KEY` is a pre-empt in the r10 machinery,
+not a new surface.)**
 Nobody has yet watched a cold profile COMPLETE the curriculum with this in —
 that is the next battery's job, and it must measure completion, not arming
 (HANDOFF §0).

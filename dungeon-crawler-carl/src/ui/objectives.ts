@@ -112,9 +112,18 @@ export interface ObjectiveItem {
  *  The set widened with THE STANDING ASK (coach.ts OBJ_ASKS), which runs its
  *  prose through this same substitution — so an instruction Mordecai keeps on
  *  the glass is under the identical law as a checklist label: it may never
- *  name a control the player does not have. */
+ *  name a control the player does not have.
+ *
+ *  `bearing` is the odd one out and deliberately so: it is not a control, it is
+ *  a live READING of the world (the heading and range to this floor's stairs,
+ *  quantised so it does not flicker). It rides this table because the standing
+ *  ask's wayfinding line has exactly the same law to obey — the host must be
+ *  able to substitute it, and a line naming a direction the world does not
+ *  agree with is the same defect as a line naming a key the player does not
+ *  have. It renders as prose, never as a key cap. */
 export const OBJ_LABEL_TOKENS = [
   "strike", "dash", "cast", "hypeline", "move", "flask", "bag", "draft", "stairs",
+  "bearing",
 ] as const;
 
 /**
@@ -298,6 +307,18 @@ export class Objectives {
   /** Where the sequencer believes the crawler is standing right now. */
   get place(): ObjWhere {
     return this.where;
+  }
+
+  /**
+   * Has this step been completed (ledgered)? The host reads it to decide how
+   * long a piece of TRAINING FURNITURE should exist — the debut's exit marker
+   * retires the moment `obj.payday` is done, because that step is the one whose
+   * items include taking the stairs. A crawler who has descended once has been
+   * taught where a floor's exit is; leaving the marker up after that would make
+   * a permanent HUD affordance out of a lesson.
+   */
+  isDone(id: ObjStepId): boolean {
+    return this.doneSteps.has(id);
   }
 
   /** The step the card is showing: the first not-yet-done step whose place is

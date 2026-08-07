@@ -7603,16 +7603,54 @@ export function firstRunMercyActive(state: GameState, p: Player): boolean {
  *
  * Pure: no RNG is drawn, so a mercied run replays byte-exactly.
  */
+/**
+ * ...AND THE THIRD ONE IS AN ESCORT (r11, the critic's severity-9 pair: "two of
+ * four deaths were collapse-timer executions at full HP with zero wayfinding"
+ * and "floor 1 is unloseable and also unleaveable — mercy has no escalation or
+ * diagnosis").
+ *
+ * The edit above is unanswerable the first time and a shrug the third: waking a
+ * crawler at the entrance is the RIGHT punishment for a fight they lost and the
+ * WRONG answer for a floor they cannot find their way off, because it puts them
+ * back at the start of the search that already beat them. Measured, that reads
+ * as a room that will not kill you and will not let you leave — a worse session
+ * than a death, which is the finding this round exists to answer.
+ *
+ * So the mercy notices. On the Nth save (`firstRunEscortSaves`) the production
+ * stops re-staging the same scene: security walks the crawler to the stairs and
+ * the show says so out loud. What it does NOT do is descend for them — the
+ * descend key is the curriculum's verb and the player still presses it — and it
+ * cannot leak past the debut, because every caller is already inside
+ * `firstRunMercyActive` (a flagged world, floor 1, co-op, not in a safe room).
+ * Pure: no RNG, one known position, so the run still replays byte-exactly.
+ */
 function firstRunKnockdown(state: GameState, p: Player): void {
   p.mercySaves = (p.mercySaves ?? 0) + 1;
+  const escort = p.mercySaves >= CONFIG.firstRunEscortSaves;
   p.hp = Math.max(1, Math.round(p.maxHp * CONFIG.firstRunMercyHpFraction));
   p.statuses = [];
   p.knock = undefined;
   p.rootT = 0;
   p.reviveGraceT = CONFIG.firstRunMercyGraceSeconds;
-  p.pos = { x: state.map.spawn.x, y: state.map.spawn.y };
+  const to = escort ? state.map.stairs : state.map.spawn;
+  p.pos = { x: to.x, y: to.y };
   p.hype = 0; // the crowd watched you fold; excitement is not free
   p.lowHpNow = false;
+  if (escort) {
+    // A ping is the game's existing "over THERE" verb (it pierces fog on both
+    // the chart and the floor), so the exit is marked in the world as well as
+    // named in the line — the crawler wakes standing in a gold ring.
+    state.pings.push({
+      id: state.nextEntityId++, pos: { x: to.x, y: to.y }, byId: p.id,
+      t: CONFIG.pingTtl, total: CONFIG.pingTtl,
+    });
+    announce(state, "show",
+      `${p.name} goes down again — and PRODUCTION HAS SEEN ENOUGH. `
+      + "Security walks you to the stairwell on the network's dime. "
+      + "You are standing on the way down. Take it.", "high");
+    state.events.push(`${p.name} was escorted to the stairs by the debut edit.`);
+    return;
+  }
   announce(state, "show",
     `${p.name} goes down — and the broadcast CUTS TO COMMERCIAL. `
     + "Debut episode: the network does not air a floor-one funeral. "

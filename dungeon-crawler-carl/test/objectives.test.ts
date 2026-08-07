@@ -482,3 +482,37 @@ describe("STEPS TRACK WHERE THE PLAYER IS (r3 major)", () => {
     expect(o.update({ inSafeRoom: true }).completed).toBe("obj.saferoom");
   });
 });
+
+/**
+ * THE EXIT RETIRES ITSELF (r11). The debut's wayfinding — the chart mark, the
+ * screen beacon and the lost-crawler ask — is TRAINING FURNITURE, and the host
+ * asks this one question to decide whether it still exists (main3d's exitLit).
+ * A crawler who has completed PAYDAY has taken a staircase, so they have been
+ * taught where a floor's exit is; furniture that outlives its lesson is just a
+ * permanent HUD affordance nobody chose to add.
+ */
+describe("a completed step is readable, so training furniture can retire", () => {
+  it("isDone tracks the ledger, not the run", () => {
+    const o = new Objectives();
+    expect(o.isDone("obj.payday")).toBe(false);
+    // Seeded from the ledger: the SECOND session of a crawler who already
+    // descended never lights the exit again.
+    expect(new Objectives(["obj.payday"]).isDone("obj.payday")).toBe(true);
+  });
+
+  it("...and it flips on the completion edge, not on the arming one", () => {
+    const o = new Objectives(["obj.move", "obj.five"]);
+    o.update(NONE); // arms obj.payday
+    expect(o.currentStep()?.id).toBe("obj.payday");
+    expect(o.isDone("obj.payday")).toBe(false);
+    dwell(o);
+    expect(o.update({ loot: true, draft: true, descend: true }).completed).toBe("obj.payday");
+    expect(o.isDone("obj.payday")).toBe(true);
+  });
+
+  it("the skip retires the furniture too — a refusal is a delivery", () => {
+    const o = new Objectives();
+    o.skipAll();
+    expect(o.isDone("obj.payday")).toBe(true);
+  });
+});

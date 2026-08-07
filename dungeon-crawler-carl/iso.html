@@ -420,6 +420,37 @@
          pop + arc + fade in main3d.spawnDamageNumber) — no CSS transitions,
          no layout thrash, transform/opacity only. */
       #fx { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+
+      /* THE EXIT BEACON (r11 wayfinding — zone map: world markers). A minimap
+         says where the exit is on a map; this says WHICH WAY TO WALK, which is
+         the question a player in a 3D view is actually asking and the one two
+         of four cold profiles never answered. Same gold as the chart's stairs
+         mark and the Location Scout diamond, so the three surfaces read as one
+         fact. Positioned by transform only (no layout), pointer-events off. */
+      #exitmark { position: fixed; left: 0; top: 0; display: none;
+        flex-direction: column; align-items: center; gap: 1px;
+        pointer-events: none; z-index: 6; will-change: transform;
+        text-shadow: 0 1px 3px #000, 0 0 10px rgba(0,0,0,0.85); }
+      #exitmark i { display: block; width: 0; height: 0;
+        border-left: 7px solid transparent; border-right: 7px solid transparent;
+        border-bottom: 11px solid #ffd23e;
+        filter: drop-shadow(0 0 6px rgba(255,210,62,0.7)); }
+      #exitmark b { font-family: var(--display); font-size: 11px; letter-spacing: 0.16em;
+        color: #ffd23e; }
+      #exitmark em { font-style: normal; font-size: 10px; color: var(--ink-dim);
+        letter-spacing: 0.06em; }
+      /* On the edge of the glass the chevron IS the message — the label shrinks
+         out of the way rather than competing with the fight it is over. */
+      #exitmark.edge b { font-size: 10px; opacity: 0.85; }
+      #exitmark.edge em { display: none; }
+      /* A marker over a cinematic or a paused world is furniture, not guidance. */
+      body.cine #exitmark, body.checkin #exitmark, body.modal #exitmark,
+      body.dlg #exitmark { display: none !important; }
+      /* Two slow warm breaths so a static frame still reads as a live beacon,
+         with no motion for anyone who has asked the OS for none. */
+      #exitmark i { animation: exitpulse 1.9s ease-in-out infinite; }
+      @keyframes exitpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+      @media (prefers-reduced-motion: reduce) { #exitmark i { animation: none; } }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
       /* NOTE: the numerals themselves are canvas glyphs (paintNumeral in
@@ -514,6 +545,15 @@
                                   pointer-events off elsewhere so the campfire lineup on the
                                   canvas beneath stays clickable)
                                 · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
+           world markers (z 6): #exitmark — THE EXIT BEACON, the debut's
+                                  wayfinding to the stairs (main3d renderExitMark;
+                                  TUTORIAL.md r11). World-anchored, not a HUD
+                                  corner: it follows the projected stairs and
+                                  pins to the frame edge as a chevron when they
+                                  are behind the camera. It exists only while
+                                  exitLit() is true — a fresh crawler who has not
+                                  yet taken a staircase — and stands down under
+                                  every modal, the check-in and any cinematic
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
            orientation gate (z 40): #rotate — phone portrait only; outranks everything
          New overlays must pick a zone here first. */
@@ -7380,6 +7420,13 @@
       </div>
     </div>
     <div id="fx"></div>
+    <!-- THE EXIT BEACON (zone map: world markers) — the debut's only piece of
+         wayfinding furniture. Placed each frame by main3d's renderExitMark from
+         the projected stairs position; pins to the edge of the glass with the
+         chevron rotated toward them when they are off-frame or behind you.
+         Exists only while exitLit() is true and removes itself for good once
+         obj.payday is on the ledger. -->
+    <div id="exitmark" aria-hidden="true"><i></i><b>EXIT</b><em></em></div>
     <div id="downed" data-overlay="none"></div>
     <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>

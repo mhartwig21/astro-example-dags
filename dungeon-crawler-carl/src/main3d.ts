@@ -68,8 +68,9 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
-  ASK_DRAFT_KEY, COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS,
-  StandingAsk, castKeyIndex, castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
+  ASK_DRAFT_KEY, ASK_LOST_KEY, COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS,
+  StandingAsk, castKeyIndex, castSlotIndices, coachTipLine, diagnoseKnockdown,
+  renderBeat, shopBeatLine,
   type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
@@ -6248,14 +6249,20 @@ function drawMinimap(s: GameState): void {
   const W = minimap.width, H = minimap.height;
   if (maxX < 0) { mmCtx.clearRect(0, 0, W, H); return; }
   // Location Scout marks the stairs through fog — keep them inside the frame.
+  // ...and so does THE DEBUT (r11): the same chart affordance, granted to a
+  // first-timer who has not yet taken a staircase, on exactly the same terms.
+  // A chart that frames only what you have already walked cannot answer "where
+  // is the way out", which is the one question two of four cold profiles never
+  // answered (exitLit).
   const scout = hasPassive(me(s), "pathfinder");
-  if (scout) {
+  const marked = scout || exitLit();
+  if (marked) {
     minX = Math.min(minX, Math.floor(s.map.stairs.x));
     maxX = Math.max(maxX, Math.floor(s.map.stairs.x));
     minY = Math.min(minY, Math.floor(s.map.stairs.y));
     maxY = Math.max(maxY, Math.floor(s.map.stairs.y));
   }
-  const key = `${s.floor}:${map.w}x${map.h}:${count}:${scout ? 1 : 0}`;
+  const key = `${s.floor}:${map.w}x${map.h}:${count}:${marked ? 1 : 0}`;
   if (key !== mmKey) {
     mmKey = key;
     rebuildMinimapStatic(s, minX, minY, maxX, maxY);
@@ -6354,8 +6361,11 @@ function drawMinimap(s: GameState): void {
   // chart language as the rest of the surveyor's minimap.
   if (s.runKind === "roam") drawRoamPins(s, X, Y);
   // Location Scout (chase legendary): the stairs are marked from the moment
-  // you arrive — a pulsing gold diamond, fog or no fog.
-  if (hasPassive(me(s), "pathfinder")) {
+  // you arrive — a pulsing gold diamond, fog or no fog. THE DEBUT borrows the
+  // identical mark, plus the one thing a first-timer needs that a legendary
+  // owner does not: the word for what the diamond IS.
+  const debutExit = exitLit();
+  if (hasPassive(me(s), "pathfinder") || debutExit) {
     const cx = X(s.map.stairs.x), cy = Y(s.map.stairs.y);
     const pulse = 4 + Math.sin(performance.now() / 250) * 1.5;
     mmCtx.strokeStyle = "#ffd700";
@@ -6369,6 +6379,17 @@ function drawMinimap(s: GameState): void {
     mmCtx.stroke();
     mmCtx.fillStyle = "#ffd700";
     mmCtx.fillRect(cx - 1.5, cy - 1.5, 3, 3);
+    if (debutExit) {
+      mmCtx.save();
+      mmCtx.font = "700 8px ui-monospace, monospace";
+      mmCtx.textAlign = "center";
+      mmCtx.lineWidth = 2.5;
+      mmCtx.strokeStyle = "rgba(8,5,3,0.9)";
+      mmCtx.strokeText("EXIT", cx, cy + 15);
+      mmCtx.fillStyle = "#ffd700";
+      mmCtx.fillText("EXIT", cx, cy + 15);
+      mmCtx.restore();
+    }
   }
 }
 
@@ -8270,6 +8291,13 @@ const COACH_MOMENT_MS: Record<CoachEvent, number> = {
   // it defines stay true for the rest of the crawler's life. Evergreen-ish,
   // and generous, because it is the one line that explains the premise.
   showbar: 45000,
+  // THE KNOCKDOWN DIAGNOSIS (r11): caused by an act (going down) and about a
+  // permanent control, so it sits with the gear pair — long enough to survive
+  // the System's own knockdown banner landing in the same second, short enough
+  // that it cannot still be on the glass two fights later. The escort's line is
+  // the longest-lived of the three: it is the only one that describes something
+  // the world just DID to the player, and they have to read it to act on it.
+  downdash: 30000, downflask: 25000, downescort: 45000,
 };
 
 function cardMomentMs(c: QueuedCard): number {
@@ -8696,6 +8724,10 @@ let coachUlt: string | null = null;
 let coachFlask = -1;
 let coachSwung = false;
 let coachEquipSig = "";
+/** Debut knockdowns already diagnosed (p.mercySaves last seen) — the edge that
+ *  earns the r11 knockdown line. Not reset by a new run: mercySaves is a
+ *  per-crawler count and a fresh crawler starts at zero anyway. */
+let coachMercy = 0;
 /** Set for one step by the bag's own equip handler so the step loop's
  *  equipment-diff reads it as a DECISION rather than the sim dressing you. */
 let coachHandEquip = false;
@@ -8754,6 +8786,7 @@ function resetCoachSampling(): void {
   coachFlask = -1;
   coachSwung = false;
   coachEquipSig = "";
+  coachMercy = 0; // a new crawler's mercySaves starts at zero; so does the edge
   coachHandEquip = false;
   coachPosBase = null;
   coachMoved = false;
@@ -8971,6 +9004,31 @@ function coachObserve(intent: Intent): void {
   if (state.monsters.some((m) => m.hp > 0 && m.kind === "boss"
     && Math.abs(m.pos.x - p.pos.x) <= 12 && Math.abs(m.pos.y - p.pos.y) <= 12)) say("boss");
 
+  // THE KNOCKDOWN IS DIAGNOSED, NOT JUST ABSORBED (r11, severity 9: "mercy has
+  // no escalation or diagnosis"). The debut edit converts a killing blow into a
+  // knockdown; before this round it did so in silence, identically, forever —
+  // and a safety net that never says why it keeps catching you teaches a first
+  // -timer that nothing they press matters. The sim's escalation is the ESCORT
+  // (firstRunEscortSaves: they wake on the stairs); the host's half is the
+  // sentence that names the one survival tool this crawler is measurably not
+  // using. Confirmations, so they are unbudgeted and never repeat themselves.
+  const saves = p.mercySaves ?? 0;
+  if (saves > coachMercy) {
+    coachMercy = saves;
+    const note = diagnoseKnockdown({
+      escorted: saves >= CONFIG.firstRunEscortSaves,
+      dashed: coachDashed || objDashed,
+      flasks: p.flaskCharges,
+    });
+    if (note === "downescort") {
+      say("downescort", touchMode ? "the DESCEND chip" : coachKey("stairs"), "high");
+    } else if (note === "downdash") {
+      say("downdash", coachDashKey(p), "high");
+    } else if (note === "downflask") {
+      say("downflask", "", "high");
+    }
+  }
+
   // THE SHOW, DEFINED THE MOMENT ITS READOUT MOVES (r10, severity 7). #show
   // has been on the glass since second zero — a hype bar and three counts,
   // none of them ever defined by anybody — and the curriculum's last step then
@@ -9026,6 +9084,10 @@ function objItemLabel(label: string): string {
     .replace(/\{bag\}/g, ctl.bag)
     .replace(/\{draft\}/g, touchMode ? "the DRAFT badge" : coachKey("draft"))
     .replace(/\{stairs\}/g, touchMode ? "the DESCEND chip" : coachKey("stairs"))
+    // ...and the one token that is a READING rather than a control (r11): the
+    // live heading and range to this floor's stairs, re-derived every frame
+    // from the same world the beacon and the chart are drawing.
+    .replace(/\{bearing\}/g, exitBearing(state))
     .replace(/\{hypeline\}/g, String(CONFIG.interferenceHypeFloor));
 }
 
@@ -9042,7 +9104,9 @@ function objItemHtml(label: string): string {
   return label.split(/(\{[a-z]+\})/g).map((part) => {
     if (!/^\{[a-z]+\}$/.test(part)) return esc(part);
     const sub = objItemLabel(part);
-    if (part === "{hypeline}" || touchMode) return esc(sub);
+    // {hypeline} is a number and {bearing} is a sentence fragment; neither is a
+    // control, so neither is drawn as a key cap.
+    if (part === "{hypeline}" || part === "{bearing}" || touchMode) return esc(sub);
     return `<kbd class="obj-key">${esc(sub)}</kbd>`;
   }).join("");
 }
@@ -9199,6 +9263,11 @@ function objectivesPaintTick(now: number): void {
   // ON THE GLASS means on the glass, in a live dungeon: the check-in menu
   // hides the card (CSS), and a verdict screen is not reading time either.
   const live = state.status === "playing" && !document.body.classList.contains("checkin");
+  // THE STALL DETECTOR, on the same real clock, BEFORE the ask that reads it:
+  // "has this crawler stopped getting closer to the way out?" Fed zero while
+  // the world is not live or the player is at a counter, so time spent shopping
+  // or reading a verdict can never accumulate into "lost".
+  wayfindTick(live && !atShopCounter() ? dtMs : 0);
   // THE STANDING ASK runs on the same honest clock as the dwell gate — a
   // player may only be escalated at over an instruction that was actually in
   // front of them. It is fed BEFORE the early returns below because the ask
@@ -9233,6 +9302,15 @@ function currentAskKey(): string {
   if (!objectives || objectives.finished || guide?.skipped) return "";
   if (state.status !== "playing") return "";
   const p = me(state);
+  // BEING LOST OUTRANKS EVERYTHING, INCLUDING THE DRAFT (r11, severity 9). A
+  // crawler who has measurably stopped getting closer to the exit is not making
+  // a mistake inside a step — the step has stopped being the problem, and a
+  // draft claimed in a room you cannot leave is still a stranded session. The
+  // draft ask in particular stands un-actioned indefinitely for exactly this
+  // player, so leaving it in front would guarantee the direction never gets a
+  // turn. Any real progress toward the stairs stands this back down within a
+  // frame (wayfindTick), which is what makes it safe to put first.
+  if (playerIsLost() && !atShopCounter()) return ASK_LOST_KEY;
   if (p && !draftPanelOpen()
     && (p.pendingUpgrades.length > 0 || p.pendingRewards.length > 0)) return ASK_DRAFT_KEY;
   return objectives.askKey() ?? "";
@@ -9256,6 +9334,183 @@ function askTick(dtMs: number): void {
   const edge = standingAsk.observe(currentAskKey(), dtMs);
   if (!edge) return;
   askPulseUntil = performance.now() + ASK_PULSE_MS;
+}
+
+// ===========================================================================
+// THE EXIT (r11) — WAYFINDING FOR A DEBUT CRAWLER.
+//
+// The critic's severity-9 finding, in its words: "the tutorial no longer kills
+// its players, it strands them ... two of four deaths were collapse-timer
+// executions at full HP with zero wayfinding", and "floor 1 is unloseable and
+// also unleaveable". r7's mercy removed the failure state and left the SEARCH
+// untouched, so a first-timer who cannot find the stairs became immortal and
+// trapped — a strictly worse session than dying, and half the cohort's actual
+// outcome (7.5 minutes, level 1, floor 1, still on step 2 of 5).
+//
+// The fix is the EXIT, not the timer, and it is three affordances the game
+// already owned, granted for exactly as long as the lesson lasts:
+//   - the CHART marks it (drawMinimap, the Location Scout code path);
+//   - the WORLD marks it (#exitmark: a screen-space beacon that follows the
+//     stairs through the camera and pins to the frame edge when they are
+//     behind you — the one affordance a 3D view cannot get from a minimap);
+//   - and MORDECAI SAYS IT when the crawler has measurably stopped getting
+//     closer (the standing ask's ASK_LOST_KEY pre-empt).
+//
+// All three retire together, by themselves, the moment obj.payday is on the
+// ledger — the step whose items include taking the stairs. A player who has
+// descended once has learned where a floor's exit is, and training furniture
+// that outlives its lesson becomes a permanent HUD.
+// ===========================================================================
+
+/** Is the exit lit for this crawler right now? One predicate, three surfaces —
+ *  so the chart, the beacon and the prose can never disagree about whether the
+ *  player is being wayfound. */
+function exitLit(): boolean {
+  if (!objectives || objectives.finished || guide?.skipped) return false;
+  if (state.status !== "playing") return false;
+  // Roam has its own wayfinding economy (the rumor-monger SELLS this), and a
+  // free marker would undercut a shipped system. The debut is always a race.
+  if (state.runKind === "roam") return false;
+  return !objectives.isDone("obj.payday");
+}
+
+/** Tiles from the crawler to this floor's stairs, as the crow flies. */
+function exitDistance(s: GameState): number {
+  const p = me(s);
+  if (!p) return Infinity;
+  return Math.hypot(s.map.stairs.x - p.pos.x, s.map.stairs.y - p.pos.y);
+}
+
+/**
+ * THE HEADING, IN THE WORDS THE GAME ALREADY USES. `sim/npc.ts`'s rumor-monger
+ * has always sold the stairs as a compass direction ("the stairway down sits
+ * northeast of here"), and the minimap is world-aligned — north is up on the
+ * chart — so a compass word is a reading the player can act on with the surface
+ * that is already on their glass.
+ *
+ * QUANTISED ON PURPOSE. The standing ask is rebuilt every frame, so an exact
+ * range would rewrite the sentence sixty times a second and read as noise; five
+ * -pace steps change rarely enough to be legible and often enough that watching
+ * the number fall is itself the confirmation that they are walking the right
+ * way.
+ */
+function exitBearing(s: GameState): string {
+  const p = me(s);
+  if (!p) return "toward the stairs";
+  const dx = s.map.stairs.x - p.pos.x, dy = s.map.stairs.y - p.pos.y;
+  const ns = dy < 0 ? "north" : "south";
+  const ew = dx < 0 ? "west" : "east";
+  const dir = Math.abs(dx) > 2 * Math.abs(dy) ? ew
+    : Math.abs(dy) > 2 * Math.abs(dx) ? ns : `${ns}-${ew}`;
+  const paces = Math.max(5, Math.round(Math.hypot(dx, dy) / 5) * 5);
+  return `${dir}, about ${paces} paces`;
+}
+
+/**
+ * THE STALL DETECTOR — "has this crawler stopped getting closer to the way
+ * out?", asked in REAL on-glass time (the same honest clock OBJ_MIN_VISIBLE_MS
+ * and the ask escalation are paid in, for the same reason: nobody is told they
+ * are lost over a floor they were never shown).
+ *
+ * Progress is the crawler's own BEST distance to the stairs improving. That is
+ * deliberately not "explored new tiles": a player can map two hundred tiles and
+ * be no nearer the exit, and that player is exactly the one this exists for.
+ * Any real progress resets the clock, so a crawler who is fighting their way
+ * toward the stairs is never interrupted by directions they do not need.
+ */
+const WAYFIND_LOST_MS = 40000;
+/** Tiles of improvement that count as progress (below this is jitter). */
+const WAYFIND_PROGRESS_TILES = 1.5;
+/**
+ * ...and you cannot be LOST while standing next to the way out. Measured on the
+ * glass: the debut escort drops a crawler onto the stairs, `wayBest` becomes
+ * zero, and no further improvement is arithmetically possible — so the stall
+ * clock ran forever and the ask told a player standing five paces from a marked
+ * exit that they were lost. A best-so-far is the right progress test for a
+ * search and the wrong one for an arrival, so arrival is its own answer.
+ */
+const WAYFIND_NEAR_TILES = 6;
+let wayBest = Infinity;
+let wayStallMs = 0;
+let wayFloor = -1;
+function wayfindTick(dtMs: number): void {
+  if (!exitLit()) { wayStallMs = 0; wayBest = Infinity; return; }
+  // A new floor is a new search: the best-so-far and the clock both re-base.
+  if (state.floor !== wayFloor) {
+    wayFloor = state.floor;
+    wayBest = Infinity;
+    wayStallMs = 0;
+  }
+  const d = exitDistance(state);
+  if (!(d < Infinity)) return;
+  // The exit is right there: whatever else is going wrong, wayfinding is not it.
+  if (d <= WAYFIND_NEAR_TILES) { wayBest = Math.min(wayBest, d); wayStallMs = 0; return; }
+  if (d < wayBest - WAYFIND_PROGRESS_TILES || wayBest === Infinity) {
+    wayBest = d;
+    wayStallMs = 0;
+    return;
+  }
+  if (dtMs > 0) wayStallMs += dtMs;
+}
+
+/** Has the crawler been going nowhere long enough to be told where to go? */
+function playerIsLost(): boolean {
+  return exitLit() && wayStallMs >= WAYFIND_LOST_MS;
+}
+
+/**
+ * THE BEACON. A minimap answers "where is the exit on the map"; it does not
+ * answer "which way do I walk", which is the question a player in a 3D view is
+ * actually asking. `#exitmark` projects the stairs through the live camera and,
+ * when they are off-frame or behind the crawler, pins to the edge of the glass
+ * as a chevron pointing at them — the offscreen-objective marker every
+ * third-person game ships, existing here ONLY while the exit is lit.
+ */
+const exitMarkEl = document.getElementById("exitmark")!;
+const exitMarkArrow = exitMarkEl.querySelector("i") as HTMLElement;
+const exitMarkDist = exitMarkEl.querySelector("em") as HTMLElement;
+let exitMarkShown = false;
+let exitMarkText = "";
+function renderExitMark(): void {
+  // It is a world marker, so it stands down for anything that owns the glass:
+  // a modal, the check-in menu, a shop counter, a cinematic.
+  const on = exitLit() && !menuOpen && !document.body.classList.contains("modal")
+    && !document.body.classList.contains("checkin") && !atShopCounter();
+  if (!on) {
+    if (exitMarkShown) { exitMarkEl.style.display = "none"; exitMarkShown = false; }
+    return;
+  }
+  const W = window.innerWidth, H = window.innerHeight;
+  const sp = renderer.worldToScreen(state.map.stairs.x, 1.2, state.map.stairs.y);
+  let x = sp.x, y = sp.y;
+  // Behind the camera the projection comes back mirrored through the centre;
+  // un-mirror it so the chevron points at the stairs instead of away from them.
+  if (!sp.visible) { x = W - x; y = H - y; }
+  const cx = W / 2, cy = H / 2;
+  const mx = Math.max(48, Math.min(140, W * 0.06));
+  const my = Math.max(64, Math.min(160, H * 0.1));
+  const off = !sp.visible || x < mx || x > W - mx || y < my || y > H - my;
+  let ang = 0;
+  if (off) {
+    // Clamp along the ray from the centre of the glass to the target, so the
+    // marker sits on the edge in the direction the player must turn.
+    let dx = x - cx, dy = y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const t = Math.min(
+      Math.abs((W / 2 - mx) / (Math.abs(dx) < 1e-4 ? 1e-4 : dx)),
+      Math.abs((H / 2 - my) / (Math.abs(dy) < 1e-4 ? 1e-4 : dy)),
+    );
+    x = cx + dx * t;
+    y = cy + dy * t;
+    ang = Math.atan2(dy, dx) + Math.PI / 2; // the glyph points UP at rest
+  }
+  exitMarkEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -50%)`;
+  exitMarkArrow.style.transform = `rotate(${ang}rad)`;
+  exitMarkEl.classList.toggle("edge", off);
+  const paces = `${Math.max(1, Math.round(exitDistance(state)))} paces`;
+  if (paces !== exitMarkText) { exitMarkText = paces; exitMarkDist.textContent = paces; }
+  if (!exitMarkShown) { exitMarkEl.style.display = "flex"; exitMarkShown = true; }
 }
 
 /**
@@ -13552,6 +13807,9 @@ async function main(): Promise<void> {
     updateShowHud(state);
     updateBossBar(state);
     drawMinimap(state);
+    // The exit beacon projects through THIS frame's camera, so it is placed
+    // after renderer.update the same way the damage numbers are.
+    renderExitMark();
     updateRoamUi(state);
     requestAnimationFrame(frame);
   }

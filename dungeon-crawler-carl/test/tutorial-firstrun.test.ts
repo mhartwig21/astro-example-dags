@@ -108,6 +108,72 @@ describe("THE DEBUT CANNOT BE FAILED OUT OF THE OPENING OBJECTIVE", () => {
     expect(p.mercySaves).toBe(40);
   });
 
+  /**
+   * THE ESCALATION (r11 — the critic's severity-9 finding: "the tutorial no
+   * longer kills its players, it strands them", "mercy has no escalation or
+   * diagnosis"). Waking a crawler at the entrance is the right answer to a lost
+   * FIGHT and the wrong answer to a floor they cannot find their way off: it
+   * restarts the search that already beat them. On the Nth save the production
+   * stops re-staging the same scene and walks them to the exit.
+   */
+  it("the Nth knockdown ESCORTS the crawler to the stairs instead of the entrance", () => {
+    const g = debut(1234);
+    const p = g.players[0];
+    const away = { x: g.map.spawn.x + 6, y: g.map.spawn.y + 6 };
+    for (let i = 1; i <= CONFIG.firstRunEscortSaves; i++) {
+      p.pos = { x: away.x, y: away.y };
+      handlePlayerDeath(g, p, "down again");
+      expect(p.mercySaves).toBe(i);
+      if (i < CONFIG.firstRunEscortSaves) {
+        // Before the threshold the edit is unchanged: back to the entrance.
+        expect(p.pos).toEqual({ x: g.map.spawn.x, y: g.map.spawn.y });
+      }
+    }
+    // ...and on the threshold they wake ON the way down, with the exit marked
+    // in the world by the game's own "over THERE" verb.
+    expect(p.pos).toEqual({ x: g.map.stairs.x, y: g.map.stairs.y });
+    expect(g.pings.some((pg) => pg.pos.x === g.map.stairs.x && pg.pos.y === g.map.stairs.y)).toBe(true);
+    expect(p.alive).toBe(true);
+    expect(g.status).toBe("playing");
+  });
+
+  it("...and the escort ANNOUNCES itself — a silent teleport reads as a bug", () => {
+    const g = debut(1234);
+    const p = g.players[0];
+    const said: string[] = [];
+    for (let i = 0; i < CONFIG.firstRunEscortSaves; i++) {
+      handlePlayerDeath(g, p, "down again");
+      for (const a of g.announcements) said.push(a.text);
+      step(g, idle(), DT); // drains the announcement buffer, as a host would
+    }
+    expect(said.filter((s) => /SEEN ENOUGH/.test(s)).length).toBe(1);
+    expect(said.some((s) => /CUTS TO COMMERCIAL/.test(s))).toBe(true); // the earlier ones
+    expect(said.some((s) => /stair/i.test(s))).toBe(true);
+  });
+
+  it("the escort does NOT descend for them — the curriculum's verb stays theirs", () => {
+    // Standing on the stairs is not taking them: the floor is unchanged until
+    // the player presses the key themselves.
+    const g = debut(1234);
+    const p = g.players[0];
+    for (let i = 0; i < CONFIG.firstRunEscortSaves; i++) handlePlayerDeath(g, p, "down");
+    expect(g.floor).toBe(1);
+    run(g, 2);
+    expect(g.floor).toBe(1);
+  });
+
+  it("an ordinary run gets no escort, however many times it goes down", () => {
+    // The escalation is inside the mercy, and the mercy is inside the debut:
+    // an ordinary crawler dies on the first killing blow and never reaches it.
+    const g = createGame(1234);
+    const p = g.players[0];
+    p.pos = { x: g.map.spawn.x + 6, y: g.map.spawn.y + 6 };
+    handlePlayerDeath(g, p, "an ordinary death");
+    expect(p.alive).toBe(false);
+    expect(p.mercySaves ?? 0).toBe(0);
+    expect(p.pos).not.toEqual({ x: g.map.stairs.x, y: g.map.stairs.y });
+  });
+
   it("a source that forgets to route its own death cannot fail the run either", () => {
     // Not every damage site asks damagePlayerHit for its answer. The step loop
     // asks the STATE instead, so the promise does not depend on call sites.
