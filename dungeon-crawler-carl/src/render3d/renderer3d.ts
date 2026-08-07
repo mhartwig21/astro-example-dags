@@ -10,7 +10,7 @@ import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { roomTemplateById } from "../content/rooms";
-import { mobDefById } from "../content/mobs";
+import { MOB_DEFS, mobDefById } from "../content/mobs";
 import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
@@ -2655,14 +2655,55 @@ export class Renderer3D {
   private runAssetRefresh(): void {
     this.assetRefresh = null;
     this.builtFloor = -1; // next update() rebuilds the floor with real tiles
-    for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
+    for (const mesh of this.playerMeshes.values()) this.retireBody(mesh);
     this.playerMeshes.clear();
-    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+    for (const mesh of this.decoyMeshes.values()) this.retireBody(mesh);
     this.decoyMeshes.clear();
     for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
     this.breakableMeshes.clear();
-    for (const mesh of this.monsters.values()) this.scene.remove(mesh);
+    for (const mesh of this.monsters.values()) this.retireBody(mesh);
     this.monsters.clear();
+  }
+
+  /**
+   * DROP A BODY *AND* ITS PER-INSTANCE GPU STATE.
+   *
+   * Every rigged body carries its own THREE.Skeleton (SkeletonUtils.clone
+   * mints one per clone — sharing the source's would collapse the pose), and
+   * three.js gives each skeleton a private bone texture: a 12x12 RGBA-float
+   * DataTexture holding that rig's ~36 bone matrices, re-uploaded every frame
+   * the body is in the scene.
+   *
+   * Nothing ever released them. `scene.remove(mesh)` unhooks the graph and
+   * leaves the GL objects behind, so every monster that ever spawned kept a
+   * live GL texture for the rest of the session. MEASURED on the floor-10
+   * fight (tools/_opt4_texcensus.mjs, 30 s window, 4x CPU throttle):
+   * renderer.info.memory.textures 362 -> 549, and the 187 new allocations were
+   * texStorage2D of 12x12 — all of them bone textures, not art. The count is a
+   * monotonic staircase for as long as the run lasts.
+   *
+   * Retiring them here makes the count breathe instead of climb: a spawn
+   * allocates one, the corpse's expiry gives it back. Geometry and materials
+   * are deliberately NOT disposed — they are shared with the loaded model and
+   * with the prewarmed program cache (see prewarm's note on why disposing a
+   * material releases the program it just compiled).
+   *
+   * Cannot change a pixel: the body is leaving the scene on the same line it
+   * always left it, and a skeleton whose boneTexture is null simply rebuilds
+   * one on its next use (three.js's computeBoneTexture is lazy) — which is
+   * also why a body that somehow came back would still render correctly.
+   */
+  private retireBody(mesh: THREE.Object3D): void {
+    this.scene.remove(mesh);
+    mesh.traverse((o) => {
+      const sm = o as THREE.SkinnedMesh;
+      if (!sm.isSkinnedMesh || !sm.skeleton) return;
+      const bt = sm.skeleton.boneTexture;
+      if (bt) {
+        bt.dispose();
+        sm.skeleton.boneTexture = null;
+      }
+    });
   }
 
   /**
@@ -3313,6 +3354,10 @@ export class Renderer3D {
     const TOTAL = 3;
     // Cash in the arrival debounce here, not on the player's first frame.
     this.flushAssetRefresh();
+    // The loose alternate-skin PNGs (elite B-variants, crafted defs). Not in
+    // the model manifest, so nothing else fetches them; lazily they land on
+    // the frame the first elite of a kind becomes visible.
+    await this.preloadSkinTextures();
     // 1) Every band's environment sky (PMREM's own blur programs compile here).
     for (let band = 0; band < 6; band++) {
       const theme = themeForFloor(band * 3 + 1);
@@ -4788,34 +4833,71 @@ export class Renderer3D {
     }
   }
 
-  // Crafted-def alternate textures, loaded once per url (glTF convention:
-  // flipY off, sRGB — same as the elite B-variants below).
-  private defTex = new Map<string, THREE.Texture>();
-  private defTexFor(url: string): THREE.Texture {
-    let t = this.defTex.get(url);
+  /**
+   * ALTERNATE BODY SKINS — ELITE B-VARIANTS AND CRAFTED-DEF ATLASES.
+   *
+   * KEYED BY URL, NOT BY KIND. The elite table maps NINE monster kinds onto
+   * SIX distinct PNGs (swarmer/ranged/necromancer/boss all wear
+   * skeleton_texture_b), and the old cache was keyed by kind — so the same
+   * file was fetched, decoded and uploaded up to four times over a run, as
+   * four separate GL textures. Same pixels, same sampler settings, one
+   * texture. (glTF convention: flipY off, sRGB.)
+   *
+   * PRELOADED AT BOOT, not on the first elite of each kind to spawn. Lazily
+   * these are a fetch + decode + 1024^2 upload on the exact frame a new elite
+   * walks into view, i.e. mid-fight; preloadSkinTextures() below moves that
+   * behind the loading card. This lookup stays lazy so a host that never
+   * prewarms (the builder page) still works.
+   */
+  private skinTex = new Map<string, THREE.Texture>();
+  private skinTexFor(url: string): THREE.Texture {
+    let t = this.skinTex.get(url);
     if (!t) {
       t = new THREE.TextureLoader().load(url);
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
-      this.defTex.set(url, t);
+      this.skinTex.set(url, t);
     }
     return t;
   }
 
-  // Elite B-variant textures, loaded once and shared (same UV atlas as the
-  // embedded texture, recolored — glTF convention: flipY off, sRGB).
-  private eliteTex = new Map<string, THREE.Texture>();
   private eliteTexFor(kind: string): THREE.Texture | null {
     const url = ELITE_TEXTURES[kind];
-    if (!url) return null;
-    let t = this.eliteTex.get(kind);
-    if (!t) {
-      t = new THREE.TextureLoader().load(url);
+    return url ? this.skinTexFor(url) : null;
+  }
+
+  /**
+   * FETCH + DECODE + UPLOAD EVERY ALTERNATE SKIN, BEHIND THE LOADING SCREEN.
+   *
+   * These never came through the model manifest — they are loose PNGs the
+   * elite/crafted-def path swaps onto an already-loaded body — so
+   * preuploadTextures() (which walks arriving GLBs) never saw them and they
+   * stayed lazy. Six 1024^2 atlases is ~34 MB of GPU residency and a handful
+   * of network round trips; paid up front it is invisible, paid on first
+   * sight it is a synchronous decode+upload on a combat frame.
+   *
+   * Failures resolve rather than reject: a missing skin must degrade to
+   * three.js's own lazy path (and ultimately to the untinted body), never
+   * take the loading screen down with it.
+   */
+  async preloadSkinTextures(): Promise<void> {
+    const urls = new Set<string>(Object.values(ELITE_TEXTURES));
+    for (const d of MOB_DEFS) if (d.texture) urls.add(d.texture);
+    await Promise.all([...urls].map((url) => new Promise<void>((resolve) => {
+      if (this.skinTex.has(url)) { resolve(); return; }
+      const t = new THREE.TextureLoader().load(
+        url,
+        () => {
+          try { this.renderer.initTexture(t); } catch { /* falls back to lazy upload */ }
+          resolve();
+        },
+        undefined,
+        () => resolve(),
+      );
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
-      this.eliteTex.set(kind, t);
-    }
-    return t;
+      this.skinTex.set(url, t);
+    })));
   }
 
   /** Elite affix read: the pack's B-variant skin (a different individual),
@@ -4930,7 +5012,7 @@ export class Renderer3D {
     // swap the map on textured surfaces so the same body reads as a
     // different individual. Cloned materials — trash mobs stay unchanged.
     if (def?.texture && model) {
-      const tex = this.defTexFor(def.texture);
+      const tex = this.skinTexFor(def.texture);
       g.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh || !m.material || m.userData.noAO) return;
@@ -8258,7 +8340,7 @@ export class Renderer3D {
       state.seed !== this.builtSeed;
     if (rebuilt) {
       // Corpses belong to the old geometry — never carry them across a rebuild.
-      for (const d of this.dying) this.scene.remove(d.mesh);
+      for (const d of this.dying) this.retireBody(d.mesh);
       this.dying = [];
       this.buildFloor(state);
       this.matSweepNow(); // a rebuild is a material burst; sweep it this frame
@@ -8322,7 +8404,7 @@ export class Renderer3D {
       const skin = Renderer3D.skinIdFor(pl, state.seed);
       let mesh = this.playerMeshes.get(pl.id);
       if (mesh && mesh.userData.skinId !== skin) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.playerMeshes.delete(pl.id);
         this.loadoutKeys.delete(pl.id);
         mesh = undefined;
@@ -8501,7 +8583,7 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
         this.weaponStow.delete(id);
@@ -8544,7 +8626,7 @@ export class Renderer3D {
       (mesh.userData.animTick as ((d: number) => void) | undefined)?.(dt);
     }
     for (const [id, mesh] of this.decoyMeshes) {
-      if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
+      if (!dSeen.has(id)) { this.retireBody(mesh); this.decoyMeshes.delete(id); }
     }
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
@@ -8701,7 +8783,7 @@ export class Renderer3D {
       }
       for (const [id, mesh] of this.npcMeshes) {
         if (!seen.has(id)) {
-          this.scene.remove(mesh);
+          this.retireBody(mesh);
           this.npcMeshes.delete(id);
         }
       }
@@ -8724,7 +8806,7 @@ export class Renderer3D {
       // Second-stage morphs (the understudy) CHANGE KIND mid-fight — drop the
       // old body and build the new one (the wolf takes the role).
       if (mesh && mesh.userData.simKind !== mon.kind) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.monsters.delete(mon.id);
         mesh = undefined;
       }
@@ -9264,7 +9346,7 @@ export class Renderer3D {
         if (cage) { this.scene.remove(cage); this.pinCages.delete(id); }
         if (rebuilt) {
           // Floor change: the whole population turned over — no corpses.
-          this.scene.remove(mesh);
+          this.retireBody(mesh);
         } else {
           // Death: let the corpse play out (death clip / tumble) before removal.
           // Two death clips keep a cleared pack from dying in unison.
@@ -10707,7 +10789,7 @@ export class Renderer3D {
     for (let di = 0; di < this.dying.length; di++) {
       const d = this.dying[di];
       d.t -= dt;
-      if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
+      if (d.t <= 0) { this.retireBody(d.mesh); continue; }
       if (d.fling) {
         // Launched: ballistic arc + tumble, death clip still playing.
         const f = d.fling;
