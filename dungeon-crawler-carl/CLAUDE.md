@@ -114,6 +114,11 @@ hosts:
   src/ui/social.ts  the arithmetic those screens must not get wrong: the grade
                     and its cold-start fallback, the named death, band splits,
                     seal/era chips, challenge + build codes
+  src/ui/notify.ts  THE NOTIFICATION MIX: rank, climax lock, coalescing, cap +
+                    graceful overflow, and the banner/ticker dedupe. DOM-free
+                    policy; main3d.ts executes the ops it returns. What the sim
+                    ANNOUNCES and what reaches the glass are different things
+                    now — the same split src/audio/mix.ts made for sound
   src/server/       gameServer: parties, intents in, snapshots out, /health
   src/net/          client side of the same
 presentation:
@@ -125,7 +130,10 @@ presentation:
                     bossFx.ts (BOSSES-V2 §5: per-boss signature table, the
                     shield/tether/punish/arena/plate/spore shaders, and the
                     camera intent a boss beat may borrow)
-  src/audio/        engine + manifest (clips, silent fallback) + director
+  src/audio/        engine + manifest (clips, silent fallback) + mix.ts (THE
+                    MIX LAYER: tiered voice budget, self-overlap caps, focus
+                    windows — SOUNDPLAN §2.5; what the director ASKS for and
+                    what SOUNDS are different things now) + director
                     (maps sim events → sound ids)
 support:
   src/input/        rebindable keys + mouse aim + notify verbosity (dcc:* keys)
@@ -140,10 +148,19 @@ test/               sim.test.ts (rules), balance.test.ts (the difficulty
 UI overlays in `iso.html` follow a **screen-zone map** (comment block in its
 CSS): every fixed overlay claims exactly one zone; new overlays must pick a
 zone there first. Announcements route by priority: high → the one center
-banner, normal → the right-rail ticker (filtered by the K-panel verbosity
+banner, normal → the toast column (filtered by the K-panel verbosity
 setting). `kind:"tip"` never rides either: it is translated into Mordecai's
 voice and painted on his non-pausing strip (the `#tutorial` card surface) or
 dropped — the System teaches nothing (TUTORIAL.md, ONE VOICE).
+
+Routing is not the whole story: **`src/ui/notify.ts` decides whether the glass
+can afford the line at all** (owner verdict 2026-08-07, AAA-AUDIT #7). A
+normal-priority line is ranked by kind, coalesced with any live/queued line of
+the same shape (numbers collapse — "N-KILL COMBO" is one line with a count),
+capped at 3 on screen with a "+N more" chip for the backlog, and HELD while a
+boss bar is up, a death beat is playing or a descent is happening. If you add
+an `AnnouncementKind`, rank it in `NOTIF_RANK` — the record is exhaustive so
+tsc will make you.
 
 ## Assets (models + audio) — silent/placeholder fallback pattern
 
@@ -153,7 +170,9 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
   animator fuzzy-matches animation names, so new rigged packs inherit the
   animation state machine.
 - **Audio**: `src/audio/manifest.ts` loads from `public/audio/`; missing →
-  silence. New sounds: add to the manifest + map in `src/audio/director.ts`.
+  silence. New sounds: add to the manifest, map in `src/audio/director.ts`,
+  and give it a TIER in `src/audio/mix.ts` (unlisted ids fall through to a
+  pattern rule, which is a guess — SOUNDPLAN §2.5).
 - Record every new asset's origin + license in `ASSETS.md` (CC-BY additionally
   requires the in-game credits entry). `scripts/fetch-assets.sh` has download
   pointers.

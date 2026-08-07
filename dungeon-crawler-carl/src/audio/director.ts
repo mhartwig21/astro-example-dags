@@ -5,8 +5,9 @@ import { CONFIG, floorBand } from "../sim/config";
 import { signatureFor } from "../render3d/bossSignatures";
 import type { AbilityId } from "../sim/abilities";
 import type { Announcement, BossEvent, GameState, HitEvent, HitKind, MonsterKind, Player, StatusKind } from "../sim/types";
-import type { AudioSink } from "./engine";
+import type { AudioSink, PlayOpts } from "./engine";
 import type { SoundId } from "./manifest";
+import { MixBus, TIER, type MixStats } from "./mix";
 
 // Maps sim feedback to sound triggers. This is the ONLY audio integration point:
 // the host feeds it the same per-frame hit/announcement buffers it already gives
@@ -105,6 +106,34 @@ const STATUS_APPLY_SOUNDS: Record<StatusKind, SoundId> = {
 
 /** Hits farther than this (in tiles) from the local player are inaudible. */
 const EARSHOT = 24;
+
+// --- THE MIX LAYER, director half (mix.ts is the other half) ---------------
+// mix.ts decides WHICH cue survives a crowded moment. These constants decide
+// how many the director ASKS for in the first place, which is the half a
+// budget cannot do for you: when six monsters die on one frame, a budget can
+// only pick six-in-arrival-order, whereas the director knows the six are ONE
+// event and can say so. Owner verdict: "the sound effects for kills is way
+// too much... there needs to be a masking layer which prioritizes certain
+// sounds over others."
+
+/** Blows voiced per frame, biggest first. A cleave is one moment, not six. */
+const MAX_IMPACT_CUES = 4;
+/** Creature barks voiced per frame, nearest first, deaths before aggro before
+ *  pain. Barks measured 29-31% of the entire voice budget at pack density —
+ *  the single largest contributor, and mostly duplicates of each other. */
+const MAX_BARK_CUES = 3;
+/** Quiet window after a kill cue before the next one may sound (ms of sim
+ *  time). A LONE kill is never delayed — it opens the window and fires
+ *  immediately; kills that land inside the window are counted, not played. */
+const KILL_GATE_MS = 260;
+/** Kills inside one window that make it a MULTI-KILL: one emphatic event
+ *  instead of N thumps. The reward, not the mute. */
+const MULTI_KILL = 3;
+/** Quiet window after the multi-kill emphasis — longer, because it is bigger. */
+const MULTI_KILL_GATE_MS = 620;
+/** Emphasis voicing: the same `kill` clip, pitched DOWN so it reads as heavier
+ *  rather than louder (no gain moves anywhere in this round), plus the crowd. */
+const MULTI_KILL_RATE = 0.86;
 
 /** Breakable prop keys that shatter (ceramic/glass) rather than splinter. */
 const CLAY_KEY = /pot|plate|dish|bottle|goblet|mug|vase|jar|potion|glass|gem/;
@@ -241,8 +270,29 @@ export class AudioDirector {
   // only ever advances within one), which is the only run-boundary signal that
   // survives a restart on the same floor — see castEdges.
   private lastElapsed = -Infinity;
+  /** THE MIX LAYER: every cue this director emits goes through it. */
+  private mix: MixBus;
+  /** Kill coalescing (see KILL_GATE_MS): sim-ms the kill channel reopens, and
+   *  the kills counted while it was shut. */
+  private killGateUntil = -Infinity;
+  private killPending = 0;
+  private killPendingPos: { x: number; y: number } | null = null;
 
-  constructor(private sink: AudioSink) {}
+  constructor(private sink: AudioSink) {
+    this.mix = new MixBus(sink);
+  }
+
+  /** The masking layer's counters (asked vs played, and why). Read by the
+   *  density instruments and by test/audioMask.test.ts; nothing in the game
+   *  depends on it. */
+  mixStats(): MixStats {
+    return this.mix.readStats();
+  }
+
+  /** Every cue in this file goes through here. The mix layer may refuse it. */
+  private cue(id: SoundId, opts: PlayOpts = {}, tier?: 0 | 1 | 2 | 3 | 4 | 5): boolean {
+    return this.mix.play(id, opts, tier);
+  }
 
   /** Host hook: the RINGSIDE CHECK-IN (menu/campfire) opened or closed. */
   setMenu(open: boolean): void {
@@ -278,13 +328,14 @@ export class AudioDirector {
   }
 
   /** One creature bark: family voice, variant + rate hashed from the monster
-   *  id (a given creature keeps ITS voice; replays sound identical). */
-  private bark(p: { pos: { x: number; y: number } }, id: number, fam: BarkFamily, ev: "aggro" | "pain" | "death", x: number, y: number): void {
+   *  id (a given creature keeps ITS voice; replays sound identical).
+   *  Returns whether the mix layer admitted it. */
+  private bark(p: { pos: { x: number; y: number } }, id: number, fam: BarkFamily, ev: "aggro" | "pain" | "death", x: number, y: number): boolean {
     const dx = x - p.pos.x, dy = y - p.pos.y;
     const d = Math.hypot(dx, dy);
-    if (d > EARSHOT) return;
+    if (d > EARSHOT) return false;
     const h = Math.imul(id + 1, 0x9e3779b1) >>> 0;
-    this.sink.play(`bark_${fam}_${ev}_${(h & 1) === 0 ? "a" : "b"}` as SoundId, {
+    return this.cue(`bark_${fam}_${ev}_${(h & 1) === 0 ? "a" : "b"}` as SoundId, {
       gain: 0.85 / (1 + d / 5),
       pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       rate: 0.94 + (((h >> 8) & 0xff) / 255) * 0.12,
@@ -299,7 +350,7 @@ export class AudioDirector {
     const d = Math.hypot(dx, dy);
     if (d > EARSHOT) return;
     const h = Math.imul(id + 1, 2654435761) >>> 0;
-    this.sink.play(clay ? "smash_clay" : "smash_wood", {
+    this.cue(clay ? "smash_clay" : "smash_wood", {
       gain: (cracked ? 0.45 : 1) / (1 + d / 6),
       pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       rate: (cracked ? 1.12 : 0.92) + ((h & 0xff) / 255) * 0.16,
@@ -323,14 +374,14 @@ export class AudioDirector {
       ...(extra?.force ? { force: true } : {}),
     };
     if (caster.id === p.id) {
-      this.sink.play(sound, { gain: mul, pan: 0, ...extras });
+      this.cue(sound, { gain: mul, pan: 0, ...extras });
       return;
     }
     const ult = ULTIMATE_CASTS.has(ability);
     const dx = caster.pos.x - p.pos.x, dy = caster.pos.y - p.pos.y;
     const d = Math.hypot(dx, dy);
     if (d > EARSHOT * (ult ? 1.6 : 1)) return;
-    this.sink.play(sound, {
+    this.cue(sound, {
       gain: mul * (ult ? 1 / (1 + d / 14) : 0.75 / (1 + d / 6)),
       pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       ...extras,
@@ -383,7 +434,17 @@ export class AudioDirector {
    */
   private castEdges(p: Player, state: GameState, boundary: boolean): void {
     const seen = new Set<number>();
-    for (const pl of state.players) {
+    // THE LOCAL CRAWLER GOES FIRST. §2.4's rule — "two crawlers pressing the
+    // same button inside one window yield one cue" — was always enforced by
+    // the engine's per-id guard, and which of the two survived was decided by
+    // this loop's order, i.e. by party join order. The comment on castCue
+    // claims "my own cast always wins a tie against an identical one six tiles
+    // away"; that only became true when the mix layer moved the collapse to a
+    // place the director controls, so the ordering has to say it out loud.
+    const roster = state.players.length > 1
+      ? [p, ...state.players.filter((pl) => pl.id !== p.id)]
+      : state.players;
+    for (const pl of roster) {
       seen.add(pl.id);
       const cds = pl.cd as Partial<Record<string, number>>;
       const snap: Record<string, number> = {};
@@ -435,6 +496,61 @@ export class AudioDirector {
   }
 
   /**
+   * THE KILL CHANNEL, coalesced — the owner's first verdict, in code.
+   *
+   * "The sound effects for kills is way too much I think." Measured: at
+   * floor-15 pack density one kill cost 23.3 clip starts inside a 300ms
+   * window, because `kill` played per killed HitEvent (a six-target cleave is
+   * six kill layers on one frame) on top of hit/crit, the death bark, gold,
+   * status and the combo ident.
+   *
+   * THE FEEL RULE THE FIX HAS TO RESPECT: a single kill must still land. So
+   * the gate is opened BY the first kill and never delays it —
+   *
+   *   - kill arrives with the channel open  -> it sounds immediately, exactly
+   *     as it does today, and shuts the channel for KILL_GATE_MS;
+   *   - kills arriving while it is shut     -> counted, not played;
+   *   - the channel reopening with >= MULTI_KILL counted -> ONE emphatic
+   *     multi-kill (the same clip pitched down, plus the crowd) instead of N
+   *     thumps, then a longer quiet window. The player is REWARDED for the
+   *     wipe rather than muted through it;
+   *   - fewer than that -> the ordinary thump, once.
+   *
+   * Nothing is turned down: the emphasis is a RATE change, not a gain change.
+   */
+  private killCue(
+    p: { pos: { x: number; y: number } }, nowMs: number,
+    kills: number, pos: { x: number; y: number } | null,
+  ): void {
+    if (kills > 0 && pos) {
+      this.killPending += kills;
+      this.killPendingPos = pos;
+    }
+    if (this.killPending <= 0 || nowMs < this.killGateUntil) return;
+    const n = this.killPending;
+    const at = this.killPendingPos;
+    this.killPending = 0;
+    this.killPendingPos = null;
+    if (!at) return;
+    const dx = at.x - p.pos.x, dy = at.y - p.pos.y;
+    const d = Math.hypot(dx, dy);
+    const opts: PlayOpts = {
+      gain: 1 / (1 + d / 6),
+      pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+    };
+    if (n >= MULTI_KILL) {
+      // THE MULTI-KILL. Forced and tier-overridden to `progression` so the
+      // budget cannot refuse the payoff for the very density that earned it.
+      this.cue("kill", { ...opts, rate: MULTI_KILL_RATE, force: true }, TIER.progression);
+      this.cue("crowd", {}, TIER.progression);
+      this.killGateUntil = nowMs + MULTI_KILL_GATE_MS;
+      return;
+    }
+    this.cue("kill", opts);
+    this.killGateUntil = nowMs + KILL_GATE_MS;
+  }
+
+  /**
    * Call once per render frame with the frame's buffered feedback.
    * `bossEvents` is the BOSSES-V2 §7.4 channel, buffered by the host across
    * sub-steps exactly like hits and announcements.
@@ -446,10 +562,36 @@ export class AudioDirector {
     const p = state.players.find((pl) => pl.id === localId) ?? state.players[0];
     if (!p) return;
 
+    // THE MIX LAYER's clock and its run-boundary reset. Sim time, so a replay
+    // masks identically; the boundary is the same one castEdges uses (below),
+    // computed once here because the mixer must not start a fresh run holding
+    // the last one's voice budget.
+    const runBoundary = !this.prev || this.prev.floor !== state.floor || state.elapsed < this.lastElapsed;
+    this.lastElapsed = state.elapsed;
+    const nowMs = state.elapsed * 1000;
+    this.mix.beginFrame(nowMs, runBoundary);
+    if (runBoundary) {
+      this.killGateUntil = -Infinity;
+      this.killPending = 0;
+      this.killPendingPos = null;
+    }
+
     // Combat feedback: attenuate + pan by position relative to the local player.
     // Screen-x under the fixed iso camera grows with (world x - world y), so a
     // simple (dx - dy) pan matches what the player sees.
+    //
+    // COALESCED (the mix round). This used to be one cue per HitEvent plus a
+    // `kill` layer per killed HitEvent, which is why one kill at floor-15 pack
+    // density cost 23.3 clip starts inside 300ms and a six-target cleave was
+    // six kill thumps stacked on themselves. The events are now SORTED (the
+    // biggest blow is the one you hear) and capped per frame, and the kill
+    // channel is gated so a pack wipe reads as one emphatic event.
     let combat = false; // a real blow landed in earshot this frame
+    const blows: { h: HitEvent; d: number; opts: PlayOpts }[] = [];
+    const effects = new Map<StatusKind, { d: number; opts: PlayOpts }>();
+    let kills = 0;
+    let killPos: { x: number; y: number } | null = null;
+    let killD = Infinity;
     for (const h of hits) {
       const dx = h.pos.x - p.pos.x;
       const dy = h.pos.y - p.pos.y;
@@ -458,18 +600,53 @@ export class AudioDirector {
       // DoT ticks don't count as combat (they linger after a fight and would
       // pin the battle bed up) and sound as their element instead of a blow.
       if (!h.effect && (h.kind === "enemy" || h.kind === "crit" || h.kind === "player")) combat = true;
-      const opts = {
+      const opts: PlayOpts = {
         gain: 1 / (1 + d / 6),
         pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       };
-      this.sink.play(h.effect ? STATUS_SOUNDS[h.effect] : HIT_SOUNDS[h.kind], opts);
-      // Killing blows on monsters get a meatier thump layered on top.
-      if (h.killed && h.kind !== "player") this.sink.play("kill", opts);
+      if (h.effect) {
+        // One tick voice per ELEMENT per frame, nearest wins. Ten burning
+        // monsters are one fire, not ten.
+        const cur = effects.get(h.effect);
+        if (!cur || d < cur.d) effects.set(h.effect, { d, opts });
+        continue;
+      }
+      blows.push({ h, d, opts });
+      if (h.killed && h.kind !== "player") {
+        kills++;
+        if (d < killD) { killD = d; killPos = { x: h.pos.x, y: h.pos.y }; }
+      }
     }
+    for (const [kind, e] of effects) this.cue(STATUS_SOUNDS[kind], e.opts);
+    // The player's own body is CRITICAL and is never rationed against the
+    // monsters' blows: it is voiced separately, biggest hit first, and the mix
+    // layer's own self-overlap rule (one copy) is what stops the smear that
+    // measured 92.8% self-overlapping, five deep.
+    let hurt: { h: HitEvent; d: number; opts: PlayOpts } | null = null;
+    const others: typeof blows = [];
+    for (const b of blows) {
+      if (b.h.kind !== "player") { others.push(b); continue; }
+      // The worst blow of the frame speaks for the frame.
+      if (!hurt || b.h.amount > hurt.h.amount || (b.h.amount === hurt.h.amount && b.d < hurt.d)) hurt = b;
+    }
+    if (hurt) this.cue("player_hurt", hurt.opts);
+    // Everything else: loudest blow first (amount, then proximity), capped.
+    others.sort((a, b) => (b.h.amount - a.h.amount) || (a.d - b.d));
+    let voiced = 0;
+    for (const b of others) {
+      if (voiced >= MAX_IMPACT_CUES) break;
+      if (this.cue(HIT_SOUNDS[b.h.kind], b.opts)) voiced++;
+    }
+    this.killCue(p, nowMs, kills, killPos);
 
-    // Enemy windup tells: one cue per attack, positioned like the hits, so
-    // danger is audible even when the telegraph starts off-screen.
+    // Enemy windup tells: ONE per frame, the NEAREST wind-up, positioned like
+    // the hits so danger is audible even when the telegraph starts off-screen.
+    // This is the cue the blind engine guard was eating most often (290 of 420
+    // attempts at floor-17 pack density, chosen first-come-first-served);
+    // picking the nearest and letting the mix layer force it past the guard is
+    // the entire "let the important cue win" half of the owner's ask.
     const winding = new Set<number>();
+    let tell: { d: number; opts: PlayOpts } | null = null;
     for (const m of state.monsters) {
       if (m.windup <= 0) continue;
       winding.add(m.id);
@@ -478,11 +655,16 @@ export class AudioDirector {
       const dy = m.pos.y - p.pos.y;
       const d = Math.hypot(dx, dy);
       if (d > EARSHOT) continue;
-      this.sink.play("tell", {
-        gain: 0.9 / (1 + d / 6),
-        pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
-      });
+      if (tell && tell.d <= d) continue;
+      tell = {
+        d,
+        opts: {
+          gain: 0.9 / (1 + d / 6),
+          pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
+        },
+      };
     }
+    if (tell) this.cue("tell", tell.opts);
     this.winding = winding;
 
     // NO FOOTSTEPS (owner call, audio r2): "the footsteps are really
@@ -508,7 +690,7 @@ export class AudioDirector {
         const dx = x - p.pos.x, dy = y - p.pos.y;
         const d = Math.hypot(dx, dy);
         if (d > EARSHOT) return;
-        this.sink.play(STATUS_APPLY_SOUNDS[kind], {
+        this.cue(STATUS_APPLY_SOUNDS[kind], {
           gain: 0.9 / (1 + d / 6),
           pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
         });
@@ -553,9 +735,28 @@ export class AudioDirector {
     // hitFlash edge gated per-monster (§2.4: one per 4s), death = the id
     // leaving the list (layers under the `kill` thump). Same floor-change
     // guard as smashes: a descent is not a massacre.
+    //
+    // COALESCED (the mix round): barks measured 29-31% of the ENTIRE voice
+    // budget at pack density — the largest single contributor, and the 48-
+    // voice peak captured in the shipping build contained TWENTY of them. The
+    // block now collects candidates and voices at most MAX_BARK_CUES of them
+    // per frame, deaths before aggro before pain and nearest first, so a
+    // sixteen-mob pull speaks with two mouths instead of sixteen. The pain
+    // gate is charged only for barks that actually SOUND, or a monster would
+    // burn its 4s silence on a bark nobody heard.
     {
       const floorChanged = !this.prev || this.prev.floor !== state.floor;
       const seen = new Set<number>();
+      // rank: 0 death, 1 aggro, 2 pain
+      const cands: { rank: number; d: number; id: number; fam: BarkFamily; ev: "aggro" | "pain" | "death"; x: number; y: number; mob?: { painAt: number } }[] = [];
+      const offer = (
+        rank: number, id: number, fam: BarkFamily, ev: "aggro" | "pain" | "death",
+        x: number, y: number, mob?: { painAt: number },
+      ) => {
+        const d = Math.hypot(x - p.pos.x, y - p.pos.y);
+        if (d > EARSHOT) return;
+        cands.push({ rank, d, id, fam, ev, x, y, mob });
+      };
       for (const m of state.monsters) {
         seen.add(m.id);
         const fam = BARK_FAMILY[m.kind];
@@ -571,14 +772,15 @@ export class AudioDirector {
           continue;
         }
         if (!known.engaged && !m.dormant && m.hp > 0 && dNear <= PACK_RADIUS) {
+          // `engaged` is a lifetime latch, not a cue receipt: a monster that
+          // loses the frame's bark budget still counts as having come hunting.
           known.engaged = true;
-          this.bark(p, m.id, fam, "aggro", m.pos.x, m.pos.y);
+          offer(1, m.id, fam, "aggro", m.pos.x, m.pos.y);
         }
         if (flash && !known.flash && m.hp > 0 && state.elapsed - known.painAt >= BARK_PAIN_GAP) {
-          known.painAt = state.elapsed;
-          this.bark(p, m.id, fam, "pain", m.pos.x, m.pos.y);
+          offer(2, m.id, fam, "pain", m.pos.x, m.pos.y, known);
         }
-        if (m.hp <= 0 && known.hp > 0) this.bark(p, m.id, fam, "death", m.pos.x, m.pos.y);
+        if (m.hp <= 0 && known.hp > 0) offer(0, m.id, fam, "death", m.pos.x, m.pos.y);
         known.x = m.pos.x;
         known.y = m.pos.y;
         known.hp = m.hp;
@@ -588,7 +790,15 @@ export class AudioDirector {
         if (seen.has(id)) continue;
         this.mobs.delete(id);
         // Reaped between frames without a seen hp<=0 edge: still a death.
-        if (!floorChanged && k.hp > 0) this.bark(p, id, k.fam, "death", k.x, k.y);
+        if (!floorChanged && k.hp > 0) offer(0, id, k.fam, "death", k.x, k.y);
+      }
+      cands.sort((a, b) => (a.rank - b.rank) || (a.d - b.d) || (a.id - b.id));
+      let spoken = 0;
+      for (const c of cands) {
+        if (spoken >= MAX_BARK_CUES) break;
+        if (!this.bark(p, c.id, c.fam, c.ev, c.x, c.y)) continue;
+        if (c.mob) c.mob.painAt = state.elapsed;
+        spoken++;
       }
     }
 
@@ -599,7 +809,7 @@ export class AudioDirector {
       if (this.pinged.has(pg.id)) continue;
       const dx = pg.pos.x - p.pos.x;
       const dy = pg.pos.y - p.pos.y;
-      this.sink.play("announce", {
+      this.cue("announce", {
         gain: 0.55,
         pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)),
       });
@@ -623,36 +833,41 @@ export class AudioDirector {
         force: true, // one cue per sim beat; the caller IS the rate limit
         rate: be.kind === "telegraph" ? signatureFor(be.label, be.bossId).rate : 1,
       };
-      this.sink.play(id, opts);
+      this.cue(id, opts);
       // Crowd swell on the beats the crowd would actually react to: the
       // reveal's downbeat, a phase the PLAYER caused, and the punish window.
       if (
         be.kind === "intro" ||
         be.kind === "punish" ||
         (be.kind === "phase" && be.reason === "mechanic")
-      ) this.sink.play("crowd");
+      ) this.cue("crowd");
       // The kill: the sim marks it as a phase edge labelled DEFEATED. The
       // low tail (boss_down) settles the building over the corpse (row 15).
       if (be.kind === "phase" && be.label === "DEFEATED") {
-        this.sink.play("kill", { gain: 1, force: true });
-        this.sink.play("boss_down", { force: true });
-        this.sink.play("crowd");
+        this.cue("kill", { gain: 1, force: true });
+        this.cue("boss_down", { force: true });
+        this.cue("crowd");
       }
     }
 
-    // A multi-kill this step: the crowd loves it. (Throttled in the engine.)
-    if (state.killsThisStep >= 3) this.sink.play("crowd");
+    // THE MULTI-KILL CROWD MOVED. It used to fire here off state.killsThisStep
+    // (one SUB-STEP's party kills), independently of the kill thumps, so a
+    // wipe produced N thumps AND a roar that had no relationship to them. It
+    // is now part of the coalesced multi-kill emphasis in killCue(): one
+    // event, one roar, counted over the whole gate window rather than one
+    // sub-step. `crowd`'s other callers (frenzy, boss beats) are untouched.
+
     // The System speaks — one IDENT regardless of how many lines queued
     // (row 8): normal lines get the 2-note blip, a headline anywhere in the
     // batch upgrades it to the heavy ident. TODAY'S RULE additionally gets
     // its paper stamp — bureaucracy, audible (row 11).
     if (announcements.length > 0) {
-      this.sink.play(announcements.some((a) => a.priority === "high") ? "ident_high" : "ident");
-      if (announcements.some((a) => a.text.startsWith("TODAY'S RULE"))) this.sink.play("stamp");
+      this.cue(announcements.some((a) => a.priority === "high") ? "ident_high" : "ident");
+      if (announcements.some((a) => a.text.startsWith("TODAY'S RULE"))) this.cue("stamp");
       // Row 6, the pickup half: a room going OPEN FOR BUSINESS rings the
       // same till the purchases use — the System's cash register is ONE
       // sound, whichever direction the money moves.
-      if (announcements.some((a) => a.text.startsWith("OPEN FOR BUSINESS"))) this.sink.play("till");
+      if (announcements.some((a) => a.text.startsWith("OPEN FOR BUSINESS"))) this.cue("till");
     }
 
     // THE ACT — every crawler's cast cues, off the one general fact (see
@@ -660,8 +875,9 @@ export class AudioDirector {
     // cast and its muffle() land on the same frame, and the engine sweeps a
     // 700Hz master low-pass on that edge — the cue has to be in flight before
     // the filter closes over it.
-    const runBoundary = !this.prev || this.prev.floor !== state.floor || state.elapsed < this.lastElapsed;
-    this.lastElapsed = state.elapsed;
+    // (`runBoundary` and `lastElapsed` are computed at the TOP of frame() now
+    // — the mix layer needs the same boundary to drop the previous run's voice
+    // budget, and nothing between here and there reads either field.)
     this.castEdges(p, state, runBoundary);
 
     const cur: Prev = {
@@ -688,37 +904,37 @@ export class AudioDirector {
       // BULLET TIME: the mix goes underwater while the world is slowed.
       if (cur.bulletTime !== prev.bulletTime) this.sink.muffle?.(cur.bulletTime);
       // World beats (state edges the hit channel doesn't carry).
-      if (prev.phase === "safe" && cur.phase === "warning") this.sink.play("warning");
+      if (prev.phase === "safe" && cur.phase === "warning") this.cue("warning");
       if (cur.floor !== prev.floor) {
-        this.sink.play("descend");
-        this.sink.play("descend_whoosh"); // row 17: the portal swallows you
+        this.cue("descend");
+        this.cue("descend_whoosh"); // row 17: the portal swallows you
         // Crossing into a new 3-floor band: the season enters a new act.
         if (Math.floor((cur.floor - 1) / 3) !== Math.floor((prev.floor - 1) / 3)) {
-          this.sink.play("band_sting");
+          this.cue("band_sting");
         }
       }
-      if (prev.status === "playing" && cur.status === "dead") this.sink.play("death");
+      if (prev.status === "playing" && cur.status === "dead") this.cue("death");
       // DEATH IS A DOOR (row 14): the concede is a single cold door-close.
       // Terminal, dry, no musical comment — the race forgets nobody.
-      if (cur.conceded && !prev.conceded) this.sink.play("door_close", { force: true });
-      if (prev.status === "playing" && cur.status === "won") this.sink.play("victory");
-      if (prev.locked && !cur.locked) this.sink.play("door_unlock");
+      if (cur.conceded && !prev.conceded) this.cue("door_close", { force: true });
+      if (prev.status === "playing" && cur.status === "won") this.cue("victory");
+      if (prev.locked && !cur.locked) this.cue("door_unlock");
       // Local player beats.
-      if (cur.level > prev.level) this.sink.play("level_up");
-      if (cur.lootBoxes > prev.lootBoxes) this.sink.play("lootbox");
-      if (cur.achievements > prev.achievements) this.sink.play("achievement");
-      if (!prev.pendingRewards && cur.pendingRewards) this.sink.play("sponsor");
+      if (cur.level > prev.level) this.cue("level_up");
+      if (cur.lootBoxes > prev.lootBoxes) this.cue("lootbox");
+      if (cur.achievements > prev.achievements) this.cue("achievement");
+      if (!prev.pendingRewards && cur.pendingRewards) this.cue("sponsor");
       // Crowd Frenzy kicks in: the arena roars.
-      if (cur.frenzy && !prev.frenzy) this.sink.play("crowd");
+      if (cur.frenzy && !prev.frenzy) this.cue("crowd");
       // Ringside introduction: the boss sting over the frozen reveal.
-      if (cur.encounter && !prev.encounter) this.sink.play("boss_intro");
+      if (cur.encounter && !prev.encounter) this.cue("boss_intro");
       // The melee whoosh triggers on the swing itself — a whiff still sounds.
       // It is ALSO melee's cast cue, which is why melee has no entry in
       // CAST_SOUNDS (see the table's comment).
-      if (cur.attackSwing > prev.attackSwing + 1e-6) this.sink.play("swing");
+      if (cur.attackSwing > prev.attackSwing + 1e-6) this.cue("swing");
       // The flask keeps its borrowed bottle clink under the heal: it is a
       // consumable, not an ability, so no cast cue covers it.
-      if (cur.flask < prev.flask) this.sink.play("item");
+      if (cur.flask < prev.flask) this.cue("item");
       // AUDIO R2 — the ad-hoc cast block that used to live here is gone. Five
       // hand-rolled edges (dashTime / novaFlash / boltCd / cataCd / doubleCd)
       // plus four borrowed layers (crit for Fault Line, equip for the Stunt
@@ -741,7 +957,7 @@ export class AudioDirector {
       this.chimed.add(l.id);
       const dx = l.pos.x - p.pos.x, dy = l.pos.y - p.pos.y;
       if (Math.hypot(dx, dy) > EARSHOT) continue;
-      this.sink.play("equip", { gain: 0.8, pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)) });
+      this.cue("equip", { gain: 0.8, pan: Math.min(1, Math.max(-1, (dx - dy) * 0.12)) });
     }
 
     // Battle/boss detection. Blows landing in earshot (or a pack closing in)

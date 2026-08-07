@@ -90,16 +90,32 @@ describe("audio director", () => {
     expect(sink.ids()).toHaveLength(0);
   });
 
-  it("idents once for announcements and roars on multi-kills", () => {
+  it("idents once for announcements, and a multi-kill roars ONCE", () => {
     const { sink, director, state } = setup();
-    state.killsThisStep = 3;
+    const p = state.players[0];
+    // THE MIX ROUND: the roar used to fire off state.killsThisStep (one
+    // SUB-STEP's party kills) independently of the kill thumps, so a wipe was
+    // N thumps plus an unrelated crowd. It is now the tail of the coalesced
+    // multi-kill emphasis in the kill channel — three deaths on one frame are
+    // ONE cue, not three, and they bring the crowd with them.
     director.frame(state, [], [
       { text: "LINE ONE", kind: "flavor", priority: "normal" },
       { text: "LINE TWO", kind: "flavor", priority: "normal" },
-    ], 0);
+    ], p.id);
     expect(sink.ids().filter((i) => i === "ident")).toHaveLength(1);
     expect(sink.ids()).not.toContain("ident_high");
+
+    sink.played = [];
+    state.elapsed += 1;
+    const dead = (n: number) => Array.from({ length: n }, () => ({
+      pos: { ...p.pos }, amount: 9, kind: "enemy" as const, killed: true,
+    }));
+    director.frame(state, dead(3), [], p.id);
+    expect(sink.ids().filter((i) => i === "kill")).toHaveLength(1);
     expect(sink.ids()).toContain("crowd");
+    // ...and it is the EMPHATIC voicing: the same clip, pitched down, not a
+    // louder one. Nothing in this round moves a gain.
+    expect(sink.played.find((s) => s.id === "kill")!.opts!.rate!).toBeLessThan(1);
   });
 
   it("a headline anywhere in the batch upgrades the ident; TODAY'S RULE stamps", () => {
@@ -112,6 +128,12 @@ describe("audio director", () => {
     expect(sink.ids()).not.toContain("ident");
     expect(sink.ids()).not.toContain("stamp");
     sink.played = [];
+    // ident_high's own throttle is 1000ms and the mix layer honours it off the
+    // SIM clock, so the second headline has to be a second headline in time
+    // too. (Before the mix layer this was the engine's problem and the fake
+    // sink could not see it — the §2.2a "verified upstream of the engine"
+    // failure, in a test.)
+    state.elapsed += 2;
     director.frame(state, [], [
       { text: "TODAY'S RULE: RUSH HOUR. The collapse clocks run 20% shorter.", kind: "show", priority: "high" },
     ], 0);
@@ -147,12 +169,14 @@ describe("audio director", () => {
     ]);
     expect(sink.ids()).toContain("boss_phase");
     sink.played = [];
+    state.elapsed += 2; // `crowd` is throttled 1500ms; beats are seconds apart
     director.frame(state, [], [], p.id, [
       { kind: "punish", monsterId: 1, pos: { ...p.pos }, duration: 2 },
     ]);
     expect(sink.ids()).toContain("boss_punish");
     expect(sink.ids()).toContain("crowd");
     sink.played = [];
+    state.elapsed += 2;
     director.frame(state, [], [], p.id, [
       { kind: "phase", monsterId: 1, label: "DEFEATED", pos: { ...p.pos } },
     ]);
@@ -795,6 +819,10 @@ describe("audio director: the cast roster (SOUNDPLAN row E-21)", () => {
     sink.played = [];
     // Second dash while the recharge runs: doDash leaves cd.dash alone
     // (it only sets it when it was <= 0), so ONLY the charge moves.
+    // cast_dash is throttled 250ms (§2.4 — "charges make a double-tap a real
+    // play, so both must sound"), which the mix layer honours off the sim
+    // clock, so the second tap has to be a real 250ms later.
+    state.elapsed += 0.4;
     p.dashCharges = 0;
     p.cd.dash = 3.6; // still ticking down
     director.frame(state, [], [], p.id);
@@ -952,17 +980,40 @@ describe("audio director: the cast roster (SOUNDPLAN row E-21)", () => {
     const p = state.players[0];
     const mate = squadmate(state, 77, 8);
     director.frame(state, [], [], p.id);
+    mate.cd.orbit = 5; // the squadmate casts alone: their cue is off to the side
+    director.frame(state, [], [], p.id);
+    const theirs = sink.played.find((s) => s.id === "cast_orbit")!;
+    expect(theirs).toBeDefined();
+    expect(theirs.opts!.gain!).toBeLessThan(0.75 / (1 + 8 / 6) + 1e-9);
+    expect(theirs.opts!.gain!).toBeLessThan(1);
+    expect(theirs.opts!.pan!).toBeGreaterThan(0); // +x is screen-right
+    sink.played = [];
+    state.elapsed += 1; // past cast_orbit's 400ms throttle
+    p.cd.orbit = 5; // now I cast: centred and unattenuated
+    director.frame(state, [], [], p.id);
+    const mine = sink.played.find((s) => s.id === "cast_orbit")!;
+    expect(mine.opts!.gain).toBe(1);
+    expect(mine.opts!.pan).toBe(0);
+  });
+
+  it("MY cast wins the tie when a squadmate presses the same button", () => {
+    // §2.4: "two crawlers pressing the same button inside one window yield one
+    // cue, which is the correct trade (a doubled identical clip is mud)". That
+    // collapse always happened — in the ENGINE's per-id guard, where which of
+    // the two survived was decided by party join order. The mix layer now owns
+    // it, and castEdges walks the local crawler first, so the surviving cue is
+    // always MINE: centred, unattenuated.
+    const { sink, director, state } = setup();
+    const p = state.players[0];
+    const mate = squadmate(state, 77, 8);
+    director.frame(state, [], [], p.id);
     p.cd.orbit = 5;
     mate.cd.orbit = 5;
     director.frame(state, [], [], p.id);
     const both = sink.played.filter((s) => s.id === "cast_orbit");
-    expect(both).toHaveLength(2);
-    const mine = both[0], theirs = both[1];
-    expect(mine.opts!.gain).toBe(1);
-    expect(mine.opts!.pan).toBe(0);
-    expect(theirs.opts!.gain!).toBeLessThan(0.75 / (1 + 8 / 6) + 1e-9);
-    expect(theirs.opts!.gain!).toBeLessThan(mine.opts!.gain!);
-    expect(theirs.opts!.pan!).toBeGreaterThan(0); // +x is screen-right
+    expect(both).toHaveLength(1);
+    expect(both[0].opts!.gain).toBe(1);
+    expect(both[0].opts!.pan).toBe(0);
   });
 
   it("an ultimate carries past earshot; an active does not", () => {
@@ -1005,6 +1056,10 @@ describe("audio director: the cast roster (SOUNDPLAN row E-21)", () => {
     const p = state.players[0];
     director.frame(state, [], [], p.id);
     for (let i = 0; i < 20; i++) {
+      // A real swing storm is spread over real time — `swing` is throttled
+      // 120ms (§2.4) and the mix layer honours that off the sim clock, so a
+      // 20-swing storm at a FROZEN clock is not a storm, it is one swing.
+      state.elapsed += 0.2;
       p.attackSwing = 0.15;
       director.frame(state, [], [], p.id);
       p.attackSwing = 0;
@@ -1099,6 +1154,7 @@ describe("audio director: breakable smashes (SOUNDPLAN row 5)", () => {
     expect(crack).toBeDefined();
     expect(crack.opts!.rate!).toBeGreaterThan(1.08); // higher pitch = crack voice
     sink.played = [];
+    state.elapsed += 0.5; // smash_* is throttled 90ms; a crack and its pop are not one frame apart
     state.breakables = [];
     director.frame(state, [], [], p.id);
     const pop = sink.played.find((s) => s.id === "smash_wood")!;
