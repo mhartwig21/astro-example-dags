@@ -41,6 +41,19 @@ import {
 } from "./quality";
 
 /**
+ * WeakRef is ES2021 and this project's shared tsconfig declares the ES2020 lib.
+ * The slice used here (see blobPass) is declared locally rather than widening
+ * `lib` — that file is edited by every parallel stream, and widening it would
+ * also silently permit every other ES2021 API. The runtime floor is unchanged:
+ * WeakRef ships in Chrome 84, Firefox 79 and Safari 14.1 (iOS 14.5), all older
+ * than the WebGL2 + OES_texture_float_linear floor the renderer already needs.
+ */
+declare class WeakRef<T extends object> {
+  constructor(target: T);
+  deref(): T | undefined;
+}
+
+/**
  * WHAT THE TUNER DID, OR WOULD HAVE DONE — the surface that makes an automatic
  * mode change a visible event rather than a secret.
  *
@@ -1989,6 +2002,15 @@ export class Renderer3D {
   private blobGeo: THREE.BufferGeometry | null = null;
   private blobMat: THREE.MeshBasicMaterial | null = null;
   private dirBlobMat: THREE.MeshBasicMaterial | null = null; // hero's crisp offset shadow
+  // ...all drawn as ONE InstancedMesh; see blobPass(). The discs themselves
+  // stay in the graph as the per-entity transform carriers.
+  private blobIM: THREE.InstancedMesh | null = null;
+  private blobRefs: WeakRef<THREE.Mesh>[] = [];
+  private blobCap = 256;
+  /** Measurement arm (tools/_fxab_wf.mjs): put every disc back on its own draw
+   *  call, so the batched and unbatched frames can be compared inside ONE page
+   *  on ONE sim state. Same pattern as heroShadowLegacy. */
+  blobBatchLegacy = false;
   // Torch flame glow cores (one per anchor), flickered per frame + fog-gated.
   private flameSprites: { s: THREE.Sprite; seed: number; base: number; tile: number; role: 0 | 1 | 2; baseOp: number }[] = [];
   // Vertical light streaks on the wall face behind each interior sconce —
@@ -2095,7 +2117,136 @@ export class Renderer3D {
     blob.scale.setScalar(worldR / gs);
     blob.renderOrder = 1;
     blob.userData.noAO = true;
+    blob.userData.contactBlob = true;
+    // DRAWN BY blobPass() AS ONE INSTANCED MESH, NOT AS N MESHES.
+    //
+    // The disc object STAYS in the graph exactly where it was. That is what
+    // makes this safe rather than surgery: every Box3.setFromObject still sees
+    // its geometry (Box3 ignores `visible`, so entity bounds are byte-identical
+    // to before), every `isMesh` traversal — applyAffixVisual's noAO skip,
+    // applyHeroShadowPolicy's caster walk, the debug censuses — still visits
+    // the same node, and the disc is still the thing that carries the world
+    // transform, parented to the entity, so it follows its owner for free.
+    // Only projectObject stops picking it up.
+    blob.visible = false;
     g.add(blob);
+    // WeakRef, so a disposed entity takes its disc's registry slot with it. A
+    // strong list would pin one Mesh per body ever spawned across 18 floors.
+    this.blobRefs.push(new WeakRef(blob));
+  }
+
+  /**
+   * Draw every contact-shadow disc in ONE call.
+   *
+   * WHY THIS IS THE FIRST THING TO BATCH: measured at this branch's HEAD with
+   * tools/_dcattr.mjs (floor 10, 124 monsters, production build, shipping
+   * server), the discs are the largest single-geometry-single-material cluster
+   * in the frame outside the post chain — 23 draws sharing ONE geometry, ONE
+   * material object and 2 triangles each. They need no material dedup, no
+   * atlasing and no shader work; they were already identical.
+   *
+   * AND IT CANNOT REORDER ANYTHING VISIBLE. Batching characteristically breaks
+   * transparency, because N depth-sorted draws become one draw in instance
+   * order. Here that is provably free: every disc is the SAME black at the SAME
+   * alpha with depthWrite off, and `dst*(1-a)*(1-a)` does not care which of two
+   * identical black quads lands first. They also cast no shadow (castShadow was
+   * never set), so the shadow pass cannot notice either.
+   *
+   * Called from scene.onBeforeRender — after three has updated the world
+   * matrices for this frame and before it builds the render list, so the discs
+   * are never a frame stale and nothing has to be traversed twice.
+   */
+  private blobPass(): void {
+    // A frame that overflows the instance buffer grows it and starts over, so
+    // a busy arena never costs a frame of missing contact shadows.
+    for (let attempt = 0; attempt < 4; attempt++) if (this.blobFill()) return;
+  }
+
+  /** One attempt at filling the batch. Returns false if capacity was grown and
+   *  the caller should retry. */
+  private blobFill(): boolean {
+    const refs = this.blobRefs;
+    const legacy = this.blobBatchLegacy;
+    const im = legacy ? this.blobIM : this.blobInstanced();
+    let n = 0, w = 0;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < refs.length; i++) {
+      const b = refs[i].deref();
+      if (b === undefined) continue; // owner collected: drop the slot
+      refs[w++] = refs[i];
+      if (legacy) { b.visible = true; continue; }
+      b.visible = false;
+      // LIVE == every ancestor visible AND the chain roots at this scene. The
+      // second half is not redundant: ~80% of the monster roster is removed
+      // from the graph entirely rather than hidden, and those bodies keep a
+      // stale matrixWorld that would stamp a disc on open floor.
+      let p: THREE.Object3D | null = b.parent;
+      while (p !== null && p !== this.scene) {
+        if (!p.visible) break;
+        p = p.parent;
+      }
+      if (p !== this.scene) continue;
+      if (n >= im!.instanceMatrix.count) { this.growBlobCapacity(); return false; }
+      im!.setMatrixAt(n, b.matrixWorld);
+      const e = b.matrixWorld.elements;
+      const r = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[8], e[9], e[10]));
+      if (e[12] - r < minX) minX = e[12] - r;
+      if (e[12] + r > maxX) maxX = e[12] + r;
+      if (e[14] - r < minZ) minZ = e[14] - r;
+      if (e[14] + r > maxZ) maxZ = e[14] + r;
+      n++;
+    }
+    refs.length = w;
+    if (!im) return true;
+    if (legacy) { im.count = 0; im.visible = false; return true; }
+    im.count = n;
+    im.visible = n > 0;
+    if (n === 0) return true;
+    im.instanceMatrix.needsUpdate = true;
+    // FRUSTUM CULLING MUST KEEP WORKING. three culls an InstancedMesh by
+    // object.boundingSphere, which it computes ONCE and never refreshes — a
+    // merged mesh with a stale sphere is either always drawn (costing more than
+    // the draws it replaced) or wrongly culled (discs pop out). The sphere is
+    // rebuilt here from the instances actually written; the mesh sits at the
+    // origin with an identity matrix, so world space IS its local space.
+    const bs = im.boundingSphere!;
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    bs.center.set(cx, 0.04, cz);
+    bs.radius = Math.hypot(maxX - cx, maxZ - cz) + 0.1;
+    return true;
+  }
+
+  private blobInstanced(): THREE.InstancedMesh {
+    if (this.blobIM) return this.blobIM;
+    const { geo, mat } = this.blobResources();
+    const im = new THREE.InstancedMesh(geo, mat, this.blobCap);
+    im.count = 0;
+    im.visible = false;
+    im.renderOrder = 1; // exactly the renderOrder every disc carried
+    im.castShadow = false;
+    im.receiveShadow = false;
+    im.userData.noAO = true;
+    im.userData.contactBlobBatch = true;
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.boundingSphere = new THREE.Sphere();
+    this.blobIM = im;
+    this.scene.add(im);
+    return im;
+  }
+
+  /** Grow past the starting capacity (a boss arena can field more bodies than
+   *  a corridor). The frame that overflows skips its batch rather than dropping
+   *  discs — one frame of the old per-mesh path is invisible, a missing contact
+   *  shadow is not. */
+  private growBlobCapacity(): void {
+    const old = this.blobIM;
+    this.blobCap *= 2;
+    if (old) {
+      this.scene.remove(old);
+      old.dispose(); // instance buffers only — geo/mat are the shared singletons
+      this.blobIM = null;
+    }
+    this.blobInstanced();
   }
 
   private makeGlow(color: number, size: number): THREE.Sprite {
@@ -2559,6 +2710,15 @@ export class Renderer3D {
     // The scene root is at the identity and never moves, so nothing is given up.
     this.scene.matrixAutoUpdate = false;
     this.scene.updateMatrix();
+
+    // Contact-shadow discs are re-drawn as one InstancedMesh (see blobPass).
+    // This hook is the only correct place for it: three fires
+    // scene.onBeforeRender AFTER scene.updateMatrixWorld() and BEFORE
+    // projectObject builds the render list, so the batch reads this frame's
+    // world matrices and nothing has to be traversed a second time. It fires
+    // exactly once per composed frame — the ~21 post passes render the
+    // composer's own quad scene, not this one.
+    this.scene.onBeforeRender = () => this.blobPass();
 
     this.scene.add(this.floorGroup);
     this.scene.add(this.fogBank.group);
