@@ -53,6 +53,16 @@ export interface TeachBeat {
   needsKey: boolean;
   /** Sentence two and later — the register. Never contains {key}. */
   wry?: string;
+  /**
+   * THE LESSON, NOT THE LINE (r2 minor). Two beats may teach the same thing
+   * from different triggers — `linger` and the sim's `collapse` tip are both
+   * "the stairs are the exit and the clock is real", and a cold pass measured
+   * them landing 21.3 seconds apart, the second one carrying no new
+   * information. A beat may declare the TOPIC it spends; the first delivery
+   * claims it and every other beat on that topic is declined, whatever
+   * surface it arrived from.
+   */
+  topic?: string;
 }
 
 /** Render a beat: instruction first (live label substituted), quip after. */
@@ -82,10 +92,37 @@ export type CoachEvent =
   | "elite"     // first named elite in reach — the affix lesson
   | "boss";     // first boss encounter — the telegraph lesson
 
-/** Lines that arrive uninvited. Floor 1 only, and never more than the budget. */
+/** Lines that arrive uninvited. Floor 1 only, and never more than the budget.
+ *
+ *  `pickup` LEFT THIS SET (r2 major: "gear, inventory/equip … never actually
+ *  taught in any observed session"). It is not an unsolicited lecture — it is
+ *  the answer to a thing the player just did, and gating the bag key behind
+ *  the floor-1 window AND the prompt budget meant three cold passes never
+ *  heard it: floor-1 loot mostly auto-equips, so the FIRST item that actually
+ *  lands in the bag is often deeper than floor 1, by which point the prompt
+ *  window had closed. An act is the trigger, so it is a confirmation. */
 const PROMPTS: ReadonlySet<CoachEvent> = new Set<CoachEvent>([
-  "start", "dashkit", "contact", "pickup", "lowhp", "linger",
+  "start", "dashkit", "contact", "lowhp", "linger",
 ]);
+
+/** The one exit lesson, however it is triggered (see TeachBeat.topic). */
+export const TOPIC_COLLAPSE = "collapse";
+
+/**
+ * THE CAST KEYS, AND ONLY THE CAST KEYS (r2 blocker). Slot 0 is the strike and
+ * the dash is an ability like any other — it lives in whichever slot the
+ * crawler benched it in, which on a fresh crawler is slot 2 (Shift). Any label
+ * built for "the abilities you cast" must exclude it: `dashkit` already owns
+ * that key, and naming it twice, for two different verbs, is a false fact
+ * about a core input. Pure so the rule is testable off the loadout alone.
+ */
+export function castSlotIndices(slots: readonly (string | null | undefined)[]): number[] {
+  const out: number[] = [];
+  for (let i = 1; i < slots.length; i++) {
+    if (slots[i] && slots[i] !== "dash") out.push(i);
+  }
+  return out;
+}
 
 /** The in-play beat table. {key} is the live control label the host passes —
  *  a bind on desktop ("WASD", "Q"), a chip or a place on the glass on touch
@@ -113,10 +150,19 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     instruction: "Hold {key} to keep swinging at whatever is in front of you.",
     wry: "That's the whole opening move. Everything else is commentary.",
   },
+  // THE CAST KEYS ARE THE KEYS THAT CAST (r2 BLOCKER). The host used to hand
+  // this line every filled slot's bind — and slot 2 is the DASH — so the strip
+  // printed "Press Shift, Q to cast the abilities you actually own" 21 seconds
+  // before printing "Press Shift to dash clear". The game stated a false fact
+  // about the second key a player ever presses, contradicting the hotbar, the
+  // objectives card and itself. The label now comes from `castSlotIndices`,
+  // which excludes the dash slot by construction (dashkit owns that key), and
+  // a crawler whose only non-strike slot is the dash gets NO ability line at
+  // all — the beat is declined rather than printed with a lie in it.
   ability: {
     verb: "Press", needsKey: true,
     instruction: "Press {key} to cast the abilities you actually own.",
-    wry: "The dark slots stay padlocked until the System issues them, so save your fingers.",
+    wry: "That is your spell key, not your dash; the dark slots stay padlocked until the System issues them.",
   },
   cast: {
     verb: "Watch", needsKey: false,
@@ -158,8 +204,12 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     instruction: "Kill something to refill that flask.",
     wry: "Charges come back from kills, not from patience, so the way out of a losing fight is through it.",
   },
+  // Shares TOPIC_COLLAPSE with the sim's `collapse` tip: whichever gets to the
+  // glass first teaches the exit, and the other is declined. Two near-identical
+  // stairs lectures 21s apart is a guide repeating himself, which is the one
+  // thing a wry voice cannot survive twice.
   linger: {
-    verb: "Find", needsKey: false,
+    verb: "Find", needsKey: false, topic: TOPIC_COLLAPSE,
     instruction: "Find the stairs down before the collapse clock finds you.",
     wry: "Nobody said this was a rescue.",
   },
@@ -187,7 +237,7 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
  */
 export const COACH_TIP_BEATS: Record<string, TeachBeat> = {
   collapse: {
-    verb: "Take", needsKey: false,
+    verb: "Take", needsKey: false, topic: TOPIC_COLLAPSE,
     instruction: "Take the stairs down before this floor's clock runs out.",
     wry: "Past zero the floor itself becomes the hazard, and it does not negotiate.",
   },
@@ -229,20 +279,29 @@ export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
     instruction: "Move out, draw blood, and put three kills on the board.",
     wry: "The dungeon grades on participation first.",
   },
+  // "THE FIVE" WAS JARGON THAT LISTED THREE THINGS (r2 minor). The step's card
+  // read "The Five 0/3" with nothing on screen having ever defined the phrase.
+  // The card is titled YOUR KIT now, and the arming line spends one clause on
+  // what the System means by five — four slots and an ultimate — so the two
+  // padlocks on the hotbar are an explanation instead of a riddle.
   "obj.five": {
     verb: "Work", needsKey: false,
     instruction: "Work through your kit once — strike, dash, and cast each sit on their own key.",
-    wry: "The other two slots stay padlocked until the System issues you something worth slotting. It enjoys the suspense.",
+    wry: "The System calls a full loadout The Five: four slots and an ultimate. You own three keys today; the padlocked two get issued when you have earned something to put in them.",
   },
   "obj.payday": {
     verb: "Loot", needsKey: false,
     instruction: "Loot some gear, claim a draft, and take the stairs down.",
     wry: "Depth pays. The surface never did.",
   },
+  // The step is the SAFE ROOM, so it ends in the safe room (r2 major: the
+  // third item used to be "take the stairs down", which cannot be done from
+  // inside the room the step is about — so the step could not close where it
+  // was taught, and the descent lesson was already obj.payday's).
   "obj.saferoom": {
     verb: "Open", needsKey: false,
-    instruction: "Open the shop, spend some gold, then take the stairs when you're done.",
-    wry: "Gold you spend is gear; gold you hoard is ballast.",
+    instruction: "Open the shop and turn some of that gold into gear.",
+    wry: "Nothing on the shelf inside your purse? Then read it anyway — knowing what a floor costs is the lesson either way.",
   },
   "obj.show": {
     verb: "Fight", needsKey: false,
@@ -256,7 +315,7 @@ export const OBJ_DONE_LINES: Record<ObjStepId, string> = {
   "obj.move": "Three down. That's the job, and the job doesn't change.",
   "obj.five": "That's the whole toolkit moving. Now it's reps.",
   "obj.payday": "Paid, drafted, and deeper. That's the shape of a career.",
-  "obj.saferoom": "Rested, spent, and moving. You might actually last.",
+  "obj.saferoom": "Shelf read, purse lighter, and still breathing. You might actually last.",
   "obj.show": "A favorite of your own. You stopped being content and started being a show.",
 };
 
@@ -293,7 +352,9 @@ const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
 
 /** The lecture budget. Confirmations do not count against it. Seven, not six:
  *  the dash prompt joined the floor-1 script (r1) and a budget that starved
- *  `linger` to pay for it would just be the old bug in a new place. */
+ *  `linger` to pay for it would just be the old bug in a new place. It is
+ *  deliberately slack now that `pickup` has left the prompt set (r2) — the
+ *  budget exists to stop a metronome, not to ration a five-line script. */
 export const COACH_MAX_PROMPTS = 7;
 
 export class Coach {
@@ -306,9 +367,23 @@ export class Coach {
   private offered = new Set<CoachEvent>();
   private prompts = 0;
   private lines = 0;
+  /** Topics already delivered, whatever surface carried them (TeachBeat.topic).
+   *  Never cleared by a death: the lesson landed, and re-teaching it is the
+   *  duplication this ledger exists to stop. */
+  private topics = new Set<string>();
 
   /** How many times the floor-1 script has been re-armed after a death. */
   private reteaches = 0;
+  /** The live control label the last offered line was rendered with — the host
+   *  reads it to draw that run of text as a KEY CAP rather than as a word in
+   *  the middle of a sentence (r2 minor: the strip's craft). "" when the beat
+   *  names no control. */
+  private key = "";
+
+  /** @see key */
+  get lastKey(): string {
+    return this.key;
+  }
 
   constructor(private c: CoachControls) {}
 
@@ -363,11 +438,25 @@ export class Coach {
     return n;
   }
 
+  /** Has this TOPIC already been taught, on any surface? (The tip-translation
+   *  seam asks before painting a curriculum tip — see TeachBeat.topic.) */
+  topicTaught(topic: string): boolean {
+    return this.topics.has(topic);
+  }
+
+  /** Claim a topic for a line that reached the glass from OUTSIDE this class
+   *  (the host's sim-tip path). Idempotent. */
+  teachTopic(topic: string): void {
+    this.topics.add(topic);
+  }
+
   /** THE PAINT: this line reached the player, so the event is spent for good. */
   commit(ev: CoachEvent): void {
     if (!this.offered.delete(ev)) return;
     this.fired.add(ev);
     this.lines++;
+    const topic = COACH_BEATS[ev].topic;
+    if (topic) this.topics.add(topic);
     if (PROMPTS.has(ev)) this.prompts++;
   }
 
@@ -391,11 +480,15 @@ export class Coach {
     if (prompt && floor !== 1) return null; // depth is where the game teaches itself
     if (prompt && this.promptsCommitted() >= COACH_MAX_PROMPTS) return null;
     if (this.fired.has(ev) || this.offered.has(ev)) return null;
+    // ONE LESSON, ONE DELIVERY: another beat already taught this topic.
+    const topic = COACH_BEATS[ev].topic;
+    if (topic && this.topics.has(topic)) return null;
     const src = KEY_SOURCE[ev];
     const key = src === "call" ? keys : src ? this.c[src] : "";
     // Never name a bind the player cannot use: no label, no line, no spend.
     if (COACH_BEATS[ev].needsKey && !key) return null;
     this.offered.add(ev);
+    this.key = COACH_BEATS[ev].needsKey ? key : "";
     return renderBeat(COACH_BEATS[ev], key);
   }
 }

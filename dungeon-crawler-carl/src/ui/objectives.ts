@@ -9,9 +9,18 @@
  * auto-dismisses; the card stays until the step's items are all done.
  *
  * The rules, held structurally:
- *  - STEPS ARE STRICTLY SEQUENTIAL. Only the current step's items can check;
- *    a later step's fact being true early does nothing until that step is
- *    current. Item order WITHIN a step is free.
+ *  - STEPS ARE SEQUENTIAL, EXCEPT WHERE THE WORLD OVERRULES THEM (r2 major).
+ *    Only the current step's items can check; a later step's fact being true
+ *    early does nothing until that step is current. Item order WITHIN a step
+ *    is free. BUT a step may declare itself CONTEXTUAL (`preempt`): while its
+ *    trigger fact is live, it becomes the current step wherever the spine has
+ *    got to, and the spine resumes untouched when the trigger goes away. The
+ *    measurement that forced this: a crawler standing in the first safe room
+ *    with the System Shop open, the objectives card in the corner reading
+ *    "Get Moving 2/3 — put down three monsters". A persistent always-on
+ *    surface telling the player to do something the world has moved past is
+ *    worse than no surface at all, and the SAFE ROOM lesson did not exist at
+ *    the one moment the player was standing in a safe room.
  *  - A STEP MUST BE TAUGHT BEFORE IT CAN BE SPENT (r1 blocker 1). Two gates,
  *    and both exist because THE FIVE was born completed: `update` ARMS a step
  *    and returns immediately (checked:[], completed:null), so the card and
@@ -27,9 +36,19 @@
  *    ledger (dcc:tips:v1, recordTips) on the completion edge. The player
  *    PERFORMED the step — but they can only have performed it against a card
  *    they were shown, which is what the dwell gate above buys.
- *  - MID-STEP PROGRESS IS PER-RUN. `resetRun` clears item latches and arm
- *    latches; a death mid-step re-runs the step's items, never the steps
- *    already completed.
+ *  - THE CURRICULUM IS A PLAYER-KNOWLEDGE LEDGER, NOT A RUN LEDGER (r2
+ *    BLOCKER). Item latches were per-run, so a death wiped them — and the
+ *    measured consequence was that two of three cold sessions NEVER REACHED
+ *    the step that teaches the kit: "put down three monsters" had to be done
+ *    IN ONE LIFE, and one pass watched the card cycle 0/3 → 1/3 → 2/3 → reset
+ *    twelve consecutive times. The entire downstream spine (abilities → loot
+ *    → shop → descent) sat behind a difficulty check the player failed most
+ *    of the time, and the only persistent progress indicator on screen became
+ *    a counter that visibly wiped every thirty seconds. `resetRun` now clears
+ *    ONLY the arm latches (a new run must re-find a safe room); everything
+ *    the player has already demonstrated stays demonstrated. Facts that count
+ *    (kills) are the host's to accumulate across lives — see main3d's
+ *    objSessionKills.
  *  - FLOOR TRANSITIONS CARRY A STEP FORWARD (objectives are the curriculum,
  *    not floor decoration) — there is deliberately no floor gate anywhere in
  *    this module. The one gate is S4's: it ARMS only once the crawler has
@@ -86,6 +105,13 @@ export interface ObjectiveStep {
   /** The step only arms (card shows, items check) once this fact has been
    *  true this run. S4: a safe room must exist before it can be a lesson. */
   armFact?: "inSafeRoom";
+  /** CONTEXTUAL: while `armFact` is live, this step PRE-EMPTS the spine — it
+   *  becomes the current step wherever the sequence had got to, and the spine
+   *  resumes (with its latches intact) the moment the trigger goes away. The
+   *  lesson has to exist at the moment the world provides it, or it doesn't
+   *  exist: a competent player descends fast and finishes the run before a
+   *  strictly-queued safe-room step would ever arm. */
+  preempt?: boolean;
 }
 
 /** The first-session curriculum, in teaching order. Every item is provable
@@ -110,11 +136,17 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
     ],
   },
   {
-    // THE FIVE, key by key — the three keys a fresh crawler actually owns
+    // YOUR KIT, key by key — the three keys a fresh crawler actually owns
     // (slot 4 and the ultimate are padlocked, and the card never names a
     // dead bind; the coach's `slotted`/`ult` beats teach those keys the
     // moment they become true).
-    id: "obj.five", title: "The Five",
+    //
+    // TITLED FOR A COLD PLAYER, NOT FOR THE LORE (r2 minor). "The Five 0/3" is
+    // a header that promises five things, lists three, and defines neither —
+    // the design intent (4 slots + an ultimate) is invisible at exactly the
+    // moment the kit is formally introduced. The phrase now lives in the
+    // arming line, where it gets a clause of explanation (OBJ_INTRO_BEATS).
+    id: "obj.five", title: "Your Kit",
     items: [
       { id: "strike", label: "Trade blows with {strike}" },
       { id: "dash", label: "Dash with {dash}" },
@@ -130,17 +162,24 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
     ],
   },
   {
-    id: "obj.saferoom", title: "The Safe Room", armFact: "inSafeRoom",
+    // CONTEXTUAL: it arms and pre-empts the moment the crawler is standing in
+    // a safe room, whatever the spine is doing — that is the only moment the
+    // lesson is true. Its items are both completable INSIDE the room: the old
+    // third item ("take the stairs down") could only be satisfied by leaving,
+    // it duplicated obj.payday's descend, and it was one of the two
+    // near-identical "find the stairs" lines the r2 pass counted.
+    id: "obj.saferoom", title: "The Safe Room",
+    armFact: "inSafeRoom", preempt: true,
     items: [
       { id: "shop", label: "Open the shop" },
       {
         // Priced out of the shelf? Then the lesson is READING the shelf, and
         // the card says so instead of asking for a purchase the economy has
-        // made impossible (r1: 24 gold against a 35-gold cheapest entry).
+        // made impossible (r1: 24 gold against a 35-gold cheapest entry;
+        // r2 measured it again at 16 gold against 35).
         id: "spend", label: "Spend some gold",
         alt: { id: "browse", label: "Look over the shelf", altFact: "brokeAtShop" },
       },
-      { id: "stairs", label: "Take the stairs down" },
     ],
   },
   {
@@ -217,6 +256,9 @@ export class Objectives {
   /** The last facts observed — the card reads them to choose an item's live
    *  wording (ObjectiveItem.alt). */
   private lastFacts: ObjectiveFacts = {};
+  /** The contextual step currently pre-empting the spine, if any. Recomputed
+   *  every `update` from the live facts (see ObjectiveStep.preempt). */
+  private preempting: ObjStepId | null = null;
 
   constructor(seen: Iterable<string> = []) {
     const known = new Set(seen);
@@ -228,8 +270,13 @@ export class Objectives {
     return OBJ_STEP_IDS.every((id) => this.doneSteps.has(id));
   }
 
-  /** The first not-yet-done step, in curriculum order. */
+  /** The step the card is showing: a contextual step whose trigger is live,
+   *  else the first not-yet-done step in curriculum order. */
   currentStep(): ObjectiveStep | null {
+    if (this.preempting) {
+      const ctx = OBJECTIVE_STEPS.find((s) => s.id === this.preempting);
+      if (ctx && !this.doneSteps.has(ctx.id)) return ctx;
+    }
     return OBJECTIVE_STEPS.find((s) => !this.doneSteps.has(s.id)) ?? null;
   }
 
@@ -268,6 +315,12 @@ export class Objectives {
    *  a fact that flickers back to false un-checks nothing. */
   update(facts: ObjectiveFacts): ObjectivesUpdate {
     this.lastFacts = facts;
+    // THE WORLD OVERRULES THE QUEUE. A contextual step takes the card for as
+    // long as its trigger is live; when it goes away the spine picks up
+    // exactly where it was, latches and dwell intact.
+    const ctx = OBJECTIVE_STEPS.find((s) =>
+      s.preempt && s.armFact && !this.doneSteps.has(s.id) && !!facts[s.armFact]);
+    this.preempting = ctx?.id ?? null;
     const step = this.currentStep();
     if (!step) return NOTHING;
     if (step.armFact && !this.armed.has(step.id)) {
@@ -302,11 +355,17 @@ export class Objectives {
     return { started: null, checked, completed };
   }
 
-  /** A new run is a new crawler: mid-step item progress and arm latches are
-   *  re-earned; completed steps and this session's intros are not. */
+  /**
+   * A new run is a new crawler in the dungeon, but the SAME PERSON at the
+   * keyboard (r2 blocker — see the header). Arm latches are re-earned, because
+   * "you are in a safe room" is a fact about the world and the new run has not
+   * found one yet. Item latches are NOT cleared: they record what the player
+   * has been taught, and erasing tuition on death is what made the curriculum
+   * unreachable for two of three cold sessions.
+   */
   resetRun(): void {
-    this.itemDone.clear();
     this.armed.clear();
+    this.preempting = null;
   }
 
   /** The global skip (B0 / GUIDE_SKIP_KEY): every step consumed. Returns the

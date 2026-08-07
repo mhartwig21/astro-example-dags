@@ -18,9 +18,11 @@
 import { describe, expect, it } from "vitest";
 import {
   COACH_BEATS, COACH_MAX_PROMPTS, COACH_TIP_BEATS, COACH_TIP_IDS, Coach,
-  OBJ_DONE_LINES, OBJ_INTRO_BEATS, coachTipLine, renderBeat,
+  OBJ_DONE_LINES, OBJ_INTRO_BEATS, TOPIC_COLLAPSE, castSlotIndices, coachTipLine,
+  renderBeat,
   type CoachEvent, type TeachBeat,
 } from "../src/ui/coach";
+import { DEFAULT_BINDINGS, keyLabel } from "../src/input/bindings";
 import { OBJ_STEP_IDS } from "../src/ui/objectives";
 
 const LIVE = { move: "WASD", attack: "Left click or Space", flask: "X", bag: "I" };
@@ -32,14 +34,17 @@ const TOUCH = {
 };
 const phone = (): Coach => new Coach({ ...TOUCH });
 
-/** Unsolicited lectures: floor 1, budgeted. */
-const PROMPTS: CoachEvent[] = ["start", "dashkit", "contact", "pickup", "lowhp", "linger"];
+/** Unsolicited lectures: floor 1, budgeted. `pickup` is NOT one: it left the
+ *  prompt set in r2 because the bag lesson is an answer to an act (loot the
+ *  sim declined to auto-wear), and the floor-1 window plus the budget meant
+ *  three cold sessions never heard it at all. */
+const PROMPTS: CoachEvent[] = ["start", "dashkit", "contact", "lowhp", "linger"];
 /** Earned by an act (or, for the depth pair, by the encounter existing):
  *  any floor, unbudgeted. `elite`/`boss` are the floor-2+ pacing beats —
  *  past floor 1 the prompts are silent and Mordecai only footnotes the FIRST
  *  of each new thing the depth introduces. */
 const CONFIRMS: CoachEvent[] = [
-  "ability", "cast", "slotted", "ult", "equipped", "autoequip", "drink",
+  "ability", "cast", "slotted", "ult", "pickup", "equipped", "autoequip", "drink",
   "elite", "boss",
 ];
 /** Those whose {key} is only true per-loadout, handed in at call time. */
@@ -193,7 +198,12 @@ describe("a death does not end the curriculum (r1 major)", () => {
     for (const ev of PROMPTS) { prompt(o, ev); o.commit(ev); }
     expect(PROMPTS.every((ev) => prompt(o, ev) === null)).toBe(true);
     expect(o.reteachPrompts()).toBe(true);
-    expect(PROMPTS.every((ev) => typeof prompt(o, ev) === "string")).toBe(true);
+    // ...every prompt except the ones whose LESSON is already delivered: a
+    // topic (r2) is a fact about the player, not about the run, so `linger`
+    // stays retired while the rest of the script comes back.
+    const reArmed = PROMPTS.filter((ev) => !COACH_BEATS[ev].topic);
+    expect(reArmed.every((ev) => typeof prompt(o, ev) === "string")).toBe(true);
+    expect(prompt(o, "linger")).toBeNull();
     expect(o.promptsSpent).toBe(0); // the budget comes back with the script
   });
 
@@ -329,5 +339,81 @@ describe("the teach-by-doing pairs (carried from the onramp)", () => {
     expect(auto).toMatch(/dressed itself/);
     // The two halves must not be the same paragraph twice.
     expect(auto).not.toMatch(/Compare the numbers/);
+  });
+});
+
+describe("SHIFT IS THE DASH, AND THE STRIP MAY NOT SAY OTHERWISE (r2 blocker)", () => {
+  // The measured defect: the `ability` beat printed "Press Shift, Q to cast the
+  // abilities you actually own" at T+42.1s and "Press Shift to dash clear" at
+  // T+63.4s — the same key taught as two different verbs, contradicting the
+  // hotbar (SHIFT->DASH), the objectives card, and itself. The host built that
+  // label by joining EVERY filled slot's bind; the rule is now a pure function.
+  const FRESH_SLOTS = ["strike", "dash", "bolt", null];
+
+  it("the cast-key list never contains the slot the dash sits in", () => {
+    const cast = castSlotIndices(FRESH_SLOTS);
+    expect(cast).not.toContain(1); // slot2 = the dash on a fresh crawler
+    expect(cast).toEqual([2]);
+    // ...and stated the way the bug was stated: the label handed to the
+    // `ability` beat must not be the slot2 bind while slot2 holds the dash.
+    const keyOf = (i: number): string =>
+      keyLabel(DEFAULT_BINDINGS[(["slot1", "slot2", "slot3", "slot4"] as const)[i]][0]);
+    const label = cast.map(keyOf).join(", ");
+    expect(label).toBe("Q");
+    expect(label).not.toContain(keyOf(1)); // "Shift"
+    const line = desktop().note("ability", 1, label)!;
+    expect(line).toContain("Q");
+    expect(line).not.toMatch(/shift/i);
+    // The dash lesson owns that key, and says the other verb.
+    expect(desktop().note("dashkit", 1, keyOf(1))).toMatch(/Shift/);
+  });
+
+  it("wherever the crawler benched the dash, it is the one slot excluded", () => {
+    expect(castSlotIndices(["strike", "bolt", "dash", "nova"])).toEqual([1, 3]);
+    // A crawler whose only other slot IS the dash gets NO ability line at all:
+    // an empty label is DECLINED, never printed with a lie in it.
+    expect(castSlotIndices(["strike", "dash", null, null])).toEqual([]);
+    expect(desktop().note("ability", 1, "")).toBeNull();
+  });
+});
+
+describe("one lesson, one delivery (r2 minor: the duplicated collapse beat)", () => {
+  it("the linger prompt and the collapse tip share a topic", () => {
+    expect(COACH_BEATS.linger.topic).toBe(TOPIC_COLLAPSE);
+    expect(COACH_TIP_BEATS.collapse.topic).toBe(TOPIC_COLLAPSE);
+  });
+
+  it("whichever paints first, the other is declined", () => {
+    // Measured: "Take the stairs down before this floor's clock runs out" at
+    // T+95.7s and "Find the stairs down before the collapse clock finds you"
+    // at T+117.0s — same instruction, same verb, no new information.
+    const o = desktop();
+    expect(o.note("linger", 1)).toBeTruthy();
+    o.commit("linger");
+    expect(o.topicTaught(TOPIC_COLLAPSE)).toBe(true);
+
+    const other = desktop();
+    other.teachTopic(TOPIC_COLLAPSE); // the sim tip got there first
+    expect(other.note("linger", 1)).toBeNull();
+    expect(other.spent).toBe(0); // declined, not spent
+  });
+
+  it("a topic survives the post-death re-teach (the lesson landed)", () => {
+    const o = desktop();
+    o.note("linger", 1);
+    o.commit("linger");
+    o.reteachPrompts();
+    expect(o.note("linger", 1)).toBeNull();
+    expect(o.note("start", 1)).toBeTruthy(); // ...but the rest of the script returns
+  });
+});
+
+describe("the key the line names is the key the card draws as a cap", () => {
+  it("lastKey reports the live label, and is empty for unkeyed beats", () => {
+    const o = desktop();
+    o.note("ability", 1, "Q");
+    expect(o.lastKey).toBe("Q");
+    o.note("cast", 1);
+    expect(o.lastKey).toBe("");
   });
 });

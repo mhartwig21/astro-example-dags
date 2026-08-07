@@ -529,8 +529,19 @@
          zones. */
       /* z 7: cards must out-stack the touch stick zone (z 4) and the touch-
          mode minimap (z 5) or taps land on movement instead of GOT IT. */
-      #tutorial { position: fixed; top: 100px; left: 12px; max-width: 34ch; pointer-events: none;
-        z-index: 7; }
+      /* ONE TEACHING COLUMN (tutorial r2 minor). The strip used to live
+         top-LEFT while the objectives card lived top-RIGHT — ~1300px apart,
+         with the live feed bottom-left and the System's toasts bottom-centre,
+         so a new player was reading instruction out of four corners at once.
+         Hades keeps instruction in ONE place at a time. The strip now stacks
+         directly under the objectives card on the same right-rail axis: the
+         ask and the explanation are one column, and --obj-h (published by
+         main3d's publishObjectivesHeight, because only the host can measure a
+         card whose item count changes per step) keeps them touching without
+         ever overlapping. */
+      #tutorial { position: fixed; top: calc(148px + var(--obj-h, 0px) + 8px);
+        right: 12px; left: auto; width: 238px; max-width: 34ch;
+        pointer-events: none; z-index: 7; }
       /* Touch mode parks the minimap in this corner — the iPad slides below
          it; the phone hasn't the height, so the transient card sits OVER the
          minimap instead (z 7 beats its z 5; one tap and it's gone). */
@@ -548,26 +559,67 @@
          And its dismiss carried an oxblood fill on the most benign action in
          the product — rule 2 says blood is HP and threat, nothing else. GOT IT
          is a stone secondary now, like every other acknowledge in the set. */
-      .tut { background: rgba(10,9,14,0.62); backdrop-filter: blur(3px);
-        border: 1px solid #b8945a; border-radius: 6px;
-        color: #e8e0cc; box-shadow: 0 6px 24px rgba(0,0,0,0.55); opacity: 0; transform: translateY(-8px);
+      /* ...AND IT HAS TO LOOK LIKE THE SAME MAN AS THE MODAL (r2 minor). Next
+         to #dialogue — painted portrait in a house plate frame, engraved
+         nameplate, kicker rule, key caps — a flat translucent rectangle with a
+         20px round avatar read as an unfinished placeholder for the same
+         character. The strip borrows the dialogue panel's actual material
+         tokens: the noise+gradient slab, the three-tone bronze keyline with the
+         lit top edge, the offset outline, and the portrait as a SQUARE framed
+         chip rather than a circular icon. It stays glass (the dungeon reads
+         through it, rule four) — this is the same body at a higher polish, not
+         an opaque panel parked on the floor. */
+      .tut { background: var(--noise), linear-gradient(180deg, rgba(38,29,19,0.82), rgba(13,10,6,0.86) 62%);
+        backdrop-filter: blur(3px);
+        border: 1px solid #8a6d3b; border-top-color: #e2b06a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.85); outline-offset: 1px; border-radius: 4px;
+        color: #e8e0cc;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 0 26px rgba(217,142,74,0.14),
+          0 10px 30px rgba(0,0,0,0.6);
+        opacity: 0; transform: translateY(-8px);
         transition: opacity 0.3s ease, transform 0.3s ease; pointer-events: auto; overflow: hidden; }
       .tut.show { opacity: 1; transform: translateY(0); }
       /* Mordecai's plaque: the ember tokens the #dialogue .guide frame already
          owns (#b8945a / #f5cf82) with his portrait as a chip — one face for
          one voice, strip and modal alike. The gold System ribbon is retired. */
-      .tut-head { background: rgba(217,142,74,0.14); border-bottom: 1px solid #b8945a;
-        padding: 5px 10px; font-size: var(--t-small); font-weight: 700;
-        font-family: var(--display); font-variant: small-caps; letter-spacing: 0.14em;
-        color: #f5cf82; display: flex; align-items: center; gap: 7px; }
-      .tut-face { width: 20px; height: 20px; border-radius: 50%; border: 1px solid #b8945a;
-        object-fit: cover; flex: 0 0 20px; background: #14100c; }
-      .tut-body { padding: 10px 12px; font-size: var(--t-body); line-height: 1.5; }
-      .tut-dismiss { display: block; width: 100%; margin-top: 8px; padding: 5px 0;
+      .tut-head { background: linear-gradient(180deg, rgba(217,142,74,0.2), rgba(217,142,74,0.06));
+        border-bottom: 1px solid rgba(168,133,79,0.5);
+        padding: 6px 10px; display: flex; align-items: center; gap: 8px; }
+      .tut-face { width: 30px; height: 30px; flex: 0 0 30px; border-radius: 3px;
+        object-fit: cover; background: #100c08;
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px; }
+      /* The nameplate: name in the display face, the role as a kicker under it
+         — the #dialogue .dlg-nameplate hierarchy, at strip scale. */
+      .tut-name { display: flex; flex-direction: column; line-height: 1.1;
+        font-family: var(--display); font-variant: small-caps; font-weight: 700;
+        font-size: var(--t-small); letter-spacing: 0.14em; color: #f5cf82;
+        text-shadow: 0 1px 2px #000; }
+      .tut-name small { font-size: 9.5px; letter-spacing: 0.24em; font-weight: 600;
+        color: var(--ink-faint); margin-top: 2px; }
+      .tut-body { padding: 10px 12px 9px; font-size: var(--t-body); line-height: 1.5; }
+      /* A CONTROL IS A CAP, NOT A WORD. The one thing the player has to press
+         is drawn the way the hotbar and the draft badge draw it, so it can be
+         found without reading the sentence. Shared with the objectives card
+         (.obj-key) — one key affordance across the teaching column. */
+      .tut-key, .obj-key { display: inline-block; font-family: var(--display);
+        font-size: 0.92em; font-weight: 700; letter-spacing: 0.06em; font-variant: normal;
+        color: #f5e6bf; background: linear-gradient(180deg, #3a2d1c, #17110a);
+        border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
+        border-radius: 3px; padding: 0 5px; margin: 0 1px;
+        box-shadow: inset 0 1px 0 rgba(242,222,180,0.18), 0 1px 2px rgba(0,0,0,0.6);
+        white-space: nowrap; }
+      /* GOT IT is an acknowledge, not a call to action: it shrinks to its own
+         words, sits at the end of the line like the dialogue panel's hint, and
+         carries the key that also does it. */
+      .tut-dismiss { display: block; width: fit-content; margin: 9px 0 0 auto; padding: 4px 12px;
         background: linear-gradient(180deg, var(--raised), #14100c);
         border: 1px solid var(--bronze); border-radius: var(--r-panel);
         color: var(--gold); font-family: var(--display); font-variant: small-caps;
         font-size: var(--t-small); font-weight: 700; letter-spacing: 0.14em; cursor: pointer; }
+      .tut-dismiss kbd { font-family: var(--display); font-variant: normal;
+        margin-left: 7px; padding: 0 4px; border-radius: 2px; font-size: 0.9em;
+        color: #f5e6bf; background: rgba(8,5,3,0.55); border: 1px solid rgba(168,133,79,0.6); }
       .tut-dismiss:hover { border-color: var(--bronze-hi); color: var(--gold-hi);
         background: linear-gradient(180deg, var(--hover), var(--raised)); }
       @media (pointer: coarse) {
@@ -1589,8 +1641,15 @@
       body[data-uiclass="phone"] #tutorial .tut-head { min-height: 44px;
         box-sizing: border-box; padding: 6px 10px 6px 116px;
         justify-content: flex-end; }
-      body[data-uiclass="compact"] #tutorial .tut-hx,
-      body[data-uiclass="phone"] #tutorial .tut-hx { display: none; }
+      /* The role kicker under the name is desktop-only: on a 44px thumb band
+         the plate is the name and the button, nothing else. (Was .tut-hx —
+         the inline " — GUIDE" suffix the nameplate replaced.) */
+      body[data-uiclass="compact"] #tutorial .tut-name small,
+      body[data-uiclass="phone"] #tutorial .tut-name small { display: none; }
+      body[data-uiclass="compact"] #tutorial .tut-face,
+      body[data-uiclass="phone"] #tutorial .tut-face { width: 22px; height: 22px; flex-basis: 22px; }
+      body[data-uiclass="compact"] #tutorial .tut-dismiss kbd,
+      body[data-uiclass="phone"] #tutorial .tut-dismiss kbd { display: none; }
       body[data-uiclass="compact"] #tutorial .tut-body,
       body[data-uiclass="phone"] #tutorial .tut-body { line-height: 1.35;
         padding: 8px 10px; }
@@ -3340,6 +3399,20 @@
         grid-template-columns: minmax(0, 1fr) minmax(292px, clamp(292px, 20vw, 360px));
         gap: var(--g-col); flex: 1; min-height: 0; overflow-y: auto;
         align-items: start; }
+      /* COLD BOOT: one door (see the #m-more comment in the markup). The
+         featured band, the mode grid, the test chamber and the whole boards
+         column stand down until a first crawl exists, and the grid collapses
+         to the single column that is left so nothing is centred around a
+         hole. Undone for the session by #m-more, and never set again once
+         the player has any history. */
+      body.coldboot #menu .m-cols { grid-template-columns: minmax(0, 1fr); }
+      body.coldboot #menu .m-side,
+      body.coldboot #menu #m-hero-row,
+      body.coldboot #menu .m-modes,
+      body.coldboot #menu #m-test,
+      body.coldboot #menu #m-test-form { display: none; }
+      #menu #m-more { display: none; }
+      body.coldboot #menu #m-more { display: block; }
       /* ---- THE MODE BOARD (r1 blocker) ----
          Was `repeat(auto-fit, minmax(190px,1fr))` with rows sized by copy: a
          ragged 3+2 with a 210x152 hole, row heights differing 130 vs 152 purely
@@ -5779,7 +5852,23 @@
          above the in-run panels' scrims (z 26 > #saferoom 24, #draft 25) and
          still loses to the screens that own the whole frame — #recap 27,
          #menu 28, #loading 29. */
-      body.modal #objectives { z-index: 26; }
+      /* ONE RULE, BOTH MODALS (tutorial r2 minor). The card was crisp and on
+         top of the safe-room shop (z 26 > #saferoom 24) and simultaneously
+         dimmed to illegibility behind the #dialogue backdrop — including at
+         its very FIRST paint, so the first time a player could read the run's
+         goals it was behind a blur. Two opposite z-behaviours for one
+         persistent surface teaches that the card is "the thing that hides
+         sometimes" rather than a dependable anchor. It is readable over both
+         now (body.dlg is set by the host beside dlgOpen), and it wears an
+         opaque plate while it is: the 1100px shop panel is 96vw at the sizes
+         where a gutter would have been the alternative, so there is no inset
+         that clears it on every viewport — the honest fix is to look
+         deliberate rather than to look like a bleed-through. */
+      body.modal #objectives, body.dlg #objectives { z-index: 26;
+        background: var(--noise), linear-gradient(180deg, rgba(30,23,15,0.97), rgba(11,9,6,0.98) 62%);
+        backdrop-filter: none;
+        border-color: #a8854f; outline: 1px solid rgba(8,5,3,0.9); outline-offset: 1px;
+        box-shadow: 0 0 24px rgba(217,142,74,0.16), 0 14px 40px rgba(0,0,0,0.75); }
       /* And the persistent HUD anchors RECEDE (r4 minor): the paused world's
          chrome dims to ~35% behind any modal scrim, so the panel owns the
          frame instead of fighting a full-brightness cockpit for attention. */
@@ -7594,6 +7683,18 @@
                 <button class="m-go" id="m-rivals" title="Share the code with your rivals. Rival kills pay XP. Survival is optional.">RACE<i class="go-arrow"></i></button>
               </div>
             </div>
+            <!-- FIRST BOOT HAS ONE DOOR (tutorial r2 minor). A brand-new
+                 profile used to meet DESCEND plus DAILY CRAWL, THE RUSH,
+                 PARTY CRAWL, RIVALS, ROAM, TEST CHAMBER, THE STANDINGS,
+                 CAREER and an empty leaderboard — nine competing affordances
+                 and an empty-state board a player has no context for, on the
+                 strongest visual moment in the product. Hades' first run has
+                 a single exit; D4's has a single Create Character. Everything
+                 except DESCEND is folded behind this link until one crawl is
+                 on the ledger (body.coldboot, set by main3d from the same
+                 fresh-crawler read the tutorial enrolls on). It is a fold,
+                 not a lock: one click and the full board is there. -->
+            <button class="m-testlink" id="m-more">MORE WAYS TO CRAWL — daily, rivals, party, the boards</button>
             <button class="m-testlink" id="m-test">TEST CHAMBER — practice floors, nothing is saved</button>
             <div class="m-form" id="m-test-form" style="display:none">
               <label>FLOOR <input id="m-t-floor" type="number" min="1" max="18" value="1" /></label>

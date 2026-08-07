@@ -199,17 +199,32 @@ describe("completion is fact-spent: a completed step never returns", () => {
   });
 });
 
-describe("mid-step progress is per-run; the curriculum is not", () => {
-  it("resetRun clears item latches on the step in flight", () => {
+describe("A DEATH DOES NOT ERASE TUITION (r2 blocker)", () => {
+  // The measured failure: item latches were per-run, so "put down three
+  // monsters" had to be done IN ONE LIFE. One cold pass watched the card cycle
+  // 0/3 -> 1/3 -> 2/3 -> reset twelve consecutive times and never reached the
+  // step that teaches the kit; two of three sessions never saw it at all. The
+  // curriculum is a player-knowledge ledger, not a run ledger.
+  it("resetRun KEEPS the item latches on the step in flight", () => {
     const o = new Objectives();
     o.update(NONE);
     o.update({ moved: true, blood: true });
     expect(o.view()?.done.size).toBe(2);
     o.resetRun();
-    expect(o.view()?.done.size).toBe(0);
-    // The items are re-earnable, and the step still completes.
+    expect(o.view()?.done.size).toBe(2); // the player still knows how to walk
+    // ...and one more fact, in the NEXT life, closes the step.
     dwell(o);
-    expect(o.update(S1_ALL).completed).toBe("obj.move");
+    expect(o.update({ kills3: true }).completed).toBe("obj.move");
+  });
+
+  it("the progress indicator never counts backwards across a death", () => {
+    const o = new Objectives();
+    o.update(NONE);
+    o.update({ moved: true });
+    for (let life = 0; life < 12; life++) {
+      o.resetRun();
+      expect(o.view()?.done.has("moved")).toBe(true);
+    }
   });
 });
 
@@ -219,7 +234,7 @@ describe("S4's safe-room gate: armed by standing in one, this run", () => {
   it("before a safe room, the step is hidden and its items are inert", () => {
     const o = atS4();
     // Shop/spend/stairs facts true early (e.g. stale host state) do NOTHING.
-    const res = o.update({ shop: true, spend: true, stairs: true });
+    const res = o.update({ shop: true, spend: true });
     expect(res).toEqual({ started: null, checked: [], completed: null });
     expect(o.view()?.armed).toBe(false);
   });
@@ -234,13 +249,12 @@ describe("S4's safe-room gate: armed by standing in one, this run", () => {
     expect(o.view()?.armed).toBe(true);
   });
 
-  it("once armed it stays armed for the run, even after leaving the room", () => {
+  it("both its items are completable INSIDE the room it is about", () => {
     const o = atS4();
     o.update({ inSafeRoom: true });
     dwell(o);
-    o.update({ inSafeRoom: true, shop: true, spend: true });
-    // The stairs are taken AFTER leaving the safe room — still counts.
-    const res = o.update({ inSafeRoom: false, stairs: true });
+    o.update({ inSafeRoom: true, shop: true });
+    const res = o.update({ inSafeRoom: true, shop: true, spend: true });
     expect(res.completed).toBe("obj.saferoom");
     // ...and the curriculum closes on THE SHOW, not here.
     expect(o.finished).toBe(false);
@@ -261,7 +275,7 @@ describe("S4's safe-room gate: armed by standing in one, this run", () => {
     const o = atS4();
     o.update({ inSafeRoom: true, shop: true });
     o.resetRun();
-    expect(o.update({ shop: true, spend: true, stairs: true }))
+    expect(o.update({ shop: true, spend: true }))
       .toEqual({ started: null, checked: [], completed: null });
     expect(o.view()?.armed).toBe(false);
   });
@@ -279,8 +293,8 @@ describe("an item the economy has priced out of reach falls back (r1)", () => {
     dwell(o);
     // 24 gold, cheapest shelf price 35: 'spend' can never be true, so the
     // host reports `browse` instead and the step is still completable.
-    const res = o.update({ inSafeRoom: true, shop: true, browse: true, stairs: true });
-    expect(new Set(res.checked)).toEqual(new Set(["shop", "spend", "stairs"]));
+    const res = o.update({ inSafeRoom: true, shop: true, browse: true });
+    expect(new Set(res.checked)).toEqual(new Set(["shop", "spend"]));
     expect(res.completed).toBe("obj.saferoom");
   });
 
@@ -319,5 +333,64 @@ describe("the skip consumes everything (a refusal is a delivery)", () => {
   it("a persisted skip (ledger) suppresses the card on later sessions too", () => {
     const o = new Objectives(new Objectives().skipAll());
     expect(o.finished).toBe(true);
+  });
+});
+
+describe("THE WORLD OVERRULES THE QUEUE: contextual steps pre-empt (r2 major)", () => {
+  // The picture that forced this: the crawler standing in the first safe room,
+  // System Shop open, and the card in the corner reading "Get Moving 2/3 — put
+  // down three monsters". The safe-room lesson did not exist at the one moment
+  // the player was standing in a safe room, and a fast descender finishes the
+  // run before a strictly-queued S4 ever arms.
+  it("standing in a safe room hands the card to THE SAFE ROOM, mid-spine", () => {
+    const o = new Objectives(); // nothing done: the spine is on obj.move
+    o.update(NONE);
+    expect(o.currentStep()?.id).toBe("obj.move");
+    const res = o.update({ inSafeRoom: true });
+    expect(res.started).toBe("obj.saferoom");
+    expect(o.currentStep()?.id).toBe("obj.saferoom");
+    expect(o.view()?.armed).toBe(true);
+  });
+
+  it("leaving the room hands it back, with both sides' progress intact", () => {
+    const o = new Objectives();
+    o.update(NONE);
+    o.update({ moved: true });
+    o.update({ inSafeRoom: true });          // pre-empt (arming call)
+    o.update({ inSafeRoom: true, shop: true }); // ...and the shop checks
+    expect(o.view()?.done.has("shop")).toBe(true);
+    const back = o.update({ blood: true });  // out of the room again
+    expect(o.currentStep()?.id).toBe("obj.move");
+    expect(back.checked).toEqual(["blood"]);
+    expect(o.view()?.done.has("moved")).toBe(true);
+    // ...and the next safe room resumes the safe-room step where it stopped.
+    o.update({ inSafeRoom: true });
+    expect(o.currentStep()?.id).toBe("obj.saferoom");
+    expect(o.view()?.done.has("shop")).toBe(true);
+  });
+
+  it("a completed contextual step does not pre-empt again", () => {
+    const o = new Objectives();
+    o.update({ inSafeRoom: true });
+    dwell(o);
+    o.update({ inSafeRoom: true, shop: true });
+    expect(o.update({ inSafeRoom: true, spend: true }).completed).toBe("obj.saferoom");
+    // Still standing in the room, and the card has gone back to the spine —
+    // which introduces itself here, having never been current before.
+    expect(o.update({ inSafeRoom: true }).started).toBe("obj.move");
+    expect(o.currentStep()?.id).toBe("obj.move");
+    expect(o.update({ inSafeRoom: true }).started).toBeNull();
+  });
+
+  it("its dwell clock is its own — the spine's card time is not borrowed", () => {
+    const o = new Objectives();
+    o.update(NONE);
+    o.addVisibleMs(60000);            // a long look at GET MOVING
+    o.update({ inSafeRoom: true });   // pre-empted; the clock follows the card
+    expect(o.visibleMs("obj.saferoom")).toBe(0);
+    o.update({ inSafeRoom: true, shop: true, spend: true });
+    expect(o.currentStep()?.id).toBe("obj.saferoom"); // not spendable yet
+    o.addVisibleMs(OBJ_MIN_VISIBLE_MS);
+    expect(o.update({ inSafeRoom: true }).completed).toBe("obj.saferoom");
   });
 });

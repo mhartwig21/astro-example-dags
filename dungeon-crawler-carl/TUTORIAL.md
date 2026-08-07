@@ -10,6 +10,133 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r6-fix-2 — the second critic round (branch `tutorial-mordecai`)
+
+A harsh critic scored the fixed build 5.5/10 off three cold browser passes
+(shots + flow logs in `tools/_shots/tutorial_r2/`). Every finding is fixed at
+the mechanism. The two sim-side asks stay open and are named at the bottom.
+
+**Blockers (severity 5).**
+
+1. **Shift was taught as a CAST key and then as the DASH, 21 seconds apart.**
+   The `ability` beat printed "Press Shift, Q to cast the abilities you
+   actually own" at T+42.1s and `dashkit` printed "Press Shift to dash clear"
+   at T+63.4s, while the hotbar and the objectives card both said SHIFT→DASH.
+   The host built that label by joining EVERY filled slot's bind, and slot 2 is
+   the dash. The rule is now a pure function — `castSlotIndices` in
+   `src/ui/coach.ts`, which excludes the dash slot by construction — and a
+   crawler whose only non-strike slot IS the dash gets no ability line at all
+   (empty label => DECLINED). `objItemLabel`'s `{cast}` token reads the same
+   function, so the card and the strip cannot drift. Tests: coach.test.ts
+   "SHIFT IS THE DASH, AND THE STRIP MAY NOT SAY OTHERWISE", asserting exactly
+   what the critic asked — the ability beat's key list never contains the
+   slot2 bind while slot2 holds a dash.
+2. **The tutorial could be failed forever.** THE FIVE sat behind "put down
+   three monsters IN ONE LIFE" and death reset the counter: pass B cycled
+   0/3 -> 1/3 -> 2/3 -> reset twelve consecutive times and was still on step
+   one after seven minutes; 2 of 3 cold sessions never reached the step that
+   teaches the kit, so the whole downstream spine was unreachable. Two changes,
+   both host-side: `Objectives.resetRun` no longer clears item latches (the
+   curriculum is a PLAYER-KNOWLEDGE ledger, not a run ledger — only arm
+   latches are re-earned), and the `kills3` fact counts SESSION kills
+   (`objKillsBanked` + the live run's) so a death banks tuition instead of
+   erasing it. This is also the fix for the separate finding that the card
+   "reads as erasure" after a losing session — the only persistent progress
+   indicator on screen can no longer count backwards.
+
+**Majors (severity 4).**
+
+3. **The card desynced from the world at exactly the moments it mattered.**
+   Standing in the first safe room with the shop open, the card read "Get
+   Moving 2/3". The spine was strictly sequential, so THE SAFE ROOM lesson did
+   not exist at the one moment the player was in a safe room, and a fast
+   descender finishes the run before it ever arms. Steps may now declare
+   themselves CONTEXTUAL (`ObjectiveStep.preempt`): while the trigger fact is
+   live the step takes the card wherever the spine had got to, and the spine
+   resumes with its latches and its dwell intact when the trigger goes away.
+   `obj.saferoom` is the first one. Its third item ("take the stairs down") is
+   gone: it could only be satisfied by LEAVING the room the step is about, it
+   duplicated obj.payday's `descend`, and it was one of the two near-identical
+   stairs lectures the pass counted. Tests: objectives.test.ts "THE WORLD
+   OVERRULES THE QUEUE".
+4. **The first shop was a locked door** — 16 gold against 21 tiles priced
+   35-180, every price red, no enabled buy control, no teaching card, and a
+   panel full of undefined vocabulary. The shelf-affordability half is a SIM
+   change and stays open (below). What shipped: the `browse` fallback is now
+   REACHABLE (it needed the step to arm, which is finding 3), and while THE
+   SAFE ROOM is the live ask the panel's own Mordecai row carries the lesson —
+   `shopLessonLine` names the cheapest entry and its price, or, when the shelf
+   really is out of reach, says so with the number and tells the player what to
+   do instead. It prints INSIDE the panel because that is where the player is
+   looking: `body.modal` hides the strip by design, so a card is the wrong
+   surface for a shop lesson.
+5. **Announcement flood and duplication at the descent.** Floor 2's arrival —
+   the biggest teaching beat after first blood — put three System subtitles on
+   the glass in one second with the SAME lines simultaneously in the live feed.
+   Two rules in `main3d`: `liveAnnouncements` records what is on a louder
+   surface right now (banner or toast, normalized text) and `pushLogLine`
+   declines to echo it — the archive `log` array is untouched, so nothing is
+   lost, only un-doubled; and during a floor transition (`FLOOR_QUIET_MS` after
+   the floor changes) the toast stack is collapsed to the newest line, so
+   arrival news reads as news instead of a wall.
+6. **The V bind for the draft was dead while the badge taught V.** `wasDown`
+   meant "in the held set", and one swallowed keyup (alt-tab, devtools, a modal
+   taking focus) latched a bind dead for the session. It now means `e.repeat` —
+   autorepeat is the only thing that guard ever needed to suppress, and a
+   physical press always produces a non-repeat keydown, so no lost event can
+   make a taught key do nothing. Plus `clearHeld()` on blur, on
+   `visibilitychange`, and on BOTH edges of `body.modal`.
+7. **Gear, equipping and the safe room were never taught in any observed
+   session.** `pickup` left the PROMPT set: it is an answer to an act, and the
+   floor-1 window plus the lecture budget meant the bag key was never named
+   (floor-1 loot mostly auto-equips, so the first item that actually lands in
+   the bag is usually deeper). It is a confirmation now — any floor,
+   unbudgeted. The safe room is covered by findings 3 and 4.
+
+**Minors (severity 2-3).**
+
+8. **Payday armed with an item already ticked.** Every diffed baseline
+   (inventory, equipment, gold spent, floor, favorites, and the draft latch) is
+   re-based on the step's own arming edge, so each item asks for an act
+   performed on THIS card's watch.
+9. **Teaching was scattered across four corners, and the strip looked like
+   debug UI beside the dialogue panel.** The strip moved to the right rail and
+   stacks directly under the objectives card (`--obj-h`, published by
+   `publishObjectivesHeight` — only the host can measure a card whose item
+   count changes per step), so instruction and checklist are ONE column. It
+   wears the dialogue panel's material tokens now: noise+gradient slab,
+   three-tone bronze keyline with the lit top edge, offset outline, a SQUARE
+   framed portrait chip, a nameplate with the role as a kicker, and key caps —
+   the control it names is drawn as a cap (`.tut-key`, shared with the card's
+   `.obj-key`), not as a word in the middle of a sentence.
+10. **Layering was inconsistent** — the card was crisp over the shop and
+    blurred to illegibility behind the dialogue backdrop, including at its
+    first paint. One rule for both now (`body.modal, body.dlg`): readable, at
+    z 26, on an opaque plate. It does not inset out of the shop panel's way
+    because the panel is `min(1100px, 96vw)` — at the widths where an inset
+    would be needed there is no gutter to inset into, so the honest fix is to
+    look deliberate rather than to look like a bleed-through.
+11. **"THE FIVE" was jargon that listed three items.** The card says YOUR KIT;
+    the phrase now lives in the arming line, with the clause that explains it
+    (four slots and an ultimate, three keys today, two padlocked).
+12. **Near-duplicate collapse lesson 21s apart.** Beats may declare a TOPIC;
+    the first delivery claims it and every other beat on that topic is declined
+    wherever it came from — `linger` and the sim's `collapse` tip share
+    `TOPIC_COLLAPSE`. Topics survive `reteachPrompts`: the lesson landed.
+13. **Cold boot offered seven modes before the player had crawled once.**
+    `body.coldboot` (set from the same fresh-crawler read the curriculum
+    enrolls on) folds the featured band, the mode grid, the test chamber and
+    the whole boards column behind one `MORE WAYS TO CRAWL` link, leaving
+    DESCEND as the door. A fold, not a lock, and never set once any history
+    exists.
+
+**Still open after this round** (both are `src/sim` changes and this was a UI
+round — see "open edges"): the guaranteed-affordable floor-1 shelf, and the
+floor-1 first-run mercy. And the critic is right that System pacing is
+UNMEASURED: the round-3 battery must sample `#headline` and `#toasts` with
+timestamps (the r2 probe read `#banner`, which is the menu bar) and re-shoot at
+1280x720 and a 3:2 laptop ratio.
+
 ## r6-fix-1 — the harsh critic's round (branch `tutorial-mordecai`)
 
 A critic scored the r6 build 4.5/10 off four cold browser passes. Every finding
@@ -526,6 +653,14 @@ in front of a first session and that this feature does not pretend to.**
   the recorded run setup carries or replays diverge. It needs its own round
   with `npx tsx scripts/simhash.ts --write` and a balance-test pass; doing it
   quietly inside a UI round would have been exactly the wrong trade.
+- **A GUARANTEED-AFFORDABLE FLOOR-1 SHELF** (r6-fix-2 item 4, NOT done). Two
+  cold rounds have now measured the same wall: 24 gold against a 35-gold
+  cheapest entry, then 16 against 35. The host can only narrate it
+  (`shopLessonLine`) and offer the `browse` fallback; making the first shelf
+  hold one thing a median floor-1 take can buy is a `src/sim` change (catalog
+  or floor-1 gold), which moves numbers, rotates `RULES_HASH` and needs
+  `npx tsx scripts/simhash.ts --write` plus a balance pass. Same round as the
+  first-run mercy below.
 - **Floor-2+ curriculum is still unobserved end to end.** No cold pass has
   reached floor 2, so `obj.saferoom`, `obj.show` and the `elite`/`boss` depth
   confirmations have never been seen by a critic. Drive `?test&floor=2`.
