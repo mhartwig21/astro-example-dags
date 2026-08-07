@@ -476,9 +476,12 @@
                                  FIRST-TIMER LOOKS FOR WHAT TO DO NEXT. One plate,
                                  three children, top to bottom: #coach-head (Mordecai's
                                  plaque — portrait + nameplate, shown only while the
-                                 curriculum is live), #objectives (the checkable step:
-                                 persistent, never auto-dismissed; compact/phone
-                                 collapses it to the one-line head chip) and #tutorial
+                                 curriculum is live), #objectives (the step head, THE
+                                 STANDING ASK — one sentence of prose for whatever is
+                                 being asked right now, rebuilt every frame and never
+                                 spent — and the checkable items: persistent, never
+                                 auto-dismissed; compact/phone drops the checkboxes and
+                                 keeps the ask) and #tutorial
                                  (MORDECAI'S STRIP: dismissible non-pausing teaching
                                  cards — coach lines, curriculum tip translations,
                                  objective step lines — one at a time). The checklist
@@ -684,6 +687,34 @@
       .obj-title { flex: 1 1 auto; min-width: 0; white-space: nowrap;
         overflow: hidden; text-overflow: ellipsis; }
       .obj-n { flex: 0 0 auto; color: #c9a24b; font-size: 11px; letter-spacing: 0.06em; }
+      /* THE STANDING ASK (tutorial r10, the root cause): the instruction for
+         the thing being asked RIGHT NOW, in prose, permanently. It sits
+         between the step head and its checkboxes because that is the reading
+         order — what am I doing, then what is left to tick. It is a
+         PROJECTION of the sequencer (rebuilt every frame, never dismissed,
+         never "spent"), so unlike the strip's cards it has no lifetime, no
+         queue and no way to go stale; and it rides the card, which is the one
+         teaching surface that survives a modal, so the panel a step points at
+         cannot hide the step's instruction. `.hot` is the escalated form —
+         the player has been on this item long enough that the ask has been
+         replaced by its concrete version, and the line says so quietly rather
+         than shouting: warmer ink, a lit left edge, no motion. */
+      .obj-ask { padding: 7px 9px 6px; font-size: 12.5px; line-height: 1.45;
+        color: #e2d7bd; border-bottom: 1px solid rgba(168,133,79,0.22); }
+      .obj-ask.hot { color: #f2e2bd; background: rgba(217,142,74,0.1);
+        box-shadow: inset 2px 0 0 #d98e4a; }
+      /* ESCALATION IS DELIVERED IN PLACE. The first build of r10 queued the
+         concrete form as a strip card as well, and the frame showed the same
+         sentence twice in one column sixty pixels apart — r8's "five surfaces
+         in four corners" walking back in. So the prose changes where the
+         player is already reading and the change announces itself: two slow
+         warm sweeps, no motion, no new box. */
+      @keyframes obj-ask-pulse {
+        0%, 100% { background: rgba(217,142,74,0.1); }
+        50% { background: rgba(217,142,74,0.28); }
+      }
+      .obj-ask.pulse { animation: obj-ask-pulse 1.3s ease-in-out 2; }
+      @media (prefers-reduced-motion: reduce) { .obj-ask.pulse { animation: none; } }
       .obj-items { list-style: none; margin: 0; padding: 6px 9px 8px; }
       .obj-items li { display: flex; align-items: center; gap: 7px; padding: 3px 0;
         font-size: 12.5px; line-height: 1.35; color: #cfc6b2;
@@ -705,6 +736,14 @@
         max-width: 44vw; }
       body[data-uiclass="compact"] #objectives .obj-items,
       body[data-uiclass="phone"] #objectives .obj-items { display: none; }
+      /* ...but NOT the standing ask: the checkboxes are a progress readout and
+         the ask is the instruction, and dropping the instruction is the exact
+         defect r10 fixed. It clamps instead — three lines of the only sentence
+         that says what to press, never a scrollbar. */
+      body[data-uiclass="compact"] #objectives .obj-ask,
+      body[data-uiclass="phone"] #objectives .obj-ask { font-size: 11.5px;
+        line-height: 1.35; display: -webkit-box; -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical; overflow: hidden; }
 
       /* System toasts: the System's running commentary (normal priority),
          anchored just above the action bar — where the player's eyes already

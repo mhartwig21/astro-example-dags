@@ -10,6 +10,93 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r10 — THE TEACHING CHANNEL BECOMES CONTINUOUS (the r9-owed root cause)
+
+The fifth critic round scored 6.5 and named one cause under every remaining
+stall — the thing r9 signed as owed, in its own words: **"the coach prose slot
+teaches the wrong thing, once, and never again."** Measured: 2 of 4 cold
+profiles learned the kit, 1 of 4 completed the curriculum, and half the cohort
+finished a 7.5-minute first session at level 1, floor 1, ~0 gold, still on step
+2 of 5. **Zero `src/sim` changes — `RULES_HASH` is untouched.** Measured on the
+glass by `tools/_tut_r10_ask.mjs` (one browser, port 5287, cold profile, 8/8
+green); frames in `tools/_shots/tut_r10/`.
+
+1. **THE PROSE SLOT WAS AN EVENT CHANNEL DOING AN INSTRUCTION'S JOB.** Every
+   teaching line in `src/ui/coach.ts` was an EVENT: something became true, a
+   line was offered, a card painted, the opportunity was spent forever. That is
+   the right shape for a confirmation and exactly the wrong shape for the
+   instruction a player is currently failing to follow. Three consequences, one
+   cause: a step's instruction was spent on ONE paint (dropped by the queue cap
+   — where its 60s moment made it the *preferred* eviction victim — or by a
+   modal, and it never came back); a player stuck on an item got silence, because
+   prompts are floor-1-only and budgeted, confirmations need an act the player
+   cannot perform, and the step intro had already fired; and what did paint was
+   the prose for the STEP, or for an event forty seconds gone.
+
+   **THE STANDING ASK** (`src/ui/coach.ts`: `OBJ_ASKS`, `StandingAsk`;
+   `Objectives.askKey()`; main3d's `currentAskKey`/`askTick`) is the second half
+   of the channel, and it is a PROJECTION, not a message — the same discipline
+   r8 gave the checklist. One sentence of prose for the current step's first
+   unchecked item, rebuilt from the sequencer every frame, rendered on the
+   persistent card (which survives a modal, so the panel a step points at cannot
+   hide the step). It is never spent, cannot go stale, and re-reads the world
+   every frame. Losing a card now costs a nudge instead of the lesson.
+   - **ESCALATION.** An ask that has stood for `ASK_STUCK_MS` (25s) of REAL
+     on-glass time — the same honest clock `OBJ_MIN_VISIBLE_MS` is paid in, so
+     nobody is escalated at over an instruction they were never shown — is
+     replaced by its CONCRETE form: the exact key, the exact place, the thing
+     they are probably doing wrong. Permanently, for that item. Any progress
+     moves the ask on and resets the clock.
+   - **IT IS DELIVERED IN PLACE.** The first build of this fix also queued the
+     concrete form as a strip card, and the frame showed what that is: the same
+     sentence twice in one column, sixty pixels apart — r8's finding 3 walking
+     back in through this round's door. The prose changes where the player is
+     already reading and pulses (`.obj-ask.pulse`, two warm sweeps, no motion,
+     no new box), re-asserted at most `ASK_MAX_CARDS` times. **Bounded
+     attention-drawing is politeness; bounded teaching was the bug.**
+   - Coverage is a test: every item the curriculum can stall on — including the
+     safe room's `browse` alt wording — must have an ask AND an escalation, and
+     no ask may exist that nothing can produce.
+2. **THE DRAFT PROMPT FAILED UNIVERSALLY** (severity 8): every cold profile
+   ended its first session holding unclaimed drafts, the best one holding two,
+   so the game's core progression verb was learned by nobody. The only things
+   ever saying so were a badge in the corner and one System notice at 45
+   seconds. Three fixes, all at the mechanism: **a banked draft PRE-EMPTS the
+   standing ask from anywhere** (it is claimable in any room, costs nothing, and
+   is strength already earned) on a faster clock (8s, not 25s); the checklist
+   item carries the bind (`Claim a draft with {draft}`) instead of naming an act
+   with no control attached; and the System's "NOTICE: you have unclaimed
+   evolutions" now fires only for crawlers who are NOT enrolled — ONE VOICE, and
+   a second teacher saying the same thing worse in the register the rebuild
+   retired from teaching is not a redundancy, it is the defect.
+3. **THE SHOW WAS SURFACED, NEVER TAUGHT** (severity 7 — "untaught vocabulary
+   was relocated rather than eliminated"). `#show` is on the glass from second
+   zero (a hype bar and three counts) and the curriculum's LAST step is titled
+   The Show and asks for "hype over 25" and "a favorite" — two words nothing had
+   ever said out loud, on a step most first sessions never reach. Taught, at a
+   carrier that cannot be missed: **`showbar` fires the instant the hype reading
+   first moves** (every crawler's first kill) and defines all three nouns. It
+   shares `TOPIC_SHOW` with the sim's `hype` tip — which needed a CRIT — so
+   whichever reaches the glass first teaches the premise and the other stands
+   down. The obj.show intro and both of its asks define the words they use.
+
+**Verified on the glass** (`_tut_r10_ask.mjs`, cold profile, every text read
+paired with a rect + computed-style read): the ask paints at 238x33 with its
+control as a key cap ("Hold **WASD** and get off this tile."); a player who does
+nothing for 25s is escalated in place to the concrete form (32 → 185 chars) with
+**no duplicate card under it**; checking an item hands the prose to the next one
+("Find something that moves and hit it with **Space**."); a staged banked draft
+pre-empts the step and names its key ("Press **V** to claim the draft you have
+banked.").
+
+**Still owed after this round**, and named honestly: monotonic first-session
+progress, stairs wayfinding under the collapse clock, mercy escalation/diagnosis
+on a stuck floor 1, and the verdict screen's nine choices. The standing ask is
+the channel those fixes will speak through; it is not a substitute for them.
+Nobody has yet watched a cold profile COMPLETE the curriculum with this in —
+that is the next battery's job, and it must measure completion, not arming
+(HANDOFF §0).
+
 ## r9 — THE SHELF SAID THE FALSE THING: the severity-5 pair (host + instrument)
 
 The fourth critic round scored 6.5 and left nine findings above severity 5 that
@@ -92,6 +179,8 @@ session on step 2. It is a rewrite of the slot's ownership rules, not a patch.
 Also owed: monotonic first-session progress, stairs wayfinding under the
 collapse clock, mercy escalation/diagnosis on a stuck floor 1, the draft-claim
 prompt, THE SHOW's untaught vocabulary, and the verdict screen's nine choices.
+**(The root cause, the draft prompt and THE SHOW's vocabulary all shipped in
+r10 above; the rest is still owed.)**
 
 One severity-3 item is NARROWED but not fixed, deliberately: "Mordecai's panel
 persists as an empty chrome box after graduation" (A_99_final.png). It is not

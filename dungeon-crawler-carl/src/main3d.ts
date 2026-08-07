@@ -68,8 +68,8 @@ import { RULES_HASH } from "./sim/rulesHash";
 import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
-  COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, castKeyIndex,
-  castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
+  ASK_DRAFT_KEY, COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS,
+  StandingAsk, castKeyIndex, castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
   type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
@@ -8266,6 +8266,10 @@ const COACH_MOMENT_MS: Record<CoachEvent, number> = {
   // Depth beats: a moment, not a rule — the elite/boss standing there IS the
   // illustration, and both lessons expire with the fight they footnote.
   elite: 15000, boss: 15000,
+  // THE SHOW's vocabulary: caused by the readout moving, but the three nouns
+  // it defines stay true for the rest of the crawler's life. Evergreen-ish,
+  // and generous, because it is the one line that explains the premise.
+  showbar: 45000,
 };
 
 function cardMomentMs(c: QueuedCard): number {
@@ -8966,6 +8970,14 @@ function coachObserve(intent: Intent): void {
     && Math.abs(m.pos.x - p.pos.x) <= 8 && Math.abs(m.pos.y - p.pos.y) <= 8)) say("elite");
   if (state.monsters.some((m) => m.hp > 0 && m.kind === "boss"
     && Math.abs(m.pos.x - p.pos.x) <= 12 && Math.abs(m.pos.y - p.pos.y) <= 12)) say("boss");
+
+  // THE SHOW, DEFINED THE MOMENT ITS READOUT MOVES (r10, severity 7). #show
+  // has been on the glass since second zero — a hype bar and three counts,
+  // none of them ever defined by anybody — and the curriculum's last step then
+  // asks for "hype over 25" and "a favorite". The sim's `hype` tip needed a
+  // CRIT and shares TOPIC_SHOW with this line, so whichever arrives first
+  // teaches the premise; hype leaving zero is the one that always arrives.
+  if (p.hype > 0) say("showbar");
 }
 
 // ---- THE OBJECTIVES CARD (HANDOFF §3a: "goes and does x, y, z") ----------
@@ -8995,6 +9007,7 @@ function objItemLabel(label: string): string {
   const castSlot = castKeyIndex(slots);
   const slotKey = (i: number): string =>
     coachKey(SLOT_ACTIONS[Math.max(0, Math.min(SLOT_ACTIONS.length - 1, i))]);
+  const ctl = coachControls();
   return label
     // ONE DEVICE (r1 minor): the same discipline the strip now holds — the
     // card names the input the player is demonstrably using, not both.
@@ -9005,6 +9018,14 @@ function objItemLabel(label: string): string {
     // which is also a crawler with no dash — slot 2 is honest there.)
     .replace(/\{cast\}/g, touchMode ? "a chip beside STRIKE"
       : slotKey(castSlot >= 1 ? castSlot : 2))
+    // The always-true controls, live off the SAME source the strip's beats read
+    // (coachControls), so a rebind moves every teaching surface at once and
+    // touch names chips where desktop names keys.
+    .replace(/\{move\}/g, ctl.move)
+    .replace(/\{flask\}/g, ctl.flask)
+    .replace(/\{bag\}/g, ctl.bag)
+    .replace(/\{draft\}/g, touchMode ? "the DRAFT badge" : coachKey("draft"))
+    .replace(/\{stairs\}/g, touchMode ? "the DESCEND chip" : coachKey("stairs"))
     .replace(/\{hypeline\}/g, String(CONFIG.interferenceHypeFloor));
 }
 
@@ -9125,15 +9146,27 @@ function renderObjectivesCard(): void {
   // ONE COLUMN (r3, finding 3): the plaque, the checklist and the strip are one
   // plate while the curriculum is live — `body.coaching` is what glues them.
   document.body.classList.toggle("coaching", !!objectives && !objectives.finished);
+  // THE PROSE SLOT IS A PROJECTION NOW (r10 root cause). The instruction for
+  // the thing being asked RIGHT NOW is rebuilt from the sequencer every frame
+  // and lives on the persistent card, which survives a modal — so it can never
+  // be "spent" by a queue drop, never go stale behind a change of step, and
+  // never leave a stuck player with nothing but four-word checkboxes. The
+  // strip's cards are the alert channel; this is the reference channel.
+  const askLine = standingAsk.line();
+  const cls = (standingAsk.escalated ? " hot" : "")
+    + (performance.now() < askPulseUntil ? " pulse" : "");
+  const askHtml = !objectives || !askLine ? "" :
+    `<div class="obj-ask${cls}">${objItemHtml(askLine)}</div>`;
   // ONE PORTRAIT PER COLUMN: the plaque above owns Mordecai's face, so the
   // step's head is just the step — its title and its count. (Not hidden in
   // CSS: an element that exists is an element a probe will count, and the
   // finding was about how many faces are on the glass.)
-  const html = !objectives || !v ? "" :
+  const html = !objectives ? "" : !v ? askHtml :
     `<div class="obj-head">` +
     `<span class="obj-title">${esc(v.step.title)}</span>` +
     `<span class="obj-n">${v.step.items.filter((it) => v.done.has(it.id)).length}` +
     `/${v.step.items.length}</span></div>` +
+    askHtml +
     `<ul class="obj-items">` +
     v.step.items.map((it) => {
       // An ask the game cannot honour is worse than no ask: the item wears its
@@ -9165,11 +9198,64 @@ function objectivesPaintTick(now: number): void {
   if (!objectives || objectives.finished) return;
   // ON THE GLASS means on the glass, in a live dungeon: the check-in menu
   // hides the card (CSS), and a verdict screen is not reading time either.
-  if (state.status !== "playing") return;
-  if (document.body.classList.contains("checkin")) return;
+  const live = state.status === "playing" && !document.body.classList.contains("checkin");
+  // THE STANDING ASK runs on the same honest clock as the dwell gate — a
+  // player may only be escalated at over an instruction that was actually in
+  // front of them. It is fed BEFORE the early returns below because the ask
+  // outlives the checklist: a banked draft is an ask in a room with no step.
+  askTick(live && objectivesEl.style.display !== "none" ? dtMs : 0);
+  if (!live) return;
   if (!objectives.view()) return;
   if (objectivesEl.style.display === "none") return;
   objectives.addVisibleMs(dtMs);
+}
+
+/**
+ * THE STANDING ASK (src/ui/coach.ts) — the host half of the r10 root-cause fix.
+ * The sequencer names the item, the world names the pre-empt, and the pure
+ * state machine decides when the ask has stood un-actioned long enough to be
+ * replaced by its concrete form.
+ */
+const standingAsk = new StandingAsk();
+
+/**
+ * WHAT THE PLAYER IS BEING ASKED TO DO RIGHT NOW.
+ *
+ * Normally the current step's first unchecked item — but a BANKED DRAFT
+ * pre-empts it from anywhere (r10, severity 8). Every cold profile ended its
+ * first session holding unclaimed drafts, the best one holding two: the game's
+ * core progression verb was learned by nobody, and the reason is that the only
+ * things ever saying so were a badge in the corner and one System notice at 45
+ * seconds. A draft is claimable from any room, costs nothing, and is pure
+ * strength the player already earned, so it outranks whatever the spine wanted.
+ */
+function currentAskKey(): string {
+  if (!objectives || objectives.finished || guide?.skipped) return "";
+  if (state.status !== "playing") return "";
+  const p = me(state);
+  if (p && !draftPanelOpen()
+    && (p.pendingUpgrades.length > 0 || p.pendingRewards.length > 0)) return ASK_DRAFT_KEY;
+  return objectives.askKey() ?? "";
+}
+
+/**
+ * THE ESCALATION IS DELIVERED IN PLACE, NOT AS A SECOND SURFACE.
+ *
+ * The first build of this fix queued the concrete form as a strip card too,
+ * and the frame showed exactly what that is: the identical sentence twice in
+ * one column, sixty pixels apart. That is r8's finding 3 ("teaching was five
+ * surfaces in four corners") walking back in through the door this round
+ * opened. The plate already IS the teaching surface — it survives modals, it
+ * is never dismissed, and it is where the column tells a first-timer to look —
+ * so escalation swaps the prose there and PULSES it. One place, one sentence,
+ * and the change is visible in the place the player was already reading.
+ */
+const ASK_PULSE_MS = 2600;
+let askPulseUntil = 0;
+function askTick(dtMs: number): void {
+  const edge = standingAsk.observe(currentAskKey(), dtMs);
+  if (!edge) return;
+  askPulseUntil = performance.now() + ASK_PULSE_MS;
 }
 
 /**
@@ -13115,7 +13201,14 @@ async function main(): Promise<void> {
       draftBadge.style.display = "flex";
       draftBadge.innerHTML = `<i class="dia"></i> DRAFT ×${banked} <kbd>${esc(bindingLabel(bindings, "draft"))}</kbd>`;
       draftIdleSec += dt;
-      if (draftIdleSec > 45 && !draftNagged) {
+      // ONE VOICE, AND THE CURRICULUM'S DRAFT LESSON IS MORDECAI'S (r10,
+      // severity 8). A crawler still in the curriculum has THE STANDING ASK
+      // holding "Press V to claim the draft you have banked" on the persistent
+      // card from eight seconds in, escalating to the concrete form — so the
+      // System's one 45-second notice would be a second teacher saying the
+      // same thing worse, in the register the rebuild retired from teaching.
+      // Veterans keep the notice: they are not enrolled in anything.
+      if (draftIdleSec > 45 && !draftNagged && (!objectives || objectives.finished)) {
         draftNagged = true; // once per run: banked power is still YOUR power to claim
         showAnnouncement({ text: "NOTICE: you have unclaimed evolutions. They do not accrue interest.", kind: "progress", priority: "normal" });
       }

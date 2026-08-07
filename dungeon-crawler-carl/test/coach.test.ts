@@ -17,13 +17,15 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  ASK_DRAFT_KEY, ASK_MAX_CARDS, ASK_REPEAT_MS, ASK_STUCK_MS,
   COACH_BEATS, COACH_MAX_PROMPTS, COACH_SHOP_BEATS, COACH_TIP_BEATS, COACH_TIP_IDS,
-  Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS, TOPIC_BAG, TOPIC_COLLAPSE, castKeyIndex,
+  Coach, OBJ_ASKS, OBJ_DONE_LINES, OBJ_INTRO_BEATS, StandingAsk,
+  TOPIC_BAG, TOPIC_COLLAPSE, TOPIC_SHOW, castKeyIndex,
   castSlotIndices, coachTipLine, renderBeat, shopBeatLine,
   type CoachEvent, type TeachBeat,
 } from "../src/ui/coach";
 import { DEFAULT_BINDINGS, keyLabel } from "../src/input/bindings";
-import { OBJ_STEP_IDS } from "../src/ui/objectives";
+import { OBJECTIVE_STEPS, OBJ_LABEL_TOKENS, OBJ_STEP_IDS } from "../src/ui/objectives";
 
 const LIVE = { move: "WASD", attack: "Left click or Space", flask: "X", bag: "I" };
 const desktop = (): Coach => new Coach({ ...LIVE });
@@ -46,6 +48,8 @@ const PROMPTS: CoachEvent[] = ["start", "dashkit", "contact", "lowhp", "linger"]
 const CONFIRMS: CoachEvent[] = [
   "ability", "cast", "slotted", "ult", "pickup", "equipped", "autoequip", "drink",
   "elite", "boss",
+  // THE SHOW's three nouns, fired by its readout first moving (r10, sev 7).
+  "showbar",
 ];
 /** Those whose {key} is only true per-loadout, handed in at call time. */
 const KEYED: CoachEvent[] = ["dashkit", "ability", "slotted", "ult"];
@@ -499,6 +503,178 @@ describe("one lesson, one delivery (r2 minor: the duplicated collapse beat)", ()
     o.reteachPrompts();
     expect(o.note("linger", 1)).toBeNull();
     expect(o.note("start", 1)).toBeTruthy(); // ...but the rest of the script returns
+  });
+});
+
+/**
+ * THE STANDING ASK (r10 — "the coach prose slot teaches the wrong thing, once,
+ * and never again"). The cohort finding this fixes: half of four cold profiles
+ * finished a 7.5-minute first session at level 1, floor 1, still on step 2 of
+ * 5, with the teaching channel silent — every line the module owned was an
+ * EVENT, spent on one paint, and nothing in the system could say a second,
+ * more concrete thing to a player who was visibly stuck.
+ */
+describe("THE TEACHING CHANNEL IS CONTINUOUS (r10 root cause)", () => {
+  /** Every ask the sequencer can produce, plus the pre-empt. */
+  const ASK_KEYS: string[] = [
+    ...OBJECTIVE_STEPS.flatMap((s) => s.items.flatMap((it) =>
+      [`${s.id}/${it.id}`, ...(it.alt ? [`${s.id}/${it.alt.id}`] : [])])),
+    ASK_DRAFT_KEY,
+  ];
+
+  it("EVERY item the curriculum can stall on has an ask and an escalation", () => {
+    // A checklist item with no prose behind it is an item a player can stall
+    // on in silence — which is the whole defect, item by item.
+    for (const key of ASK_KEYS) {
+      expect(OBJ_ASKS[key], `no ask for ${key}`).toBeTruthy();
+      expect(OBJ_ASKS[key].stuck, `${key} escalation`).toBeTruthy();
+      // ...and the escalation must be MORE than the ask, not a rewording.
+      expect(OBJ_ASKS[key].stuck.length, key)
+        .toBeGreaterThan(OBJ_ASKS[key].ask.length);
+    }
+    // No ask exists that nothing can produce — a dead entry is a lie about
+    // coverage, and this table's whole job is coverage.
+    for (const key of Object.keys(OBJ_ASKS)) expect(ASK_KEYS, key).toContain(key);
+  });
+
+  it("asks obey the binding rule: one imperative sentence, tokens the host knows", () => {
+    const known = new Set<string>(OBJ_LABEL_TOKENS);
+    for (const [key, b] of Object.entries(OBJ_ASKS)) {
+      for (const [which, line] of [["ask", b.ask], ["stuck", b.stuck]] as const) {
+        expect(line, `${key}.${which}`).toMatch(/^[^.!?]+\.$/);
+        for (const m of line.matchAll(/\{([^}]+)\}/g)) {
+          expect(known.has(m[1]), `${key}.${which} token {${m[1]}}`).toBe(true);
+        }
+      }
+      // The register lives in the tail, and a control may never hide there:
+      // the plate carries the instruction ALONE, so a key smuggled into the
+      // quip is a key the permanent surface never shows.
+      expect(b.wry, `${key}.wry`).not.toMatch(/\{[a-z]+\}/);
+      expect(b.wry, `${key}.wry`).not.toMatch(/!/);
+    }
+  });
+
+  it("the plate's line is NEVER spent — a hundred frames later it is still there", () => {
+    const a = new StandingAsk();
+    a.observe("obj.five/dash", 0);
+    const first = a.line();
+    expect(first).toContain("{dash}");
+    for (let i = 0; i < 100; i++) a.observe("obj.five/dash", 16);
+    expect(a.line()).toBeTruthy();
+    expect(a.current).toBe("obj.five/dash");
+  });
+
+  it("a stuck player is ESCALATED to the concrete form, not left in silence", () => {
+    const a = new StandingAsk();
+    a.observe("obj.five/dash", 0);
+    expect(a.observe("obj.five/dash", ASK_STUCK_MS - 1)).toBeNull();
+    expect(a.escalated).toBe(false);
+    expect(a.line()).toBe(OBJ_ASKS["obj.five/dash"].ask); // instruction alone
+
+    const edge = a.observe("obj.five/dash", 2)!;
+    expect(edge.text).toContain(OBJ_ASKS["obj.five/dash"].stuck);
+    // ...and the PLATE keeps the concrete form from then on. The escalation is
+    // delivered IN PLACE — no second surface, no card to lose (r8 finding 3) —
+    // so the only thing that could un-teach it is the player moving on.
+    expect(a.escalated).toBe(true);
+    expect(a.line()).toContain(OBJ_ASKS["obj.five/dash"].stuck);
+    expect(a.line()).toContain(OBJ_ASKS["obj.five/dash"].wry);
+  });
+
+  it("time the card was not on the glass does not count as being stuck", () => {
+    // The same honest clock the step-dwell gate is paid in: a player cannot be
+    // escalated at over an instruction they were never shown.
+    const a = new StandingAsk();
+    a.observe("obj.move/moved", 0);
+    for (let i = 0; i < 500; i++) expect(a.observe("obj.move/moved", 0)).toBeNull();
+    expect(a.escalated).toBe(false);
+  });
+
+  it("progress resets the escalation — the next item starts clean", () => {
+    const a = new StandingAsk();
+    a.observe("obj.move/moved", 0);
+    a.observe("obj.move/moved", ASK_STUCK_MS);
+    expect(a.escalated).toBe(true);
+    a.observe("obj.move/blood", 16); // the item checked; the ask moved on
+    expect(a.escalated).toBe(false);
+    expect(a.line()).toBe(OBJ_ASKS["obj.move/blood"].ask); // and back to instruction alone
+  });
+
+  it("re-asserting is bounded; the standing instruction is not", () => {
+    const a = new StandingAsk();
+    a.observe("obj.move/kills3", 0);
+    let edges = 0;
+    for (let i = 0; i < 400; i++) if (a.observe("obj.move/kills3", 1000)) edges++;
+    expect(edges).toBe(ASK_MAX_CARDS);
+    // Bounded ATTENTION-DRAWING is politeness. Bounded teaching is the bug:
+    // after the last pulse the concrete instruction is still on the glass.
+    expect(a.line()).toContain(OBJ_ASKS["obj.move/kills3"].stuck);
+    expect(ASK_REPEAT_MS).toBeGreaterThan(ASK_STUCK_MS / 2);
+  });
+
+  it("an ask the host has no key for shows nothing rather than something wrong", () => {
+    const a = new StandingAsk();
+    a.observe("", 16);
+    expect(a.line()).toBe("");
+    expect(a.observe("", 100000)).toBeNull();
+  });
+});
+
+/**
+ * THE DRAFT IS THE GAME'S CORE PROGRESSION VERB AND NOBODY LEARNED IT (r10,
+ * severity 8): four cold profiles ended their first session holding unclaimed
+ * drafts, the best of them holding two.
+ */
+describe("claiming a draft is impossible to miss", () => {
+  it("the draft ask names the claim key and escalates FASTER than a step ask", () => {
+    const beat = OBJ_ASKS[ASK_DRAFT_KEY];
+    expect(beat.ask).toContain("{draft}");
+    expect(beat.stuck).toContain("{draft}");
+    expect(beat.after).toBeLessThan(ASK_STUCK_MS);
+    const a = new StandingAsk();
+    a.observe(ASK_DRAFT_KEY, 0);
+    expect(a.observe(ASK_DRAFT_KEY, beat.after!)).toBeTruthy();
+  });
+
+  it("the curriculum's own checklist item carries the bind too", () => {
+    const payday = OBJECTIVE_STEPS.find((s) => s.id === "obj.payday")!;
+    const draft = payday.items.find((it) => it.id === "draft")!;
+    expect(draft.label).toContain("{draft}");
+  });
+
+  it("...and Mordecai says what the System used to: claim, and what it is for", () => {
+    expect(COACH_TIP_BEATS.draftBanked.instruction).toMatch(/claim/i);
+    expect(OBJ_ASKS[ASK_DRAFT_KEY].stuck).toMatch(/level/i);
+  });
+});
+
+/**
+ * THE SHOW WAS UNTAUGHT VOCABULARY ON THE GLASS FROM SECOND ZERO (r10,
+ * severity 7): a hype bar and three counts nobody defined, and a final
+ * curriculum step titled "The Show" asking for two of the undefined words.
+ */
+describe("THE SHOW is taught, not merely surfaced", () => {
+  it("the readout's first movement defines all three nouns", () => {
+    const line = renderBeat(COACH_BEATS.showbar);
+    expect(line).toMatch(/hype/i);
+    expect(line).toMatch(/viewers/i);
+    expect(line).toMatch(/favorites/i);
+  });
+
+  it("the crit tip and the readout beat are ONE lesson, delivered once", () => {
+    expect(COACH_BEATS.showbar.topic).toBe(TOPIC_SHOW);
+    expect(COACH_TIP_BEATS.hype.topic).toBe(TOPIC_SHOW);
+    const o = desktop();
+    o.teachTopic(TOPIC_SHOW); // the crit got there first
+    expect(o.note("showbar", 1)).toBeNull();
+    expect(o.spent).toBe(0);
+  });
+
+  it("the hype tip defines the word it uses, and so does the closing step", () => {
+    expect(coachTipLine("hype")).toMatch(/crowd|attention/i);
+    const show = renderBeat(OBJ_INTRO_BEATS["obj.show"]);
+    expect(show).toMatch(/favorite/i);
+    expect(show).toMatch(/attention|crowd/i);
   });
 });
 

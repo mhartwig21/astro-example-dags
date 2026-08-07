@@ -62,6 +62,44 @@ describe("the curriculum shape", () => {
   });
 });
 
+/**
+ * THE ASK IS WHAT THE PLAYER IS BEING ASKED TO DO RIGHT NOW (r10 root cause).
+ * The sequencer names it; the coach's OBJ_ASKS table has the prose; the host
+ * keeps that prose permanently on the persistent card. The rule this holds is
+ * that the ask FOLLOWS THE WORLD — first unchecked item, honest wording, and
+ * nothing at all where the place has no step.
+ */
+describe("askKey(): the one thing being asked, right now", () => {
+  it("is the current step's first UNCHECKED item, and moves as they check", () => {
+    const o = new Objectives();
+    o.update(NONE);
+    expect(o.askKey()).toBe("obj.move/moved");
+    o.update({ moved: true });
+    expect(o.askKey()).toBe("obj.move/blood");
+    o.update({ moved: true, blood: true });
+    expect(o.askKey()).toBe("obj.move/kills3");
+  });
+
+  it("wears the ALT wording whenever the alt wording is the honest one", () => {
+    // The shelf is out of reach, so the ask is READING the shelf — and the
+    // prose the player is looking at has to be the prose for that, not for a
+    // purchase the economy has priced out of existence.
+    const o = new Objectives();
+    o.update({ inSafeRoom: true });
+    o.update({ inSafeRoom: true, shop: true, brokeAtShop: true });
+    expect(o.askKey()).toBe("obj.saferoom/browse");
+    o.update({ inSafeRoom: true, brokeAtShop: false });
+    expect(o.askKey()).toBe("obj.saferoom/spend");
+  });
+
+  it("is NULL where the place has no ask — a stood-down card says nothing", () => {
+    const o = new Objectives(["obj.move", "obj.five", "obj.payday", "obj.saferoom"]);
+    o.update({ inSafeRoom: true });
+    expect(o.view()).toBeNull();
+    expect(o.askKey()).toBeNull();
+  });
+});
+
 describe("A STEP MUST PAINT BEFORE IT CAN COMPLETE (r1 blocker 1)", () => {
   it("update() with every fact already true arms and completes NOTHING on the first call", () => {
     // The exact THE FIVE failure: strike/dash/cast are run-cumulative facts,
@@ -421,6 +459,15 @@ describe("STEPS TRACK WHERE THE PLAYER IS (r3 major)", () => {
     // ...and the spine picks up, and introduces itself, out in the dungeon.
     expect(o.update(NONE).started).toBe("obj.move");
     expect(o.currentStep()?.id).toBe("obj.move");
+  });
+
+  it("...and the ASK stands down with it, so no prose outlives its place", () => {
+    const o = new Objectives();
+    o.update({ inSafeRoom: true });
+    dwell(o);
+    o.update({ inSafeRoom: true, shop: true });
+    o.update({ inSafeRoom: true, spend: true });
+    expect(o.askKey()).toBeNull();
   });
 
   it("its dwell clock is its own — the spine's card time is not borrowed", () => {

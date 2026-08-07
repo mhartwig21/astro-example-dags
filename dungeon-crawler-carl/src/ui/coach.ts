@@ -90,7 +90,8 @@ export type CoachEvent =
   // ---- depth confirmations (floor-2+ pacing: the floors teach past floor 1;
   //      Mordecai footnotes the FIRST of each new thing the depth introduces) ----
   | "elite"     // first named elite in reach — the affix lesson
-  | "boss";     // first boss encounter — the telegraph lesson
+  | "boss"      // first boss encounter — the telegraph lesson
+  | "showbar";  // the hype reading first moves — THE SHOW's three nouns, defined
 
 /** Lines that arrive uninvited. Floor 1 only, and never more than the budget.
  *
@@ -119,6 +120,25 @@ export const TOPIC_COLLAPSE = "collapse";
  * it exactly once whichever way the dungeon gets there first.
  */
 export const TOPIC_BAG = "bag";
+
+/**
+ * THE SHOW IS THREE NOUNS AND A READOUT, AND NOBODY EVER DEFINED ANY OF THEM
+ * (r10, severity 7 — "untaught vocabulary was relocated rather than
+ * eliminated; The Show is now the offender"). `#show` is on the glass from
+ * second zero of the first run: a hype bar, a viewer count, a favorite count,
+ * a sponsor count. The curriculum's LAST step is titled "The Show" and asks
+ * the player to push hype over a number and convert a favorite — two words
+ * the product had never said out loud, on a step most first sessions never
+ * reach.
+ *
+ * The fix is a carrier that cannot be missed instead of one that needs a crit:
+ * `showbar` fires the instant the hype reading first MOVES, which every
+ * crawler makes happen with their first kill, and it defines all three nouns
+ * in one line. It shares this topic with the sim's `hype` tip, so whichever
+ * gets to the glass first teaches the Show and the other stands down — the
+ * same one-lesson-one-delivery rule as the collapse pair.
+ */
+export const TOPIC_SHOW = "show";
 
 /**
  * THE CAST KEYS, AND ONLY THE CAST KEYS (r2 blocker). Slot 0 is the strike and
@@ -264,6 +284,14 @@ export const COACH_BEATS: Record<CoachEvent, TeachBeat> = {
     instruction: "Step out of the ring when the boss winds up — every big swing is telegraphed on purpose.",
     wry: "It rehearsed that move for the cameras. You get to rehearse leaving.",
   },
+  // THE SHOW, DEFINED THE MOMENT ITS READOUT MOVES (r10, severity 7). See
+  // TOPIC_SHOW: the chips and the bar have been on the glass since second zero
+  // and nothing had ever said what any of them counts.
+  showbar: {
+    verb: "Watch", needsKey: false, topic: TOPIC_SHOW,
+    instruction: "Watch your hype climb: it is the crowd's attention, it rises when you fight fast and loud, and it sinks the moment you go quiet.",
+    wry: "Viewers are how many are watching right now. Favorites are the ones who stay yours and keep paying after they look away. Those numbers are the Show, and the Show is who is funding this.",
+  },
 };
 
 /**
@@ -286,10 +314,13 @@ export const COACH_TIP_BEATS: Record<string, TeachBeat> = {
     instruction: "Claim your banked draft when you find a quiet corner.",
     wry: "Drafts keep. The crawlers who forget them usually don't.",
   },
+  // Shares TOPIC_SHOW with the `showbar` beat: the crit that fires this tip is
+  // the earlier, prettier carrier when it happens, and the first point of hype
+  // is the one that always happens. Whichever paints defines the nouns.
   hype: {
-    verb: "Fight", needsKey: false,
-    instruction: "Fight loud to keep your hype climbing — the cameras pay for loud.",
-    wry: "It sinks the second you play it safe, and safe doesn't sell tickets.",
+    verb: "Fight", needsKey: false, topic: TOPIC_SHOW,
+    instruction: "Fight loud to keep your hype climbing — hype is the crowd's attention, and the cameras pay for loud.",
+    wry: "Viewers are how many are watching; favorites are the ones who stay yours and keep paying. It all sinks the second you play it safe, and safe doesn't sell tickets.",
   },
   glyph: {
     verb: "Socket", needsKey: false,
@@ -408,7 +439,7 @@ export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
   "obj.show": {
     verb: "Fight", needsKey: false,
     instruction: "Fight loud enough to push your hype over the line and convert a favorite.",
-    wry: "Below the line the System gets creative on your behalf. You want it bored.",
+    wry: "Hype is the crowd's attention and it decays when you go quiet; a favorite is a viewer who stays yours and keeps paying. Below the line the System gets creative on your behalf. You want it bored.",
   },
 };
 
@@ -424,6 +455,250 @@ export const OBJ_DONE_LINES: Record<ObjStepId, string> = {
 // Completeness is a test (coach.test.ts): every objective step id must have
 // an intro beat and a done line — a silent step is a curriculum hole.
 void OBJ_STEP_IDS;
+
+// ---------------------------------------------------------------------------
+// THE STANDING ASK (r10 — the root cause: "the coach prose slot teaches the
+// wrong thing, once, and never again").
+//
+// Every teaching line in this module before now was an EVENT: something became
+// true, a line was offered, a card painted, the opportunity was spent forever.
+// That is the right shape for a confirmation ("you just auto-equipped, here is
+// what that was") and exactly the wrong shape for an INSTRUCTION, and the
+// measured cost was a cohort that finished a 7.5-minute first session at level
+// 1, floor 1, still on step 2 of 5. Three defects, one cause:
+//
+//  - the current step's instruction was spent on ONE paint. Dropped by a queue
+//    cap, a stale moment or a modal? Then the only prose that ever said what
+//    to do is gone for that profile, and the checklist's four-word item labels
+//    are all that is left.
+//  - a player STUCK on an item got silence. Prompts are floor-1 only and
+//    budgeted; confirmations need the act the player cannot perform; the step
+//    intro already fired. Nothing in the system could say a SECOND, more
+//    concrete thing about the item the player is visibly failing at.
+//  - the prose that did paint was the prose for the STEP, or for an event 40
+//    seconds ago, not for the thing being asked right now.
+//
+// So the teaching channel gets a second half that is a PROJECTION, not a
+// message: one ask, derived every frame from the sequencer's current step and
+// its first unchecked item, rendered on the persistent card (which survives a
+// modal — the panel a step points at must not hide the step). It is never
+// spent, it re-reads the world every frame, and it cannot go stale. Cards
+// remain the alert channel; the plate is the reference channel, and losing a
+// card now costs a nudge instead of the lesson.
+//
+// ESCALATION IS THE OTHER HALF. An ask that has been on the glass for
+// `ASK_STUCK_MS` of REAL on-glass time without the item checking is a player
+// who did not understand it, so the ask is REPLACED by the concrete form —
+// the exact key, the exact place, the thing they are probably doing wrong —
+// permanently for that item, and delivered once as a card (repeated at most
+// ASK_MAX_CARDS times, so escalation cannot become the metronome r5 killed).
+// Any progress moves the ask to the next item and resets the clock.
+// ---------------------------------------------------------------------------
+
+/** The ask key for a banked, unclaimed draft. It PRE-EMPTS the step's own ask
+ *  wherever the player is (r10, severity 8: every cold profile — including the
+ *  best one — ended the session with unclaimed drafts, so the game's core
+ *  progression verb was never learned by anybody). A draft is the one thing
+ *  the player can always act on, from any room, and it is pure gain. */
+export const ASK_DRAFT_KEY = "draft.banked";
+
+export interface AskBeat {
+  /** THE STANDING ASK: one imperative sentence naming the control, on the
+   *  glass for as long as this item is the thing being asked. */
+  ask: string;
+  /** THE ESCALATION: the same instruction made concrete — the key, the place,
+   *  the failure mode. Replaces `ask` once the player is visibly stuck. */
+  stuck: string;
+  /** The register. The standing ask is instruction ONLY — a permanent surface
+   *  has no room for a quip and a first-timer scanning it needs the verb — but
+   *  once the ask has escalated, the player has been on this one item for
+   *  half a minute and the tail is the part that says he has been there too. */
+  wry: string;
+  /** On-glass ms before this ask escalates (default ASK_STUCK_MS). */
+  after?: number;
+}
+
+/** How long an ask may stand un-actioned before it escalates. On-glass time,
+ *  not wall time — the same clock OBJ_MIN_VISIBLE_MS is paid in. */
+export const ASK_STUCK_MS = 25000;
+/** ...and how long between re-deliveries of the concrete form while the player
+ *  is still stuck on the same item. The plate never stops carrying it; this is
+ *  only how often it also gets a card. */
+export const ASK_REPEAT_MS = 45000;
+/** Cards per item. The channel never goes silent (the plate is permanent), so
+ *  this caps the NAGGING, not the teaching. */
+export const ASK_MAX_CARDS = 3;
+
+/**
+ * One entry per objective item, keyed `${stepId}/${itemId}` — plus the safe
+ * room's alternative wording (`obj.saferoom/browse`, the ask when the shelf is
+ * genuinely out of reach) and the draft pre-empt. Completeness is a test: an
+ * item with no ask is an item a player can stall on in silence, which is the
+ * defect this table exists to make impossible.
+ *
+ * `{tokens}` are the host's live control labels (OBJ_LABEL_TOKENS) — the same
+ * substitution the checklist runs, so an ask can never name a bind the player
+ * does not have or a key they rebound.
+ */
+export const OBJ_ASKS: Record<string, AskBeat> = {
+  "obj.move/moved": {
+    ask: "Hold {move} and get off this tile.",
+    stuck: "Press and hold one of {move} — those four keys are the only thing that walks you, and nothing down here starts until you do.",
+    wry: "The floor is on a clock. Standing still spends it for nothing.",
+  },
+  "obj.move/blood": {
+    ask: "Find something that moves and hit it with {strike}.",
+    stuck: "Walk right up against a monster before you press {strike} — your swing has the reach of an arm, not of a room.",
+    wry: "Nothing down here is impressed by a near miss.",
+  },
+  "obj.move/kills3": {
+    ask: "Put three monsters down with {strike}.",
+    stuck: "Take them one at a time with {strike}, drink with {flask} at half a bar, and leave with {dash} the moment a second one joins in.",
+    wry: "The count carries across deaths. Whatever the first two cost you, you have already paid it.",
+  },
+  "obj.five/strike": {
+    ask: "Press {strike} with a monster inside arm's reach.",
+    stuck: "Stand against something alive and press {strike} — that key is your basic attack, and it is the one you will press more than all the others together.",
+    wry: "Everything else in the kit is an argument about how to get here safely.",
+  },
+  "obj.five/dash": {
+    ask: "Press {dash} to dash.",
+    stuck: "Press {dash} right now, standing still, with nothing chasing you — you are untouchable for the length of it, and this is the cheapest possible time to find that out.",
+    wry: "Learning where the exit is during the emergency is how crawlers end up on the highlight reel.",
+  },
+  "obj.five/cast": {
+    ask: "Press {cast} to throw the ability in that slot.",
+    stuck: "Press {cast} with something in front of you — the dark slots on that row are padlocked until the System issues them, but that one is already loaded.",
+    wry: "It costs a cooldown, not a resource. Spending it is the only way it pays anything.",
+  },
+  "obj.payday/loot": {
+    ask: "Kill something and walk over what it drops.",
+    stuck: "Step onto the loot lying on the floor — gear is picked up by standing on it, a strict upgrade dresses itself, and everything else waits in your bag under {bag}.",
+    wry: "Nobody hands you a receipt down here. The numbers just move.",
+  },
+  "obj.payday/draft": {
+    ask: "Press {draft} to claim a banked draft.",
+    stuck: "Press {draft}, then take one of the offered cards with 1, 2 or 3 — a draft you never claim is a level you are not wearing.",
+    wry: "The System banks them because it expects you to forget. Disappoint it.",
+  },
+  "obj.payday/descend": {
+    ask: "Stand on the stairs and press {stairs}.",
+    stuck: "Read the minimap for the stairs, walk onto them, and press {stairs} — the clock on this floor does not stop for a tidy floor.",
+    wry: "Down is the only direction that has ever paid anybody.",
+  },
+  "obj.saferoom/shop": {
+    ask: "Open the shelf and see what a floor costs.",
+    stuck: "Open the safe room's SHOP tab — those tiles are the shelf, and the number on each one is what it wants from you.",
+    wry: "This is the only room on the floor that bills you in gold instead of blood.",
+  },
+  "obj.saferoom/spend": {
+    ask: "Buy something off the shelf.",
+    stuck: "Take a tile whose price is not red and confirm it — your equipment slots are empty, so whatever you buy goes straight onto you.",
+    wry: "Gold you carry down is gold the next floor takes for free.",
+  },
+  "obj.saferoom/browse": {
+    ask: "Read the shelf even though you cannot afford it.",
+    stuck: "Read the prices and remember the cheapest one — gold keeps between floors, so today's shelf is next floor's shopping list.",
+    wry: "Knowing what a floor costs is worth the walk on its own.",
+  },
+  "obj.show/hype": {
+    ask: "Fight fast and loud to push your hype past {hypeline}.",
+    stuck: "Chain kills without stopping to push hype over {hypeline} — hype is the crowd's attention, and below that line the System starts arranging entertainment on your behalf.",
+    wry: "It decays the second you go quiet. That is the whole contract.",
+  },
+  "obj.show/fan": {
+    ask: "Hold your hype over {hypeline} until the crowd picks a favorite.",
+    stuck: "Keep fighting with hype above {hypeline} — viewers are the people watching right now, and a favorite is one who stays yours and keeps paying after they look away.",
+    wry: "Viewers are weather. Favorites are income.",
+  },
+  [ASK_DRAFT_KEY]: {
+    ask: "Press {draft} to claim the draft you have banked.",
+    stuck: "Press {draft} and take one of the cards with 1, 2 or 3 — claiming is how you actually level, and the pick is not yours until you do.",
+    wry: "Banked power is not power. It is paperwork.",
+    // Faster than an ordinary ask: a banked draft is free strength the player
+    // already earned, it can be claimed from anywhere, and four cold profiles
+    // ended their session still holding one.
+    after: 8000,
+  },
+};
+
+/** An escalation edge: the ask just got more concrete (or is being re-asserted
+ *  while the player is still stuck). The host draws attention to the plate —
+ *  it does NOT open a second surface, which is r8's finding 3 and the reason
+ *  this is an edge and not a card. */
+export interface AskEdge {
+  key: string;
+  /** The line the plate is now carrying, for a host that wants to log it. */
+  text: string;
+}
+
+/**
+ * The standing ask's state machine. Pure, unit-testable, no DOM: the host
+ * feeds it the live ask key, that ask's fallback prose, and the ms of REAL
+ * on-glass time since the last frame; it hands back the line the plate must
+ * be carrying and, on an escalation, a card to paint.
+ */
+export class StandingAsk {
+  private key = "";
+  private ms = 0;
+  private hot = false;
+  private cards = 0;
+  private sinceCard = 0;
+
+  /** The ask key currently live ("" for none). */
+  get current(): string {
+    return this.key;
+  }
+
+  /** True once this ask has escalated — the host draws the line hotter. */
+  get escalated(): boolean {
+    return this.hot;
+  }
+
+  /**
+   * Feed once per rendered frame. `key` is `${stepId}/${itemId}` (or
+   * ASK_DRAFT_KEY), "" when the player has no ask at all. `dtMs` is on-glass
+   * time — zero while the card is hidden, so a lesson cannot be escalated at a
+   * player who was never shown it. A change of key is PROGRESS: the clock, the
+   * escalation and the card budget all reset.
+   */
+  observe(key: string, dtMs: number): AskEdge | null {
+    if (key !== this.key) {
+      this.key = key;
+      this.ms = 0;
+      this.hot = false;
+      this.cards = 0;
+      this.sinceCard = 0;
+      return null;
+    }
+    const beat = OBJ_ASKS[key];
+    if (!key || !beat || !(dtMs > 0)) return null;
+    this.ms += dtMs;
+    this.sinceCard += dtMs;
+    if (!this.hot && this.ms >= (beat.after ?? ASK_STUCK_MS)) {
+      this.hot = true;
+      this.cards = 1;
+      this.sinceCard = 0;
+      return { key, text: this.line() };
+    }
+    // STILL STUCK ON THE SAME THING: re-assert the concrete form rather than
+    // going quiet — bounded, because the plate never stopped carrying it.
+    if (this.hot && this.cards < ASK_MAX_CARDS && this.sinceCard >= ASK_REPEAT_MS) {
+      this.cards++;
+      this.sinceCard = 0;
+      return { key, text: this.line() };
+    }
+    return null;
+  }
+
+  /** THE PROSE THE PLATE IS CARRYING. Never null while an ask is live, never
+   *  spent, re-derived from the sequencer every frame. */
+  line(): string {
+    const beat = OBJ_ASKS[this.key];
+    if (!beat) return "";
+    return this.hot ? `${beat.stuck} ${beat.wry}` : beat.ask;
+  }
+}
 
 // ---------------------------------------------------------------------------
 // The sequencer — the Onramp's measured mechanics, carried over verbatim.
@@ -449,7 +724,7 @@ const KEY_SOURCE: Record<CoachEvent, keyof CoachControls | "call" | null> = {
   dashkit: "call",
   ability: "call", slotted: "call", ult: "call",
   cast: null, equipped: null, drink: null, linger: null,
-  elite: null, boss: null,
+  elite: null, boss: null, showbar: null,
 };
 
 /** The lecture budget. Confirmations do not count against it. Seven, not six:

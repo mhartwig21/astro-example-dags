@@ -104,9 +104,18 @@ export interface ObjectiveItem {
 
 /** Every token a label may carry; the host must substitute all of them.
  *  strike/dash/cast are the live control labels for the crawler's CURRENT kit
- *  (desktop binds or touch gestures); hypeline is the System's boredom
- *  threshold (CONFIG.interferenceHypeFloor), printed as a number. */
-export const OBJ_LABEL_TOKENS = ["strike", "dash", "cast", "hypeline"] as const;
+ *  (desktop binds or touch gestures); move/flask/bag/draft/stairs are the
+ *  always-true controls (a rebind moves them, and touch names chips instead of
+ *  keys); hypeline is the System's boredom threshold
+ *  (CONFIG.interferenceHypeFloor), printed as a number.
+ *
+ *  The set widened with THE STANDING ASK (coach.ts OBJ_ASKS), which runs its
+ *  prose through this same substitution — so an instruction Mordecai keeps on
+ *  the glass is under the identical law as a checklist label: it may never
+ *  name a control the player does not have. */
+export const OBJ_LABEL_TOKENS = [
+  "strike", "dash", "cast", "hypeline", "move", "flask", "bag", "draft", "stairs",
+] as const;
 
 /**
  * WHERE THE CRAWLER IS STANDING, in the only two kinds of place this game has
@@ -170,7 +179,12 @@ export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
     id: "obj.payday", title: "Payday",
     items: [
       { id: "loot", label: "Pick up a piece of gear" },
-      { id: "draft", label: "Claim a draft" },
+      // THE KEY IS ON THE CHECKLIST, not only on the badge (r10, severity 8:
+      // every cold profile ended its session holding unclaimed drafts, so the
+      // core progression verb went unlearned by everybody). "Claim a draft"
+      // named an act with no control attached to it; the persistent card is
+      // the one surface that is always there, so it carries the bind.
+      { id: "draft", label: "Claim a draft with {draft}" },
       { id: "descend", label: "Take the stairs down" },
     ],
   },
@@ -307,6 +321,25 @@ export class Objectives {
       else if (it.alt && this.lastFacts[it.alt.altFact]) alt.add(it.id);
     }
     return { step, done, alt };
+  }
+
+  /**
+   * THE ONE THING BEING ASKED RIGHT NOW, as a key into the coach's standing-ask
+   * table (`${stepId}/${itemId}`). It is the current step's FIRST unchecked
+   * item, in whichever wording the world makes honest — the safe room's `alt`
+   * form when the shelf is out of reach, so the prose on the glass is the prose
+   * for the thing the player is actually being asked to do.
+   *
+   * Null when this place has no ask left, which is the same condition that
+   * shows no card: a surface that keeps instructing after the world has moved
+   * past the instruction is worse than a surface that stands down.
+   */
+  askKey(): string | null {
+    const v = this.view();
+    if (!v) return null;
+    const it = v.step.items.find((i) => !v.done.has(i.id));
+    if (!it) return null;
+    return `${v.step.id}/${v.alt.has(it.id) && it.alt ? it.alt.id : it.id}`;
   }
 
   /**
