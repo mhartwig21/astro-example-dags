@@ -23,7 +23,7 @@ import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type Item, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, floorTimeGrant, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
 import { flowDir, tileLos } from "../src/sim/pathfield";
@@ -1333,60 +1333,71 @@ describe("wide hallways + bigger floors", () => {
   });
 });
 
-describe("the late-floor TIME GRANT (owner verdict 2026-08-07)", () => {
+describe("the deep clock OPENS (owner verdict 2026-08-07)", () => {
   // THE TABLE. Owner, after playing the integrated build: "floor timers need
   // to get a bit longer in later levels. It takes time to kill later mobs and
-  // bosses... I think a 10 scaling to 25% increase start at level 10 may be a
-  // good idea." Revised the same day after more play on a strong build: "It's
-  // actually not as bad as I thought with a good build... maybe the floor 18
-  // should be a 15% increase." Floors 1-9 are the shipped falloff, untouched;
-  // floors 10-18 carry a grant lerping +10% -> +15%. This is the discoverable
-  // per-floor second count — read it here, retune it from the three
-  // timerGrant* knobs in config.ts.
+  // bosses..." — and, once the arithmetic was in front of him: "I thought the
+  // clock would increase a bit as we went! the game gets harder and slower."
+  // It did the opposite: the falloff SHRANK the budget to 92.8s by floor 18.
+  // So floors 1-9 keep the falloff (the early pressure ramp) and floors 10-18
+  // are an ABSOLUTE curve in seconds that ASCENDS, 116s -> 150s. Read the
+  // seconds here; retune from the three timerDeep* knobs in config.ts.
   const TABLE: [floor: number, before: number, after: number][] = [
     [1, 120.0, 120.00], [2, 118.4, 118.40], [3, 116.8, 116.80],
     [4, 115.2, 115.20], [5, 113.6, 113.60], [6, 112.0, 112.00],
     [7, 110.4, 110.40], [8, 108.8, 108.80], [9, 107.2, 107.20],
-    [10, 105.6, 116.16], [11, 104.0, 115.05], [12, 102.4, 113.92],
-    [13, 100.8, 112.77], [14, 99.2, 111.60], [15, 97.6, 110.41],
-    [16, 96.0, 109.20], [17, 94.4, 107.97], [18, 92.8, 106.72],
+    [10, 105.6, 116.00], [11, 104.0, 120.25], [12, 102.4, 124.50],
+    [13, 100.8, 128.75], [14, 99.2, 133.00], [15, 97.6, 137.25],
+    [16, 96.0, 141.50], [17, 94.4, 145.75], [18, 92.8, 150.00],
   ];
 
   it("matches the per-floor budget table exactly", () => {
     expect(TABLE).toHaveLength(CONFIG.finalFloor);
     for (const [floor, before, after] of TABLE) {
-      const raw = Math.max(
+      const falloff = Math.max(
         CONFIG.timerMinSeconds,
         CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff,
       );
-      expect(raw, `floor ${floor}: pre-grant falloff budget`).toBeCloseTo(before, 6);
-      expect(floorTimeBudget(floor), `floor ${floor}: granted budget`).toBeCloseTo(after, 2);
+      expect(falloff, `floor ${floor}: the old falloff budget`).toBeCloseTo(before, 6);
+      expect(floorTimeBudget(floor), `floor ${floor}: budget`).toBeCloseTo(after, 6);
     }
   });
 
-  it("leaves every floor above the grant floor bit-identical", () => {
+  it("leaves every floor above the inflection bit-identical to the falloff", () => {
     // Floor 1 especially: THE DEBUT's held clock, the tutorial's warning-line
     // arithmetic, and the daily-rule tests all key off it.
-    for (let floor = 1; floor < CONFIG.timerGrantFromFloor; floor++) {
-      expect(floorTimeGrant(floor), `floor ${floor} must not be granted`).toBe(1);
-      expect(floorTimeBudget(floor)).toBe(
+    for (let floor = 1; floor < CONFIG.timerDeepFromFloor; floor++) {
+      expect(floorTimeBudget(floor), `floor ${floor} must stay on the falloff`).toBe(
         Math.max(CONFIG.timerMinSeconds, CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff),
       );
     }
   });
 
-  it("lerps from the start grant to the end grant across the deep band", () => {
-    expect(floorTimeGrant(CONFIG.timerGrantFromFloor)).toBeCloseTo(1 + CONFIG.timerGrantStart, 9);
-    expect(floorTimeGrant(CONFIG.finalFloor)).toBeCloseTo(1 + CONFIG.timerGrantEnd, 9);
-    // Monotone up, and the midpoint is the arithmetic mean of the ends.
-    for (let floor = CONFIG.timerGrantFromFloor; floor < CONFIG.finalFloor; floor++) {
-      expect(floorTimeGrant(floor + 1)).toBeGreaterThan(floorTimeGrant(floor));
+  it("ASCENDS across the deep band — the whole point of the change", () => {
+    // The shape the designer expected all along: harder and slower floors get
+    // MORE clock, not a gentler decline. Every deep floor beats its
+    // predecessor, and the last one beats the first floor of the game.
+    for (let floor = CONFIG.timerDeepFromFloor; floor < CONFIG.finalFloor; floor++) {
+      expect(
+        floorTimeBudget(floor + 1),
+        `floor ${floor + 1} must have MORE clock than floor ${floor}`,
+      ).toBeGreaterThan(floorTimeBudget(floor));
     }
-    const mid = (CONFIG.timerGrantFromFloor + CONFIG.finalFloor) / 2;
-    expect(floorTimeGrant(mid)).toBeCloseTo(1 + (CONFIG.timerGrantStart + CONFIG.timerGrantEnd) / 2, 9);
+    expect(floorTimeBudget(CONFIG.finalFloor)).toBeGreaterThan(floorTimeBudget(1));
+    // The inflection is a visible STEP UP out of the shrinking half.
+    expect(floorTimeBudget(CONFIG.timerDeepFromFloor))
+      .toBeGreaterThan(floorTimeBudget(CONFIG.timerDeepFromFloor - 1) + 5);
   });
 
-  it("makes the deep clock strictly more generous than it was, never less", () => {
+  it("is a plain lerp between two readable second counts", () => {
+    expect(floorTimeBudget(CONFIG.timerDeepFromFloor)).toBe(CONFIG.timerDeepStartSeconds);
+    expect(floorTimeBudget(CONFIG.finalFloor)).toBe(CONFIG.timerDeepEndSeconds);
+    const mid = (CONFIG.timerDeepFromFloor + CONFIG.finalFloor) / 2;
+    expect(floorTimeBudget(mid)).toBeCloseTo(
+      (CONFIG.timerDeepStartSeconds + CONFIG.timerDeepEndSeconds) / 2, 9);
+  });
+
+  it("never takes clock away from any floor", () => {
     for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
       const before = Math.max(
         CONFIG.timerMinSeconds,
@@ -1394,11 +1405,20 @@ describe("the late-floor TIME GRANT (owner verdict 2026-08-07)", () => {
       );
       expect(floorTimeBudget(floor), `floor ${floor} lost time`).toBeGreaterThanOrEqual(before - 1e-9);
     }
-    // The grant very nearly cancels the falloff: at +15% the deep band decays
-    // from 116.2s to 106.7s, so floor 18's clock lands within a second of
-    // floor 9's — the deep game stops tightening without ever loosening.
-    expect(Math.abs(floorTimeBudget(CONFIG.finalFloor) - floorTimeBudget(CONFIG.timerGrantFromFloor - 1)))
-      .toBeLessThan(1);
+  });
+
+  it("still opens WARNING on a readable window at the bottom of the dungeon", () => {
+    // WARNING is a FRACTION of the floor's own budget, so a bigger deep clock
+    // buys a longer alarm too: 48s on floor 1, 60s on floor 18. Pinned so a
+    // future budget change cannot quietly turn the final floor's warning into
+    // either a blink or the majority of the fight.
+    const window = (floor: number) => floorTimeBudget(floor) * CONFIG.warningFraction;
+    expect(window(CONFIG.finalFloor)).toBeCloseTo(60, 6);
+    expect(window(CONFIG.finalFloor)).toBeGreaterThan(window(1));
+    for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+      expect(window(floor), `floor ${floor} warning window`).toBeGreaterThan(30);
+      expect(window(floor), `floor ${floor} warning window`).toBeLessThan(75);
+    }
   });
 });
 

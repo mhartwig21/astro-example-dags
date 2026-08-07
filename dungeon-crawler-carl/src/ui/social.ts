@@ -269,10 +269,10 @@ const CURVE = {
   /** A median run dies in the back half of THE SEWERS. */
   floor: 6,
   /** Sim seconds per floor. Faster is better. For scale, the collapse budget
-   *  itself runs 120s on floor 1 down to ~107s on floor 9, then 116s -> 107s
-   *  across floors 10-18 (the late-floor TIME GRANT, DESIGN.md §5.2) — this is an
-   *  AUTHORED absolute used only as the cold-start fallback, so it does not
-   *  track the budget and deliberately does not move when the budget does. */
+   *  tightens 120s -> 107.2s across floors 1-9 and then OPENS, 116s -> 150s
+   *  across floors 10-18 (DESIGN.md §5.2) — this is an AUTHORED absolute used
+   *  only as the cold-start fallback, so it does not track the budget and
+   *  deliberately does not move when the budget does. */
   secPerFloor: 95,
 
   /** Sim seconds a full bar of health lasts a competent crawler. */

@@ -50,25 +50,32 @@ export const CONFIG = {
   // measured full-run deaths were collapse/warning-phase clock-outs.
   timerPerFloorFalloff: 1.6, // seconds shaved per floor descended
   timerMinSeconds: 60,
-  // THE LATE-FLOOR TIME GRANT (owner verdict 2026-08-07, after playing the
-  // integrated build): "floor timers need to get a bit longer in later
-  // levels. It takes time to kill later mobs and bosses... I think a 10
-  // scaling to 25% increase start at level 10 may be a good idea."
-  // REVISED the same day, after more play on a STRONG build: "It's actually
-  // not as bad as I thought with a good build... maybe the floor 18 should be
-  // a 15% increase." So the ramp keeps its start and loses two thirds of its
-  // top: +10% at floor 10 -> +15% at floor 18.
+  // ---- THE DEEP CLOCK OPENS (owner verdict 2026-08-07, after playing) -----
+  // "floor timers need to get a bit longer in later levels. It takes time to
+  // kill later mobs and bosses... I think a 10 scaling to 25% increase start
+  // at level 10 may be a good idea."
+  // ...and then, once the arithmetic above was put in front of him:
+  // "I thought the clock would increase a bit as we went! the game gets
+  // harder and slower."
   //
-  // From `timerGrantFromFloor` the falloff budget above is multiplied by a
-  // grant that LERPS from +grantStart to +grantEnd at `finalFloor`. Floors
-  // above the start floor are untouched (identical to the shipped numbers),
-  // so floors 1-9 — including the DEBUT's floor 1 and every arithmetic that
-  // keys off it — do not move. Retune the whole late game from these three
-  // knobs; the exact per-floor seconds are asserted as a table in
-  // test/sim.test.ts ("the late-floor TIME GRANT").
-  timerGrantFromFloor: 10, // first floor that gets any grant
-  timerGrantStart: 0.1, // +10% on that floor...
-  timerGrantEnd: 0.15, // ...lerping to +15% on finalFloor
+  // That is the whole story. The falloff above SHRINKS the budget with depth
+  // (120s -> 92.8s), which was never what the designer pictured, so every
+  // percentage he proposed did something other than what he meant: +25%
+  // merely FLATTENED floors 10-18 at ~116s, +15% left them still descending.
+  // A percentage of a decaying base is unreadable. So the deep half is
+  // expressed as what he actually wants to read — AN ABSOLUTE CURVE IN
+  // SECONDS. Floor 10 steps up to `timerDeepStartSeconds` (the inflection:
+  // the clock stops tightening and starts opening) and every floor after it
+  // lerps up to `timerDeepEndSeconds` at `finalFloor`, ~+4.25s per floor.
+  //
+  // Floors 1-9 keep the falloff untouched — the early shrink IS the pressure
+  // ramp, it has never been complained about, and floor 1 in particular
+  // carries THE DEBUT's held-clock arithmetic. Retune the late game from
+  // these three numbers alone; the per-floor seconds are asserted as a table
+  // in test/sim.test.ts ("the deep clock OPENS").
+  timerDeepFromFloor: 10, // the inflection floor: shrinking -> opening
+  timerDeepStartSeconds: 116, // ...its budget (a visible step up from 107.2)
+  timerDeepEndSeconds: 150, // ...ascending to this on finalFloor
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
@@ -1943,23 +1950,24 @@ export const CHAMPIONS: {
 ];
 
 /**
- * THE LATE-FLOOR TIME GRANT: the multiplier applied to a floor's collapse
- * budget because deep mobs and bosses honestly take longer to kill. 1 (exact
- * identity) up to `timerGrantFromFloor`, then a straight lerp from
- * 1+timerGrantStart on that floor to 1+timerGrantEnd on `finalFloor`.
+ * Collapse timer budget (seconds) for a given floor (1-indexed).
+ *
+ * TWO HALVES, on purpose. Floors 1..timerDeepFromFloor-1 SHRINK on the linear
+ * falloff — that is the pressure ramp of the early game. From the inflection
+ * floor the clock OPENS INSTEAD: an absolute curve in seconds, lerping from
+ * timerDeepStartSeconds to timerDeepEndSeconds at finalFloor, because deep
+ * mobs and bosses honestly take longer to kill (DESIGN.md §5.2).
  */
-export function floorTimeGrant(floor: number): number {
-  const from = CONFIG.timerGrantFromFloor;
-  if (floor < from) return 1;
-  const span = CONFIG.finalFloor - from;
-  const t = span > 0 ? Math.min(1, (floor - from) / span) : 1;
-  return 1 + CONFIG.timerGrantStart + (CONFIG.timerGrantEnd - CONFIG.timerGrantStart) * t;
-}
-
-/** Collapse timer budget (seconds) for a given floor (1-indexed). */
 export function floorTimeBudget(floor: number): number {
+  const from = CONFIG.timerDeepFromFloor;
+  if (floor >= from) {
+    const span = CONFIG.finalFloor - from;
+    const t = span > 0 ? Math.min(1, (floor - from) / span) : 1;
+    return CONFIG.timerDeepStartSeconds
+      + (CONFIG.timerDeepEndSeconds - CONFIG.timerDeepStartSeconds) * t;
+  }
   const raw = CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff;
-  return Math.max(CONFIG.timerMinSeconds, raw) * floorTimeGrant(floor);
+  return Math.max(CONFIG.timerMinSeconds, raw);
 }
 
 /** XP required to advance FROM the given level to the next. */

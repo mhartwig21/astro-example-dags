@@ -104,68 +104,88 @@ This document describes the full target architecture, then defines the scope of 
   **minimap** helps navigate each floor to the stairs.
 
 ### 5.2 Collapse timer (the central mechanic)
-- Each floor starts with a countdown (scaled per floor). It is **authoritative** and lives
-  in sim state.
+- Each floor starts with a countdown. It is **authoritative** and lives in sim state.
 - Phases: **Safe** (full duration) → **Warning** (visual/audio escalation) → **Collapse**
   (floor becomes lethal: escalating damage-over-time to anyone still on it). Descending
   resets the timer for the new floor. WARNING opens at `warningFraction` (40%) of the
-  floor's own budget, so it tracks the budget automatically.
-- **The budget curve** (`floorTimeBudget`, config.ts). A linear falloff —
-  `timerBaseSeconds` (120) minus `timerPerFloorFalloff` (1.6s) per floor descended,
-  never below `timerMinSeconds` — multiplied by the **late-floor TIME GRANT**.
+  floor's own budget, so it tracks whatever the budget is.
+- **The budget curve** (`floorTimeBudget`, config.ts) has **two halves, and they run in
+  opposite directions on purpose**:
+  - **Floors 1-9 TIGHTEN.** The linear falloff: `timerBaseSeconds` (120) minus
+    `timerPerFloorFalloff` (1.6s) per floor descended, never below `timerMinSeconds`.
+    120.0s at floor 1 down to 107.2s at floor 9. This is the early pressure ramp and it
+    is untouched.
+  - **Floors 10-18 OPEN.** An absolute curve **in seconds**: floor 10 steps up to
+    `timerDeepStartSeconds` (116) and every floor after it lerps to
+    `timerDeepEndSeconds` (150) at `finalFloor` — about +4.25s per floor.
 
   > **Owner verdict, 2026-08-07, after playing the integrated build** (verbatim):
   > *"floor timers need to get a bit longer in later levels. It takes time to kill
   > later mobs and bosses... I think a 10 scaling to 25% increase start at level 10
   > may be a good idea."*
   >
-  > **Revised the same day, after more play on a strong build** (verbatim):
-  > *"It's actually not as bad as I thought with a good build... maybe the floor 18
-  > should be a 15% increase."*
+  > **Then, on a strong build** (verbatim): *"It's actually not as bad as I thought
+  > with a good build... maybe the floor 18 should be a 15% increase."*
+  >
+  > **Then, shown the resulting arithmetic** (verbatim, and this is the one that
+  > matters): ***"I thought the clock would increase a bit as we went! the game gets
+  > harder and slower."***
 
-  The grant is 1.0 (exact identity) above `timerGrantFromFloor`, then lerps from
-  +`timerGrantStart` (10%) on that floor to +`timerGrantEnd` (15%) on `finalFloor`.
-  Floors 1-9 are therefore **bit-identical** to the pre-grant numbers, which is what
-  keeps THE DEBUT's floor-1 held clock (`firstRunClockHoldSeconds` must sit under
-  floor 1's warning line) and the daily-rule/shrine/revision arithmetic untouched.
+  **RECORD THE CORRECTION, because it cost two passes.** Until now the budget
+  **descended** with depth — 120s on floor 1 down to 92.8s on floor 18 — and that was
+  **contrary to its own designer's expectation**. He believed the clock already grew as
+  the dungeon got harder and slower, and was asking for more of a thing that did not
+  exist. That is why every percentage he proposed did something other than what he
+  meant: a percentage of a *decaying* base is unreadable. +25% merely **flattened**
+  floors 10-18 at ~116s; +15% left them **still falling**, 116.2s → 106.7s. Neither
+  was "the clock increases as we go". The fix was not a bigger percentage — it was to
+  stop expressing the deep half as a percentage at all. **The deep game now opens up
+  instead of tightening**, and config.ts states the actual seconds a reader can check
+  against the table without arithmetic.
 
-  | floor | 1-9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 |
-  |---|---|---|---|---|---|---|---|---|---|---|
-  | before | 120.0 … 107.2 | 105.6 | 104.0 | 102.4 | 100.8 | 99.2 | 97.6 | 96.0 | 94.4 | 92.8 |
-  | after | unchanged | 116.16 | 115.05 | 113.92 | 112.77 | 111.60 | 110.41 | 109.20 | 107.97 | 106.72 |
+  | floor | 1 | … | 9 | **10** | 11 | 12 | 13 | 14 | 15 | 16 | 17 | **18** |
+  |---|---|---|---|---|---|---|---|---|---|---|---|---|
+  | before | 120.0 | ↘ | 107.2 | 105.6 | 104.0 | 102.4 | 100.8 | 99.2 | 97.6 | 96.0 | 94.4 | 92.8 |
+  | **now** | 120.0 | ↘ | 107.2 | **116.00** | 120.25 | 124.50 | 128.75 | 133.00 | 137.25 | 141.50 | 145.75 | **150.00** |
+  | delta | — | — | — | +10.4 | +16.3 | +22.1 | +28.0 | +33.8 | +39.7 | +45.5 | +51.3 | **+57.2** |
 
-  **The shape, stated plainly, because the endpoint number hides it.** The grant is a
-  percentage of a base that is itself falling 1.6s per floor, so what the top of the
-  ramp buys is *slope*, not just seconds:
-
-  | | floor 10 | floor 14 | floor 18 | slope across 10→18 |
-  |---|---|---|---|---|
-  | no grant (before) | 105.6 | 99.2 | 92.8 | **−12.8s** |
-  | +10%→+15% (shipped) | 116.16 | 111.60 | 106.72 | **−9.4s** |
-  | +10%→+25% (first cut) | 116.16 | 116.56 | 116.00 | −0.2s (flat) |
-
-  At +15% the deep clock **still descends** — 9.4s lost across floors 10-18, against
-  the 12.8s it lost before — i.e. the falloff is softened by about a quarter, not
-  removed, over exactly the stretch where measured clear times grow. At +25% it was
-  flat. Both are honest readings of "a bit longer"; the shipped one is the owner's,
-  taken after a strong-build run. Exact seconds are asserted as a table in
-  `test/sim.test.ts` ("the late-floor TIME GRANT"); retune from the three
-  `timerGrant*` knobs, not from call sites.
-- **Why** (measured, `scripts/_probe-floortime.ts` — the balance bot on an on-curve
-  crawler, 6 seeds/floor, clock stubbed huge so clear time isn't truncated by the very
-  budget under review): median seconds-to-clear as a share of the pre-grant budget runs
-  ~16% on floor 1, ~42% on floor 9, ~56% on floor 12, ~73% on floor 15 and ~88% on
-  floor 16, with individual floor-16/17 clears at 150s and 182s against a 96s/94s
-  budget. The premise the verdict rests on is real and, if anything, understated at the
-  very bottom — BOSSES-V2 §6.2 alone budgets "up to 120s for the finale", which neither
-  floor 18's old 92.8s nor its granted 106.7s covers. **The revision was tuned off a
-  strong build and the bot data is not a strong build**: an on-curve crawler's slowest
-  measured floor-16/17 clears still overrun the granted clock. If deep floors bite again
-  on an unlucky run, `timerGrantEnd` is the one knob.
-- **`RULES_HASH` ROTATED** for the grant (`aacfeb19 → 5489b66a → 5bfe17ff`, the second
-  step being the +25% → +15% revision). A budget is a rule, so
-  every run proof recorded under the previous era is retired (COMPETITIVE.md §2.6a).
-  Expected, and the reason the grant is one arithmetic change rather than a series of them.
+  Floors 1-9 are **bit-identical**, which is what keeps THE DEBUT's floor-1 held clock
+  (`firstRunClockHoldSeconds` must sit under floor 1's warning line, 48s) and the
+  daily-rule/shrine/revision arithmetic exactly where it was. Floor 10 is the
+  **inflection**: a visible +10.4s step up that marks the turn from tightening to
+  opening. Exact seconds are asserted as a table in `test/sim.test.ts` ("the deep clock
+  OPENS"); retune from the three `timerDeep*` knobs, never from a call site.
+- **Why 150s at the bottom** (measured, `scripts/_probe-floortime.ts` — the balance bot
+  on an on-curve crawler, 6 seeds/floor, clock stubbed huge so clear time isn't
+  truncated by the very budget under review). Median seconds-to-clear as a share of the
+  OLD budget ran ~16% on floor 1, ~42% on floor 9, ~56% on floor 12, ~73% on floor 15,
+  ~88% on floor 16 — and floor 17's median clear was **182s against a 94.4s budget**,
+  with floor 16's slowest at **150.4s against 96s**. Against the new curve floor 15's
+  median is ~52% of budget and floor 16's ~60%: real pressure that no longer exceeds the
+  clock on an honest run. BOSSES-V2 §6.2 budgets "45-90 seconds for a band boss; up to
+  120s for the finale" — the finale ALONE — and floor 18 must also hold traversal and
+  trash, which its old 92.8s never could.
+- **What the bigger deep clock does to everything keyed off it** (checked, and flagged
+  rather than silently retuned):
+  - **WARNING** is a fraction of the floor's own budget, so it scales with it: 48s of
+    warning on floor 1, 42.9s at floor 9 (the tightest in the game), 60s at floor 18.
+    The alarm stays a real alarm and never becomes a blink; `test/sim.test.ts` pins the
+    window between 30s and 75s on every floor.
+  - **RUSH HOUR** (`ruleCollapseMult` ×0.8) now leaves floor 18 at 120s rather than
+    74.2s, and **SERIES REGULAR** (`revisionRegularTimeMult` ×0.85) at 128s rather than
+    79s. Both still bite proportionally; both are now *survivable* at depth, which is
+    arguably what they always should have been.
+  - **The flat time grants look WEAK at depth now.** A stabilizer room's `bonusTime`
+    (~15s), `shrineLoanGain` (45s) and `svcPlansTime` (20s) are absolute seconds against
+    a budget that grew 57s at the bottom: the war-room plan slid from 18.7% of a floor-9
+    clock to 13.3% of a floor-18 one, and the Time Loan from 42% to 30%. Not broken —
+    the loan's `shrineLoanDebt` (30s) shrank in relative cost too — but if the deep
+    shrines start feeling like small change, these three are the knobs, and they should
+    move as a set.
+- **`RULES_HASH` ROTATED** for this change (`aacfeb19 → 5bfe17ff → ...`, one rotation
+  per pass while the shape was being corrected; only the final one is real). A budget is
+  a rule, so every run proof recorded under the previous era is retired
+  (COMPETITIVE.md §2.6a).
 - This mechanic ships first because it defines the game and is cheap to build.
 
 ### 5.3 Combat
