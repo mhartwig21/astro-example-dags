@@ -5,7 +5,7 @@
 // under; client and server import this same constant, so they agree by
 // construction. Regenerate after ANY change to src/sim/ that moves a number:
 // npx tsx scripts/simhash.ts --write
-export const RULES_HASH = "aacfeb19a642b1177219607c665b09c547ff52588902ebef14a3eab99bdde012";
+export const RULES_HASH = "5489b66a4fb926de88f2539802111c43f8e4bd91aadcfe46816324d9dfa5a0bb";
 
 /** Short form for board chips and error copy. */
 export const RULES_ERA = RULES_HASH.slice(0, 7);

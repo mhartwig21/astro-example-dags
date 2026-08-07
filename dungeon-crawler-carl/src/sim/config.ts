@@ -50,6 +50,21 @@ export const CONFIG = {
   // measured full-run deaths were collapse/warning-phase clock-outs.
   timerPerFloorFalloff: 1.6, // seconds shaved per floor descended
   timerMinSeconds: 60,
+  // THE LATE-FLOOR TIME GRANT (owner verdict 2026-08-07, after playing the
+  // integrated build): "floor timers need to get a bit longer in later
+  // levels. It takes time to kill later mobs and bosses... I think a 10
+  // scaling to 25% increase start at level 10 may be a good idea."
+  //
+  // From `timerGrantFromFloor` the falloff budget above is multiplied by a
+  // grant that LERPS from +grantStart to +grantEnd at `finalFloor`. Floors
+  // above the start floor are untouched (identical to the shipped numbers),
+  // so floors 1-9 — including the DEBUT's floor 1 and every arithmetic that
+  // keys off it — do not move. Retune the whole late game from these three
+  // knobs; the exact per-floor seconds are asserted as a table in
+  // test/sim.test.ts ("the late-floor TIME GRANT").
+  timerGrantFromFloor: 10, // first floor that gets any grant
+  timerGrantStart: 0.1, // +10% on that floor...
+  timerGrantEnd: 0.25, // ...lerping to +25% on finalFloor
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
@@ -1923,10 +1938,24 @@ export const CHAMPIONS: {
   ] },
 ];
 
+/**
+ * THE LATE-FLOOR TIME GRANT: the multiplier applied to a floor's collapse
+ * budget because deep mobs and bosses honestly take longer to kill. 1 (exact
+ * identity) up to `timerGrantFromFloor`, then a straight lerp from
+ * 1+timerGrantStart on that floor to 1+timerGrantEnd on `finalFloor`.
+ */
+export function floorTimeGrant(floor: number): number {
+  const from = CONFIG.timerGrantFromFloor;
+  if (floor < from) return 1;
+  const span = CONFIG.finalFloor - from;
+  const t = span > 0 ? Math.min(1, (floor - from) / span) : 1;
+  return 1 + CONFIG.timerGrantStart + (CONFIG.timerGrantEnd - CONFIG.timerGrantStart) * t;
+}
+
 /** Collapse timer budget (seconds) for a given floor (1-indexed). */
 export function floorTimeBudget(floor: number): number {
   const raw = CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff;
-  return Math.max(CONFIG.timerMinSeconds, raw);
+  return Math.max(CONFIG.timerMinSeconds, raw) * floorTimeGrant(floor);
 }
 
 /** XP required to advance FROM the given level to the next. */

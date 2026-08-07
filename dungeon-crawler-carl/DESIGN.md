@@ -108,7 +108,43 @@ This document describes the full target architecture, then defines the scope of 
   in sim state.
 - Phases: **Safe** (full duration) → **Warning** (visual/audio escalation) → **Collapse**
   (floor becomes lethal: escalating damage-over-time to anyone still on it). Descending
-  resets the timer for the new floor.
+  resets the timer for the new floor. WARNING opens at `warningFraction` (40%) of the
+  floor's own budget, so it tracks the budget automatically.
+- **The budget curve** (`floorTimeBudget`, config.ts). A linear falloff —
+  `timerBaseSeconds` (120) minus `timerPerFloorFalloff` (1.6s) per floor descended,
+  never below `timerMinSeconds` — multiplied by the **late-floor TIME GRANT**.
+
+  > **Owner verdict, 2026-08-07, after playing the integrated build** (verbatim):
+  > *"floor timers need to get a bit longer in later levels. It takes time to kill
+  > later mobs and bosses... I think a 10 scaling to 25% increase start at level 10
+  > may be a good idea."*
+
+  The grant is 1.0 (exact identity) above `timerGrantFromFloor`, then lerps from
+  +`timerGrantStart` (10%) on that floor to +`timerGrantEnd` (25%) on `finalFloor`.
+  Floors 1-9 are therefore **bit-identical** to the pre-grant numbers, which is what
+  keeps THE DEBUT's floor-1 held clock (`firstRunClockHoldSeconds` must sit under
+  floor 1's warning line) and the daily-rule/shrine/revision arithmetic untouched.
+
+  | floor | 1-9 | 10 | 11 | 12 | 13 | 14 | 15 | 16 | 17 | 18 |
+  |---|---|---|---|---|---|---|---|---|---|---|
+  | before | 120.0 … 107.2 | 105.6 | 104.0 | 102.4 | 100.8 | 99.2 | 97.6 | 96.0 | 94.4 | 92.8 |
+  | after | unchanged | 116.16 | 116.35 | 116.48 | 116.55 | 116.56 | 116.51 | 116.40 | 116.23 | 116.00 |
+
+  Read the second row: the grant slightly **outruns** the falloff, so the deep band is
+  now a flat ~116s clock rather than a shrinking one. Exact seconds are asserted as a
+  table in `test/sim.test.ts` ("the late-floor TIME GRANT"); retune from the three
+  `timerGrant*` knobs, not from call sites.
+- **Why** (measured, `scripts/_probe-floortime.ts` — the balance bot on an on-curve
+  crawler, 6 seeds/floor, clock stubbed huge so clear time isn't truncated by the very
+  budget under review): median seconds-to-clear as a share of the pre-grant budget runs
+  ~16% on floor 1, ~42% on floor 9, ~56% on floor 12, ~73% on floor 15 and ~88% on
+  floor 16, with individual floor-16/17 clears at 150s and 182s against a 96s/94s
+  budget. The premise the verdict rests on is real and, if anything, understated at the
+  very bottom — BOSSES-V2 §6.2 alone budgets "up to 120s for the finale", which floor
+  18's 92.8s never fit.
+- **`RULES_HASH` ROTATED** for the grant (`aacfeb19 → 5489b66a`). A budget is a rule, so
+  every run proof recorded under the previous era is retired (COMPETITIVE.md §2.6a).
+  Expected, and the reason the grant is one arithmetic change rather than a series of them.
 - This mechanic ships first because it defines the game and is cheap to build.
 
 ### 5.3 Combat

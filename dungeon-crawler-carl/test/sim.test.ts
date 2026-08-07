@@ -23,7 +23,7 @@ import {
   EQUIP_SLOTS, NO_INTENT, Tile,
   type FloorMap, type GameState, type Intent, type Item, type ItemSlot, type Vec2,
 } from "../src/sim/types";
-import { CONFIG, floorBand, floorTimeBudget, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
+import { CONFIG, floorBand, floorTimeBudget, floorTimeGrant, monsterTempo, naturalFloorForLevel, roamTribeId } from "../src/sim/config";
 import { createRng, nextFloat } from "../src/sim/rng";
 import { rivalWorldKey, serializeFor, serializeForDynamic } from "../src/sim/snapshot";
 import { flowDir, tileLos } from "../src/sim/pathfield";
@@ -1330,6 +1330,71 @@ describe("wide hallways + bigger floors", () => {
     expect(g.map.w).toBe(72);
     expect(g.map.h).toBe(72);
     expect(floorTimeBudget(1)).toBe(120);
+  });
+});
+
+describe("the late-floor TIME GRANT (owner verdict 2026-08-07)", () => {
+  // THE TABLE. Owner, after playing the integrated build: "floor timers need
+  // to get a bit longer in later levels. It takes time to kill later mobs and
+  // bosses... I think a 10 scaling to 25% increase start at level 10 may be a
+  // good idea." Floors 1-9 are the shipped falloff, untouched; floors 10-18
+  // carry a grant lerping +10% -> +25%. This is the discoverable per-floor
+  // second count — read it here, retune it from the three timerGrant* knobs
+  // in config.ts.
+  const TABLE: [floor: number, before: number, after: number][] = [
+    [1, 120.0, 120.00], [2, 118.4, 118.40], [3, 116.8, 116.80],
+    [4, 115.2, 115.20], [5, 113.6, 113.60], [6, 112.0, 112.00],
+    [7, 110.4, 110.40], [8, 108.8, 108.80], [9, 107.2, 107.20],
+    [10, 105.6, 116.16], [11, 104.0, 116.35], [12, 102.4, 116.48],
+    [13, 100.8, 116.55], [14, 99.2, 116.56], [15, 97.6, 116.51],
+    [16, 96.0, 116.40], [17, 94.4, 116.23], [18, 92.8, 116.00],
+  ];
+
+  it("matches the per-floor budget table exactly", () => {
+    expect(TABLE).toHaveLength(CONFIG.finalFloor);
+    for (const [floor, before, after] of TABLE) {
+      const raw = Math.max(
+        CONFIG.timerMinSeconds,
+        CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff,
+      );
+      expect(raw, `floor ${floor}: pre-grant falloff budget`).toBeCloseTo(before, 6);
+      expect(floorTimeBudget(floor), `floor ${floor}: granted budget`).toBeCloseTo(after, 2);
+    }
+  });
+
+  it("leaves every floor above the grant floor bit-identical", () => {
+    // Floor 1 especially: THE DEBUT's held clock, the tutorial's warning-line
+    // arithmetic, and the daily-rule tests all key off it.
+    for (let floor = 1; floor < CONFIG.timerGrantFromFloor; floor++) {
+      expect(floorTimeGrant(floor), `floor ${floor} must not be granted`).toBe(1);
+      expect(floorTimeBudget(floor)).toBe(
+        Math.max(CONFIG.timerMinSeconds, CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff),
+      );
+    }
+  });
+
+  it("lerps from the start grant to the end grant across the deep band", () => {
+    expect(floorTimeGrant(CONFIG.timerGrantFromFloor)).toBeCloseTo(1 + CONFIG.timerGrantStart, 9);
+    expect(floorTimeGrant(CONFIG.finalFloor)).toBeCloseTo(1 + CONFIG.timerGrantEnd, 9);
+    // Monotone up, and the midpoint is the arithmetic mean of the ends.
+    for (let floor = CONFIG.timerGrantFromFloor; floor < CONFIG.finalFloor; floor++) {
+      expect(floorTimeGrant(floor + 1)).toBeGreaterThan(floorTimeGrant(floor));
+    }
+    const mid = (CONFIG.timerGrantFromFloor + CONFIG.finalFloor) / 2;
+    expect(floorTimeGrant(mid)).toBeCloseTo(1 + (CONFIG.timerGrantStart + CONFIG.timerGrantEnd) / 2, 9);
+  });
+
+  it("makes the deep clock strictly more generous than it was, never less", () => {
+    for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+      const before = Math.max(
+        CONFIG.timerMinSeconds,
+        CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff,
+      );
+      expect(floorTimeBudget(floor), `floor ${floor} lost time`).toBeGreaterThanOrEqual(before - 1e-9);
+    }
+    // The grant outruns the falloff: the deep band is now flat-ish, not a
+    // shrinking clock (~116s from floor 10 down).
+    expect(floorTimeBudget(CONFIG.finalFloor)).toBeGreaterThan(floorTimeBudget(CONFIG.timerGrantFromFloor - 1));
   });
 });
 
