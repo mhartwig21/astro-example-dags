@@ -279,6 +279,17 @@ function assetHashing(): Plugin {
       // Extensionless and dotfiles (.gitkeep) have nowhere sensible to put a
       // hash, and nothing requests them anyway.
       if (base.lastIndexOf(".") <= 0) return;
+      // `assets/tex/` is the deduplicated shared-texture pool
+      // (tools/dedupe-textures.mjs). Those files are ALREADY content-addressed
+      // — `t.<8 hex of their own sha256>.webp` — and, unlike every other asset,
+      // their URLs are not assembled by a host: they are relative `../tex/…`
+      // URIs baked INSIDE the GLBs that reference them, where neither
+      // assetUrl() nor any build-time rewrite can reach. Renaming them here
+      // would leave 218 GLBs pointing at names that no longer exist. Skipping
+      // the rename costs nothing: the name already changes when the bytes do,
+      // which is the whole point of the hash, and gameServer's `selfDescribing`
+      // test matches `t.<8hex>.webp` so they still serve immutable for a year.
+      if (rel.startsWith("assets/tex/")) return;
       files[`/${rel}`] = short(readFileSync(abs));
     });
   }

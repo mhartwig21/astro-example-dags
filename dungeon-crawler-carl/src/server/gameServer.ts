@@ -259,6 +259,10 @@ const MIME: Record<string, string> = {
   ".css": "text/css; charset=utf-8",
   ".json": "application/json",
   ".png": "image/png",
+  // The deduplicated shared-texture pool under /assets/tex/ (one KayKit atlas
+  // was embedded in 57 separate GLBs). Served as octet-stream these decode only
+  // by content sniffing, which is not something to leave to chance on a phone.
+  ".webp": "image/webp",
   ".ico": "image/x-icon",
   ".svg": "image/svg+xml",
   ".glb": "model/gltf-binary",

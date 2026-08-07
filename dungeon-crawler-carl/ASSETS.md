@@ -83,6 +83,32 @@ Regenerate with `node tools/asset-pipeline/prune-character-clips.mjs --apply`
 (the keep-set is derived from the host's own animator regexes; see that file and
 `test/clipCoverage.test.ts`). The full original packs remain available in the
 owner's Complete Collection zip — see `KAYKIT-INVENTORY.md`.
+
+**Modification on record — shared textures externalised (asset budget).** The
+218 unanimated GLBs across `public/assets/dungeon/` and
+`public/assets/characters/` are likewise **adaptations**: a KayKit pack ships
+one atlas per pack, so the same image was embedded once per prop — the dungeon
+atlas 57 times, a banner atlas 32, a cliff atlas 29. Because WebP is already
+compressed and every GLB is gzipped independently, transport compression could
+not see those copies; they were 1.55 MB of real wire cost. The 29 images shared
+by two or more files now live once in **`public/assets/tex/`** as
+`t.<8 hex of their own sha256>.webp`, referenced by a relative `../tex/…` URI,
+and the HTTP cache deduplicates them (218 embedded copies → 29 downloads). The
+26 single-use images stay embedded, since externalising those would buy a round
+trip and no bytes. **The image bytes are copied verbatim — byte-identical, not
+re-encoded** — and geometry, materials, samplers and node hierarchies are
+untouched; only the `images[]` entries and the BIN packing changed. CC0 permits
+this and imposes no attribution duty, so **no license or credits change is
+required**; the new `tex/` files inherit the CC0 of whichever KayKit pack they
+came from, all of which are already listed in the tables below. Recorded here
+because ASSETS.md is the provenance log and these filenames are ours, not
+KayKit's. Regenerate with `node tools/asset-pipeline/dedupe-textures.mjs --apply` (idempotent:
+it re-derives the same hashes from the same bytes).
+
+> Because the names ARE the content hashes, `assets/tex/` is deliberately
+> skipped by the build's asset-hashing rename (`vite.config.ts`) — the URIs are
+> baked inside the GLBs where no build-time rewrite can reach them. Renaming
+> that tree would break all 218 referencing models.
 | RPG Characters / Animated Monsters | Quaternius | CC0 | https://quaternius.com/ |
 
 KayKit Adventurers + Skeletons are the sweet spot for this game: rigged humanoids

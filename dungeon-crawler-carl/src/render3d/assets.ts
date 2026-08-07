@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { assetUrl, assetInBuild } from "../assetUrl";
+import { SHARED_TEXTURES } from "./sharedTextures";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -464,6 +465,33 @@ export function startModelLoad(
   let settled = 0;
   const tick = () => onProgress?.(++settled, totalFiles);
 
+  // SHARED-TEXTURE PREWARM. A KayKit pack ships one atlas, so the same image
+  // was embedded in every prop that used it — the dungeon atlas 57 times over.
+  // Those copies now live once under /assets/tex/ (tools/dedupe-textures.mjs),
+  // which took 1.78 MB out of the GLBs on the wire.
+  //
+  // That saving is entirely cache-dependent: ~250 GLBs parse concurrently, so
+  // 218 requests for 29 urls go out before the first response lands, and the
+  // duplicate bytes only disappear if the browser serves the other 217 without
+  // hitting the network. Chromium does coalesce them — measured A/B, byte for
+  // byte identical with and without this prewarm. But the owner tests on a real
+  // iPhone/iPad, and that coalescing is a browser optimisation rather than a
+  // guarantee; a browser that skipped it would download 1.84 MB of duplicates
+  // and leave the boot WORSE than before the change. So we put the bytes in the
+  // cache ourselves and stop depending on the optimisation.
+  //
+  // Deliberately NOT awaited before the priority wave: it races alongside it and
+  // is awaited only before wave 2, which is where the props actually live. That
+  // buys the guarantee without adding a serialisation point to first paint.
+  //
+  // Failures are ignored on purpose — a miss just means the GLTFLoader fetches
+  // that texture itself, exactly as it would have without this.
+  const prewarm = Promise.all(
+    SHARED_TEXTURES.map((u) =>
+      fetch(assetUrl(u), { cache: "force-cache" }).then((r) => r.arrayBuffer()).catch(() => null),
+    ),
+  ).then(() => {});
+
   const priorityWave = Promise.all(
     wave1.map((e) => loadModel(e[0], e[1]).finally(tick)),
   ).then(() => {});
@@ -471,6 +499,7 @@ export function startModelLoad(
 
   const background = async (): Promise<void> => {
     await priorityWave; // priority wave owns the bandwidth first
+    await prewarm; // shared atlases in cache before the 194 props ask for them
     await Promise.all([
       ...wave2.map((e) => loadModel(e[0], e[1]).finally(tick)),
       ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).flatMap((rig) =>
