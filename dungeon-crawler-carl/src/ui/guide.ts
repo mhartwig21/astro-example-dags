@@ -1,13 +1,38 @@
 /**
- * THE GUIDE (TUTORIAL.md): Mordecai's once-ever first-session beats.
+ * THE GUIDE (TUTORIAL.md): Mordecai's once-ever first-session beats — his
+ * MODAL surface (the #dialogue panel, at rest).
  *
- * The reconciliation in one line: the System teaches the controls in the
- * moment (THE ONRAMP + sim tips, both shipped); Mordecai teaches the game at
- * rest — campfire, the first draft pause, safe rooms, the verdict, the second
- * check-in. He never speaks over live combat, never rides the announcer
- * channel, and never pre-explains a rule the System is about to demonstrate.
+ * THE LAW, rewritten by the tutorial rebuild (HANDOFF §3a — ONE VOICE):
+ * Mordecai teaches EVERYWHERE now. In play he owns the strip
+ * (src/ui/coach.ts: instruction-first teaching lines, curriculum tip
+ * translations, objective step lines); at rest he owns this panel. The
+ * System no longer teaches on any surface — COURTESY EXPLANATION is dead as
+ * a format, and the announcer register survives for EVENTS only (ringside
+ * intros, achievements, hype). What still separates the two Mordecai
+ * surfaces: the STRIP carries instruction (what to press, sentence one); the
+ * MODAL carries judgement (what to pick, what to spend, why the cameras
+ * pay). No modal beat may restate a strip line's mechanism — the paraphrase
+ * test in test/guide.test.ts holds the modal side of that seam.
  *
- * Structure copied from the Onramp mold: a pure module — facts in, at most
+ * ...AND THE STRIP IS NO LONGER WHERE A LESSON IS DELIVERED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build: "no one reads long text
+ * while they're actively fighting in an ARPG." So an INSTRUCTIONAL beat now
+ * stops the world and is stepped through on THIS panel — `dlgOpen` is already
+ * the solo loop's pause gate, so B0 has behaved this way since r6 and the five
+ * objective-step introductions join it. The strip keeps every REACTIVE line
+ * (contact, lowhp, elite, boss, the knockdown diagnoses, the tip
+ * translations) and is also the demotion path when a hold cannot happen.
+ * B0's `lines` are PAGES now: one line, one page, advanced by the player.
+ *
+ * ...AND SO ARE B5's (r15, the curriculum round). `obj.saferoom`'s introduction
+ * cannot pause — it arms at a shop counter, and a counter is a modal the lull
+ * gate refuses — so the safe room's paused teaching is this beat, which fires
+ * in the gap between the room stopping the world and the panel opening. It
+ * took that step's slot in the six-hold cap (src/ui/hold.ts HOLD_SAFEROOM_KEY);
+ * the count did not move, the member did. The other beats here are at-rest
+ * conversations riding a pause the player already chose, and are unchanged.
+ *
+ * Structure in the Coach/Onramp mold: a pure module — facts in, at most
  * one beat out per call, unit-testable without a DOM. The host renders beats
  * through the SHIPPED #dialogue presentation (portrait, typewriter, numbered
  * choices, ESC farewell) and persists shown beats on the SHIPPED tips ledger
@@ -25,9 +50,10 @@
  *
  * Voice rules, binding (TUTORIAL.md §4): short declaratives; wry, never
  * breathless; protective under the gruffness; no exclamation marks; he says
- * "you" and means the person. No Mordecai line may contain "COURTESY
- * EXPLANATION" and no TIPS line may ever reach this module — the two-voice
- * test in test/guide.test.ts holds that line.
+ * "you" and means the person. No line here may contain "COURTESY
+ * EXPLANATION" (nobody's may, anywhere, any more) and no TIPS text may ever
+ * reach this module — the modal-surface tests in test/guide.test.ts hold
+ * that line.
  */
 
 /** Once-ever ledger keys. `tut.*` rides the browser tips ledger and flows
@@ -41,7 +67,8 @@ export type GuideBeatKey =
   | "tut.runback"  // B8 — the verdict aside (death is tuition)
   | "tut.menu2";   // B9 — the second check-in (the menu has doors too)
 
-/** The global skip (B0 choice 3): every beat ledgered + the onramp silenced. */
+/** The global skip (B0 choice 3): every beat ledgered + the coach and the
+ *  objectives curriculum silenced. */
 export const GUIDE_SKIP_KEY = "tut.skipAll";
 
 export const GUIDE_BEAT_KEYS: readonly GuideBeatKey[] = [
@@ -58,10 +85,16 @@ export interface GuideChoice {
    * close    — farewell; the beat's surface proceeds (always last in the list,
    *            and ESC is its keyboard twin everywhere).
    * open     — farewell INTO a surface: the host arms the named panel/tab.
-   * skipAll  — B0 only: ledger every beat + silence the remaining onramp
-   *            lines, answer with `reply`, then only a close remains.
+   * skipAll  — B0 only: OFFER the global skip. It does not skip anything by
+   *            itself — the host replaces the choice list with a confirmation
+   *            whose safe answer is first, and only `skipConfirm` consumes the
+   *            curriculum. A destructive control that fires on one input, from
+   *            a slot a benign choice occupied a moment earlier, is a
+   *            data-loss defect wearing a dialogue costume (r1).
+   * skipConfirm — the second input. Host-synthesised; never authored in the
+   *            beat table, so no beat can ship a one-tap skip by accident.
    */
-  effect: "reply" | "close" | "open" | "skipAll";
+  effect: "reply" | "close" | "open" | "skipAll" | "skipConfirm";
   reply?: string;
   open?: "draft" | "shop" | "bench";
 }
@@ -74,10 +107,18 @@ export interface GuideBeat {
 
 // The beat table as DATA (TUTORIAL.md §3, lines verbatim).
 export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
+  // B0 PAGES (r14) AND ITS MIDDLE PAGE IS THE FEATURE'S OWN ONBOARDING (r15).
+  // A player is about to be interrupted five more times by a man they have met
+  // once; the honest place to say so is inside the first interruption, which is
+  // the only one that costs them nothing. It names the three controls the panel
+  // itself advertises — advance, wave off, and the list that remembers — so the
+  // first time the world stops in a corridor it reads as a promise being kept
+  // rather than as a crash.
   "tut.campfire": {
     key: "tut.campfire",
     lines: [
       "Name's Mordecai. I managed crawlers before the dungeon ate my license. Now I mind the fires and try to keep a few of you alive past the first week.",
+      "When something down there is worth knowing, I'll stop the clock and say it once. Space moves me along, Esc waves me off, and the list I leave on your glass remembers what I asked for.",
       "The System talks a lot down there. Listen to WHAT it says, never HOW it says it. I'll be at the safe rooms when you want an answer from someone with a pulse.",
     ],
     choices: [
@@ -104,6 +145,19 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
     // ESC does the same as the one choice — there is no way to lose the draft.
     choices: [{ id: "picks", label: "Show me the picks.", effect: "open", open: "draft" }],
   },
+  // B5 IS A HOLD NOW (r15), and it is the shelf's only paused teaching.
+  //
+  // `obj.saferoom`'s introduction cannot pause: it arms while the crawler is at
+  // a counter, and the counter is a modal the lull gate refuses — so it would
+  // wait out its deadline and demote onto a strip the shop panel is covering.
+  // This beat already fires in the one honest gap (the safe room has stopped
+  // the world; the panel has not opened yet), so it took the slot and it pages.
+  //
+  // Which means the two lines that used to arrive at once are three pages the
+  // player steps through, and the third is the one the economy round kept
+  // finding nobody had: what to do at a shelf you cannot afford. It stays
+  // JUDGEMENT (the modal's half of the seam) — the prices, the tiles and the
+  // word COMPONENTS are the panel's own Mordecai row, COACH_SHOP_BEATS.
   "tut.saferoom": {
     key: "tut.saferoom",
     lines: [
@@ -112,6 +166,7 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
       // the room is FOR, which is the one thing the panel can't.
       "Safe room. Nothing in here is trying to kill you, and that stops being true the second you take those stairs. Sit down. Breathe. It counts as work.",
       "Spend the gold. The exchange rate only gets worse with depth, and nobody's buried with their savings. If you're sitting on a draft, cash it here — nothing's chewing on you for once.",
+      "And if the whole shelf is out of reach, read it anyway and remember the cheapest thing on it. What a floor costs is worth knowing before the floor that can afford it.",
     ],
     choices: [
       { id: "shop", label: "Open the shop.", effect: "open", open: "shop" },
@@ -217,8 +272,9 @@ export class Guide {
   }
 
   /** True once the global skip has been taken (this session or any before):
-   *  the remaining ONRAMP lines are silenced too — a player who declined the
-   *  hand-holding gets no more of it from either voice. */
+   *  the remaining COACH lines and the objectives curriculum are silenced
+   *  too — a player who declined the hand-holding gets no more of it, on any
+   *  surface. */
   get skipped(): boolean {
     return this.seen.has(GUIDE_SKIP_KEY);
   }
@@ -301,7 +357,7 @@ export class Guide {
   /**
    * The global skip (B0 choice 3): every beat is consumed and the skip flag
    * set. Returns every key now owed to the ledger — the host records them all
-   * (and the onramp reads `skipped` from here on).
+   * (and the coach + objectives read `skipped` from here on).
    */
   skipAll(): string[] {
     const keys: string[] = [...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY];

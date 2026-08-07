@@ -1,7 +1,9 @@
 import { defineConfig, type Plugin, type ViteDevServer } from "vite";
 import { resolve, join } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { gzipSync } from "node:zlib";
+import { existsSync, mkdirSync, readFileSync, writeFileSync, copyFileSync, readdirSync, renameSync } from "node:fs";
 
 /**
  * DCC builder bridge — DEV ONLY. Lets /builder.html kick off Meshy pipeline
@@ -217,12 +219,171 @@ function builderBridge(): Plugin {
   };
 }
 
+/**
+ * CONTENT-HASHED STATIC ASSETS — BUILD SIDE. (Client side: src/assetUrl.ts.
+ * Policy + why one machine still serves it: DEPLOY.md "Cache policy".)
+ *
+ * Vite content-hashes what it BUNDLES. Everything under `public/` — 32 MB of
+ * models, 23 MB of audio, the icons, the fonts — shipped under its own name, so
+ * no cached copy could be told apart from a newer one and the server had to cap
+ * it at `max-age=86400` + revalidate. Past a day, a visit spends ~400 round
+ * trips proving nothing changed before the first frame.
+ *
+ * Two schemes, because the URLs are built two different ways:
+ *
+ *  - `assets/` and `audio/` get a PER-FILE hash (`skeleton.1a2b3c4d.glb`).
+ *    Their URLs are assembled from parts at runtime (`/assets/dungeon/${name}
+ *    .glb`), so no build-time string rewrite can see them; the map is inlined
+ *    into each HTML document and `assetUrl()` resolves it at the handful of
+ *    places a URL reaches the network. Per-file is what makes a deploy cheap:
+ *    change one model, re-download one model.
+ *
+ *  - `icons/` and `fonts/` get a PER-TREE version (`/icons.1a2b3c4d/`). Those
+ *    URLs are written inline in dozens of template literals and in iso.html's
+ *    CSS, but always off a literal prefix — so rewriting the prefix reaches
+ *    every one with no runtime lookup. The rewrite happens in `transform` /
+ *    `transformIndexHtml`, i.e. BEFORE rollup hashes the chunks, so a chunk's
+ *    own hash accounts for the icon version it points at. (Rewriting emitted
+ *    JS instead would leave a chunk whose name no longer matches its bytes —
+ *    served immutable, that is a permanently stale bundle.) 300 small files
+ *    that ship together; re-fetching the few a session touches is free.
+ *
+ * `public/` itself is never touched: ASSETS.md stays the license index, keyed
+ * by the real filenames, and a rename is not a modification of the work.
+ */
+function assetHashing(): Plugin {
+  const HASH_TREES = ["assets", "audio"]; // per-file
+  const VERSION_TREES = ["icons", "fonts"]; // per-tree
+  const short = (data: Buffer | string): string =>
+    createHash("sha256").update(data).digest("hex").slice(0, 8);
+
+  const walk = (abs: string, rel: string, visit: (abs: string, rel: string) => void): void => {
+    for (const e of readdirSync(abs, { withFileTypes: true })) {
+      const a = join(abs, e.name);
+      const r = rel ? `${rel}/${e.name}` : e.name;
+      if (e.isDirectory()) walk(a, r, visit);
+      else visit(a, r);
+    }
+  };
+
+  // Hashes come off public/ up front — dist/ is a byte-for-byte copy of it, so
+  // everything downstream (the HTML map, the prefix rewrites, the renames) can
+  // agree on one set of names computed exactly once.
+  const pub = resolve(__dirname, "public");
+  const files: Record<string, string> = {}; // "/assets/x.glb" -> content hash
+  const dirs: Record<string, string> = {}; // "/icons/" -> "/icons.<hash>/"
+  for (const tree of HASH_TREES) {
+    if (!existsSync(join(pub, tree))) continue;
+    walk(join(pub, tree), tree, (abs, rel) => {
+      const base = rel.slice(rel.lastIndexOf("/") + 1);
+      // Extensionless and dotfiles (.gitkeep) have nowhere sensible to put a
+      // hash, and nothing requests them anyway.
+      if (base.lastIndexOf(".") <= 0) return;
+      // `assets/tex/` is the deduplicated shared-texture pool
+      // (tools/dedupe-textures.mjs). Those files are ALREADY content-addressed
+      // — `t.<8 hex of their own sha256>.webp` — and, unlike every other asset,
+      // their URLs are not assembled by a host: they are relative `../tex/…`
+      // URIs baked INSIDE the GLBs that reference them, where neither
+      // assetUrl() nor any build-time rewrite can reach. Renaming them here
+      // would leave 218 GLBs pointing at names that no longer exist. Skipping
+      // the rename costs nothing: the name already changes when the bytes do,
+      // which is the whole point of the hash, and gameServer's `selfDescribing`
+      // test matches `t.<8hex>.webp` so they still serve immutable for a year.
+      if (rel.startsWith("assets/tex/")) return;
+      files[`/${rel}`] = short(readFileSync(abs));
+    });
+  }
+  for (const tree of VERSION_TREES) {
+    if (!existsSync(join(pub, tree))) continue;
+    const parts: string[] = [];
+    walk(join(pub, tree), tree, (abs, rel) => parts.push(`${rel}:${short(readFileSync(abs))}`));
+    dirs[`/${tree}/`] = `/${tree}.${short(parts.sort().join("\n"))}/`;
+  }
+  const versionPrefixes = (src: string): string => {
+    for (const [from, to] of Object.entries(dirs)) src = src.split(from).join(to);
+    return src;
+  };
+  // Inlined, not fetched: the first model request must not wait on a round trip
+  // to learn its own name, and the document it rides in is `no-cache` anyway.
+  const mapTag = (): string =>
+    `<script type="application/json" id="dcc-asset-hashes">` +
+    `${JSON.stringify(files).replace(/</g, "\\u003c")}</script>`;
+
+  return {
+    name: "dcc-asset-hashing",
+    apply: "build",
+    // Every module we author, INCLUDING the CSS Vite extracts out of iso.html's
+    // inline <style> (an `?html-proxy…css` id). That block is where the fonts
+    // and a good share of the icon masks live, and it is re-injected into the
+    // document AFTER transformIndexHtml — so patching the html string alone
+    // silently left those two behind. Learned the hard way; do not re-narrow
+    // this filter to a file-extension test.
+    transform(code, id) {
+      if (id.includes("node_modules")) return null;
+      const out = versionPrefixes(code);
+      return out === code ? null : { code: out, map: null };
+    },
+    transformIndexHtml(html) {
+      return versionPrefixes(html).replace("</head>", `${mapTag()}\n</head>`);
+    },
+    closeBundle() {
+      const dist = resolve(__dirname, "dist");
+      if (!existsSync(dist)) return;
+      for (const [url, hash] of Object.entries(files)) {
+        const rel = url.slice(1);
+        const abs = join(dist, rel);
+        if (!existsSync(abs)) continue; // never copied (shouldn't happen) — leave it
+        const dot = rel.lastIndexOf(".");
+        renameSync(abs, join(dist, `${rel.slice(0, dot)}.${hash}${rel.slice(dot)}`));
+      }
+      for (const [from, to] of Object.entries(dirs)) {
+        const abs = join(dist, from.slice(1, -1));
+        if (existsSync(abs)) renameSync(abs, join(dist, to.slice(1, -1)));
+      }
+      // The receipt: what this build claims is immutable, for anyone debugging a
+      // cache question from outside the browser.
+      writeFileSync(join(dist, "asset-hashes.json"), JSON.stringify({ files, dirs }));
+      const n = Object.keys(files).length;
+
+      // PRECOMPRESS, because the server was doing this per request. gameServer
+      // gzips GLB/JS/CSS/HTML on the fly, and it is worth a lot (the shipped
+      // character GLBs are ~80% air: skeleton_warrior 2,629,440 -> 541,097) —
+      // but that is level-6 deflate over ~32 MB of models for every cold
+      // visitor, on the one machine that is also ticking the worlds. The bytes
+      // are immutable now, so compressing them once at build time is strictly
+      // better: no per-request CPU, level 9 instead of 6, and a real
+      // content-length where the streamed path could only send chunked.
+      // Files that DON'T shrink (already-compressed audio, and any GLB a future
+      // mesh-compression round makes incompressible) get no sidecar at all, so
+      // this stays honest as the assets change under it.
+      let gzCount = 0, gzIn = 0, gzOut = 0;
+      walk(dist, "", (abs, rel) => {
+        if (!/\.(glb|js|css|html|json|svg|txt|ttf|wav)$/.test(rel)) return;
+        const raw = readFileSync(abs);
+        if (raw.length < 1024) return; // a round trip costs more than the bytes
+        const gz = gzipSync(raw, { level: 9 });
+        if (gz.length > raw.length * 0.9) return; // not worth the disk or the disk read
+        writeFileSync(`${abs}.gz`, gz);
+        gzCount++; gzIn += raw.length; gzOut += gz.length;
+      });
+      const mb = (b: number): string => (b / 1e6).toFixed(1);
+      console.log(`dcc-asset-hashing: ${n} files content-hashed, ${Object.keys(dirs).length} trees versioned`);
+      console.log(`dcc-asset-hashing: ${gzCount} files precompressed, ${mb(gzIn)}MB -> ${mb(gzOut)}MB on the wire`);
+    },
+  };
+}
+
 export default defineConfig({
   root: ".",
   server: { port: 5280, strictPort: true, open: false },
-  plugins: [builderBridge()],
+  plugins: [builderBridge(), assetHashing()],
   build: {
     outDir: "dist",
+    // Bundled chunks live under /_app/, NOT the default /assets/ — that shared
+    // the one directory with public/assets/ (the models), which made "is this
+    // URL a rollup chunk or a model?" unanswerable from the path alone. Both
+    // the hashing plugin and the server's cache policy ask that question.
+    assetsDir: "_app",
     rollupOptions: {
       input: {
         main: resolve(__dirname, "index.html"), // 2D top-down slice

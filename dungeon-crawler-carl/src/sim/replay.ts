@@ -282,6 +282,14 @@ export interface RunProofHeader {
    *  Absent/null = base game. Part of the header because it changes what the
    *  sim eats — a ruled run replayed without its rule diverges on tick one. */
   dailyRule?: DailyRuleId | null;
+  /** THE DEBUT (TUTORIAL.md): the run was played on a fresh profile's FIRST
+   *  descent, so floor 1 ran under the first-run mercy (a stipend, a held
+   *  clock, and killing blows converted to knockdowns). It is in the header
+   *  for the same reason dailyRule is — a merciful run replayed without the
+   *  flag diverges the first time the floor tries to kill the crawler — and it
+   *  is what makes such a run structurally UNRANKABLE: the eligibility rule
+   *  lives in the server (competitiveApi), never in the codec. */
+  firstRun?: boolean;
 }
 
 /** What the CLIENT says happened. Checked with zero tolerance against the
@@ -419,6 +427,7 @@ export function validateProofShape(proof: RunProof): string | null {
   if (h.dtNum !== REPLAY_DT_NUM || h.dtDen !== REPLAY_DT_DEN) return "unsupported timestep";
   if (h.startKind !== "fresh" && h.startKind !== "test") return "bad start kind";
   if (h.dailyRule != null && !(h.dailyRule in DAILY_RULES)) return "unknown daily rule";
+  if (h.firstRun !== undefined && typeof h.firstRun !== "boolean") return "bad first-run flag";
   if (!Array.isArray(proof.actions)) return "actions is not an array";
   if (proof.actions.length > MAX_ACTIONS) return "too many actions";
   let last = -1;
@@ -465,6 +474,9 @@ export interface RecorderOptions {
   ticket?: string;
   /** TODAY'S RULE the run was dealt (see RunProofHeader.dailyRule). */
   dailyRule?: DailyRuleId | null;
+  /** THE DEBUT: the world was created with the first-run mercy on
+   *  (see RunProofHeader.firstRun). Such a run replays, but never ranks. */
+  firstRun?: boolean;
   /** Stop recording past this many ticks (memory guard). 4 B/tick means a
    *  60-minute run is 864 KB; the default ceiling is the artifact cap. */
   maxTicks?: number;
@@ -553,6 +565,7 @@ export class RunRecorder {
         eventId: this.opts.eventId,
         ticket: this.opts.ticket,
         dailyRule: this.opts.dailyRule ?? undefined,
+        firstRun: this.opts.firstRun || undefined,
       },
       frames: rleFrames(this.frames, this.tickN),
       actions: this.acts,
@@ -676,7 +689,14 @@ export class ReplaySession {
     // reproduces exactly and a restored snapshot might not (COMPETITIVE.md 2.1).
     this.state = proof.header.startKind === "test" && proof.header.test
       ? createTestGame(proof.header.test)
-      : createGame(proof.header.seed, proof.header.mode, proof.header.runKind, proof.header.dailyRule ?? null);
+      : createGame(
+          proof.header.seed, proof.header.mode, proof.header.runKind,
+          proof.header.dailyRule ?? null,
+          // THE DEBUT rides the header exactly like the daily rule: a merciful
+          // world replayed as an ordinary one diverges the first time floor 1
+          // tries to kill the crawler.
+          !!proof.header.firstRun,
+        );
     if (proof.header.playerName) this.state.players[0].name = proof.header.playerName;
     this.playerId = this.state.players[0].id;
     this.lastFloor = this.state.floor;

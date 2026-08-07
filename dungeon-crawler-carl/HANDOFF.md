@@ -81,9 +81,41 @@ guided tutorials as well where the player goes and does x, y, z before that
 tutorial step ends so they know what they're doing. Mordecai is some times
 talking in riddles."*
 
-What shipped is a **stop-gap**: non-curriculum courtesy tips are dropped rather
-than shown (`main3d.ts`, the `CURRICULUM_TIPS` branch). The rebuild is not
-started. The design, as far as it got:
+**PLUMBING SHIPPED on branch `tutorial-mordecai`** (TUTORIAL.md "r6" section
+has the map): `src/ui/coach.ts` (Mordecai's strip, instruction-first beats,
+onramp mechanics carried over; `src/ui/onramp.ts` deleted), `src/ui/objectives.ts`
+(+ the `#objectives` card — four guided steps, checked by state observation,
+`obj.*` on the tips ledger, fresh-crawler enrollment / veteran grandfathering),
+tip translation in `showAnnouncement` (no tip ever prints in the System's
+register), and the inverted binding rule enforced in `test/coach.test.ts`.
+**CONTENT PASS shipped** (second commit on the branch — TUTORIAL.md's r6
+section has the details): five objective steps (THE SHOW added as the
+closer), THE FIVE key by key via live `{token}` labels, `elite`/`boss` depth
+confirmations for floor-2+ pacing, and the S2 facts moved to sim-truth (the
+old dash fact read a bot-only intent flag — a human could never check it).
+**FIX ROUND 1 shipped** (third commit on the branch — TUTORIAL.md's
+`r6-fix-1` section is the full map). A harsh critic scored the r6 build 4.5/10
+off four cold passes; the two blockers were real and structural. THE FIVE
+armed, latched and completed in one `update()` call, and its facts are
+run-cumulative, so the step was born completed and the ledger spent it without
+the card ever painting — arming now returns early and completion is gated on
+4s of measured card-on-glass time. Dismiss-on-input ran off a 1.2s grace
+against keyboard AUTOREPEAT, so holding W deleted every teaching card 1.2s
+after it appeared — `e.repeat` is ignored and the floor is a read budget
+derived from the line (measured: 6689ms of card life under continuous held-key
+input, against ~1200ms before). Also: stale-lesson preconditions
+(`CardHooks.stillTrue`), the dash taught at T+10s instead of behind a 3-kill
+gate, post-death re-teaching, a campfire skip that is off the number row and
+asks first (plus an undo in the K panel), and a novice-tiered verdict.
+Two of the critic's findings were probe artifacts of reading `textContent` off
+`display:none` markup — see the section for the evidence, and HANDOFF §0.
+STILL OWED: the `tools/_tut_r6.mjs` cold-profile acceptance battery (the
+r1–r5 batteries assert COURTESY-era behavior and lie now; `_tut_r6_smoke.mjs`,
+`_tut_fix_r1.mjs` and `_tut_content_probe.mjs` cover boot/paint/label-
+substitution and the fix round only), **floor-1 first-run mercy (a sim change,
+deliberately not taken in a UI round — TUTORIAL.md open edges)**, a floor-2+
+observed pass, and the owner's phone pass on the compact objectives chip. The
+design that got us here:
 
 - **One voice.** COURTESY EXPLANATION dies as a teaching format. The System
   keeps its announcer register for *events* (ringside intros, achievements,
@@ -92,8 +124,31 @@ started. The design, as far as it got:
   the `src/ui/guide.ts` header). That rule must go if he is the teacher — he
   needs a lightweight in-play strip, not the modal `#dialogue` panel that
   pauses the world.
+
+  > **RETIRED BY THE OWNER, r14 — THE HOLD.** He played the integrated build
+  > and said it plainly: *"I was thinking the tutorial would actually involve
+  > pauses of the game and you'd have to go through them (or could dismiss him)
+  > so people actually read. As it stands it's just like Mordecai replaced the
+  > courtesy explanations for like for like but no one reads long text while
+  > they're actively fighting in an ARPG."* The paragraph above named the wrong
+  > layer: the PROSE was fine and four rounds polished it, while the DELIVERY —
+  > a strip card during combat — was what nobody read. A teaching beat now
+  > INTERRUPTS (`src/ui/hold.ts` + the adapter beside `guideShow`): the sim
+  > stops, the player steps through it with Space, and the strip is what a beat
+  > falls back to when it can never hold (co-op, a refusal, 25s of unbroken
+  > combat). The strip itself is unchanged and still owns every REACTIVE line.
+  >
+  > **r15 re-authored the CURRICULUM for that delivery** (TUTORIAL.md r15): a
+  > paused page names the player's live binds as key caps and points at what it
+  > names, the dash/draft/descent each got a page of their own, the explanation
+  > that was smuggled into the quips came back out, and the safe room's hold
+  > slot moved to B5 — the only paused moment the shelf lesson actually has.
+  > It also found the r14 POINTER broken end to end: the spotlight was under
+  > the panel's own letterbox bar while measuring `opacity: 1.00`.
 - **Objectives.** A small persistent card: a titled step with 2-3 checkable
-  items, staying until all are done. Play never pauses.
+  items, staying until all are done. ~~Play never pauses.~~ **r14: a step's
+  FIRST delivery pauses; the card is what remembers it afterwards, and its
+  dwell clock is fed zero for the length of a hold.**
 - **The riddle fix is structural, not stylistic.** `guide.ts` currently FORBIDS
   Mordecai from teaching mechanics (there is a two-voice test in
   `test/guide.test.ts` enforcing it), which is exactly why every line he has is

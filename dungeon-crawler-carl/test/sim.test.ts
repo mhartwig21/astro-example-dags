@@ -1333,6 +1333,95 @@ describe("wide hallways + bigger floors", () => {
   });
 });
 
+describe("the deep clock OPENS (owner verdict 2026-08-07)", () => {
+  // THE TABLE. Owner, after playing the integrated build: "floor timers need
+  // to get a bit longer in later levels. It takes time to kill later mobs and
+  // bosses..." — and, once the arithmetic was in front of him: "I thought the
+  // clock would increase a bit as we went! the game gets harder and slower."
+  // It did the opposite: the falloff SHRANK the budget to 92.8s by floor 18.
+  // So floors 1-9 keep the falloff (the early pressure ramp) and floors 10-18
+  // are an ABSOLUTE curve in seconds that ASCENDS, 116s -> 150s. Read the
+  // seconds here; retune from the three timerDeep* knobs in config.ts.
+  const TABLE: [floor: number, before: number, after: number][] = [
+    [1, 120.0, 120.00], [2, 118.4, 118.40], [3, 116.8, 116.80],
+    [4, 115.2, 115.20], [5, 113.6, 113.60], [6, 112.0, 112.00],
+    [7, 110.4, 110.40], [8, 108.8, 108.80], [9, 107.2, 107.20],
+    [10, 105.6, 116.00], [11, 104.0, 120.25], [12, 102.4, 124.50],
+    [13, 100.8, 128.75], [14, 99.2, 133.00], [15, 97.6, 137.25],
+    [16, 96.0, 141.50], [17, 94.4, 145.75], [18, 92.8, 150.00],
+  ];
+
+  it("matches the per-floor budget table exactly", () => {
+    expect(TABLE).toHaveLength(CONFIG.finalFloor);
+    for (const [floor, before, after] of TABLE) {
+      const falloff = Math.max(
+        CONFIG.timerMinSeconds,
+        CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff,
+      );
+      expect(falloff, `floor ${floor}: the old falloff budget`).toBeCloseTo(before, 6);
+      expect(floorTimeBudget(floor), `floor ${floor}: budget`).toBeCloseTo(after, 6);
+    }
+  });
+
+  it("leaves every floor above the inflection bit-identical to the falloff", () => {
+    // Floor 1 especially: THE DEBUT's held clock, the tutorial's warning-line
+    // arithmetic, and the daily-rule tests all key off it.
+    for (let floor = 1; floor < CONFIG.timerDeepFromFloor; floor++) {
+      expect(floorTimeBudget(floor), `floor ${floor} must stay on the falloff`).toBe(
+        Math.max(CONFIG.timerMinSeconds, CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff),
+      );
+    }
+  });
+
+  it("ASCENDS across the deep band — the whole point of the change", () => {
+    // The shape the designer expected all along: harder and slower floors get
+    // MORE clock, not a gentler decline. Every deep floor beats its
+    // predecessor, and the last one beats the first floor of the game.
+    for (let floor = CONFIG.timerDeepFromFloor; floor < CONFIG.finalFloor; floor++) {
+      expect(
+        floorTimeBudget(floor + 1),
+        `floor ${floor + 1} must have MORE clock than floor ${floor}`,
+      ).toBeGreaterThan(floorTimeBudget(floor));
+    }
+    expect(floorTimeBudget(CONFIG.finalFloor)).toBeGreaterThan(floorTimeBudget(1));
+    // The inflection is a visible STEP UP out of the shrinking half.
+    expect(floorTimeBudget(CONFIG.timerDeepFromFloor))
+      .toBeGreaterThan(floorTimeBudget(CONFIG.timerDeepFromFloor - 1) + 5);
+  });
+
+  it("is a plain lerp between two readable second counts", () => {
+    expect(floorTimeBudget(CONFIG.timerDeepFromFloor)).toBe(CONFIG.timerDeepStartSeconds);
+    expect(floorTimeBudget(CONFIG.finalFloor)).toBe(CONFIG.timerDeepEndSeconds);
+    const mid = (CONFIG.timerDeepFromFloor + CONFIG.finalFloor) / 2;
+    expect(floorTimeBudget(mid)).toBeCloseTo(
+      (CONFIG.timerDeepStartSeconds + CONFIG.timerDeepEndSeconds) / 2, 9);
+  });
+
+  it("never takes clock away from any floor", () => {
+    for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+      const before = Math.max(
+        CONFIG.timerMinSeconds,
+        CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff,
+      );
+      expect(floorTimeBudget(floor), `floor ${floor} lost time`).toBeGreaterThanOrEqual(before - 1e-9);
+    }
+  });
+
+  it("still opens WARNING on a readable window at the bottom of the dungeon", () => {
+    // WARNING is a FRACTION of the floor's own budget, so a bigger deep clock
+    // buys a longer alarm too: 48s on floor 1, 60s on floor 18. Pinned so a
+    // future budget change cannot quietly turn the final floor's warning into
+    // either a blink or the majority of the fight.
+    const window = (floor: number) => floorTimeBudget(floor) * CONFIG.warningFraction;
+    expect(window(CONFIG.finalFloor)).toBeCloseTo(60, 6);
+    expect(window(CONFIG.finalFloor)).toBeGreaterThan(window(1));
+    for (let floor = 1; floor <= CONFIG.finalFloor; floor++) {
+      expect(window(floor), `floor ${floor} warning window`).toBeGreaterThan(30);
+      expect(window(floor), `floor ${floor} warning window`).toBeLessThan(75);
+    }
+  });
+});
+
 describe("multiplayer difficulty scaling", () => {
   function floor2Monsters(partySize: number) {
     const g = createGame(4242);
@@ -5544,6 +5633,41 @@ describe("first-contact System tips", () => {
     step(r, idle(), 1 / 60);
     expect(r.phase).toBe("warning");
     expect(r.announcements.some((a) => a.kind === "tip")).toBe(false);
+  });
+
+  /**
+   * THE DEATH SCREEN MAY NOT NAME THE WRONG KILLER (r13, critic severity 5).
+   *
+   * `lastHitSrc` was written by exactly one function — the damage funnel — and
+   * the collapse loop deliberately bypasses it, so a collapse execution
+   * rendered whatever monster last grazed the crawler together with THAT hit's
+   * stale hpBefore. Two of three measured collapse deaths read "SHOT — 17
+   * damage, from 0% HP" and "SHOT — 12 damage, from 74% HP" (a 12-damage hit
+   * cannot kill from 74%). The collapse timer is the mechanic a first session
+   * most needs to learn and the verdict is the screen it is guaranteed to
+   * read, so this was the game teaching the wrong lesson at the best moment it
+   * gets. `social.ts`'s `raw === "collapse"` branch existed the whole time and
+   * was unreachable on the one path it was written for.
+   */
+  it("a collapse execution names THE COLLAPSE, not the last monster that grazed you", () => {
+    const g = createGame(9751);
+    const p = g.players[0];
+    g.monsters.length = 0; // nothing alive to take the kill or re-take the field
+    damagePlayerHit(g, p, 6, { roll: false, src: "shot" });
+    expect(p.lastHitSrc?.by).toBe("shot"); // the stale attribution, as it was
+    const grazed = p.lastHitSrc!.hpBefore;
+    p.hp = Math.min(p.hp, 12);
+    const hpAtCollapse = p.hp;
+    g.timeRemaining = 0;
+    for (let i = 0; i < 2000 && p.alive; i++) step(g, idle(), 1 / 60);
+    expect(p.alive).toBe(false);
+    expect(p.lastHitSrc?.by).toBe("collapse");
+    // ...and the reading is one a player can parse: the floor's whole bite,
+    // measured from the bar it started eating — not a single frame's rounding
+    // error against a stale percentage.
+    expect(p.lastHitSrc!.hpBefore).toBeCloseTo(hpAtCollapse, 5);
+    expect(p.lastHitSrc!.hpBefore).not.toBeCloseTo(grazed, 5);
+    expect(p.lastHitSrc!.dmg).toBeGreaterThanOrEqual(hpAtCollapse);
   });
 
   it("the first banked draft comes with the badge explanation, once ever (TUTORIAL.md B3)", () => {

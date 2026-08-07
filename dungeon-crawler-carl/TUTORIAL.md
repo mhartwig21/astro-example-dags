@@ -4,10 +4,1085 @@ Owner ask: "an initial tutorial of AAA quality to onboard players to the game
 — thinking Mordecai as the game guide using the Roam NPC chat experience —
 helping to introduce all of the key concepts."
 
-**SHIPPED (r1 + r2 + r3 + r4 + r5 fix rounds, branch `tutorial`).** The design
-sections that became code are deleted (BACKLOG.md convention); what remains is
-the enduring canon (the two-voice rule, the register bible), the implementation
-map, and the open edges for later rounds.
+**SHIPPED (r1 + r2 + r3 + r4 + r5 fix rounds, branch `tutorial`; r6 REBUILD —
+ONE VOICE — on branch `tutorial-mordecai`).** The design sections that became
+code are deleted (BACKLOG.md convention); what remains is the enduring canon
+(the one-voice law, the register bible), the implementation map, and the open
+edges for later rounds.
+
+## r15 — THE CURRICULUM, RE-AUTHORED FOR THE PAUSE
+
+r14 changed the DELIVERY and left the words alone. That was the right order and
+it left the job half done: five beats still written to fit one glanced-at strip
+line, now painted on a surface that has stopped the world and is waiting for a
+keypress. **A paused page that owns the screen is a different writing job than a
+one-line card.** It can carry two or three sentences, name the key, and point at
+the thing — and it costs a deliberate press, so it had better be worth one.
+
+### What the pause bought, and what it therefore cost
+
+1. **THE INSTRUCTION NAMES ITS KEY.** All five step introductions were keyless,
+   because a strip card names at most one control and a step needs three. They
+   carry the objectives card's `{tokens}` now (`OBJ_LABEL_TOKENS`), substituted
+   by the host at PAINT — not at build, because a beat may wait 25 seconds for a
+   lull and a rebind in that window must not leave a stale key on the one
+   surface that stopped the game to say it. The panel draws them as KEY CAPS
+   (`DLG_KEYCAP` + `.dlg-key`): the typewriter marks its control labels and
+   reveals a cap one character at a time, so the word the player has to press is
+   not a word in the middle of a sentence. `test/coach.test.ts` holds the law
+   that made this safe to do: **every key a step's CHECKLIST will ask for, that
+   step's HOLD named first.**
+2. **THE PAGES A PAUSE CAN AFFORD** (`OBJ_INTRO_PAGES`, between the instruction
+   and the quip, each with its own pointer in `OBJ_HOLD_PAGE_TARGETS`). This is
+   where the beats four rounds could not land finally got room:
+   - **the dash** — r1 moved it out of THE FIVE and onto a floor-1 strip prompt
+     at T+10s, and r13 still measured a cold profile 258 seconds into a session
+     without pressing it once. It is now a page of its own in `obj.move`'s
+     hold — the FIRST hold of the run, which fires at second zero with nothing
+     in range and is the only beat every session is guaranteed to get — with the
+     hotbar the only un-dimmed thing on the glass. `obj.five` then drills it.
+   - **the draft** (r10 sev 8: every cold profile finished holding unclaimed
+     drafts) and **the descent** (r11 sev 9: two of four deaths were
+     collapse-timer executions with zero wayfinding) get a page each in
+     `obj.payday`, pointing at the DRAFT badge and at the stairs in the world.
+   - **THE FIVE** — four slots and an ultimate, two of them padlocked — is a
+     page with the row lit behind it instead of a clause in a quip.
+3. **THE QUIP IS A QUIP AGAIN.** `obj.five`'s wry carried the definition of THE
+   FIVE; `obj.show`'s carried three definitions. That is explanation smuggled
+   into the register slot, and it existed only because the strip was one line —
+   exactly the prose this round was told to cut. A test now caps a wry's length
+   and forbids a control in it.
+4. **THE DEMOTION KEEPS INSTRUCTION + QUIP AND NEVER THE MIDDLE PAGES.** A
+   four-sentence card during a fight is the delivery the owner rejected. Every
+   lesson on those pages keeps its shipped reactive carrier on the strip
+   (`dashkit`, the `draftBanked` translation, `linger`/`collapse`, the standing
+   ask's escalations), so a player who can never be held — co-op, a refusal,
+   25s of unbroken combat — loses the PAUSE, not the curriculum.
+5. **A HOLD SUPERSEDES THE STRIP LINES IT JUST DELIVERED** (`Coach.supersede`,
+   `OBJ_INTRO_SUPERSEDES`). `start`/`contact`/`dashkit` ARE `obj.move`'s pages;
+   saying both is the trickle the owner rejected plus the same lesson twice.
+   Claimed on the OPENING edge only. Deliberately not the topic ledger: a topic
+   is claimed by whichever beat paints, and reusing it here would have quietly
+   retired r1's post-death re-teach for a player who died on step one.
+6. **B0 TEACHES THE INTERRUPTION IT IS AN EXAMPLE OF.** A player is about to be
+   stopped five more times by a man they have met once; the honest place to say
+   so is inside the first interruption, which is the only one that costs them
+   nothing. Its new middle page names the clock stopping, Space, Esc, and the
+   list — so the first pause in a corridor reads as a promise kept, not a crash.
+
+### The slot that moved (and the cap that did not)
+
+**`obj.saferoom`'s hold could never open**, and r14 filed the reason without
+acting on it: that step arms while the crawler is standing at a counter, a
+counter is a modal, and the lull gate refuses a modal — so it could only burn
+its 25-second deadline and demote onto a strip the shop panel is covering. The
+gold-at-the-shelf lesson had no paused delivery at all.
+
+The safe room already HAS a paused moment: **B5 (`tut.saferoom`) fires in the
+gap between the room stopping the world and the shop panel opening.** So B5
+pages now, like B0, and takes that slot (`HOLD_SAFEROOM_KEY`). Six holds still,
+one member different:
+
+> B0 campfire · obj.move · obj.five · obj.payday · **B5 safe room** · obj.show
+
+B5's two lines became three: the third is what the economy rounds kept finding
+nobody had — what to do at a shelf you cannot afford. It stays JUDGEMENT (the
+modal's half of the seam); the prices, the tiles and the word COMPONENTS remain
+the panel's own Mordecai row (`COACH_SHOP_BEATS`).
+
+### Measured — and the pointer was BROKEN, which r14's instrument could not see
+
+`tools/_tut_r15_curriculum.mjs`, cold profile, ONE headless browser, port 5292,
+shipping server on `dist`. Falsifying sentences, written first: *"it told me to
+press {dash}"* and *"it pointed at nothing."* ALL PASS, including: B0 pages 3
+and names both controls; the run opens on `obj.move`'s hold at second zero;
+page one reads **"Walk with `WASD`, and hit whatever gets inside arm's reach
+with `Space`"** with two caps at 57x23 and no surviving token; the dash page
+carries one cap (`Shift`); the last page rings `#objectives`; B5 holds, pages 3,
+and hands the player to the shelf it was talking about; 3 holds of 6.
+
+**THE POINTER WAS NOT WORKING, AND `opacity: 1.00` SAID IT WAS.** r14 measured
+the spotlight exemption against the 35% modal dim and stopped there. But
+`#dialogue.tut` is z 29 and paints its own scrim plus two 9%-tall letterbox
+bars, while `body.hold .holdlit` was z 27 (without `!important`, so on an
+id-styled element it was never applied at all), `#holdring` was 28 and
+`body.dlg #coach` 26. On a real frame: the hotbar the dash page was pointing at
+was UNDER the bottom letterbox bar, the ring was under it too, and the
+objectives card sat under the scrim reading grey — every one of them measuring
+`opacity: 1.00`. r13 had filed that card illegible at severity 3 and an opacity
+probe called it fixed.
+
+The lit element, `#coach` and the ring now outrank the panel that cast them
+(z 30/30/31), and **the probe asks `elementFromPoint`, not `opacity`.** One
+instrument note for the next agent, because it cost a false FAIL here too: the
+teaching HUD is `pointer-events: none` by design, so a naive hit test can never
+return it — lend the element a pointer for one synchronous read and give it
+back. Hit-testability is not paint order. And do not wait the typewriter out in
+that harness: `setInterval(16ms)` is dilated to ~3fps, so a 215-character page
+takes ~30 real seconds and a probe that slept on it read half a sentence and
+failed on the word "das". Press Space to finish the text — the shipped double
+duty is the honest instrument.
+
+### Still owed
+
+The WORLD pointer (obj.payday's descent page → the exit beacon) is the one
+target still unproven end to end; the HUD half is now measured. BACKLOG #33
+carries it, along with the two numbers that remain defensible rather than
+measured (the six-hold cap, the 25s deadline).
+
+## r14 — THE HOLD (the owner stops the game)
+
+**The owner played the integrated build and reversed the delivery law.**
+Verbatim: *"For Mordecai -- I was thinking the tutorial would actually involve
+pauses of the game and you'd have to go through them (or could dismiss him) so
+people actually read. As it stands it's just like Mordecai replaced the courtesy
+explanations for like for like but no one reads long text while they're actively
+fighting in an ARPG."*
+
+Read that as what it is. It is not a polish note. It says the last four rounds
+fixed the wrong layer: the PROSE was fine and r10-r13 sharpened it, while the
+DELIVERY — a card on a strip during combat — was the reason nobody read it.
+**This retires HANDOFF §3a's "a lightweight in-play strip, not the modal
+`#dialogue` panel that pauses the world" and "Play never pauses."** §3a's prose
+stays; its delivery law is gone, and every header that asserted it
+(`guide.ts`, `objectives.ts`, `coach.ts`, CLAUDE.md, the strip's own comments in
+main3d/iso) was edited in the same PR — leaving them is how the next agent
+rebuilds the thing the owner just rejected.
+
+**ZERO SIM CHANGES. `RULES_HASH` DID NOT ROTATE. No run proof is retired.**
+The pause is the ABSENCE of `step()`, not a new system: main3d's solo loop
+already zeroes its accumulator while `dlgOpen`, and `guideShow` already sets it
+— B0's campfire has paused the world since r6. A held frame produces zero sim
+sub-steps, so `sampleIntent` is never called and nothing reaches the recorder: a
+held run and an unheld run of the same seed are byte-identical on the wire
+(COMPETITIVE.md MUST-3).
+
+### What ships
+
+- **`src/ui/hold.ts`** — the pure half, in the coach/objectives mould: the lull
+  test, the scheduler (`hold` / `wait` / `demote`), the pager (one line = one
+  page, a 400ms input flush, no maximum dwell), the beat-to-target table, the
+  refusal's prose, and the resume record. `test/hold.test.ts` (36 tests).
+- **One adapter in `main3d.ts`**, beside `guideShow`, plus `body.hold` and the
+  pointer. **Zero new conditions in the announcement router** — the sibling
+  stream's area is untouched, because `tutorialBlocked()` already returns true
+  while `dlgOpen` and so the card pump waits for free.
+- **`iso.html`**: the advance chevron, the `body.hold` spotlight exemptions,
+  `#holdring`, and the amended zone-map note on `#dialogue`.
+
+### The laws, and where each one came from
+
+1. **WHAT HOLDS: instructional to a hold, reactive to the strip.** Exactly six
+   holds in a first session and it is a hard cap: the campfire B0 plus the five
+   `OBJ_INTRO_BEATS`. `lowhp`, `contact`, `elite`, `boss`, `pickup`, the three
+   knockdown diagnoses and every tip translation stay on the strip and never
+   pause anything — pausing on `lowhp` would stop the world at the worst
+   possible moment and hand out a free heal.
+2. **THE HOLD REPLACES THE STEP INTRO, NOT THE STANDING ASK.** r10-r13 stay
+   entirely load-bearing: the ask is still a projection rebuilt every frame, the
+   per-item escalation latch still survives a pre-empt, `ASK_LOST_KEY` and
+   `ASK_DRAFT_KEY` still pre-empt. The hold is the front door; the ask is the
+   handrail; the checklist is what remembers.
+3. **MID-COMBAT IT WAITS FOR A LULL, THEN HOLDS** — nothing within 8 tiles (the
+   coach's 3 is "already being hit"), no encounter/cinematic/modal, HP above
+   0.78 (r13's severity-4 "blind to danger state"), not in collapse. A due beat
+   that finds no lull in ~25s **demotes to a strip card** rather than forcing a
+   pause. The lull gate is also what buys a SAFE RESUME: nothing is within 8
+   tiles and nothing moves while the panel is up, so no invulnerability grace is
+   needed — which is exactly what keeps this a zero-sim-change feature.
+4. **ANTI-ACCIDENT, and it is the r6-fix-1 lesson re-applied.** A ~400ms input
+   flush per page (a player mid-combat mashing Space would otherwise blow
+   through a whole beat in one frame), `e.repeat` ignored outright, and
+   `input.clearHeld()` on the opening edge so keys already down cannot act.
+5. **THREE VERBS, THREE SCOPES, THREE CONTROLS.** Advance (Space/Enter/tap — it
+   is reading, not dismissal). SKIP THIS BEAT (ESC, one press, non-destructive:
+   the curriculum continues). STOP INTERRUPTING ME — a `.dlg-skip` control off
+   the number row that only OPENS a confirmation whose safe answer is slot 1.
+   That is the exact shape r6-fix-1 shipped after a double-tapped `2` destroyed
+   an entire curriculum.
+6. **THE REFUSAL IS A MODALITY REFUSAL, NOT A CURRICULUM REFUSAL.** `tut.nohold`
+   demotes future beats to the shipped strip and does nothing else — the
+   checklist stays, Mordecai keeps teaching. `GUIDE_SKIP_KEY`, which silences
+   everything, remains only at the campfire. The undo is the shipped two-press
+   K-panel `SHOW ME AGAIN` (`tut.nohold` added to its forget list), and the
+   confirmation NAMES that undo before it takes the answer — and refuses to take
+   it at all until the sentence has finished typing.
+7. **THE CLOCK SAYS SO.** `timeRemaining -= dt` lives inside `step()`, so the
+   collapse clock stops by arithmetic — but a countdown that silently stops is
+   indistinguishable from one that broke, so the `.hh-phase.held` chip r7
+   shipped for the floor-1 hold is reused for the length of every hold.
+8. **TEACHING CLOCKS ARE FED ZERO** for the whole of a hold:
+   `Objectives.addVisibleMs` (or a 20-second read pays the 4s dwell gate and a
+   step completes out from under its own introduction) and
+   `StandingAsk.observe` (or a player is escalated to the concrete "you are
+   probably doing it wrong" form for the crime of reading).
+9. **A REFRESH MID-LESSON DOES NOT EAT THE LESSON.** A beat is ledgered when it
+   is SHOWN — that convention stays — so a two-page hold reloaded on page one
+   would otherwise be spent with page two never read, forever, for that profile
+   (r5 blocker 1 arriving through a new door). The active hold's key and page
+   ride `dcc:hold:v1` and the beat re-opens where it was.
+10. **CO-OP: NO HOLDS, EVER.** `acc = 0` lives inside `if (!net)` and the
+    networked world never pauses; there is already no debut in co-op
+    (`isDebutRun` requires `!net`). Net beats take the SAME demotion path the
+    deadline uses, so there is one demotion mechanism and co-op is its second
+    caller rather than a special case.
+
+### The two-voice binding rule survived the new surface — structurally
+
+The riddle fix already splits every teaching beat into `instruction` (exactly
+one imperative sentence, the key in it) and `wry` (the register, never the
+key), and `test/coach.test.ts` holds that mechanically. **That seam IS the page
+break.** `objHoldPages` makes page one the instruction, alone, pointing at the
+thing it names, and page two the quip, pointing at the checklist that will
+remember it. A player who reads one page has the instruction; a player who reads
+both has Mordecai. So the pause mechanism inherited the prose format the riddle
+fix proved rather than inventing one, and paging it is what makes the rule
+VISIBLE instead of merely tested (`test/hold.test.ts`, "THE TWO-VOICE BINDING
+RULE SURVIVES THE PAUSE").
+
+### Measured
+
+`tools/_tut_r14_hold.mjs` — cold profile, ONE headless browser, port 5292,
+shipping server on `dist` (`STATIC_DIR=dist PORT=5292 npx tsx
+src/server/gameServer.ts`; **`vite preview` is banned on this project**).
+
+The falsifying sentences were written before the probe: *"it stopped the game
+while I was getting hit"* and *"I pressed space and the whole tutorial
+vanished."* ALL PASS:
+
+- the campfire opens as a hold and **pages** (2 pages), waiting on page one;
+- a Space pressed inside the opening flush advances **nothing**;
+- a Space **held** across a beat advances at most one page and never ends it;
+- the advance chevron has a real rect (622x15) on the page that owes one, and
+  the last page hands over to B0's shipped choices;
+- **the collapse clock did not move across a six-second read** (119.933 to
+  119.933) and the HUD read `HELD` while it was stopped;
+- the objectives card is on the glass under `body.hold` at effective opacity
+  1.00 (r13 filed it illegible behind `body.dlg` at severity 3 — measured as
+  pixels here, not asserted from CSS);
+- "Stop stopping the game." is a control with **no digit that can reach it**
+  (the numbered row is empty), taking it only ASKS, the safe answer is slot 1,
+  a destructive click landing mid-sentence finishes the sentence instead, and
+  backing out leaves both the holds and the beat intact;
+- ESC skips the beat and the sim is stepping again on the far side;
+- **no hold opened inside the lull gate** across 70 sampled play steps;
+- holds opened in the session: 2, cap 6;
+- under `?join=` (net) **zero holds** ever open.
+
+**Two defects the probe caught and the code fixed**, both invisible from
+inside: `updateDialogueUi` closed a step-introduction hold on the very next
+frame (there is no `GuideBeat` behind one), dropping `dlgOpen` — the pause gate
+— so a six-second read spent 1.3 seconds of collapse clock with the panel
+already fading; and the refusal's confirmation was answerable while the sentence
+naming its undo was still typing.
+
+### Honest limits (BACKLOG #32, #33)
+
+- **The six-hold cap and the 25s deadline are defensible, not measured** — no
+  cold cohort has run against this build. If the deadline fires often, the lull
+  gate is too strict and the curriculum is quietly reverting to the delivery the
+  owner rejected.
+- **`obj.saferoom`'s hold may always demote**: its step arms while the crawler
+  is at a counter, and a counter is a modal, which the lull gate refuses.
+- **The end-to-end POINTER is unproven.** Only the CSS-specificity half was
+  measured on a real frame (the `body.hold` exemption beats the blanket 35% dim:
+  0.35 to 1.00); `obj.five` pointing at `#cockpit` is three kills deep, out of
+  reach of a ~3fps software-GL harness.
+- **Co-op onboarding is unsolved and r14 did not solve it.** A first-ever
+  session that is a RUSH gets the strip curriculum. The `#rushgate` campfire and
+  the party-wide ready-pause are both filed, and neither was faked.
+
+## r13 — THE COLLAPSE NAMES ITSELF (the seventh critic round's fixable causes)
+
+The seventh critic round scored 7.0 — up from 6.5, and **NOT SHIPPABLE**. It
+confirmed the round's real wins on the glass (floor-1 trap dead, 0 step-reset
+cycles, 4/4 reached the stairs, 4/4 could afford the first shelf, the kit
+LEARNED — not armed — by 4/4) and then caught the same lie one layer down:
+*"the metric is no longer 'armed'; it is 'ledgered' — and ledgering is not
+learning either."* Curriculum learned honestly: **1 of 4**. Four causes were
+fixable in one pass without a new idea; they are below. The rest are named as
+still-owed, at the bottom, in the critic's own counts.
+
+**`RULES_HASH` ROTATED AGAIN** (`f74b6823 → aacfeb19`; the branch's full chain
+is now `98b1470a → 414aae37 → f74b6823 → aacfeb19`). One sim change, item 1,
+and it retires every run proof recorded under the previous era
+(COMPETITIVE.md §2.6a). **Unit-measured only — no cold cohort has run against
+this build, and no frame of it has been photographed.** That is the next
+battery's job and it is the honest limit of every claim in this section.
+
+1. **THE DEATH SCREEN NAMED THE WRONG KILLER ON EVERY COLLAPSE DEATH** (the
+   critic's severity 5, unlisted by the battery and verified in source before
+   it was verified on a frame): `r12_C_30_verdict_1.png` reads *"SHOT — 17
+   damage, from 0% HP."* on a logged collapse execution; `r12_A_30` reads
+   *"SHOT — 12 damage, from 74% HP"*, which is arithmetically impossible.
+   `damagePlayerHit` is the ONLY writer of `p.lastHitSrc`, and the collapse
+   loop bypasses that funnel on purpose (the dungeon deals that damage, not an
+   attacker) — so a collapse death rendered whatever monster last grazed the
+   crawler, with that hit's stale `hpBefore`. `social.ts`'s
+   `if (raw === "collapse") return "THE COLLAPSE"` had been dead code on the
+   one path it was written for, under a comment asserting the line "is DATA,
+   not a render-layer guess". **The collapse loop writes its own
+   `lastHitSrc` now**, and the ticks ACCUMULATE — one frame of collapse damage
+   is a rounding error, so the honest reading is the whole bite and the bar it
+   started from, not "2 damage, from 1% HP". A monster hit in the middle
+   re-takes the field and the accumulation restarts from there. This is the
+   only sim change and the only reason the era moved. The fix is host-agnostic
+   by construction: it is data, at the source, exactly as the comment claimed.
+   (`test/sim.test.ts`: "a collapse execution names THE COLLAPSE, not the last
+   monster that grazed you".)
+2. **THE ESCALATION WAS NOT REVERTING — IT WAS BEING EVICTED.** r10 wrote the
+   concrete form down as PERMANENT for an item. It was not: a pre-empt (a
+   banked draft, a lost crawler) taking the ask slot is a KEY CHANGE, and a key
+   change reset `hot` — so the item the player was genuinely stuck on came back
+   SOFT and had to earn its 25 seconds again. Measured: the identical concrete
+   sentence delivered at 100.5s, 175.7s, 281.6s and 380.6s inside one
+   258-second stall on a single item (`obj.five/dash`). `StandingAsk` keeps a
+   per-item escalation latch and per-item card budget (`hotKeys`,
+   `cardsByKey`): an item that has earned its escalation keeps it, and its
+   budget, for the session — so a pre-empt BORROWS the slot instead of
+   un-teaching what is under it, and cycling cannot refund the nag. A key
+   change is still progress for a key the player has never been stuck on,
+   which is r10's law and stays green.
+3. **THE SHOW COULD STILL BE SPENT WITHOUT BEING READ** (r6-fix-1 finding 1,
+   third recurrence, now on the closer). `hype` was a LEVEL test against a
+   run-cumulative reading, so a crawler already fighting well armed the step
+   with the box already ticked — one cold profile armed THE SHOW reading
+   `[x][x]`, was observed on exactly ONE sampled frame, and ledgered 0.8s
+   later with hype reading 0. No dwell timer can fix that: the facts were true
+   before the card existed. **The item is a DELTA from the arming edge now**
+   (`objHypeBase` + `OBJ_SHOW_HYPE_GAIN`): the reading must be over the
+   System's line AND have climbed since this card started asking, so whatever
+   the player did to move it, they did it while the ask was on the glass.
+   (`fan` was already a delta; this is the same law applied to the item that
+   was missing it.) **The other half of the critic's finding is NOT fixed**:
+   the prose slot is still not reserved for The Show while The Show is the
+   active step, and across 21 frames the teaching channel never once explained
+   hype, viewers or favorites. Named as owed, not claimed.
+4. **`obj.saferoom` HAD NO EXIT FOR A CRAWLER WHO DECLINES TO BUY.** "Spend
+   some gold" only ever checked on a purchase, and its `browse` alt
+   additionally required `brokeAtShop` — which r7's stipend and r9's shelf
+   guarantee make structurally FALSE at the first shelf, on purpose. So the one
+   step with a pre-empt could only be closed by an act a player may reasonably
+   decline: a cold profile opened the shelf three times carrying 95 gold,
+   bought nothing, and never completed the step in a 450-second session.
+   Reading a shelf you can afford and choosing to save is a correct thing for a
+   crawler to do and the curriculum has to accept it: **eight seconds of the
+   panel actually open, banked across visits, is a READ** and closes the item.
+   With it, the checklist stops lying about what you did — `Objectives.itemAlt`
+   latches the wording an item was CHECKED under, so an item satisfied by
+   reading the shelf prints "Look over the shelf ✓" instead of reverting to a
+   struck-through claim about a purchase that never happened.
+
+**STILL NOT SHIPPABLE, and these are the critic's remaining items, not a
+summary of them**: the shop's named pick is out-shouted by DESCEND and
+contradicts the panel's own MORDECAI'S PICKS (sev 4); "push your hype over 25"
+has no visible causal feedback and was unreachable for 2 of 4 profiles (sev 4);
+the teaching channel is blind to danger state — inventory prose at 19% HP with
+0:10 on the collapse clock (sev 4); the objectives card is illegible behind
+`body.dlg` (sev 3); the exit beacon does not render the distance the instrument
+claims it renders and lands inside the ability hotbar (sev 3); ladder-submission
+consent on a first-timer's third death (sev 2); stale/headless asks on
+session-final frames (sev 2); the mercy ladder escalates on DYING when the
+failure mode is a healthy player who is stuck (sev 2); and the curriculum has
+no second act for a player who clears it in 98 seconds (sev 1). Above all: the
+escalation now survives eviction, but **after N failed deliveries the channel
+must change MODALITY, not wording** — that is not in this round.
+
+## r11 — THE EXIT: wayfinding, and a mercy that escalates
+
+The sixth critic round scored 6.5 and named the new failure in one sentence:
+**"the tutorial no longer kills its players, it strands them."** Two findings
+under it, severity 9 and 8 — *"two of four deaths were collapse-timer
+executions at full HP with zero wayfinding"* and *"floor 1 is unloseable and
+also unleaveable — mercy has no escalation or diagnosis"* — and they are one
+defect seen twice. r7 deleted floor 1's fail state and left the SEARCH
+untouched, so a first-timer who cannot find the stairs became immortal AND
+trapped, which measures worse than dying: half the cohort finished a 7.5-minute
+first session at level 1, floor 1, ~0 gold, still on step 2 of 5.
+
+**`RULES_HASH` ROTATED** (`98b1470a → 414aae37 → f74b6823`) — one sim change,
+below, and every previously recorded run proof is retired (COMPETITIVE.md
+§2.6a). Measured on the glass by `tools/_tut_r11_exit.mjs` (one browser, port
+5287, cold profile, 12/12 green); frames in `tools/_shots/tut_r11/`.
+
+1. **THE EXIT IS FIXED, NOT THE TIMER.** The game already owned every piece of
+   wayfinding it needed — fog of war, a `stairs` room role, a chart, a "mark
+   this spot" verb — and granted none of it to the one crawler who has never
+   seen a staircase. Three affordances now exist for exactly as long as the
+   lesson does, behind ONE predicate (`exitLit` in main3d), so the chart, the
+   beacon and the prose can never disagree about whether a player is being
+   wayfound:
+   - **The chart marks it.** `drawMinimap`'s Location Scout branch (the chase
+     legendary that marks stairs through fog) is granted to a debut crawler on
+     identical terms, plus the one thing a legendary owner does not need: the
+     word `EXIT` under the diamond.
+   - **The world marks it.** `#exitmark` (zone map: *world markers*, z 6)
+     projects the stairs through the live camera and pins to the edge of the
+     glass as a chevron when they are behind you. A minimap answers "where is
+     the exit on a map"; only this answers "which way do I walk", which is the
+     question a player in a 3D view is actually asking. Measured cold: painted
+     31x26, in frame, reading `EXIT / 75 paces`, re-derived every frame.
+   - **Mordecai says it** — through the channel r10 built rather than a new
+     one. `ASK_LOST_KEY` is a second standing-ask PRE-EMPT, and it outranks the
+     draft pre-empt, which is the finding: a crawler who cannot find the stairs
+     is not making a mistake inside a step, and a draft claimed in a room you
+     cannot leave is still a stranded session. `{bearing}` joins
+     `OBJ_LABEL_TOKENS` as the first token that is a READING rather than a
+     control — the live compass heading and range, quantised to five paces so a
+     sentence rebuilt sixty times a second does not read as noise. Measured:
+     *"Walk south-east, about 75 paces — that is where the stairs are, and they
+     are marked on your map."* `obj.payday/descend`'s own ask carries the same
+     heading, because the item that can strand a player used to ask them to
+     stand on something without ever saying where it was.
+
+   **The trigger is a MEASURED stall**, in the same real on-glass ms the ask
+   escalation and `OBJ_MIN_VISIBLE_MS` are paid in: 40s in which the crawler's
+   own BEST distance to the exit has not improved. Deliberately not "explored
+   no new tiles" — a player can map two hundred tiles and be no nearer the way
+   out, and that player is the one this exists for. Any real progress stands it
+   down within a frame, which is what makes it safe to put first. One defect
+   the browser found and the unit tests could not: after the escort below drops
+   a crawler ON the stairs, `wayBest` is zero and no improvement is
+   arithmetically possible, so the clock ran forever and the ask told a player
+   standing five paces from a marked exit that they were lost. A best-so-far is
+   the right progress test for a search and the wrong one for an arrival:
+   `WAYFIND_NEAR_TILES` makes arrival its own answer.
+
+   All three retire together, by themselves, when `obj.payday` reaches the
+   ledger (`Objectives.isDone`) — the step whose items include taking the
+   stairs. Training furniture that outlives its lesson is just a permanent HUD
+   affordance nobody chose to add.
+2. **THE MERCY ESCALATES AND DIAGNOSES.** The knockdown was the right answer
+   ONCE and a shrug the third time: waking a crawler at the entrance is correct
+   for a lost FIGHT and wrong for a floor they cannot find their way off,
+   because it restarts the search that already beat them.
+   - **THE SIM CHANGE, and the only one** (`firstRunKnockdown` +
+     `CONFIG.firstRunEscortSaves`): on the third save the production stops
+     re-staging the same scene and walks the crawler to the exit — they wake ON
+     the stairs, with the game's own "over THERE" verb (a ping) marking it in
+     the world, and the System says so out loud, because a silent teleport
+     reads as a bug. It does NOT descend for them: the descend key is the
+     curriculum's verb and the player still presses it. It cannot leak past the
+     debut — every caller is already inside `firstRunMercyActive` — and it
+     draws no RNG, so a mercied run still replays byte-exactly.
+   - **THE HOST CHANGE:** `diagnoseKnockdown` (pure, tested off the facts
+     alone) names the one survival tool this crawler is measurably not using —
+     the escort first (the world just changed under them), then a dash they
+     have never once pressed, then the flask charges they folded while holding
+     ("You died holding 3 flasks" was r5's verdict line). A crawler using both
+     is told nothing: they are losing a fight, not stranded, and a diagnosis
+     that fires on everybody diagnoses nobody.
+
+**Verified on the glass** (`_tut_r11_exit.mjs`, cold profile, every text read
+paired with a rect and the chart read as PIXELS rather than as DOM): the beacon
+paints and tracks; the chart carries the marker's own gold through the fog; an
+idle crawler is handed a compass heading; a staged third knockdown wakes them
+exactly on `map.stairs` with the run still live, and the strip carries *"Press
+E where you are standing — the production has walked you onto the stairs."*
+
+**Still owed after this round**: monotonic first-session progress and the
+verdict screen's nine choices. And the standing question this round does not
+answer: nobody has yet watched a cold cohort COMPLETE the curriculum with the
+exit lit. That is the next battery's job, and it must measure completion, not
+arming (HANDOFF §0).
+
+## r10 — THE TEACHING CHANNEL BECOMES CONTINUOUS (the r9-owed root cause)
+
+The fifth critic round scored 6.5 and named one cause under every remaining
+stall — the thing r9 signed as owed, in its own words: **"the coach prose slot
+teaches the wrong thing, once, and never again."** Measured: 2 of 4 cold
+profiles learned the kit, 1 of 4 completed the curriculum, and half the cohort
+finished a 7.5-minute first session at level 1, floor 1, ~0 gold, still on step
+2 of 5. **Zero `src/sim` changes — `RULES_HASH` is untouched.** Measured on the
+glass by `tools/_tut_r10_ask.mjs` (one browser, port 5287, cold profile, 8/8
+green); frames in `tools/_shots/tut_r10/`.
+
+1. **THE PROSE SLOT WAS AN EVENT CHANNEL DOING AN INSTRUCTION'S JOB.** Every
+   teaching line in `src/ui/coach.ts` was an EVENT: something became true, a
+   line was offered, a card painted, the opportunity was spent forever. That is
+   the right shape for a confirmation and exactly the wrong shape for the
+   instruction a player is currently failing to follow. Three consequences, one
+   cause: a step's instruction was spent on ONE paint (dropped by the queue cap
+   — where its 60s moment made it the *preferred* eviction victim — or by a
+   modal, and it never came back); a player stuck on an item got silence, because
+   prompts are floor-1-only and budgeted, confirmations need an act the player
+   cannot perform, and the step intro had already fired; and what did paint was
+   the prose for the STEP, or for an event forty seconds gone.
+
+   **THE STANDING ASK** (`src/ui/coach.ts`: `OBJ_ASKS`, `StandingAsk`;
+   `Objectives.askKey()`; main3d's `currentAskKey`/`askTick`) is the second half
+   of the channel, and it is a PROJECTION, not a message — the same discipline
+   r8 gave the checklist. One sentence of prose for the current step's first
+   unchecked item, rebuilt from the sequencer every frame, rendered on the
+   persistent card (which survives a modal, so the panel a step points at cannot
+   hide the step). It is never spent, cannot go stale, and re-reads the world
+   every frame. Losing a card now costs a nudge instead of the lesson.
+   - **ESCALATION.** An ask that has stood for `ASK_STUCK_MS` (25s) of REAL
+     on-glass time — the same honest clock `OBJ_MIN_VISIBLE_MS` is paid in, so
+     nobody is escalated at over an instruction they were never shown — is
+     replaced by its CONCRETE form: the exact key, the exact place, the thing
+     they are probably doing wrong. Permanently, for that item. Any progress
+     moves the ask on and resets the clock.
+   - **IT IS DELIVERED IN PLACE.** The first build of this fix also queued the
+     concrete form as a strip card, and the frame showed what that is: the same
+     sentence twice in one column, sixty pixels apart — r8's finding 3 walking
+     back in through this round's door. The prose changes where the player is
+     already reading and pulses (`.obj-ask.pulse`, two warm sweeps, no motion,
+     no new box), re-asserted at most `ASK_MAX_CARDS` times. **Bounded
+     attention-drawing is politeness; bounded teaching was the bug.**
+   - Coverage is a test: every item the curriculum can stall on — including the
+     safe room's `browse` alt wording — must have an ask AND an escalation, and
+     no ask may exist that nothing can produce.
+2. **THE DRAFT PROMPT FAILED UNIVERSALLY** (severity 8): every cold profile
+   ended its first session holding unclaimed drafts, the best one holding two,
+   so the game's core progression verb was learned by nobody. The only things
+   ever saying so were a badge in the corner and one System notice at 45
+   seconds. Three fixes, all at the mechanism: **a banked draft PRE-EMPTS the
+   standing ask from anywhere** (it is claimable in any room, costs nothing, and
+   is strength already earned) on a faster clock (8s, not 25s); the checklist
+   item carries the bind (`Claim a draft with {draft}`) instead of naming an act
+   with no control attached; and the System's "NOTICE: you have unclaimed
+   evolutions" now fires only for crawlers who are NOT enrolled — ONE VOICE, and
+   a second teacher saying the same thing worse in the register the rebuild
+   retired from teaching is not a redundancy, it is the defect.
+3. **THE SHOW WAS SURFACED, NEVER TAUGHT** (severity 7 — "untaught vocabulary
+   was relocated rather than eliminated"). `#show` is on the glass from second
+   zero (a hype bar and three counts) and the curriculum's LAST step is titled
+   The Show and asks for "hype over 25" and "a favorite" — two words nothing had
+   ever said out loud, on a step most first sessions never reach. Taught, at a
+   carrier that cannot be missed: **`showbar` fires the instant the hype reading
+   first moves** (every crawler's first kill) and defines all three nouns. It
+   shares `TOPIC_SHOW` with the sim's `hype` tip — which needed a CRIT — so
+   whichever reaches the glass first teaches the premise and the other stands
+   down. The obj.show intro and both of its asks define the words they use.
+
+**Verified on the glass** (`_tut_r10_ask.mjs`, cold profile, every text read
+paired with a rect + computed-style read): the ask paints at 238x33 with its
+control as a key cap ("Hold **WASD** and get off this tile."); a player who does
+nothing for 25s is escalated in place to the concrete form (32 → 185 chars) with
+**no duplicate card under it**; checking an item hands the prose to the next one
+("Find something that moves and hit it with **Space**."); a staged banked draft
+pre-empts the step and names its key ("Press **V** to claim the draft you have
+banked.").
+
+**Still owed after this round**, and named honestly: monotonic first-session
+progress, stairs wayfinding under the collapse clock, mercy escalation/diagnosis
+on a stuck floor 1, and the verdict screen's nine choices. The standing ask is
+the channel those fixes will speak through; it is not a substitute for them.
+**(The wayfinding and the mercy escalation both shipped in r11 above — and the
+ask was indeed the channel: `ASK_LOST_KEY` is a pre-empt in the r10 machinery,
+not a new surface.)**
+Nobody has yet watched a cold profile COMPLETE the curriculum with this in —
+that is the next battery's job, and it must measure completion, not arming
+(HANDOFF §0).
+
+## r9 — THE SHELF SAID THE FALSE THING: the severity-5 pair (host + instrument)
+
+The fourth critic round scored 6.5 and left nine findings above severity 5 that
+are curriculum-architecture work, plus exactly two at severity 5. This round is
+those two, at their cause. **Zero `src/sim` changes — `RULES_HASH` is untouched
+and no recorded run proof is retired.** Measured on the glass by
+`tools/_tut_r9_shelf.mjs` (one browser, port 5287, cold profile, 9/9 green);
+frame in `tools/_shots/tut_r9/shelf_first.png`.
+
+1. **"THE FIRST SHELF IS 18/24 TILES THAT DO NOTHING YET, AGAINST AN EMPTY
+   EQUIPPED ROW."** The shelf was never the liar; the panel's own copy was.
+   Every `basic`-tier catalog entry (`src/sim/catalog.ts`) carries a `slot` AND
+   `affixes` — they are wearable stat sticks — and `buyCatalogItem`
+   (`src/sim/game.ts`, the `p.equipment[item.slot]` branch) equips a purchase
+   the instant its slot is empty or its score beats what is worn. A debut
+   crawler's equipped row is six empty slots, so on the FIRST shelf nothing is
+   deferred for anybody. The only two sentences on the glass about it said the
+   opposite: `COACH_SHOP_BEATS.afford` called COMPONENTS tiles "parts rather
+   than gear — they build into the real thing at a later shelf", and the bag's
+   empty state said "buy components, they wait here". The shop talked the
+   player out of the one shelf where everything works immediately. Four fixes:
+   - The beats say the true thing (`gear you wear today that a later shelf
+     builds into something bigger`), and `test/coach.test.ts` fails any shelf
+     beat that defers a COMPONENTS tile without saying it is useful today.
+   - A third form, **`fits`**, exists for the case the critic was looking at:
+     it names the EMPTY SLOT and the tile that fills it ("your weapon slot is
+     empty, so it goes straight on you"). `shopLessonLine` prefers it, off
+     `cheapestFittingEntry` — cheapest, buyable NOW (same `buyBlocker` gate the
+     tile's ready ring reads), landing in a slot the crawler has open.
+   - The shelf carries the same read: `fillsEmptySlot` adds a `fits` class and
+     a green corner flag, and the tile's own hover text names the slot. "Ready
+     to buy" answers what you CAN click; on 24 tiles priced within 20 gold of
+     each other it never answered what is worth clicking. Measured cold at the
+     bare 40-gold stipend: 3 of the 4 ready tiles marked, all three STARTER.
+   - **THE CHASE is folded at the first shelf** while the curriculum is live
+     (returns at shop 2). Five drop-only boss uniques with no prices cannot be
+     bought, are undefined vocabulary, and were one of six navigation
+     affordances on a tutorial's first shop. A fold, not a lock — the same rule
+     as `body.coldboot` on the menu. Sub-tabs at the first shelf: 3 → 2.
+
+   The 18-tile COMPONENTS row is deliberately NOT thinned. Thinning it would
+   have been the symptom fix: those tiles are the build tree and they are
+   wearable, so the defect was always the sentence next to them.
+2. **THE INSTRUMENT WAS NOT TRUSTWORTHY ENOUGH TO CERTIFY ITS OWN ROUND.**
+   Three defects in `tools/_tut_r7_cold.mjs`, all the same mistake in different
+   clothes — a SAMPLED observation published as a MEASURED outcome:
+   - `engagements` incremented once per decision tick spent inside engage
+     range, so it counted dwell and was then compared to a swing COUNT as if
+     they shared a unit (B: 433 vs 36; A: 52 vs 93). It counts ENTRY EDGES now,
+     with dwell kept separately as `contactTicks` and `swings` renamed
+     `swingAttempts`, which is what it always was.
+   - `stepStates[title].peak` never observed the completing frame, so "Get
+     Moving".peak was 2 in all five passes while `obj.move` ledgered every
+     time — and the round read that gap as a defect in the game rather than in
+     its own sampling rate. Completion is READ FROM THE LEDGER every tick now
+     (`ledgerAt` timestamps each `obj.*` key); `peak` is a labelled footnote.
+   - `reachedFive` was set true when the step ARMED, which is what produced the
+     headline "4/4 reached THE FIVE" against an actual 2/4 completion. Arming
+     and completion are two fields (`armedFive` / `completedFive`), plus
+     `stepsCompleted` and `curriculumComplete`, and the headline prints both.
+   Also: `TUT_OUT` now selects the shots directory. A round may not overwrite
+   the battery that judged it — the r7/r8 evidence in `tools/_shots/tut_r7` is
+   the only before-picture there is.
+
+**Verified on the glass** (`_tut_r9_shelf.mjs`, staged safe room on a cold
+enrolled profile — labelled a STAGED UI CHECK, never reported as a cold
+outcome): lesson "Buy the Boxcutter for 35 gold — your weapon slot is empty, so
+it goes straight on you", 3 fits-marked tiles of 4 ready, sub-tabs
+`[IN STOCK, ALL ITEMS]`, bag copy corrected. The corrected instrument was also
+re-run cold (profile D, 210s): `armedFive: true, completedFive: false` — the
+distinction the round had been publishing as one number.
+
+**Owed after this round, and named honestly.** Everything the critic filed at
+severity 6+ is untouched and is one piece of architecture: the coach prose slot
+multiplexes reactive tips with objective teaching, fires each step's intro once,
+caps lectures at seven, and never re-nudges an unfinished item
+(`src/ui/coach.ts:344` — "null means DROP"). That is the root cause of the
+stalls, the unclaimed drafts, and the two profiles that ended a 7.5-minute
+session on step 2. It is a rewrite of the slot's ownership rules, not a patch.
+Also owed: monotonic first-session progress, stairs wayfinding under the
+collapse clock, mercy escalation/diagnosis on a stuck floor 1, the draft-claim
+prompt, THE SHOW's untaught vocabulary, and the verdict screen's nine choices.
+**(The root cause, the draft prompt and THE SHOW's vocabulary all shipped in
+r10 above; the rest is still owed.)**
+
+One severity-3 item is NARROWED but not fixed, deliberately: "Mordecai's panel
+persists as an empty chrome box after graduation" (A_99_final.png). It is not
+`#coach-head` — `body.coaching` correctly hides that the moment `finished`
+turns true (iso.html:574-575). It is `#tutorial .tut-head`, which
+`body.coaching` hides *while* the curriculum runs (iso.html:665) and therefore
+un-hides at graduation, leaving a strip card's plaque with no body under it.
+Fixing it without a reproduction would be a guess, and this feature's own law
+is that a claim about delivery is a claim about pixels.
+
+## r8 — THE COLUMN AND THE ROOM: the third critic round, host-side
+
+Five host findings, each fixed at its cause. Zero sim changes — `RULES_HASH` is
+untouched, and r7's DEBUT rules are exactly as they shipped. Measured in the
+app by `tools/_tut_r3_probe.mjs` (one cold profile, one browser, port 5287:
+boot → floor 1 → the stairs → the shelf → floor 2), frames in
+`tools/_shots/r3_saferoom.png` and `r3_floor2.png`.
+
+1. **THE CHECKLIST DESYNCED FROM THE WORLD, in both directions.** It asked for
+   three kills while the player stood at the shop counter, and the safe room's
+   card was still on the glass a floor later. Three causes, three fixes:
+   - **Place is now a property of every step** (`ObjectiveStep.where`:
+     `field` | `shop`). The card is the first not-yet-done step whose place is
+     the place the crawler is standing in, and **when no step matches, there is
+     no card**. r2's `preempt`/`armFact` pair was the same idea as a special
+     case on one step, and it left the symmetric hole wide open: once
+     `obj.saferoom` was COMPLETE the pre-empt stood down and handed the card
+     straight back to "put down three monsters" — in a room with nothing to
+     kill. (r2's own test asserted that behavior; it is inverted now.)
+   - **The sequencer sampled the world on the SIM clock.** Every intent seam
+     sits inside `while (acc >= SIM_DT)`, and solo play zeroes `acc` for every
+     open panel — so a curriculum fed only from there is blind for exactly as
+     long as the player is at a counter, which is when its own shop step is the
+     ask. `objectivesObserve` now latches only the facts that need the consumed
+     intent; `objectivesSync` computes the rest and feeds the sequencer **once
+     per rendered frame, paused or not**. That is why "Open the shop" can tick
+     while the shop is open, which it demonstrably never did.
+   - **The card repainted only on a fact EDGE**, and a change of PLACE is an
+     edge in no fact. `renderObjectivesCard` builds the HTML from `view()`
+     every frame and writes the DOM only when it differs.
+2. **THE DESCENT FIRED THREE SUBTITLES AND FOUR DUPLICATED FEED LINES AT ONCE.**
+   - The duplication was a RACE, not a rule. `announce()` pushes the same string
+     to `state.announcements` and `state.events`, and the solo loop drained
+     events *inside* the sub-step loop while announcements were presented at the
+     *end* of the frame — so the quiet surface always got there first and r2's
+     3.4s window plus its 900ms retro-active pull-back were left trying to
+     un-print it. `presentSimOutput` now drains both from ONE seam with the
+     announcer given first refusal: an event that IS an announcement never
+     enters the visible feed. The archive `log` array still gets every line.
+   - The stack was fixed by DELETING news: r2 collapsed the burst to the newest
+     line, so the first two sentences flicked past unread (and, being a 350ms
+     fade, were all on the glass while it happened — which is what the pass
+     photographed). Arrival lines are **metered** now: inside the floor
+     transition window they release one at a time, each with a dwell scaled to
+     its own length, the previous one fading as the next arrives. Ordinary
+     combat chatter is untouched. Measured at the door: 3 lines delivered, peak
+     **1** on the glass, 0 duplicated feed lines.
+3. **TEACHING WAS FIVE SURFACES IN FOUR CORNERS.** r2 moved the strip onto the
+   objectives card's axis and kept them apart with a JS-published CSS variable
+   (`--obj-h`); two fixed overlays stacked by arithmetic are still two
+   overlays. They are **one plate** now — `#coach`, holding one Mordecai plaque
+   (`#coach-head`), the checklist and the strip in normal flow. No measurement,
+   no variable, no gap to keep in sync, ONE portrait, one place to look for
+   what to do next. The zone map has one `coach column` entry where it had two.
+   The System keeps its own two surfaces, and finding 2 stopped one of them
+   being a copy of the other.
+4. **GEAR / EQUIP / SHOP VOCABULARY WAS TAUGHT BY NOBODY.** The bag half failed
+   structurally: `pickup` needs an item to LAND IN THE BAG and floor-1 loot
+   mostly auto-equips, so the one gear moment floor 1 reliably provides
+   (`autoequip`) was spent on "check the number that moved" — no key, no bag,
+   not the word *equipped*. It names all three now, and `pickup`/`autoequip`
+   share `TOPIC_BAG` so the bag key is taught exactly once, by whichever moment
+   the dungeon reaches first. The shelf gets real beats (`COACH_SHOP_BEATS`,
+   same shape and same binding rule as every other line, rendered into the
+   panel's own Mordecai row because `body.modal` hides the strip by design):
+   the one affordable item by name and price, what a COMPONENTS tile is, that
+   the bag sells here, that gold survives a floor.
+5. **RE-VERIFIED, and one hole closed.** The strip survives six seconds of held
+   W in the real app (`e.repeat` ignored outright); THE FIVE still cannot
+   complete before it paints (arm-and-return + `OBJ_MIN_VISIBLE_MS`, and a step
+   the player's place is hiding now banks no dwell at all). The Shift/dash rule
+   had a live hole: the card's `{cast}` token derived the cast slot correctly
+   and then **fell back to a hardcoded slot index**, which is the dash's slot
+   for anyone who benched it there. `castKeyIndex` excludes the dash at every
+   branch by construction and is the one function both surfaces read.
+
+## r7 — THE DEBUT: the two owed SIM changes (branch `tutorial-mordecai`)
+
+Both r6 rounds ended with the same two items owed, and both were owed because
+they are `src/sim` changes and those rounds were scoped to UI. This round is
+the sim round. **`RULES_HASH` rotated** (`npx tsx scripts/simhash.ts --write`)
+— every previously recorded run proof is retired, which is expected and
+documented (COMPETITIVE.md §2.6a) and is the price of both fixes.
+
+**One flag, three rules, one floor.** `GameState.firstRun` is set at
+`createGame` by the host that read the profile (`isDebutRun` in main3d), round
+-trips through the save (`SavedProgress.firstRun` — a refresh mid-lesson must
+not silently promote a first-timer into the real game), and rides the run-proof
+header (`RunProofHeader.firstRun`) so a replay rebuilds the same world. Nothing
+else in the codebase sets it: not `createTestGame`, not the server, not the
+bot, not the balance harness. The gate the player can feel is even narrower —
+**floor 1** (`firstRunMercyActive`), which opens at second zero and closes the
+instant they take the stairs. No counter, no step to finish, nothing to be
+confused by.
+
+1. **THE FIRST RUN CANNOT BE FAILED.** Three of four cold passes died on floor
+   1 without finishing the first objective; one cycled `0/3 → 2/3 → reset`
+   twelve times over seven minutes. Two mechanisms, because floor 1 has two
+   ways to kill you:
+   - **The cut to commercial.** Every death in the game funnels through
+     `handlePlayerDeath` — monsters, hazards, statuses, bombers, the floor
+     itself — so the mercy sits THERE and not at the twenty-odd call sites. A
+     killing blow puts the crawler at the floor entrance on
+     `firstRunMercyHpFraction` of their bar, briefly untouchable, with hype at
+     zero and the System narrating the edit. It costs position, health and the
+     crowd; it cannot cost the run. The step loop asks the same question of the
+     STATE each frame (`p.hp <= 0 && alive`), so a damage source that forgets
+     to route its own death cannot fail the run either.
+   - **The held clock.** Floor 1's budget is 120 seconds and a first-timer
+     spends most of it learning which key walks. Converting killing blows and
+     then letting the FLOOR kill them would be a mercy that lies, and a
+     knockdown loop inside a collapsing floor is exactly the "reads as broken"
+     failure this round was told to avoid. So the clock counts down normally —
+     through the WARNING, whose System line is the collapse lesson the whole
+     curriculum is built on — and then HOLDS at `firstRunClockHoldSeconds`,
+     announced once as the production decision it is. The HUD says `HELD` in
+     the warning's gold and sits still (`.hh-phase.held`): a countdown that
+     silently stops is indistinguishable from one that broke.
+2. **THE FIRST SHELF IS A SHELF, NOT A WINDOW.** Two cold rounds measured 24
+   then 16 gold against a 35-gold cheapest entry. Fixed at the cause, twice
+   over: a debut crawler is advanced `firstRunStipendGold` at construction (the
+   line is SAID on the first step — a construction-time announcement is cleared
+   by `step()` before any host can drain it), and the guarantee is restated at
+   `generateSafeRoom` against the shelf that actually generated, so a crawler
+   who arrives broke is topped up to `cheapestUsefulShelfPrice`. That helper is
+   the shared definition of "affordable AND useful" — gear, or a consumable
+   that heals/plates/buys time; never a tome nobody can read or a legendary
+   wanting sponsors. Shop 1 only; the second shelf is the real economy.
+
+**A debut is not a contest.** The run records and replays exactly (the flag is
+in the header for the same reason the daily rule is), and the server refuses it
+a board slot by header — `competitiveApi` and `verifyWorker`, structural, the
+same class of refusal as a test-mode start. Ordinary play is untouched: an
+ordinary run built from the same seed still starts broke, still collapses,
+still dies, and `test/tutorial-firstrun.test.ts` asserts each of those as the
+control beside every mercy claim (16 tests; the host half is measured by
+`tools/_tut_debut_probe.mjs` against a cold profile on port 5287).
+
+## r6-fix-2 — the second critic round (branch `tutorial-mordecai`)
+
+A harsh critic scored the fixed build 5.5/10 off three cold browser passes
+(shots + flow logs in `tools/_shots/tutorial_r2/`). Every finding is fixed at
+the mechanism. The two sim-side asks stay open and are named at the bottom.
+
+**Blockers (severity 5).**
+
+1. **Shift was taught as a CAST key and then as the DASH, 21 seconds apart.**
+   The `ability` beat printed "Press Shift, Q to cast the abilities you
+   actually own" at T+42.1s and `dashkit` printed "Press Shift to dash clear"
+   at T+63.4s, while the hotbar and the objectives card both said SHIFT→DASH.
+   The host built that label by joining EVERY filled slot's bind, and slot 2 is
+   the dash. The rule is now a pure function — `castSlotIndices` in
+   `src/ui/coach.ts`, which excludes the dash slot by construction — and a
+   crawler whose only non-strike slot IS the dash gets no ability line at all
+   (empty label => DECLINED). `objItemLabel`'s `{cast}` token reads the same
+   function, so the card and the strip cannot drift. Tests: coach.test.ts
+   "SHIFT IS THE DASH, AND THE STRIP MAY NOT SAY OTHERWISE", asserting exactly
+   what the critic asked — the ability beat's key list never contains the
+   slot2 bind while slot2 holds a dash.
+2. **The tutorial could be failed forever.** THE FIVE sat behind "put down
+   three monsters IN ONE LIFE" and death reset the counter: pass B cycled
+   0/3 -> 1/3 -> 2/3 -> reset twelve consecutive times and was still on step
+   one after seven minutes; 2 of 3 cold sessions never reached the step that
+   teaches the kit, so the whole downstream spine was unreachable. Two changes,
+   both host-side: `Objectives.resetRun` no longer clears item latches (the
+   curriculum is a PLAYER-KNOWLEDGE ledger, not a run ledger — only arm
+   latches are re-earned), and the `kills3` fact counts SESSION kills
+   (`objKillsBanked` + the live run's) so a death banks tuition instead of
+   erasing it. This is also the fix for the separate finding that the card
+   "reads as erasure" after a losing session — the only persistent progress
+   indicator on screen can no longer count backwards.
+
+**Majors (severity 4).**
+
+3. **The card desynced from the world at exactly the moments it mattered.**
+   Standing in the first safe room with the shop open, the card read "Get
+   Moving 2/3". The spine was strictly sequential, so THE SAFE ROOM lesson did
+   not exist at the one moment the player was in a safe room, and a fast
+   descender finishes the run before it ever arms. Steps may now declare
+   themselves CONTEXTUAL (`ObjectiveStep.preempt`): while the trigger fact is
+   live the step takes the card wherever the spine had got to, and the spine
+   resumes with its latches and its dwell intact when the trigger goes away.
+   `obj.saferoom` is the first one. Its third item ("take the stairs down") is
+   gone: it could only be satisfied by LEAVING the room the step is about, it
+   duplicated obj.payday's `descend`, and it was one of the two near-identical
+   stairs lectures the pass counted. Tests: objectives.test.ts "THE WORLD
+   OVERRULES THE QUEUE".
+4. **The first shop was a locked door** — 16 gold against 21 tiles priced
+   35-180, every price red, no enabled buy control, no teaching card, and a
+   panel full of undefined vocabulary. The shelf-affordability half is a SIM
+   change and stays open (below). What shipped: the `browse` fallback is now
+   REACHABLE (it needed the step to arm, which is finding 3), and while THE
+   SAFE ROOM is the live ask the panel's own Mordecai row carries the lesson —
+   `shopLessonLine` names the cheapest entry and its price, or, when the shelf
+   really is out of reach, says so with the number and tells the player what to
+   do instead. It prints INSIDE the panel because that is where the player is
+   looking: `body.modal` hides the strip by design, so a card is the wrong
+   surface for a shop lesson.
+5. **Announcement flood and duplication at the descent.** Floor 2's arrival —
+   the biggest teaching beat after first blood — put three System subtitles on
+   the glass in one second with the SAME lines simultaneously in the live feed.
+   Two rules in `main3d`: `liveAnnouncements` records what is on a louder
+   surface right now (banner or toast, normalized text) and `pushLogLine`
+   declines to echo it — the archive `log` array is untouched, so nothing is
+   lost, only un-doubled; and during a floor transition (`FLOOR_QUIET_MS` after
+   the floor changes) the toast stack is collapsed to the newest line, so
+   arrival news reads as news instead of a wall.
+6. **The V bind for the draft was dead while the badge taught V.** `wasDown`
+   meant "in the held set", and one swallowed keyup (alt-tab, devtools, a modal
+   taking focus) latched a bind dead for the session. It now means `e.repeat` —
+   autorepeat is the only thing that guard ever needed to suppress, and a
+   physical press always produces a non-repeat keydown, so no lost event can
+   make a taught key do nothing. Plus `clearHeld()` on blur, on
+   `visibilitychange`, and on BOTH edges of `body.modal`.
+7. **Gear, equipping and the safe room were never taught in any observed
+   session.** `pickup` left the PROMPT set: it is an answer to an act, and the
+   floor-1 window plus the lecture budget meant the bag key was never named
+   (floor-1 loot mostly auto-equips, so the first item that actually lands in
+   the bag is usually deeper). It is a confirmation now — any floor,
+   unbudgeted. The safe room is covered by findings 3 and 4.
+
+**Minors (severity 2-3).**
+
+8. **Payday armed with an item already ticked.** Every diffed baseline
+   (inventory, equipment, gold spent, floor, favorites, and the draft latch) is
+   re-based on the step's own arming edge, so each item asks for an act
+   performed on THIS card's watch.
+9. **Teaching was scattered across four corners, and the strip looked like
+   debug UI beside the dialogue panel.** The strip moved to the right rail and
+   stacks directly under the objectives card (`--obj-h`, published by
+   `publishObjectivesHeight` — only the host can measure a card whose item
+   count changes per step), so instruction and checklist are ONE column. It
+   wears the dialogue panel's material tokens now: noise+gradient slab,
+   three-tone bronze keyline with the lit top edge, offset outline, a SQUARE
+   framed portrait chip, a nameplate with the role as a kicker, and key caps —
+   the control it names is drawn as a cap (`.tut-key`, shared with the card's
+   `.obj-key`), not as a word in the middle of a sentence.
+10. **Layering was inconsistent** — the card was crisp over the shop and
+    blurred to illegibility behind the dialogue backdrop, including at its
+    first paint. One rule for both now (`body.modal, body.dlg`): readable, at
+    z 26, on an opaque plate. It does not inset out of the shop panel's way
+    because the panel is `min(1100px, 96vw)` — at the widths where an inset
+    would be needed there is no gutter to inset into, so the honest fix is to
+    look deliberate rather than to look like a bleed-through.
+11. **"THE FIVE" was jargon that listed three items.** The card says YOUR KIT;
+    the phrase now lives in the arming line, with the clause that explains it
+    (four slots and an ultimate, three keys today, two padlocked).
+12. **Near-duplicate collapse lesson 21s apart.** Beats may declare a TOPIC;
+    the first delivery claims it and every other beat on that topic is declined
+    wherever it came from — `linger` and the sim's `collapse` tip share
+    `TOPIC_COLLAPSE`. Topics survive `reteachPrompts`: the lesson landed.
+13. **Cold boot offered seven modes before the player had crawled once.**
+    `body.coldboot` (set from the same fresh-crawler read the curriculum
+    enrolls on) folds the featured band, the mode grid, the test chamber and
+    the whole boards column behind one `MORE WAYS TO CRAWL` link, leaving
+    DESCEND as the door. A fold, not a lock, and never set once any history
+    exists.
+
+**Still open after this round** (both were `src/sim` changes and that was a UI
+round): the guaranteed-affordable floor-1 shelf, and the floor-1 first-run
+mercy. **Both shipped in r7 above.** And the critic is right that System pacing is
+UNMEASURED: the round-3 battery must sample `#headline` and `#toasts` with
+timestamps (the r2 probe read `#banner`, which is the menu bar) and re-shoot at
+1280x720 and a 3:2 laptop ratio.
+
+## r6-fix-1 — the harsh critic's round (branch `tutorial-mordecai`)
+
+A critic scored the r6 build 4.5/10 off four cold browser passes. Every finding
+below is fixed at the mechanism, not at the symptom; the two false positives
+are named as false positives, with the evidence.
+
+**Blockers (severity 5).**
+
+1. **THE FIVE self-consumed without ever painting.** `Objectives.update` armed
+   the step, latched every already-true fact and wrote `completed` in the SAME
+   call — and obj.five's facts (strike/dash/cast) are RUN-CUMULATIVE, so any
+   player who pressed a key during their first fight had all three true the
+   instant obj.move finished. The step was born completed, the ledger spent it,
+   and the only lesson that teaches the ability kit key by key was gone for
+   that profile forever. **Two gates now** (`src/ui/objectives.ts`): the arming
+   call returns `{started, checked: [], completed: null}` and reads no facts,
+   and a step cannot complete until the host has reported `OBJ_MIN_VISIBLE_MS`
+   (4s) of REAL card-on-glass time (`addVisibleMs`, fed by
+   `objectivesPaintTick` once per rendered frame, gated on a live dungeon).
+   Regression tests: `test/objectives.test.ts` "A STEP MUST PAINT BEFORE IT CAN
+   COMPLETE". Verified in the app — a profile seeded at obj.five with all three
+   facts true shows `The Five 2/3` on the card and does NOT hold `obj.five` on
+   the ledger.
+2. **The strip was deleted by the act of playing.** Dismiss-on-input ran off a
+   1.2s GRACE, and browsers fire repeated keydown for a HELD key — so a player
+   holding W (the state a player is in for most of floor 1) deleted every card
+   1.2s after it appeared. The grace period WAS the card's lifetime: 128
+   characters in 1.2s is 107 chars/sec. **`e.repeat` is now ignored outright**,
+   a plain keydown only counts after a READ BUDGET derived from the line
+   (~36 chars/sec, in VISIBLE time), and GOT IT / Enter still dismiss
+   instantly. Measured in the app under continuous held-key input: card
+   lifetime 6689ms (old build: ~1200ms).
+
+**Majors (severity 4).**
+
+3. **Lessons landed after the thing they teach.** Pacing gates are flood
+   control and do nothing about staleness. `CardHooks.stillTrue` is a
+   PRECONDITION re-asked at delivery time and at every stale sweep; a card
+   whose lesson has been demonstrated is dropped UNSPENT. Wired to `start`
+   (dropped once the crawler has walked), `dashkit` (once they have dashed),
+   `ability` (once they have cast) and `lowhp` (once the leak closes).
+4. **Three of four cold runs died on floor 1 and the tutorial went mute.**
+   (a) Survival tools are no longer rewards for surviving: the dash left THE
+   FIVE's gate and became a floor-1 PROMPT (`dashkit`) at T+10s, and
+   `COACH_LOW_HP` moved 0.6 → 0.78 so the flask arrives before the pack rather
+   than as a eulogy at 29/100. (b) `Coach.reteachPrompts()` re-arms the floor-1
+   script (prompts only — confirmations were earned by acts) on each new run
+   while the curriculum is still owed, capped at 3, which closes the seven
+   minutes of mute replay the critic measured after a first death. (c) Pack
+   size/aggro mercy is NOT done: it is a sim change and this round holds the
+   no-sim-numbers rule. Left in "open edges" below.
+5. **Double-tapping `2` at the campfire destroyed the curriculum.** Answering
+   "What am I in for?" promoted the SKIP into the index "Let's go." had just
+   vacated. Destructive choices now leave the number row entirely (`.dlg-skip`,
+   unreachable by the digit handler, which selects `.dlg-choice` only), taking
+   one only OPENS a confirmation whose safe answer is slot 1, and backing out
+   restores the ORIGINAL list rather than striking itself off. It is also
+   REVERSIBLE now: `forgetTips` + the K panel's "Mordecai's guidance — SHOW ME
+   AGAIN" (two presses) clears the `tut.*`/`obj.*` keys and reloads.
+6. **The first death dumped the whole competitive layer on a first-timer.**
+   `#recap.novice` (no finished run in history, no season) defers the ladder
+   line, the earned/PB block, the math drawer, SHARE/STANDINGS/WATCH THE ARENA
+   and the HOLD TAB hint, and `offerProof` defers the consent card to the first
+   verdict with a ledger behind it. Mordecai's aside MOVED to directly under
+   the death headline. Nothing is deleted — only what the screen leads with.
+
+**Minors (severity 3-2).** The safe room's `MORDECAI:` label became content
+(`<b class="tipwho">`, gold, hidden with its row) instead of a `::before` that
+outlived the sentence it labelled — and the guided path guaranteed that bug,
+because the beat that clears the tip is the one obj.saferoom steers you into.
+The objectives card now survives a modal (z 26, above #saferoom/#draft scrims,
+still under #recap/#menu): the strip must not talk over a decision, but the
+CHECKLIST is the ask the panel is an answer to. obj.saferoom's "Spend some
+gold" carries an `alt` form ("Look over the shelf") that arms when
+`cheapestShelfPrice() > gold` — the pass that arrived with 24 gold against a
+35-gold shelf was being asked for something the economy had made impossible.
+Coach lines name ONE device (`Coach.setControls` + `lastInputSource`), so
+"Left click or Space" is gone from a keyboard session. Both advertised draft
+routes call one `claimBankedDrafts()`, and OPEN now means open (a panel inside
+`hideOverlay`'s 130ms closing window is CLOSED — that race is the likeliest
+explanation for the un-reproduced V failure); `input.ts` also clears held keys
+on `blur`, so a swallowed keyup can no longer dead-lock a panel bind. Board
+skeletons render only for the in-flight state; every resolved-empty path shows
+its copy alone.
+
+**Two findings were probe artifacts, not bugs** — `#banner`'s eleven bindings
+and the shrine's `BANK IT FOR LATER` were both read out of `textContent`.
+`.topmenu` is `display: none` until `.tb.open`, and `.tp-x`/`.tp-done`/`.tp-seg`
+are `display: none` outside touch (iso.html:6185, and the note above it says
+so). `display:none` is out of the accessibility tree too, so neither is a
+screen-reader trap. Shot 10 confirms: the top bar paints "SYSTEM" and
+"CRAWLER", nothing else. **If a probe reads textContent, it is measuring the
+DOM, not the glass** (HANDOFF §0).
+
+Instrument: `tools/_tut_fix_r1.mjs` (one browser, port 5287). It measures card
+LIFETIME rather than presence-at-an-instant, because under software GL a
+"wait 12 iterations" loop is 12 seconds and kept catching the card's honest
+7s auto-dismiss and calling it an input kill.
+
+## r6 — the ONE VOICE rebuild (HANDOFF §3a), plumbing shipped
+
+- `src/ui/onramp.ts` is DELETED; `src/ui/coach.ts` replaces it (same measured
+  mechanics — prompt budget, live-label refusal, offer/commit/release — with
+  Mordecai's instruction-first beats; `test/coach.test.ts` carries the ported
+  behavior tests plus the inverted binding rule).
+- `src/ui/objectives.ts` is the guided-step sequencer; main3d's
+  `objectivesObserve` computes facts at both intent seams (solo + net) and the
+  `#objectives` card renders the current step. Completion is FACT-spent
+  (done-by-DOING — the one ledger write that sits under an act, not a paint;
+  the paint rule below still governs every once-ever LINE).
+- Enrollment: fresh crawlers get an `obj.enrolled` ledger key at first boot;
+  profiles without it (veterans) never see the card or the coach — the
+  grandfather clause with no seeding writes.
+- The `#tutorial` card surface is re-skinned as MORDECAI'S STRIP (his plaque +
+  portrait chip); the COURTESY ribbon and lead-in strip logic are gone. The
+  queue/pacing/visibility machinery (r2–r5) is untouched.
+- `showAnnouncement`'s tip branch now translates the four curriculum tipIds
+  through `COACH_TIP_BEATS` and drops every other tip UNSPENT — no tip is
+  ever printed in the System's register. Sim untouched; rulesHash unchanged.
+- **CONTENT PASS shipped** (same branch, second commit) — the full first-session
+  curriculum in Mordecai's voice:
+  - **Five objective steps** (was four): GET MOVING → THE FIVE → PAYDAY →
+    THE SAFE ROOM → **THE SHOW** (new closer: hype over the System's
+    interference floor + one favorite converted, both sim-truth facts;
+    favorites measure from the step's own start edge so an old fan cannot
+    pre-check the lesson). THE SHOW is last on purpose: it is the game's
+    identity, and by then the crawler is deep enough that hype actually flows.
+  - **THE FIVE is key by key**: the step's three items are `{token}`-labelled
+    (`{strike}`/`{dash}`/`{cast}`, plus `{hypeline}` on THE SHOW) and the host
+    substitutes LIVE labels at render time (`objItemLabel` in main3d) — real
+    binds on desktop, chips/gestures on touch, the slot that actually holds
+    dash wherever the player benched it. `OBJ_LABEL_TOKENS` is the contract;
+    a test fails any label whose token the host doesn't know.
+  - **Facts are sim-truth now**: a dash is `p.dashTime` running (the old fact
+    read `intent.dash`, a legacy bot flag no input host ever sets — the item
+    was uncheckable by a human); a cast is a pressed slot that actually HOLDS
+    a non-dash ability (a key mashed over a padlocked slot checks nothing).
+  - **Depth beats (floor-2+ pacing)**: two new coach confirmations — `elite`
+    (first named elite within 8 tiles: the affix lesson) and `boss` (first
+    boss within 12: the telegraph lesson). Past floor 1 the prompts are
+    silent and the floors teach themselves; Mordecai only footnotes the FIRST
+    of each new thing the depth introduces. Unbudgeted, never a promise.
+- The r6 acceptance probe (`tools/_tut_r6.mjs`, cold-profile, fails on any
+  painted teaching line whose first sentence lacks its instruction/key) is
+  still the follow-up round (`tools/_tut_r6_smoke.mjs` + the one-off
+  `_tut_content_probe.mjs` cover boot/paint/label-substitution today). The
+  old `_tut_r1..r5` batteries assert COURTESY-era behavior and are retired
+  as instruments of record.
 
 ## The one rule this feature keeps relearning (r5 — read this first)
 
@@ -61,41 +1136,49 @@ Three things follow, and they are binding on every future round:
    places" was checkable by grep and nobody grepped. Every binding sentence in
    this file now names the file and function it is true of.
 
-## The one-paragraph design (canon)
+## The one-paragraph design (canon — REWRITTEN by the r6 rebuild, HANDOFF §3a)
 
-**The System teaches the controls in the moment; Mordecai teaches the game at
-rest.** THE ONRAMP (shipped in `src/ui/onramp.ts`) keeps minutes 1–5: six
-System lines keyed to first-time events on floor 1. Mordecai appears ONLY at
-rest moments — campfire, the first draft pause, safe rooms, the verdict, the
-second check-in — through the shipped `#dialogue` panel. He never speaks over
-live combat, never rides `state.announcements`, and never explains a rule the
-System is about to demonstrate. Every beat is one ESC away from gone, fires
-once EVER via the shipped tips ledger, and teaches by the player DOING the
-thing once with a line of guidance.
+**ONE VOICE: Mordecai teaches everything; the System announces events.**
+Owner, verbatim: *"the system courtesy explanations should entirely be
+replaced by Mordecai's guidance"* — so COURTESY EXPLANATION is dead as a
+teaching format, on every surface. Mordecai now has TWO surfaces: the LIVE
+STRIP (the `#tutorial` card surface — `src/ui/coach.ts` lines,
+curriculum tip translations, objective step lines) and the MODAL (`#dialogue`,
+at rest — `src/ui/guide.ts` beats: campfire, draft, safe rooms, verdict,
+check-in). A persistent OBJECTIVES card (`src/ui/objectives.ts` + right-rail
+`#objectives`) gives the first session a guided go-do-x-y-z spine: five
+sequential steps, 2–3 checkable items each, checked by real state observation
+(sim-truth facts), completed steps ledgered forever (`obj.*` on `dcc:tips:v1`).
+The sim's TIPS and `tipsSeen` are untouched — the host translates the four
+curriculum tipIds into Mordecai's words and drops the rest unspent.
 
-## Two voices, one flow (canon — binding on every future line)
+**The riddle fix is structural (owner: "Mordecai is some times talking in
+riddles").** Every strip beat is data: `instruction` (EXACTLY one sentence,
+imperative, contains the beat's verb and the live `{key}`) + `wry` (sentence
+two, never the key). `test/coach.test.ts` enforces it mechanically, the same
+way the old two-voice rule was enforced — including the INVERSION: curriculum
+translations must NAME their mechanism (collapse→stairs/clock, draftBanked→
+draft, hype→hype, glyph→glyph/socket). Coverage asserted where avoidance used
+to be.
 
-| | The System (SHOW) | Mordecai (GUIDE) |
-|---|---|---|
-| Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Gruff, economical, protective; tired manager who's buried clients |
-| Channel | `state.announcements` → banners / ticker / tutorial cards | dialogue panel only (plus the B8 verdict aside plate) |
-| When | In the moment — the instant a rule touches you | At rest only — campfire, draft pause, safe room, verdict, check-in |
-| Teaches | Controls + rules-as-they-bite | Judgment + the meta: what to pick, what to spend, why the cameras pay |
-| Skip | Any input / 7s auto-dismiss | ESC or the farewell choice — one input, always last in the list |
+## One voice, two surfaces (canon — binding on every future line)
 
-**Division-of-labor rule**: if a concept can be demonstrated, the System
-demonstrates it and Mordecai shuts up about it. He debriefs (the Show, B6)
-only AFTER the System's tip has fired — never the reverse.
+| | The System (SHOW) | Mordecai — STRIP | Mordecai — MODAL |
+|---|---|---|---|
+| Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Instruction first, quip second; no exclamation marks | Gruff, economical, protective; judgement, not mechanics |
+| Channel | `state.announcements` → banners / ticker / log (EVENTS only, never teaching) | `#tutorial` card surface (reactive lines; never pauses) + `#objectives` card | `#dialogue` panel — **THE HOLD** (r14): it pauses the solo world and the player steps through it, and it is where every INSTRUCTIONAL beat is now delivered. Plus the B8 verdict aside |
+| When | The instant an event happens | The instant a rule touches you | At rest — campfire, draft pause, safe room, verdict, check-in |
+| Teaches | NOTHING (this is the rebuild's law) | Controls, mechanisms, the objective steps | Judgment + the meta: what to pick, what to spend, why the cameras pay |
+| Skip | — | Any input / auto-dismiss; B0 skip silences all of it | ESC or the farewell choice — one input, always last in the list |
 
-**And he does not paraphrase it (r4).** B6 shipped through three rounds
-restating the `sponsors` tip nearly clause-for-clause ("sponsors pay YOU, in
-gear, between floors" against "sponsors send gifts between floors"), and the
-voice test could not see it because quotation-matching cannot detect a
-paraphrase. `test/guide.test.ts` now fails any beat line that shares three or
-more content words with any System tip — domain nouns deliberately NOT
-exempted, because if Mordecai needs three of a tip's words to make his point,
-his point IS the tip's point. The fix is always the same: find the thing the
-System will never file. It owns mechanism; he owns what it costs you.
+**Division-of-labor rule (rescoped)**: the STRIP owns mechanism; the MODAL
+owns judgement. A modal beat may not restate a mechanism the strip (or the
+sim tips' subject matter) already owns — `test/guide.test.ts`'s paraphrase
+test still fails any MODAL line sharing three or more content words with any
+sim tip, domain nouns deliberately NOT exempted. The fix is always the same:
+the modal says the thing a mechanism line will never say. And B6 still
+debriefs the Show only AFTER the System has demonstrated it — the
+demonstrate-then-debrief order survived the rebuild.
 
 **The System never points at your FURNITURE (r4, corrected r5).** It audits
 ledgers, posts notices, and files explanations. It has never conceded that you
@@ -360,3 +1443,21 @@ in front of a first session and that this feature does not pretend to.**
 - **Touch farewell affordance**: beats close by tapping the farewell choice;
   a dedicated on-glass ESC affordance could come with the mobile merge (the
   mobile-wr branch is not on `tutorial`).
+- **The DEBUT's knockdown and its HELD clock have never been watched by a
+  critic.** r7 shipped the mercy and the shelf and proved both in the sim; r8's
+  probe has now watched the SHELF half in the app (40 gold against a 35-gold
+  Field Ration, the `browse` alt form correctly unreachable — that hole is
+  closed), but nobody has yet been killed on floor 1 under the mercy. The open
+  questions are presentational and all of one kind: does the knockdown read as
+  GENEROUS or as weightless, does `HELD` read as a decision, does the topped-up
+  float read as help or as charity.
+- **Floor-2+ curriculum is still unobserved end to end.** r8's probe reached
+  floor 2 and watched `obj.saferoom` complete on the shelf, but `obj.show` and
+  the `elite`/`boss` depth confirmations have still never been seen by a
+  critic. Drive `?test&floor=2`.
+  Related, and a design question rather than a bug: THE SHOW is the game's
+  premise and it is the LAST step, behind four gates. r6-fix-1 gave the
+  premise an early carrier instead of reordering the spine — the `hype` tip
+  fires on the crawler's first CRIT and translates to Mordecai's "the cameras
+  pay for loud", inside the first ninety seconds — but whether the closer
+  should MOVE is still open, and it is the owner's call.

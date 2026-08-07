@@ -47,6 +47,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `COMPETITIVE.md` | The social/competitive layer: the replay-verification spine (measured), ladders/seasons, career identity, the post-run screen, and the scoped migration map. (The ghost-racing layer it once specced is REMOVED — NICHE.md §5 bans it; replays are verification plumbing only) |
 | `PERSISTENCE.md` | Server-side persistence (SQLite on the Fly volume): accounts + character saves are LIVE; world hibernate/restore is the P2 plan |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
+| `ASSET-BUDGET.md` | What a cold boot costs on the wire, measured: baseline vs now, the per-class ledger with each round's pixel gate, what was deliberately NOT compressed, and what only a real phone can prove. **Read §1 before measuring a payload** — it names the two traps that have each cost a round |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
 | `BOSSES-V2.md` | Boss encounter design: the 18-strong drawn roster, the boss grammar (asks/telegraphs/counterplay), variety-across-runs layers, elevation beats, and the typed event vocabulary hosts read. Delete sections as they ship |
@@ -113,6 +114,11 @@ hosts:
   src/ui/social.ts  the arithmetic those screens must not get wrong: the grade
                     and its cold-start fallback, the named death, band splits,
                     seal/era chips, challenge + build codes
+  src/ui/notify.ts  THE NOTIFICATION MIX: rank, climax lock, coalescing, cap +
+                    graceful overflow, and the banner/ticker dedupe. DOM-free
+                    policy; main3d.ts executes the ops it returns. What the sim
+                    ANNOUNCES and what reaches the glass are different things
+                    now — the same split src/audio/mix.ts made for sound
   src/server/       gameServer: parties, intents in, snapshots out, /health
   src/net/          client side of the same
 presentation:
@@ -124,7 +130,10 @@ presentation:
                     bossFx.ts (BOSSES-V2 §5: per-boss signature table, the
                     shield/tether/punish/arena/plate/spore shaders, and the
                     camera intent a boss beat may borrow)
-  src/audio/        engine + manifest (clips, silent fallback) + director
+  src/audio/        engine + manifest (clips, silent fallback) + mix.ts (THE
+                    MIX LAYER: tiered voice budget, self-overlap caps, focus
+                    windows — SOUNDPLAN §2.5; what the director ASKS for and
+                    what SOUNDS are different things now) + director
                     (maps sim events → sound ids)
 support:
   src/input/        rebindable keys + mouse aim + notify verbosity (dcc:* keys)
@@ -139,8 +148,35 @@ test/               sim.test.ts (rules), balance.test.ts (the difficulty
 UI overlays in `iso.html` follow a **screen-zone map** (comment block in its
 CSS): every fixed overlay claims exactly one zone; new overlays must pick a
 zone there first. Announcements route by priority: high → the one center
-banner, normal → the right-rail ticker (filtered by the K-panel verbosity
-setting).
+banner, normal → the toast column (filtered by the K-panel verbosity
+setting). `kind:"tip"` never rides either: it is translated into Mordecai's
+voice and painted on his strip (the `#tutorial` card surface) or dropped — the
+System teaches nothing (TUTORIAL.md, ONE VOICE).
+
+**A teaching beat INTERRUPTS (TUTORIAL.md r14 — THE HOLD; curriculum r15).**
+The owner played the build and said nobody reads long text mid-fight, so an
+*instructional* beat — the campfire, four of the five objective-step
+introductions, and the safe room's B5 — stops the sim and is stepped through
+page by page on the `#dialogue` panel (`src/ui/hold.ts` + one adapter beside
+`guideShow`). Six holds in a first session, hard cap. A page names the
+player's live binds (the objectives card's `{tokens}`, drawn as key caps) and
+points at what it names: the spotlight outranks the panel, and the checklist
+under it tracks what the page just asked for. `dlgOpen` is already the solo loop's pause
+gate, so the pause is the ABSENCE of `step()` and costs no sim change: the
+collapse clock, cooldowns and AI all stop by arithmetic, a held run replays
+byte-exactly, and `RULES_HASH` does not rotate. *Reactive* beats (lowhp,
+contact, elite, boss, the tip translations) never pause and stay on the strip,
+which is also where a beat lands when it cannot hold — co-op, a profile that
+took "stop stopping the game", or 25 seconds of unbroken combat.
+
+Routing is not the whole story: **`src/ui/notify.ts` decides whether the glass
+can afford the line at all** (owner verdict 2026-08-07, AAA-AUDIT #7). A
+normal-priority line is ranked by kind, coalesced with any live/queued line of
+the same shape (numbers collapse — "N-KILL COMBO" is one line with a count),
+capped at 3 on screen with a "+N more" chip for the backlog, and HELD while a
+boss bar is up, a death beat is playing or a descent is happening. If you add
+an `AnnouncementKind`, rank it in `NOTIF_RANK` — the record is exhaustive so
+tsc will make you.
 
 ## Assets (models + audio) — silent/placeholder fallback pattern
 
@@ -150,7 +186,9 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
   animator fuzzy-matches animation names, so new rigged packs inherit the
   animation state machine.
 - **Audio**: `src/audio/manifest.ts` loads from `public/audio/`; missing →
-  silence. New sounds: add to the manifest + map in `src/audio/director.ts`.
+  silence. New sounds: add to the manifest, map in `src/audio/director.ts`,
+  and give it a TIER in `src/audio/mix.ts` (unlisted ids fall through to a
+  pattern rule, which is a guess — SOUNDPLAN §2.5).
 - Record every new asset's origin + license in `ASSETS.md` (CC-BY additionally
   requires the in-game credits entry). `scripts/fetch-assets.sh` has download
   pointers.

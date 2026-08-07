@@ -145,6 +145,28 @@ export const THEME = {
   gold: 0xf2c14e,
   heal: 0x5fd08a,
   weaponLoot: 0xb98bff,
+
+  /**
+   * THE SEAL — the one hue the stairs-district lock owns, and nothing else.
+   *
+   * Owner verdict from play: "in late levels its really easy to miss the key
+   * lying on the floor". The key USED to be `0xffd23e` bright gold, which is
+   * the single most-spoken colour in this dungeon — torchlight, coin drops,
+   * rare-tier loot beams, the stairs portal, the EXIT beacon, the chart's own
+   * ink. On floor 15 the key was gold clutter inside gold clutter.
+   *
+   * A key that cannot be found is a hard progression stop with a collapse
+   * clock running, so the seal gets a private channel: rose-magenta is the
+   * complement of the dungeon's amber ambient, appears at this saturation
+   * nowhere else in the palette (broodmother/darling are pastel mob BODIES,
+   * never a beacon), and sits far enough from epic violet (0xb98bff, a pale
+   * lavender) to survive bloom. Everything the lock touches wears it: the
+   * dropped key's pillar, the keyholder's head mark, the sealed doors, the
+   * chart glyph, and the off-screen KEY indicator — one colour, one fact.
+   */
+  seal: 0xff36c8,
+  /** White-hot inner core of any seal beacon (a beam needs a hot centre). */
+  sealCore: 0xffd6f4,
   rarity: { common: 0xc9c9d4, magic: 0x5a9bff, rare: 0xf2c14e, epic: 0xb98bff } as Record<string, number>,
 
   // Camera: fixed pitched orthographic view = the ARPG "isometric" look.

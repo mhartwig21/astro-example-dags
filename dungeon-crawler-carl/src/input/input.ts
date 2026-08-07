@@ -35,7 +35,19 @@ export class InputController {
     window.addEventListener("keydown", (e) => {
       if (this.captureMode) return; // the keybinds panel owns the keyboard
       const k = e.key.toLowerCase();
-      const wasDown = this.keys.has(k);
+      // A REAL PRESS IS AN EDGE, WHATEVER THE SET SAYS (r2 major: "the V bind
+      // for the draft is dead, while the on-screen badge teaches V"). Panel
+      // toggles fire on `!wasDown`, and `wasDown` used to mean "this key is in
+      // the held set" — a set that goes stale the instant a keyup is swallowed
+      // (alt-tab mid-press, a click into devtools, an OS overlay, a modal
+      // stealing focus). One lost keyup and the bind was unreachable for the
+      // rest of the session, which is the fastest way to lose a new player's
+      // trust: the game teaches a key on screen and the key does nothing.
+      // The browser marks autorepeat with `e.repeat`, so autorepeat — the only
+      // thing this guard actually needs to suppress — is now what it tests.
+      // A physical press always produces a non-repeat keydown, so a bind can
+      // no longer be latched dead by an event the window never received.
+      const wasDown = this.keys.has(k) && e.repeat;
       this.keys.add(k);
       if (this.is("stairs", k)) this.useStairsEdge = true;
       if (this.is("flask", k) && !wasDown) this.flaskEdge = true;
@@ -48,6 +60,18 @@ export class InputController {
     });
     window.addEventListener("keyup", (e) => {
       this.keys.delete(e.key.toLowerCase());
+    });
+    // A KEY THE WINDOW NEVER SAW RELEASED IS A DEAD BIND. Panel toggles fire
+    // on the DOWN edge (`!wasDown`), so a keyup swallowed by a focus change —
+    // alt-tab mid-press, a click into devtools, an OS overlay — leaves the key
+    // latched down and its action permanently unreachable until it is pressed
+    // and released again. Blur clears the whole set; nothing may be held
+    // through a window that is not listening (r1: the V claim that would not
+    // open with two drafts banked).
+    window.addEventListener("blur", () => this.clearHeld());
+    // ...and a tab that goes to the background never sees the keyup either.
+    document.addEventListener("visibilitychange", () => {
+      if (document.hidden) this.clearHeld();
     });
     canvas.addEventListener("mousedown", (e) => {
       if (e.button === 2) this.mouseBolt = true; // right-click = ranged bolt
@@ -66,6 +90,13 @@ export class InputController {
 
   setBindings(b: Bindings): void {
     this.bindings = b;
+  }
+
+  /** Drop every held key. Called on blur/hide and whenever a modal opens or
+   *  closes — a panel that eats a keyup must not leave a bind latched down
+   *  (see the keydown handler's note on the dead V bind). */
+  clearHeld(): void {
+    this.keys.clear();
   }
 
   /** Raw LMB state for the click-move host wiring. */
