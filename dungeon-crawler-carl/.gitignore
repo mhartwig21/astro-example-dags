@@ -59,3 +59,6 @@ tools/audio/_r2_sheets/**/*.png
 # rebuilds it from the clips + descriptors). The generator is the artifact;
 # the base64 bundle is not.
 tools/audio/_r2_sheets/audition.html
+# Clip-prune staging (tools/asset-pipeline/prune-character-clips.mjs writes
+# candidate GLBs here before --apply copies them into public/).
+tools/_prunestage/

@@ -90,6 +90,13 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
  */
 let rigPhaseSeq = 0;
 
+/**
+ * Animator slots we have already reported as having no clip on some rig.
+ * Module scope so a room of ninety skeletons reports a gap ONCE, not ninety
+ * times — a diagnostic that floods is a diagnostic nobody reads.
+ */
+const missingSlotReported = new Set<string>();
+
 /** Texture slots whose presence forks a three.js program permutation. */
 const MAP_SLOTS = [
   "map", "normalMap", "roughnessMap", "metalnessMap", "aoMap", "emissiveMap",
@@ -3534,8 +3541,33 @@ export class Renderer3D {
     g.userData.mixer = mixer;
     g.userData.hasClip = (name: string) => !!actions[name];
     const play = (name: string, force = false) => {
-      const next = actions[name];
-      if (!next || (current === name && !force)) return;
+      let slot = name;
+      let next = actions[slot];
+      if (!next) {
+        // THE SILENT FREEZE, CLOSED. This used to be a bare `return`, which
+        // meant a slot this rig has no clip for left the body playing whatever
+        // it was already playing. For a looping clip that reads as an actor
+        // stuck walking on the spot; for a one-shot it is worse, because
+        // clampWhenFinished holds the LAST FRAME, so the rig freezes mid-swing
+        // until some other slot happens to resolve. Either way there is no
+        // exception, no log, and nothing a still frame would show as broken —
+        // exactly the regression class an asset change can introduce and a
+        // screenshot gate can miss.
+        //
+        // Degrade to idle instead: a body doing the wrong-but-alive thing is
+        // recoverable and obvious, a frozen one is neither. `busy` is
+        // deliberately left alone (see below) so the substitution never locks
+        // out the locomotion the caller would have returned to anyway.
+        if (!missingSlotReported.has(slot)) {
+          missingSlotReported.add(slot);
+          console.warn(`[anim] no clip for slot "${slot}" on this rig — idling instead`);
+        }
+        next = actions.idle;
+        slot = "idle";
+        force = false; // never restart idle just because the caller forced
+        if (!next || (current === slot && !force)) return;
+      }
+      if (current === slot && !force) return;
       const prev = actions[current];
       next.reset().play();
       // THE RANKS BREATHE OUT OF STEP (appearance r2 major #5). reset() puts
@@ -3546,10 +3578,10 @@ export class Renderer3D {
       // at this rig's own golden-ratio phase, so a crowd playing one clip is
       // a crowd of individuals. One-shots are untouched: an attack must start
       // at its wind-up, not somewhere inside it.
-      if (LOOPING.has(name)) next.time = animPhase * (durations[name] ?? 0);
+      if (LOOPING.has(slot)) next.time = animPhase * (durations[slot] ?? 0);
       if (prev && prev !== next) prev.crossFadeTo(next, 0.12, false);
-      current = name;
-      if (!LOOPING.has(name)) busy = durations[name];
+      current = slot;
+      if (!LOOPING.has(slot)) busy = durations[slot];
     };
     g.userData.play = play;
     g.userData.playFirst = (...names: string[]) => {

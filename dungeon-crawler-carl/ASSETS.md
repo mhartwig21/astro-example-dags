@@ -67,6 +67,22 @@ without baked animations; the shared rig clip libraries
 (`rig_medium_*.glb` / `rig_large_*.glb`) animate them — see `CHARACTER_RIGS`
 in `src/render3d/assets.ts`. Pack licenses ship alongside as
 `LICENSE-kaykit-collection.txt` and `LICENSE-demonlord.txt`.
+
+**Modification on record — animation clips pruned (asset budget).** The 25
+animated character GLBs in `public/assets/characters/` are **adaptations** of
+the KayKit originals, not verbatim copies: unreachable animation clips were
+removed and the files re-encoded with `gltf-transform` (dedup + meshopt), taking
+the class from 841 clips / 27.10 MB raw to 616 clips / 20.22 MB (1.05 MB off the
+gzipped boot payload). Geometry, skinning, materials and the embedded textures
+are untouched, and the surviving clips are bit-identical in rotation. This is
+squarely inside CC0 — it permits modification and imposes no attribution or
+share-alike duty — so **no license or credits change is required**; it is
+recorded here because ASSETS.md is the provenance log, and anyone diffing these
+against a fresh KayKit download must know the clip lists differ by design.
+Regenerate with `node tools/asset-pipeline/prune-character-clips.mjs --apply`
+(the keep-set is derived from the host's own animator regexes; see that file and
+`test/clipCoverage.test.ts`). The full original packs remain available in the
+owner's Complete Collection zip — see `KAYKIT-INVENTORY.md`.
 | RPG Characters / Animated Monsters | Quaternius | CC0 | https://quaternius.com/ |
 
 KayKit Adventurers + Skeletons are the sweet spot for this game: rigged humanoids
