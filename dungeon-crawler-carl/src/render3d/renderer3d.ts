@@ -448,6 +448,10 @@ interface PropBatchLeaf {
   mesh: THREE.Mesh;
   /** Slot inside the batch, or -1 when this leaf is not currently drawn. */
   slot: number;
+  /** This prop's per-instance value/warmth variant, as a LINEAR rgb multiplier
+   *  (see worldLitProp). Null means 1,1,1. It used to live in the material's
+   *  `color`, which is what split one barrel geometry into four batches. */
+  tint: [number, number, number] | null;
 }
 interface PropBatch {
   mesh: THREE.InstancedMesh;
@@ -897,15 +901,36 @@ export class Renderer3D {
       const c = m.clone();
       c.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim }, uWlDetP: { value: det } });
+        // PER-INSTANCE PROP TINT (batch:environment). A placed prop's band tint
+        // and value variant used to be baked into the material's `color`, which
+        // made every variant its own material and so its own draw call — 58
+        // prop batches on floor 10 for 16 real (geometry, material) groups. The
+        // multiply moves here so one InstancedMesh can carry all four variants.
+        //
+        // NOT via `vertexColors`/USE_COLOR: three.js only multiplies vColor
+        // into diffuseColor under USE_COLOR, and USE_COLOR also makes the
+        // vertex shader read a `color` ATTRIBUTE these geometries do not have.
+        // MeshStandardMaterial has no `defaultAttributeValues`, so the generic
+        // attribute stays at WebGL's (0,0,0,1) and every batched prop renders
+        // BLACK. That is not a hypothetical — it is what the first cut of this
+        // change shipped to the pixel gate.
+        const tintV = opts.prop
+          ? "\n#ifdef USE_INSTANCING_COLOR\n  vWlTint = instanceColor;\n#else\n  vWlTint = vec3(1.0);\n#endif"
+          : "";
+        const tintDecl = opts.prop ? "\nvarying vec3 vWlTint;" : "";
         shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;")
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;" + tintDecl)
           .replace(
             "#include <project_vertex>",
-            "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
+            "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif" + tintV,
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
-        let stage = "#include <color_fragment>\n{\n";
+          "#include <common>\nvarying vec3 vWlPos;" + tintDecl + "\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+        // The tint lands exactly where `color` used to: on diffuseColor before
+        // the prop zoning reads its luminance and saturation. Multiplication is
+        // commutative, so diffuse*map*tint is the same product the baked-in
+        // material colour produced — verified numerically, not by eye.
+        let stage = "#include <color_fragment>\n{\n" + (opts.prop ? "  diffuseColor.rgb *= vWlTint;\n" : "");
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
           // band — the 2-tone wall (dark face, bright rim) that separates a
@@ -1233,21 +1258,59 @@ export class Renderer3D {
   /** Swap every standard material under a placed prop for its world-lit clone
    * (cached per source material, so a hundred barrels cost two clones). Props
    * then sink into the fog and the distance falloff exactly like the ground
-   * they stand on, instead of floating full-bright over the murk. */
+   * they stand on, instead of floating full-bright over the murk.
+   *
+   * THE TINT IS RECORDED, NOT JUST BAKED. The band tint and the per-placement
+   * value/warmth variant are a single multiply on `color`, but because they
+   * land on the material they used to be a BATCHING BOUNDARY: measured on
+   * floor 10, 58 prop batches resolved to 16 distinct (geometry, material
+   * state) groups, and every split inside a group was the tint and nothing
+   * else. So each clone also carries the untinted clone's cache key and its
+   * own multiplier, and batchStaticProps moves the multiply onto an
+   * InstancedMesh's per-instance colour — the same product, one draw call
+   * where there were four.
+   *
+   * THE ONE MEASURED RESIDUAL, so the next round does not re-discover it as a
+   * mystery: giving a prop batch an `instanceColor` makes three.js compile a
+   * DIFFERENT program (USE_INSTANCING_COLOR), and the recompile's rounding
+   * moves `wlN = cross(dFdx(vWlPos), dFdy(vWlPos))` in its last bits. On
+   * NEAR-HORIZONTAL faces that cross product is a cancellation, so barrel lids
+   * and crate tops shift by a few values while the vertical sides do not. The
+   * pixel gate scores it at 0.26-0.34 mean vs a 0.20-0.26 same-build noise
+   * floor, ~10 patches over 0.35% of the frame, invisible at 1:1 and at 8x
+   * side by side. It is NOT a colour error: the gate checks
+   * batchMaterial.color * instanceColor == the old tinted material.color for
+   * every live instance and the worst case is 3.3e-8. An A/B isolated it — the
+   * varying alone, with no instanceColor, sits ON the noise floor. */
   private worldLitProp(obj: THREE.Object3D, tint?: THREE.Color, variant = ""): void {
     obj.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material) return;
       const swap = (m: THREE.Material): THREE.Material => {
         if (!(m as THREE.MeshStandardMaterial).isMeshStandardMaterial) return m;
-        const key = variant ? `${m.uuid}:${variant}` : m.uuid;
+        // The UNTINTED clone is the batching identity, so it is minted first
+        // and every tinted variant points back at it by cache key. (A key, not
+        // the object: Material.copy() deep-copies userData through JSON, and a
+        // Material stored in there would serialize its whole graph.)
+        let base = this.wlPropCache.get(m.uuid);
+        if (!base) {
+          base = this.worldLit(m, { prop: true });
+          base.userData.wlPropBase = m.uuid;
+          this.wlPropCache.set(m.uuid, base);
+        }
+        // An identity tint is the base material — this collapses the `v0` /
+        // foliage-`f0` variants, which multiply by exactly [1,1,1], onto it.
+        if (!tint || (tint.r === 1 && tint.g === 1 && tint.b === 1)) return base;
+        const key = `${m.uuid}:${variant}`;
         let c = this.wlPropCache.get(key);
         if (!c) {
           c = this.worldLit(m, { prop: true });
           // MATERIAL ZONING for props (r5 issue #2: graybox setpieces): a
           // band tint multiplies the shared atlas so pale stone reads as the
           // band's stone — warm sandstone in the ruins, cold iron downstairs.
-          if (tint) (c as THREE.MeshStandardMaterial).color.multiply(tint);
+          (c as THREE.MeshStandardMaterial).color.multiply(tint);
+          c.userData.wlPropBase = m.uuid;
+          c.userData.wlPropTint = [tint.r, tint.g, tint.b];
           this.wlPropCache.set(key, c);
         }
         return c;
@@ -7132,6 +7195,26 @@ export class Renderer3D {
     this.propPark.matrixAutoUpdate = false;
     this.propPark.matrixWorldAutoUpdate = false;
 
+    // THE BATCH IDENTITY IS THE UNTINTED MATERIAL, NOT THE MATERIAL OBJECT.
+    // worldLitProp mints one clone per (source material, tint variant), so the
+    // same barrel geometry arrived here as three or four materials that were
+    // byte-identical apart from `color`. Measured on floor 10 at the previous
+    // HEAD: 58 batches -> 16 distinct (geometry, untinted material) groups, and
+    // on floor 4, 55 -> 16; deduping WITH colour in the key gave 55 and 43, so
+    // the split was the tint and nothing else. The tint moves to the batch's
+    // per-instance colour below.
+    const baseKey = (mat: THREE.Material): string =>
+      (mat.userData.wlPropBase as string | undefined) ?? mat.uuid;
+    const tintOf = (mat: THREE.Material): [number, number, number] | null =>
+      (mat.userData.wlPropTint as [number, number, number] | undefined) ?? null;
+    // The batch draws through the UNTINTED material and re-applies each
+    // member's tint per instance (worldLit's `vWlTint`, gated on
+    // USE_INSTANCING_COLOR). No new material and no new clone: the same object
+    // also serves the untinted prop meshes that never made a batch, where the
+    // #else arm makes the multiply a literal 1.0.
+    const batchMaterialFor = (mat: THREE.Material): THREE.Material =>
+      this.wlPropCache.get(baseKey(mat)) ?? mat;
+
     type Cand ={ e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
     const cands: Cand[] = [];
     const counts = new Map<string, number>();
@@ -7149,7 +7232,8 @@ export class Renderer3D {
         const g = m.geometry as THREE.BufferGeometry | undefined;
         if (!g || !g.attributes?.position) return;
         if (g.morphAttributes && Object.keys(g.morphAttributes).length > 0) return;
-        const key = `${g.uuid}|${mat.uuid}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
+        if (g.attributes.color) return; // its own vColor would fight the tint
+        const key = `${g.uuid}|${baseKey(mat)}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
         counts.set(key, (counts.get(key) ?? 0) + 1);
         cands.push({ e, mesh: m, key });
       });
@@ -7161,7 +7245,8 @@ export class Renderer3D {
       if (cap < Renderer3D.PROP_BATCH_MIN) continue;
       let b = byKey.get(c.key);
       if (!b) {
-        const im = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material as THREE.Material, cap);
+        const im = new THREE.InstancedMesh(
+          c.mesh.geometry, batchMaterialFor(c.mesh.material as THREE.Material), cap);
         im.name = `propbatch:${c.mesh.name || "mesh"}`;
         im.castShadow = c.mesh.castShadow;
         im.receiveShadow = c.mesh.receiveShadow;
@@ -7170,6 +7255,10 @@ export class Renderer3D {
         im.visible = false; // nothing revealed yet; see propLeafShow
         im.frustumCulled = false; // culled per-instance by membership, see above
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // Per-instance tint, initialised to the identity so an unwritten slot
+        // can never darken a prop. Written beside the matrix in propLeafWrite.
+        im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
+        im.instanceColor.setUsage(THREE.DynamicDrawUsage);
         // THE TEARDOWN MUST NOT DISPOSE THIS GEOMETRY. buildFloor disposes every
         // InstancedMesh geometry it finds in floorGroup because tile geometry is
         // a per-build clone — but a prop batch points straight at the loader's
@@ -7184,11 +7273,15 @@ export class Renderer3D {
         this.propBatches.push(b);
       }
       c.mesh.visible = false; // the batch draws it now
-      (c.e.leaves ??= []).push({ batch: b, mesh: c.mesh, slot: -1 });
+      (c.e.leaves ??= []).push({
+        batch: b, mesh: c.mesh, slot: -1,
+        tint: tintOf(c.mesh.material as THREE.Material),
+      });
     }
   }
 
-  /** Write one leaf's current world transform into the slot it occupies. */
+  /** Write one leaf's current world transform (and its tint) into the slot it
+   *  occupies. Both travel with the slot, because propLeafHide swap-removes. */
   private propLeafWrite(leaf: PropBatchLeaf): void {
     if (leaf.slot < 0) return;
     // Read the leaf's matrixWorld rather than a captured local: a prop's
@@ -7198,6 +7291,14 @@ export class Renderer3D {
     // pure visibility flip cheap.
     this.batchMtx.multiplyMatrices(this.floorInv, leaf.mesh.matrixWorld);
     leaf.batch.mesh.setMatrixAt(leaf.slot, this.batchMtx);
+    const ic = leaf.batch.mesh.instanceColor;
+    if (ic) {
+      const o = leaf.slot * 3;
+      const t = leaf.tint;
+      ic.array[o] = t ? t[0] : 1;
+      ic.array[o + 1] = t ? t[1] : 1;
+      ic.array[o + 2] = t ? t[2] : 1;
+    }
     leaf.batch.dirty = true;
   }
 
@@ -7500,6 +7601,7 @@ export class Renderer3D {
       if (!b.dirty) continue;
       b.dirty = false;
       b.mesh.instanceMatrix.needsUpdate = true;
+      if (b.mesh.instanceColor) b.mesh.instanceColor.needsUpdate = true;
     }
     if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
   }
@@ -10491,7 +10593,10 @@ export class Renderer3D {
     // writes now so the sway shows this frame, not next.
     if (wroteBatch) {
       for (const bt of this.propBatches) {
-        if (bt.dirty) { bt.dirty = false; bt.mesh.instanceMatrix.needsUpdate = true; }
+        if (!bt.dirty) continue;
+        bt.dirty = false;
+        bt.mesh.instanceMatrix.needsUpdate = true;
+        if (bt.mesh.instanceColor) bt.mesh.instanceColor.needsUpdate = true;
       }
     }
   }
