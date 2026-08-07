@@ -160,14 +160,15 @@ calls `/auth/delete`, which erases the account row, identities, stats, and
 party seats. Tokens are stored plain (friends-scale) — hash them before a
 larger audience, as PERSISTENCE.md already notes.
 
-## Cache policy & the static payload (measured 2026-08-06)
+## Cache policy & the static payload (measured 2026-08-07)
 
-A boot pulls **394 files** — 260 models, 94 sounds, the icons a screen touches,
-4 fonts, 4 JS chunks. Vite content-hashed the four JS chunks and nothing else,
-so every one of the other 390 shipped under a name that could not be told apart
-from the previous deploy's, and the server had to hedge: `max-age=86400,
-stale-while-revalidate`. Past a day, a visit spent ~390 conditional requests
-proving nothing had changed. On a phone that bill is round trips, not bytes.
+A boot pulls **409 files** — 260 models, 29 shared textures, 94 sounds, the
+icons a screen touches, 4 fonts, 4 JS chunks. Vite content-hashed the four JS
+chunks and nothing else, so every one of the other 405 shipped under a name
+that could not be told apart from the previous deploy's, and the server had to
+hedge: `max-age=86400, stale-while-revalidate`. Past a day, a visit spent ~400
+conditional requests proving nothing had changed. On a phone that bill is round
+trips, not bytes.
 
 **The build now makes every asset url name its own content** (vite.config.ts,
 `dcc-asset-hashing`; client side in `src/assetUrl.ts`):
@@ -194,16 +195,33 @@ a permanently stale bundle).
 `public/` itself is untouched: **ASSETS.md remains the license index, keyed by
 the real filenames**, and renaming a copy in `dist/` modifies no work.
 
-Measured, real browser, production server, `dist/` from `npm run build`:
+Measured, real browser, the production server binary serving `dist/` from
+`npm run build` (`tools/_cacheprobe.mjs`, which reads Resource Timing
+`transferSize` — a `response` listener fires for cache hits too, and counting
+those is how a cache measurement talks itself into nonsense):
 
 | | requests that hit the network | transferred |
 |---|---|---|
-| cold cache | 380 | 14.7 MB |
+| cold cache | 409 | 11.76 MB |
 | repeat visit | **3** (`/auth`, `/rush`, `/boards`) | **0 bytes** |
 
-The 3 are live API calls; every asset and every chunk is a cache hit. Cost of
-the inlined hash map: iso.html 153.9 → 159.6 kB gzipped, on a document that was
+The 3 are live API calls; every asset and every chunk is a cache hit, and there
+are no 4xx. Where the cold 11.76 MB goes: models+textures 9.86 MB over 289
+requests, sounds 0.97 MB over 94, JS 0.57 MB over 4, fonts 0.17 MB over 4, icons
+15 files and 10 kB. The boot *references* 640 subresources but fetches 409: 217
+of the references are the shared-texture pool being requested again by another
+GLB, and those are served from the browser's own cache (`assets.ts` prewarms the
+29 urls precisely so that saving does not depend on request coalescing).
+
+Cost of the inlined hash map: iso.html 160.7 kB gzipped, on a document that was
 already `no-cache` and usually answers 304.
+
+**409 requests is a lot of requests, and that is survivable because production
+speaks HTTP/2**: `dungeon-crawler-claude.fly.dev` negotiates `h2` at the Fly
+edge with `max_concurrent_streams: 100`, so a boot multiplexes over one
+connection instead of queueing six at a time. Anything that fronts this app
+later must keep h2 (or h3) — the same 409 requests over HTTP/1.1 would serialize
+into a materially slower boot on exactly the phone the owner tests on.
 
 ### Why one machine still serves this fine
 
@@ -212,14 +230,14 @@ at 48 players, ~7% of the tick budget (see Capacity below). Static serving is
 the one place it did real work per visitor, and this round removed it:
 
 - **The build precompresses.** `dcc-asset-hashing` writes a `.gz` sidecar for
-  every file that shrinks by >10% (493 files, 37.2 MB → 13.8 MB), and the server
+  every file that shrinks by >10% (491 files, 27.3 MB → 10.5 MB), and the server
   streams the sidecar instead of compressing. Measured cost of the old path:
   **~750 ms of level-6 gzip CPU per cold visitor** on a dev box, for a payload
   that is now zero CPU and level 9. A file that does not shrink (the audio, and
   any GLB a future mesh-compression round makes incompressible) gets no sidecar
   and no attempt.
 - **Repeat visitors cost nothing.** Not a 304, not a stat — no request at all.
-  The old policy's 390 revalidations per visitor per day are gone.
+  The old policy's ~400 revalidations per visitor per day are gone.
 - Streaming a sidecar is `createReadStream().pipe(res)`: flat memory, no
   buffering, and Fly's proxy handles the fan-out.
 
@@ -232,6 +250,44 @@ If you ever measure "gzip does nothing on our GLBs", check that the client
 the header. Verified against production: with the header,
 `skeleton_warrior.glb` comes back gzip-encoded; without it, 2,629,440 bytes of
 identity. The file itself compresses ~80% (2,629,440 → 541,097).
+
+### Load order, first paint, and what the loading bar is allowed to claim
+
+Instrument: `tools/_bootphases.mjs` — it timestamps the phase edges, every write
+to the bar, and the overlay's own dismissal **from inside the page**, plus a
+50 ms heartbeat whose gaps expose main-thread blocks. Timing the dismissal from
+the driver instead (`waitForFunction`) times the compositor and inflated the
+boot by >1 s of pure polling lag; that is the same shape of error HANDOFF §0 is
+about, so the instrument records both and prints the difference.
+
+**Nothing non-essential blocks first paint.** FCP is 316-380 ms cold, 116-128 ms
+warm. The loading screen is markup inside `iso.html` with the styles inline, the
+favicon is a data: URI, all four fonts are `font-display: swap`, the only script
+is `type="module"` (deferred), and there is no render-blocking stylesheet. The
+GLBs, the sounds and the icons all start *after* the first paint — the resources
+that complete before it are cache hits plus the three small API calls
+(`/auth/providers`, `/rush`, `/boards/deepest`), which resolve in parallel and
+gate nothing. The one guaranteed-404 that used to sit inside the boot gate — the
+builder's generated-asset index, absent from every production build — is now
+skipped when the hash map proves this build has none.
+
+**The bar reports honestly, with one thing it is no longer allowed to say.**
+`main3d.ts` weights the three phases models 0.86 / audio 0.06 / warm 0.08, and
+each is a real `loaded / total`. What the phase edges showed is that the *last*
+step reports `WARMUP 3 / 3` when prewarm's JS is finished, while the GPU is
+still paying off its final compile+render pass — so the bar could sit visibly
+full over a screen that had not moved. 100% is now reserved for the instant the
+overlay lifts and every phase report is clamped below it. That fix is
+GPU-independent; the *size* of the tail is not, and must not be quoted from this
+box: headless runs software GL (SwiftShader), where shader compilation is far
+slower than on any real device.
+
+For the same reason **the phase weights were left alone.** Locally the models
+phase takes ~1.2 s of a ~10 s boot, which looks like a 0.86 weight badly
+misplaced — but localhost has no network (the owner's phone downloads 11.76 MB
+over one) and SwiftShader inflates the warm phase (a real GPU does not). Both
+distortions push the same way, and re-tuning the weights against them would be
+tuning the bar to the instrument rather than to the player.
 
 ## Capacity & sizing (measured 2026-08-01)
 

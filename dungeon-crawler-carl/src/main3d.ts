@@ -11841,7 +11841,16 @@ async function main(): Promise<void> {
     // indicator snap a fifth of the way across and then stall on models — a
     // bar reporting a phase that no longer costs what the weight says.
     const p = phaseFrac.models * 0.86 + phaseFrac.audio * 0.06 + phaseFrac.warm * 0.08;
-    loadingFill.style.width = `${Math.round(p * 100)}%`;
+    // 100% IS RESERVED FOR THE MOMENT THE SCREEN LIFTS, and every phase report
+    // gets clamped under it. The last thing prewarm counts is its own JS: the
+    // final compile+render pass keeps paying off on the GPU after `WARMUP 3 / 3`
+    // is already on the bar (tools/_bootphases.mjs times the phase edges against
+    // the overlay's own dismissal — on this box, software GL, that tail is
+    // seconds). A full bar over a screen that has not moved is the one reading a
+    // player can call a lie, and it is a lie in every environment; the *size* of
+    // the tail is a fact about the GPU and is not something this box can measure
+    // for a phone.
+    loadingFill.style.width = `${Math.min(99, Math.round(p * 100))}%`;
   };
   loadingPhase.textContent = "RECEIVING THE DUNGEON";
   await renderer.init((loaded, total) => {
@@ -11864,6 +11873,7 @@ async function main(): Promise<void> {
     loadingCount.textContent = `WARMUP ${done} / ${total}`;
   });
   window.clearInterval(flavorTimer);
+  loadingFill.style.width = "100%"; // the only honest 100%: the screen is leaving
   loadingEl.classList.add("done");
   window.setTimeout(() => { loadingEl.style.display = "none"; }, 500);
 
