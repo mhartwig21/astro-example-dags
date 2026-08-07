@@ -4,6 +4,14 @@
 > in the owner's KayKit Complete Collection zip but not yet used — including the
 > full rigged-character census — see `KAYKIT-INVENTORY.md`.
 
+> **Filenames here are the `public/` ones, and `public/` is the source of
+> truth.** A production build copies each file into `dist/` under a
+> content-hashed name (`skeleton.d48770b5.glb`, `/icons.<hash>/…`) so it can be
+> cached immutably — see DEPLOY.md "Cache policy". That renames a copy; it does
+> not modify, adapt, or re-license anything, and no attribution obligation
+> changes. If you ever need to map a hashed name back to a licensed one, the
+> build writes `dist/asset-hashes.json`.
+
 The 3D isometric renderer (`src/render3d/`) currently draws **procedural low-poly
 placeholder meshes** so we can confirm art direction without any downloads. It's
 built to load real **glTF/GLB** models the moment they're present under
@@ -59,6 +67,48 @@ without baked animations; the shared rig clip libraries
 (`rig_medium_*.glb` / `rig_large_*.glb`) animate them — see `CHARACTER_RIGS`
 in `src/render3d/assets.ts`. Pack licenses ship alongside as
 `LICENSE-kaykit-collection.txt` and `LICENSE-demonlord.txt`.
+
+**Modification on record — animation clips pruned (asset budget).** The 25
+animated character GLBs in `public/assets/characters/` are **adaptations** of
+the KayKit originals, not verbatim copies: unreachable animation clips were
+removed and the files re-encoded with `gltf-transform` (dedup + meshopt), taking
+the class from 841 clips / 27.10 MB raw to 616 clips / 20.22 MB (1.05 MB off the
+gzipped boot payload). Geometry, skinning, materials and the embedded textures
+are untouched, and the surviving clips are bit-identical in rotation. This is
+squarely inside CC0 — it permits modification and imposes no attribution or
+share-alike duty — so **no license or credits change is required**; it is
+recorded here because ASSETS.md is the provenance log, and anyone diffing these
+against a fresh KayKit download must know the clip lists differ by design.
+Regenerate with `node tools/asset-pipeline/prune-character-clips.mjs --apply`
+(the keep-set is derived from the host's own animator regexes; see that file and
+`test/clipCoverage.test.ts`). The full original packs remain available in the
+owner's Complete Collection zip — see `KAYKIT-INVENTORY.md`.
+
+**Modification on record — shared textures externalised (asset budget).** The
+218 unanimated GLBs across `public/assets/dungeon/` and
+`public/assets/characters/` are likewise **adaptations**: a KayKit pack ships
+one atlas per pack, so the same image was embedded once per prop — the dungeon
+atlas 57 times, a banner atlas 32, a cliff atlas 29. Because WebP is already
+compressed and every GLB is gzipped independently, transport compression could
+not see those copies; they were 1.55 MB of real wire cost. The 29 images shared
+by two or more files now live once in **`public/assets/tex/`** as
+`t.<8 hex of their own sha256>.webp`, referenced by a relative `../tex/…` URI,
+and the HTTP cache deduplicates them (218 embedded copies → 29 downloads). The
+26 single-use images stay embedded, since externalising those would buy a round
+trip and no bytes. **The image bytes are copied verbatim — byte-identical, not
+re-encoded** — and geometry, materials, samplers and node hierarchies are
+untouched; only the `images[]` entries and the BIN packing changed. CC0 permits
+this and imposes no attribution duty, so **no license or credits change is
+required**; the new `tex/` files inherit the CC0 of whichever KayKit pack they
+came from, all of which are already listed in the tables below. Recorded here
+because ASSETS.md is the provenance log and these filenames are ours, not
+KayKit's. Regenerate with `node tools/asset-pipeline/dedupe-textures.mjs --apply` (idempotent:
+it re-derives the same hashes from the same bytes).
+
+> Because the names ARE the content hashes, `assets/tex/` is deliberately
+> skipped by the build's asset-hashing rename (`vite.config.ts`) — the URIs are
+> baked inside the GLBs where no build-time rewrite can reach them. Renaming
+> that tree would break all 218 referencing models.
 | RPG Characters / Animated Monsters | Quaternius | CC0 | https://quaternius.com/ |
 
 KayKit Adventurers + Skeletons are the sweet spot for this game: rigged humanoids
@@ -171,15 +221,52 @@ pointers for the audio sources too.
 | `sfx/barks/bark_{skel,org,hum,mech,air}_{aggro,pain,death}_{a,b}.ogg` (30 files) | Synthesized in-repo by `tools/audio/gen-sfx-barks.mjs` (five archetype-family voices; SOUNDPLAN row 9) | this project | CC0 (own work) |
 | `sfx/{ident,ident_high,stamp,count_tick,count_go,ledger_bank,door_close,draft_pick,draft_bank,descend_whoosh,verdict,till}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (the System's stinger language — one shared bell timbre) | this project | CC0 (own work) |
 | `sfx/boss_{phase,punish,down}.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-combat.mjs` (dedicated boss beats; SOUNDPLAN row 15) | this project | CC0 (own work) |
-| `sfx/cast_{dash,orbit,stance,overcharge,cutto,crowdsurf,stuntdouble,bulwark,cables,airstrike,cataclysm,bullettime,injunction}.ogg` (13 files) | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (THE ACT — the cast cues for the ability roster; SOUNDPLAN §1.4 row E-21. Actives mastered to -17 LUFS momentary / ≤-4.5 dBFS, ultimates -14.5 / ≤-3.0, measured from the encoded files by `tools/audio/measure.mjs`; the level they PLAY at is `tools/audio/played.mjs`. `cast_dash` REPLACES the Kenney `dash.ogg` on the owner's verdict; `_r2_sheets/_src/dash_old.ogg` is kept as the negative reference. **All thirteen re-rendered in the r2 fix round** — the family's own distinctness instrument had flagged three pairs. Seeded/deterministic — verified byte-identical across reruns) | this project | CC0 (own work) |
+| `sfx/cast_{dash,orbit,stance,overcharge,cutto,crowdsurf,stuntdouble,bulwark,cables,airstrike,cataclysm,bullettime,injunction}.ogg` (13 files) | **AUDIO r3: rebuilt from RECORDED CC0 foley** by `tools/audio/build-casts-r3.mjs` (THE ACT — the cast cues for the ability roster; SOUNDPLAN §1.4 row E-21). The r2 renders these replace were oscillator synthesis and the owner rejected the set by ear as "robotic" (§1.3a); every layer is now an edit of a real recording — the per-recording origin + license table is **"Audio r3 recorded sources"** below, and the per-layer routing is in the script's own comments. Editing only: trim / onset-align / resample-pitch / pitch-ramp / reverse / biquad EQ / envelope / mix — no oscillator is left in the family. Mastering unchanged: actives -17 LUFS momentary / ≤-4.5 dBFS, ultimates -14.5 / ≤-3.0, measured from the ENCODED files by `tools/audio/measure.mjs`; the level they PLAY at is `tools/audio/played.mjs`. `cast_dash` REPLACES the Kenney `dash.ogg` on the owner's verdict; `_r2_sheets/_src/dash_old.ogg` is kept as the negative reference. Deterministic — verified byte-identical across reruns. `gen-sfx-casts.mjs` is retained as a VERIFIER and as the source of `chain_line`/`weapon_flash` | this project (edit) over CC0 recordings | CC0 (own work + CC0 sources) |
 | `sfx/chain_line.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (the taut-line tick, so `HIT_SOUNDS.chain` stops playing the dash whoosh on all four "chain" emitters; room-tone family -28 LUFS momentary / ≤-12 dBFS) | this project | CC0 (own work) |
 | `sfx/weapon_flash.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-casts.mjs` (r2 fix round — a dry steel tick, so `HIT_SOUNDS.weapon` stops being the `item` PICKUP CHIME. `"weapon"` has 30 emitters in `src/sim/game.ts`, most of them monster-side: adds arriving, risers, boss children, the orbit parry, the snare snip. Room-tone family -28 LUFS momentary / ≤-12 dBFS) | this project | CC0 (own work) |
-| `sfx/level_up.ogg` | Synthesized in-repo by `tools/audio/gen-sfx-announcer.mjs` (r2 fix round, owner verdict §1.3a — THE SYSTEM FILES A PROMOTION: a stamp and two notes a fourth apart, in the same dry two-partial bell the rest of the System speaks in. Short and dry beats long and celebratory on an edge that fires every level: 0.44s→0.33s, centroid 4773→1593Hz, and it plays 6.0dB quieter. Stays on the `sfx` bus, not `announcer` — the announcer bus is the sidechain duck SOURCE and this edge would pump the bed all run) | this project | CC0 (own work) |
+| `sfx/level_up.ogg` | **AUDIO r3: rebuilt from RECORDED CC0 foley** by `tools/audio/build-casts-r3.mjs` (owner verdicts §1.3a — the original Kenney jingle was "annoying as shit", the r2 synthesized replacement was rejected with the rest of the set as "robotic"). Same brief, real machines: THE SYSTEM FILES A PROMOTION — an actual typewriter strike with a hardwood chock's weight under it, then a real struck bell stepping G5→C6, each note cut short before it can become a jingle. Short and dry beats long and celebratory on an edge that fires every level: 0.33s, and it plays 6.0dB quieter than the Kenney clip. Stays on the `sfx` bus, not `announcer` — the announcer bus is the sidechain duck SOURCE and this edge would pump the bed all run. Sources in the r3 table below | this project (edit) over CC0 recordings | CC0 (own work + CC0 sources) |
 | `tools/audio/_r2_sheets/_src/dash_old.ogg` | The retired Kenney — Digital Audio `dash.ogg`, kept OUT of `public/` as the negative reference the regenerated `cast_dash` is measured against (§1.3a). Not shipped, not in the manifest | Kenney | CC0 |
 | `music/band_{undercroft,sewers,garden,ruins,ironworks,approach}.ogg`, `music/menu.ogg` | Synthesized in-repo by `tools/audio/gen-music-beds.mjs` (SOUNDPLAN §3: the six band ambiences + the campfire check-in bed; stereo, mastered to -23 LUFS-I / ≤-6 dBTP, loop-fold seams — deterministic, rerun is byte-identical) | this project | CC0 (own work) |
 
 Note: **freepd.com has shut down** ("Site Closed") — removed from the source
 table guidance; OpenGameArt (license-filtered to CC0) is the better music source.
+
+### Audio r3 recorded sources (all CC0 — attribution not required, recorded here anyway)
+
+Audio r3 exists because the owner rejected the r2 synthesized cast set by ear
+as "robotic" (SOUNDPLAN §1.3a). Every layer of the 14 rebuilt cues is now an
+edit of one of the recordings below. They live in the repo as trimmed mono-48k
+snippets under `tools/audio/r3_src/` (committed — they are the inputs a rerun
+of `build-casts-r3.mjs` needs to reproduce the shipped bytes), and every one
+was fetched from OpenGameArt with the license filter set to CC0. **No CC-BY
+and no NC source is used in this family, so no credits-screen entry is owed.**
+
+The `r3_src` name is ours; `Source file` is the exact file inside the linked
+submission (verified by envelope cross-correlation ≥0.996 against the
+downloaded original, not by filename).
+
+| `r3_src/` name(s) | Source file(s) | OpenGameArt submission | Author | License | Used by |
+|---|---|---|---|---|---|
+| `swish_{a,b,c,d,e}` | `swish-{2,3,7,9,12}.wav` | [Swishes Sound Pack](https://opengameart.org/content/swishes-sound-pack) | artisticdude | CC0 | `cast_dash` (air/mass/scuff), `cast_cutto` (thup), `cast_stuntdouble` (arrive/scuff) |
+| `metal_slam`, `metal_sheet`, `metal_clank_{a,b}`, `wood_{block,chock,clack,hammer}` | `metal_slam_01`, `metal_sheet_03`, `metal_hit_{01,03}`, `wood_hit_{07,05,03}`, `wood_hammer_01` (.ogg) | [100 CC0 metal and wood SFX](https://opengameart.org/content/100-cc0-metal-and-wood-sfx) | rubberduck | CC0 | `cast_bulwark` (plant + oak), `cast_crowdsurf` (links), `cast_stance` (chock), `cast_stuntdouble` (slate + wood landing), `cast_injunction` (gavel + block), `level_up` (thock) |
+| `rock_{break,fall,hit}`, `body_hit_low` | `bfh1_rock_breaking_02`, `bfh1_rock_falling_03`, `bfh1_rock_hit_01`, `bfh1_hit_07` (.ogg) | [75 CC0 breaking / falling / hit sfx](https://opengameart.org/content/75-cc0-breaking-falling-hit-sfx) | rubberduck | CC0 | `cast_cataclysm` (crack + debris), `cast_stuntdouble` (settle) |
+| `ring_bright`, `ring_low`, `clink_{a,b}` | `bing1.wav`, `bong1.wav`, `clink1_0.wav`, `clink2.wav` | [Metal Impact Sounds](https://opengameart.org/content/metal-impact-sounds) | BMacZero | CC0 | `cast_orbit` (ring + hub), `cast_bulwark` (dome), `cast_cables` (hum), `cast_injunction` (swell + tone + ticks), `cast_cutto` (edge) |
+| `mech_clank`, `mech_clunk`, `typewriter` | `clank1.wav`, `lightclunk1.wav`, `typewriter.wav` | [Mechanical Sounds](https://opengameart.org/content/mechanical-sounds) | BMacZero | CC0 | `cast_bullettime` (jam), `cast_cables` (pins), `level_up` (stamp) |
+| `spark_arc`, `spark_burst` | `spark.wav`, `continuousspark.wav` | [Electricity Sound Effects](https://opengameart.org/content/electricity-sound-effects-0) | BMacZero | CC0 | `cast_overcharge` (arc) |
+| `metal_dull` | `dull_metal_collision_03_44k_32bit_stereo.wav` | [27 Metal Audio Samples (SFX)](https://opengameart.org/content/27-metal-audio-samples-sfx) | blacklodgegames | CC0 | held in reserve (no shipped cue uses it) |
+| `sword_draw`, `sword_clash` | `sword.1.ogg`, `sword_clash.3.ogg` | [20 Sword Sound Effects (Attacks and Clashes)](https://opengameart.org/content/20-sword-sound-effects-attacks-and-clashes) | StarNinjas | CC0 | `cast_orbit` (grind + un-ship bite), `cast_cutto` (arrival tick) |
+| `click_snap`, `click_switch` | `click.9.ogg`, `click.1.ogg` | [10 Clicks and Switches](https://opengameart.org/content/10-clicks-and-switches) | StarNinjas | CC0 | `cast_stance` (detent snap), `cast_airstrike` (key-up) |
+| `cave_in` | `cave_in_-_starninjas_0.ogg` | [Cave In](https://opengameart.org/content/cave-in) | StarNinjas | CC0 | `cast_cataclysm` (the stone tear + grind) |
+| `breaker_on` | `switch on.wav` | [SFX - Circuit breaker](https://opengameart.org/content/sfx-circuit-breaker) | CleytonKauffman | CC0 | `cast_overcharge` (the throw) |
+| `buzz` | `buzz_0.ogg` | [Electric Buzz](https://opengameart.org/content/electric-buzz) | themightyglider | CC0 | `cast_overcharge` (the banked whine) |
+| `winch_payout` | `winch - Marker #2.wav` | [Chain winch sounds](https://opengameart.org/content/chain-winch-sounds) | bart | CC0 | `cast_crowdsurf` (the line paying out) |
+| `whistle` | `steam_whistle.wav` | [Steam whistle](https://opengameart.org/content/steam-whistle) | bart | CC0 | `cast_airstrike` (the descending call) |
+| `body_land_{a,b}` | `Jump_1.wav`, `Jump_2.wav` | [Jump Landing](https://opengameart.org/content/jump-landing) | Macro | CC0 | `cast_stuntdouble` (the double landing), `cast_crowdsurf` (the load), `cast_bullettime` (the seize) |
+| `machine_off` | `MachinePowerOff.ogg` | [Machine shutting down](https://opengameart.org/content/machine-shutting-down) | Cough-E | CC0 | `cast_bullettime` (the room slowing) |
+| `thunder` | `rain-thunder.ogg` (21.80s in) | [Rain + Long Thunder](https://opengameart.org/content/rain-long-thunder) | WuxiaScrub | CC0 | `cast_airstrike` (the departure), `cast_cataclysm` (the sub), `cast_bullettime` (the sink) |
+| `static` | `static1.wav` (7.50s in) | [Frequency Static Sound Effects](https://opengameart.org/content/frequency-static-sound-effects) | bretbernhoft | CC0 | `cast_airstrike` (the radio syllables), `cast_cutto` (the smoke), `cast_bulwark` (breath in the dome) |
+| `creak` | `tree_creak.flac` (0.90s in) | [Tree Creaking](https://opengameart.org/content/tree-creaking) | AntumDeluge | CC0 | `cast_cables` (the line under tension) |
+| `bell` | `bell_ding2.wav` | [Bell dings/chimes](https://opengameart.org/content/bell-dingschimes) | PWL | CC0 | `level_up` (G5 → C6) |
 
 ### Attribution (CC-BY assets in use)
 
@@ -189,12 +276,13 @@ BINDINGS panel footer in `iso.html`) — keep both in sync when adding rows.
 | Work | Author | License | Source | Our file |
 |---|---|---|---|---|
 | Battle Music | Alexandr Zhelanov | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-music) | `music/battle_music.ogg` |
-| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` |
+| Battle in the Winter | Johan Brodd (jobromedia) | CC BY 3.0 | [OGA page](https://opengameart.org/content/battle-in-the-winter) | `music/battle_winter.ogg` (MODIFIED: trimmed 262.45s→88.40s + 1.2s loop crossfade via `tools/audio/fix-beds.mjs battle_winter` — a bed the director drops after a ~6s battle linger was 3.55MB fetched mid-fight. 1.18MB after; seam Δ0.8dB / no click, -23.5 LUFS-I, -7.5 dBTP. Level-only loop surgery, no creative content added; CC-BY's change-marking requirement is satisfied by this note) |
 | Colossal Boss Battle Theme | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/colossal-boss-battle-theme) | `music/boss_colossal.ogg` |
 | Blackmoor Tides (Epic Pirate Battle Theme) | Matthew Pablo ([matthewpablo.com](https://matthewpablo.com)) | CC BY 3.0 | [OGA page](https://opengameart.org/content/blackmoor-tides-epic-pirate-battle-theme) | `music/boss_blackmoor.ogg` |
 
 The `.ogg` files are re-encodes of the authors' seamless-loop WAV/MP3 releases
-(format conversion only, no creative changes). Rejected during sourcing:
+(format conversion only, no creative changes — except `battle_winter.ogg`,
+whose loop-trim is marked in its row above). Rejected during sourcing:
 "Orchestral Battle Music" (Zefz) — CC-BY-SA/GPL only, and the author states the
 samples come from a commercial MAGIX sample DVD, so the relicensing chain is
 unclear. Don't ship it.
@@ -371,8 +459,45 @@ alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
 
 | File | Family | Role | Source |
 |---|---|---|---|
-| Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
-| AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+| Cinzel.woff2 (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
+| AlegreyaSans-{Regular,Bold,Italic}.woff2 | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+
+**MODIFIED — subset + WOFF2 (asset budget).** The shipped `.woff2` files are
+NOT the upstream releases: they are subsets, produced by `tools/subset-fonts.mjs`
+from the unmodified upstream TTFs kept in `tools/fonts-src/` (those four files
+are byte-identical to Google Fonts and are build input only — nothing serves
+them). Measured: 436 KB gzipped on the wire → 168 KB, with the boot path down
+447,497 B → 172,832 B.
+
+Both families are OFL 1.1 **with no Reserved Font Name**, so subsetting and
+redistribution under the same license are permitted; the `name` table (family,
+subfamily, copyright, license URL) is preserved unchanged, and the OFL texts
+still ship alongside. Recording the modification here is the obligation this
+row exists to meet.
+
+What was dropped is only ever a whole script the game cannot render — Cyrillic,
+polytonic Greek, Vietnamese/Latin Extended Additional, IPA: 768 of Alegreya's
+1,235 codepoints. What was KEPT, deliberately: Basic Latin + Latin-1 + Latin
+Extended-A + combining diacriticals (so an accented crawler name still renders
+in-family), and **every codepoint the font has above U+2000** — the UI types
+─ § · → × … ✕ ◆ ± ≈ ° ≤ ≥ │ ▼ ▶ ☰ ↑ ↓ ← → straight into the DOM, and one
+missing symbol would silently swap to a fallback font mid-sentence. The
+`smcp`/`c2sc` small-caps features and Cinzel's variable axes (fvar/gvar/avar/
+HVAR/STAT, wght 400..900) survive intact; only `ss05`, a stylistic set for a
+dropped script and never enabled in CSS, is gone.
+
+Two rounds independently built WOFF2 subsets of these four faces; ONE tool
+survives, `tools/subset-fonts.mjs`, and it is the one whose outputs are
+committed. (`tools/fonts/subset.py`, the pyftsubset variant from the perf
+round, is removed: it read TTFs from `public/fonts/` and declared them as a
+second `src:`, neither of which is true any more, and two subsetters writing
+the same four files is a trap.) The load-bearing settings it warned about are
+both verified on the shipped files rather than assumed: the OpenType feature
+lists are **identical to the TTF masters** except `ss05` (a stylistic set for
+a dropped script, never enabled in CSS), so `smcp`/`c2sc`/`tnum` — which
+`font-variant: small-caps` and `font-variant-numeric: tabular-nums` resolve
+through all over `iso.html` — are intact; and Cinzel still carries its `wght`
+axis, so it was not instanced. No `.ttf` is served or referenced by CSS.
 
 ## AI-generated assets — `tools/asset-pipeline/`
 

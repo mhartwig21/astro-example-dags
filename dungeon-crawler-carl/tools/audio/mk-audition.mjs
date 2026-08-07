@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // mk-audition.mjs — builds _r2_sheets/audition.html, the one page the owner
-// opens to judge audio r2 by ear (SOUNDPLAN §9 is the prose version; this is
+// opens to judge audio r3 by ear (SOUNDPLAN §9 is the prose version; this is
 // the version with the sounds actually in it).
 //
 // SELF-CONTAINED BY CONSTRUCTION. The page is published behind a CSP that
@@ -329,7 +329,7 @@ const html = `<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>THE ACT — audio r2 audition sheet</title>
+<title>THE ACT — audio r3 audition sheet</title>
 <style>
 @font-face { font-family: "Cinzel"; src: url("${FONT_DISPLAY}") format("truetype"); font-weight: 400 700; font-display: block; }
 @font-face { font-family: "Alegreya Sans"; src: url("${FONT_BODY}") format("truetype"); font-weight: 400; font-display: block; }
@@ -492,17 +492,20 @@ audio { display: none; }
 <div class="wrap">
 
 <header class="mast">
-  <p class="eyebrow">Audio r2 · SOUNDPLAN §9 · nothing here has been heard</p>
+  <p class="eyebrow">Audio r3 · rebuilt from recordings · SOUNDPLAN §9 · nothing here has been heard</p>
   <h1>THE ACT</h1>
-  <p class="sub">Thirteen cast cues, one ear that counts</p>
+  <p class="sub">Take three — the same thirteen cues, no oscillators left</p>
   <p class="lede">
-    You hear the <em>consequence</em> when a hit lands. Until this round you never heard the
-    <em>act</em>. Thirteen of sixteen abilities cast without a voice of their own — eleven of them
-    borrowing someone else's clip, two of them silent — and the inventory that was supposed to
-    catch that had been built by walking the director's mappings instead of the roster.
-    <strong>Everything below is measured; nothing below is a claim that anything sounds good.</strong>
-    That part is yours. Every clip plays from a file embedded in this page — no network, no server,
-    works offline.
+    You heard this sheet once and said <em>"it all sounds very robotic — not necessarily what I was
+    looking for."</em> You were right about what it was: every cue was built out of oscillators, which
+    is why they measured clean and still sounded like a machine describing a sound instead of the
+    sound. <strong>This is the same thirteen briefs rebuilt entirely out of recordings.</strong>
+    Real air displaced, a real circuit breaker thrown, a real chain winch paying out, a real cave-in,
+    a real tree under load, a real machine spinning down, real thunder, a real typewriter, a real
+    bell. Nothing here is synthesized; the only synthesis left in the family is the silence between
+    two hits. <strong>Everything below is measured; nothing below is a claim that anything sounds
+    good.</strong> That part is yours, and it is the only thing that can close the verdict. Every clip
+    plays from a file embedded in this page — no network, no server, works offline.
   </p>
 </header>
 
@@ -524,7 +527,9 @@ ${refHtml}
 <div class="rule"><h2>The second verdict</h2></div>
 <p class="sectnote">
   "Can we also change the level up sound, it's annoying as shit." It fires on one of the most-pressed
-  edges in the game, so it was rewritten short and dry rather than long and celebratory.
+  edges in the game, so it was rewritten short and dry rather than long and celebratory — and in this
+  round rebuilt out of real machines: an actual typewriter strike, then an actual bell struck twice a
+  fourth apart, each note cut before it can become a jingle.
 </p>
 ${levelHtml}
 
@@ -543,7 +548,9 @@ ${levelHtml}
   real playhead, so you can see which part of the picture you are hearing.</p>
   <p><b>What is not verified</b>
   No browser was run in this round, so no cue here has been heard firing in the game — each is
-  verified by unit test against the real sim and by measurement of the file. In-game, the fastest
+  verified by unit test against the real sim and by measurement of the file. The manifest ids and
+  director wiring are unchanged from the round you already heard fire, so this is a swap of file
+  contents, not of plumbing. In-game, the fastest
   way to hear the family as a family is <em>?test&amp;floor=6&amp;level=30&amp;abilities=all</em> on
   /iso.html, which puts every ability on the bar at once.</p>
 </footer>

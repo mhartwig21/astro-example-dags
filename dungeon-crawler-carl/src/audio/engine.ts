@@ -1,5 +1,6 @@
 import { AUDIO_MANIFEST, type SoundDef, type SoundId } from "./manifest";
 import { MusicDeckPool, type MusicDeck } from "./deck";
+import { assetUrl } from "../assetUrl";
 
 // WebAudio playback engine. Silent-by-default: load() decodes whatever clips
 // exist under public/audio/ and skips the rest, so play() on a missing sound is
@@ -269,7 +270,7 @@ export class AudioEngine implements AudioSink {
       ids.map(async (id) => {
         if (this.streamed(id)) { onProgress?.(++settled, ids.length); return; }
         try {
-          const res = await fetch(AUDIO_MANIFEST[id].url);
+          const res = await fetch(assetUrl(AUDIO_MANIFEST[id].url));
           if (!res.ok) return;
           const data = await res.arrayBuffer();
           this.buffers.set(id, await ctx.decodeAudioData(data));
@@ -426,7 +427,7 @@ export class AudioEngine implements AudioSink {
     if (this.streamed(id)) {
       const sid = id;
       const prev = this.current;
-      const deck: MusicDeck | null = this.decks?.claim(sid, def.url, {
+      const deck: MusicDeck | null = this.decks?.claim(sid, assetUrl(def.url), {
         volume: def.volume ?? 1,
         loop: def.loop ?? true,
         fade: FADE,

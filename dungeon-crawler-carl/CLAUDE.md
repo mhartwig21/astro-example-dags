@@ -47,6 +47,7 @@ game rules in a host. If a rule lives in main3d.ts, it's a bug.
 | `COMPETITIVE.md` | The social/competitive layer: the replay-verification spine (measured), ladders/seasons, career identity, the post-run screen, and the scoped migration map. (The ghost-racing layer it once specced is REMOVED — NICHE.md §5 bans it; replays are verification plumbing only) |
 | `PERSISTENCE.md` | Server-side persistence (SQLite on the Fly volume): accounts + character saves are LIVE; world hibernate/restore is the P2 plan |
 | `ASSETS.md` | **Source of truth for asset licenses.** Every model/sound's origin + license. CC0 preferred; CC-BY needs the in-game credits screen; NC never |
+| `ASSET-BUDGET.md` | What a cold boot costs on the wire, measured: baseline vs now, the per-class ledger with each round's pixel gate, what was deliberately NOT compressed, and what only a real phone can prove. **Read §1 before measuring a payload** — it names the two traps that have each cost a round |
 | `KAYKIT-INVENTORY.md` | What's in the owner's KayKit Complete Collection zip vs what's in use — rigged-character census (mob-scaling menu), untapped packs, integration seams |
 | `MOB-CONCEPTS.md` | The 36-mob roster design: band casts, new sim verbs (knockback/beams/auras), elite affix expansion, boss variety layers. Delete sections as they ship |
 | `BOSSES-V2.md` | Boss encounter design: the 18-strong drawn roster, the boss grammar (asks/telegraphs/counterplay), variety-across-runs layers, elevation beats, and the typed event vocabulary hosts read. Delete sections as they ship |
@@ -140,7 +141,9 @@ UI overlays in `iso.html` follow a **screen-zone map** (comment block in its
 CSS): every fixed overlay claims exactly one zone; new overlays must pick a
 zone there first. Announcements route by priority: high → the one center
 banner, normal → the right-rail ticker (filtered by the K-panel verbosity
-setting).
+setting). `kind:"tip"` never rides either: it is translated into Mordecai's
+voice and painted on his non-pausing strip (the `#tutorial` card surface) or
+dropped — the System teaches nothing (TUTORIAL.md, ONE VOICE).
 
 ## Assets (models + audio) — silent/placeholder fallback pattern
 

@@ -396,6 +396,37 @@ export class CharSelectScene {
     }
   }
 
+  /** BUILD THE CAMPFIRE BEHIND THE LOADING CARD (perf opt2).
+   *
+   *  Everything this scene costs is paid on its FIRST rendered frame: eight
+   *  SkeletonUtils clones, ~28 camp-dressing clones, the program variants the
+   *  scene's materials need, and its first shadow-map build. Measured, that
+   *  first frame was a 554 ms freeze landing 13 ms after the overlay lifted —
+   *  the menu faded in on a frozen main thread. main3d calls this once during
+   *  the prewarm phase instead, while the opaque card still covers the canvas.
+   *
+   *  Deliberately does NOT touch `lastT`, the mixers, `camPos/camLook/camFov`
+   *  or `selected`: the first LIVE frame() must run from exactly the state it
+   *  runs from today, so the scene animates and dollies identically. Two
+   *  renders because the second one is where the deferred uploads/rebuild the
+   *  first one queues get paid (78 ms of the measured stall lived there). */
+  warm(): void {
+    this.hydrate();
+    this.hydrateDressing();
+    // Match the live aspect so the warm render's frustum covers what the first
+    // real frame will draw (frame() does the same assignment on its own path).
+    const el = this.gl.domElement;
+    const aspect = el.clientWidth / Math.max(1, el.clientHeight);
+    if (Math.abs(aspect - this.camera.aspect) > 1e-3) {
+      this.camera.aspect = aspect;
+      this.camera.updateProjectionMatrix();
+    }
+    for (let i = 0; i < 2; i++) {
+      this.gl.shadowMap.needsUpdate = true; // see frame(): autoUpdate is off
+      this.gl.render(this.scene, this.camera);
+    }
+  }
+
   /** Advance and render one frame. Call only while the menu owns the screen. */
   frame(tSec: number): void {
     const dt = this.lastT ? Math.min(0.1, tSec - this.lastT) : 0.016;

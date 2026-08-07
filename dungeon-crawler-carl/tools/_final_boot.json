@@ -1,0 +1,546 @@
+{
+  "url": "http://localhost:5288/iso.html",
+  "cold": {
+    "label": "cold",
+    "byType": {
+      "html": {
+        "requests": 7,
+        "bytes": 163119
+      },
+      "js": {
+        "requests": 4,
+        "bytes": 575352
+      },
+      "textures": {
+        "requests": 35,
+        "bytes": 134582
+      },
+      "fonts": {
+        "requests": 4,
+        "bytes": 225284
+      },
+      "models": {
+        "requests": 260,
+        "bytes": 32361856
+      },
+      "audio": {
+        "requests": 95,
+        "bytes": 1809653
+      }
+    },
+    "totalBytes": 35269846,
+    "totalReqs": 405,
+    "cachedReqs": 0,
+    "biggest": [
+      {
+        "url": "/assets/characters/skeleton_warrior.glb",
+        "type": "models",
+        "bytes": 2629719,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/skeleton.glb",
+        "type": "models",
+        "bytes": 2612735,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/skeleton_mage.glb",
+        "type": "models",
+        "bytes": 2599383,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/adventurer.glb",
+        "type": "models",
+        "bytes": 2018067,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/barbarian.glb",
+        "type": "models",
+        "bytes": 2006219,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rogue.glb",
+        "type": "models",
+        "bytes": 2001279,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rogue_hooded.glb",
+        "type": "models",
+        "bytes": 1997603,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/mage.glb",
+        "type": "models",
+        "bytes": 1997263,
+        "cached": false
+      },
+      {
+        "url": "/audio/music/menu.ogg",
+        "type": "audio",
+        "bytes": 838400,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_medium_tools.glb",
+        "type": "models",
+        "bytes": 598717,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_medium_combatranged.glb",
+        "type": "models",
+        "bytes": 442729,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_medium_combatmelee.glb",
+        "type": "models",
+        "bytes": 425533,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_medium_special.glb",
+        "type": "models",
+        "bytes": 382849,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_large_combatmelee.glb",
+        "type": "models",
+        "bytes": 380117,
+        "cached": false
+      },
+      {
+        "url": "/assets/characters/rig_medium_simulation.glb",
+        "type": "models",
+        "bytes": 343285,
+        "cached": false
+      }
+    ],
+    "boot": {
+      "paints": {
+        "first-paint": 1788,
+        "first-contentful-paint": 1788
+      },
+      "loadingDoneMs": 10541.200000047684,
+      "phases": [
+        {
+          "t": 1054.8999999761581,
+          "phase": "ESTABLISHING UPLINK"
+        },
+        {
+          "t": 1357.3999999761581,
+          "phase": "RECEIVING THE DUNGEON"
+        },
+        {
+          "t": 3581,
+          "phase": "TUNING THE ANNOUNCER'S MICROPHONE"
+        },
+        {
+          "t": 3750.8000000715256,
+          "phase": "CALIBRATING THE CAMERAS"
+        }
+      ],
+      "counts": [
+        {
+          "t": 2910.2000000476837,
+          "text": "177 / 266 MODELS"
+        },
+        {
+          "t": 3581,
+          "text": "16 / 110 SOUNDS"
+        },
+        {
+          "t": 3615.5,
+          "text": "60 / 110 SOUNDS"
+        },
+        {
+          "t": 3750.8000000715256,
+          "text": "WARMUP 1 / 3"
+        },
+        {
+          "t": 3957.600000023842,
+          "text": "WARMUP 2 / 3"
+        },
+        {
+          "t": 9932.300000071526,
+          "text": "WARMUP 3 / 3"
+        }
+      ],
+      "firstCount": [
+        {
+          "t": 1802.1000000238419,
+          "text": "3 / 266 MODELS"
+        },
+        {
+          "t": 1877.8999999761581,
+          "text": "6 / 266 MODELS"
+        },
+        {
+          "t": 2277.7000000476837,
+          "text": "7 / 266 MODELS"
+        }
+      ],
+      "longTasksFirst10s": [
+        {
+          "start": 1070.1000000238419,
+          "dur": 276
+        },
+        {
+          "start": 1384.5,
+          "dur": 58
+        },
+        {
+          "start": 1483.7000000476837,
+          "dur": 299
+        },
+        {
+          "start": 3042.399999976158,
+          "dur": 536
+        },
+        {
+          "start": 3690.7000000476837,
+          "dur": 58
+        },
+        {
+          "start": 3751.100000023842,
+          "dur": 126
+        },
+        {
+          "start": 3878.8000000715256,
+          "dur": 78
+        },
+        {
+          "start": 5812.300000071526,
+          "dur": 1715
+        },
+        {
+          "start": 8818.800000071526,
+          "dur": 1112
+        },
+        {
+          "start": 9935.600000023842,
+          "dur": 570
+        }
+      ],
+      "longTasksAll": [
+        {
+          "start": 1070.1000000238419,
+          "dur": 276
+        },
+        {
+          "start": 1384.5,
+          "dur": 58
+        },
+        {
+          "start": 1483.7000000476837,
+          "dur": 299
+        },
+        {
+          "start": 3042.399999976158,
+          "dur": 536
+        },
+        {
+          "start": 3690.7000000476837,
+          "dur": 58
+        },
+        {
+          "start": 3751.100000023842,
+          "dur": 126
+        },
+        {
+          "start": 3878.8000000715256,
+          "dur": 78
+        },
+        {
+          "start": 5812.300000071526,
+          "dur": 1715
+        },
+        {
+          "start": 8818.800000071526,
+          "dur": 1112
+        },
+        {
+          "start": 9935.600000023842,
+          "dur": 570
+        }
+      ],
+      "postLoadGaps": [],
+      "postLoadFps": 59.6,
+      "firstFrameMs": 1137.1,
+      "domContentLoaded": 1344.5,
+      "loadEvent": 1471.3000000715256,
+      "glRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "visibleOverlay": [
+        "menu"
+      ]
+    },
+    "consoleLog": []
+  },
+  "interact": {
+    "sent": 15569.800000071526,
+    "responded": 15626.100000023842
+  },
+  "menuVisible": true,
+  "warm": {
+    "label": "warm",
+    "byType": {
+      "html": {
+        "requests": 7,
+        "bytes": 889
+      },
+      "js": {
+        "requests": 4,
+        "bytes": 716
+      },
+      "textures": {
+        "requests": 35,
+        "bytes": 5485
+      },
+      "fonts": {
+        "requests": 4,
+        "bytes": 716
+      },
+      "models": {
+        "requests": 260,
+        "bytes": 33020
+      },
+      "audio": {
+        "requests": 95,
+        "bytes": 12065
+      }
+    },
+    "totalBytes": 52891,
+    "totalReqs": 405,
+    "cachedReqs": 0,
+    "biggest": [
+      {
+        "url": "/assets/iso-BYTJSQ6d.js",
+        "type": "js",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/assets/game-CK8l856t.js",
+        "type": "js",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/assets/save-Ba6E39Rp.js",
+        "type": "js",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/assets/dressing-CHbaQ7UH.js",
+        "type": "js",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/fonts/AlegreyaSans-Regular.woff2",
+        "type": "fonts",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/eye.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/star.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/rosette.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/fonts/Cinzel.woff2",
+        "type": "fonts",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/fonts/AlegreyaSans-Italic.woff2",
+        "type": "fonts",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/fonts/AlegreyaSans-Bold.woff2",
+        "type": "fonts",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/nouns/crown.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/skull.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/party.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      },
+      {
+        "url": "/icons/ui/marker.svg",
+        "type": "textures",
+        "bytes": 179,
+        "cached": false
+      }
+    ],
+    "boot": {
+      "paints": {
+        "first-paint": 172,
+        "first-contentful-paint": 172
+      },
+      "loadingDoneMs": 3092.100000023842,
+      "phases": [
+        {
+          "t": 350.7000000476837,
+          "phase": "RECEIVING THE DUNGEON"
+        },
+        {
+          "t": 1924.2999999523163,
+          "phase": "TUNING THE ANNOUNCER'S MICROPHONE"
+        },
+        {
+          "t": 2111.7999999523163,
+          "phase": "CALIBRATING THE CAMERAS"
+        }
+      ],
+      "counts": [
+        {
+          "t": 1924.2999999523163,
+          "text": "16 / 110 SOUNDS"
+        },
+        {
+          "t": 1989.8999999761581,
+          "text": "20 / 110 SOUNDS"
+        },
+        {
+          "t": 2008.5,
+          "text": "30 / 110 SOUNDS"
+        },
+        {
+          "t": 2111.7999999523163,
+          "text": "WARMUP 1 / 3"
+        },
+        {
+          "t": 2319.100000023842,
+          "text": "WARMUP 2 / 3"
+        },
+        {
+          "t": 2948.399999976158,
+          "text": "WARMUP 3 / 3"
+        }
+      ],
+      "firstCount": [
+        {
+          "t": 418.5,
+          "text": "1 / 266 MODELS"
+        },
+        {
+          "t": 482.7999999523163,
+          "text": "6 / 266 MODELS"
+        },
+        {
+          "t": 957.1000000238419,
+          "text": "8 / 266 MODELS"
+        }
+      ],
+      "longTasksFirst10s": [
+        {
+          "start": 77.39999997615814,
+          "dur": 248
+        },
+        {
+          "start": 1697.2000000476837,
+          "dur": 165
+        },
+        {
+          "start": 2111.899999976158,
+          "dur": 127
+        },
+        {
+          "start": 2240.2000000476837,
+          "dur": 78
+        },
+        {
+          "start": 2435.7000000476837,
+          "dur": 261
+        },
+        {
+          "start": 2804.7000000476837,
+          "dur": 142
+        },
+        {
+          "start": 2952.2999999523163,
+          "dur": 122
+        }
+      ],
+      "longTasksAll": [
+        {
+          "start": 77.39999997615814,
+          "dur": 248
+        },
+        {
+          "start": 1697.2000000476837,
+          "dur": 165
+        },
+        {
+          "start": 2111.899999976158,
+          "dur": 127
+        },
+        {
+          "start": 2240.2000000476837,
+          "dur": 78
+        },
+        {
+          "start": 2435.7000000476837,
+          "dur": 261
+        },
+        {
+          "start": 2804.7000000476837,
+          "dur": 142
+        },
+        {
+          "start": 2952.2999999523163,
+          "dur": 122
+        }
+      ],
+      "postLoadGaps": [],
+      "postLoadFps": 60,
+      "firstFrameMs": 55,
+      "domContentLoaded": 324,
+      "loadEvent": 358.7999999523163,
+      "glRenderer": "ANGLE (NVIDIA, NVIDIA GeForce RTX 5090 Laptop GPU (0x00002C58) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "visibleOverlay": [
+        "menu"
+      ]
+    },
+    "consoleLog": []
+  }
+}
