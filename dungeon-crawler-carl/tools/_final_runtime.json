@@ -1,0 +1,893 @@
+{
+  "meta": {
+    "fingerprint": "iso-BYTJSQ6d.js",
+    "mode": "headless(chrome-headless-shell)",
+    "glRendererProbe": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+  },
+  "scenes": {
+    "a_floor2_calm": {
+      "url": "http://localhost:5288/iso.html?test&floor=2&seed=42&debug=1",
+      "loadToPlayableS": 10.8,
+      "gameGl": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "sampleWallS": 31.5,
+      "frames": 1037,
+      "deliveredFps": 33,
+      "frameMs": {
+        "p50": 33.3,
+        "p95": 50,
+        "p99": 99.9,
+        "worst": 1150,
+        "over33ms": 212,
+        "over50ms": 33
+      },
+      "longTasks": {
+        "count": 42,
+        "totalMs": 3530,
+        "maxMs": 405
+      },
+      "heap": {
+        "samples": 150,
+        "startMB": 117.3,
+        "endMB": 117.3,
+        "peakMB": 117.3,
+        "allocRateMBs": 0,
+        "gcDrops": 0,
+        "gcDropTotalMB": 0
+      },
+      "rendererInfo": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 59,
+        "textures": 160,
+        "programs": 255
+      },
+      "rendererInfoSeries": [
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 55,
+          "tex": 156,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 56,
+          "tex": 157,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 56,
+          "tex": 157,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 56,
+          "tex": 157,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 57,
+          "tex": 158,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 57,
+          "tex": 158,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 58,
+          "tex": 159,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 59,
+          "tex": 160,
+          "progs": 255
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 59,
+          "tex": 160,
+          "progs": 255
+        }
+      ],
+      "residentPcmMB": 14.8,
+      "monstersAliveAtEnd": 37,
+      "procs": {
+        "binary": "chrome-headless-shell.exe",
+        "myProcCount": 5,
+        "totalWorkingSetMB": 3053,
+        "perName": {
+          "chrome-headless-shell.exe": 3053
+        },
+        "gpuProcWorkingSetMB": 1247.5,
+        "maxRendererWorkingSetMB": 1456.5,
+        "foreignChromeCount": 82,
+        "foreignNames": [
+          "chrome.exe",
+          "chrome-headless-shell.exe"
+        ]
+      },
+      "cpuTopSelf": [
+        {
+          "fn": "(program) @ ?:-1",
+          "selfMs": 6550
+        },
+        {
+          "fn": "(idle) @ ?:-1",
+          "selfMs": 1936
+        },
+        {
+          "fn": "gh @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 1006
+        },
+        {
+          "fn": "_r @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 976
+        },
+        {
+          "fn": "updateMatrixWorld @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 893
+        },
+        {
+          "fn": "Ib.renderBufferDirect @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 658
+        },
+        {
+          "fn": "m @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 586
+        },
+        {
+          "fn": "upload @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 538
+        },
+        {
+          "fn": "bindBuffer @ ?:-1",
+          "selfMs": 505
+        },
+        {
+          "fn": "setValue @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 488
+        },
+        {
+          "fn": "multiplyMatrices @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 475
+        },
+        {
+          "fn": "update @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 458
+        },
+        {
+          "fn": "updateFogTint @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 404
+        },
+        {
+          "fn": "sS @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 397
+        },
+        {
+          "fn": "uniformMatrix4fv @ ?:-1",
+          "selfMs": 393
+        },
+        {
+          "fn": "vertexAttribPointer @ ?:-1",
+          "selfMs": 381
+        },
+        {
+          "fn": "tE @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 356
+        },
+        {
+          "fn": "x @ dressing-CHbaQ7UH.js:3814",
+          "selfMs": 356
+        },
+        {
+          "fn": "bindVertexArray @ ?:-1",
+          "selfMs": 355
+        },
+        {
+          "fn": "evaluate @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 334
+        },
+        {
+          "fn": "ps @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 286
+        },
+        {
+          "fn": "Pr @ game-CK8l856t.js:0",
+          "selfMs": 280
+        }
+      ],
+      "botCombatLog": []
+    },
+    "b_floor10_combat": {
+      "url": "http://localhost:5288/iso.html?test&floor=10&level=14&abilities=all&gold=500&seed=42&debug=1",
+      "loadToPlayableS": 8.6,
+      "gameGl": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "sampleWallS": 31.2,
+      "frames": 429,
+      "deliveredFps": 13.7,
+      "frameMs": {
+        "p50": 66.8,
+        "p95": 133.4,
+        "p99": 183.4,
+        "worst": 250,
+        "over33ms": 328,
+        "over50ms": 304
+      },
+      "longTasks": {
+        "count": 306,
+        "totalMs": 26571,
+        "maxMs": 241
+      },
+      "heap": {
+        "samples": 124,
+        "startMB": 117.3,
+        "endMB": 117.3,
+        "peakMB": 117.3,
+        "allocRateMBs": 0,
+        "gcDrops": 0,
+        "gcDropTotalMB": 0
+      },
+      "rendererInfo": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 141,
+        "textures": 369,
+        "programs": 257
+      },
+      "rendererInfoSeries": [
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 121,
+          "tex": 318,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 125,
+          "tex": 320,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 127,
+          "tex": 330,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 130,
+          "tex": 365,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 134,
+          "tex": 359,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 134,
+          "tex": 359,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 134,
+          "tex": 359,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 134,
+          "tex": 367,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 136,
+          "tex": 367,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 136,
+          "tex": 382,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 136,
+          "tex": 374,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 137,
+          "tex": 358,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 138,
+          "tex": 374,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 138,
+          "tex": 374,
+          "progs": 257
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 141,
+          "tex": 376,
+          "progs": 257
+        }
+      ],
+      "residentPcmMB": 14.8,
+      "monstersAliveAtEnd": 122,
+      "procs": {
+        "binary": "chrome-headless-shell.exe",
+        "myProcCount": 5,
+        "totalWorkingSetMB": 3519.3,
+        "perName": {
+          "chrome-headless-shell.exe": 3519.3
+        },
+        "gpuProcWorkingSetMB": 1532.9,
+        "maxRendererWorkingSetMB": 1637.2,
+        "foreignChromeCount": 77,
+        "foreignNames": [
+          "chrome.exe"
+        ]
+      },
+      "cpuTopSelf": [
+        {
+          "fn": "(program) @ ?:-1",
+          "selfMs": 6141
+        },
+        {
+          "fn": "gh @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 874
+        },
+        {
+          "fn": "multiplyMatrices @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 802
+        },
+        {
+          "fn": "o @ iso-BYTJSQ6d.js:91",
+          "selfMs": 775
+        },
+        {
+          "fn": "(idle) @ ?:-1",
+          "selfMs": 711
+        },
+        {
+          "fn": "evaluate @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 680
+        },
+        {
+          "fn": "Ka @ game-CK8l856t.js:0",
+          "selfMs": 680
+        },
+        {
+          "fn": "setFromQuaternion @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 613
+        },
+        {
+          "fn": "texSubImage2D @ ?:-1",
+          "selfMs": 608
+        },
+        {
+          "fn": "update @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 600
+        },
+        {
+          "fn": "m @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 571
+        },
+        {
+          "fn": "Ib.renderBufferDirect @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 528
+        },
+        {
+          "fn": "_r @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 517
+        },
+        {
+          "fn": "computeSeparation @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 506
+        },
+        {
+          "fn": "upload @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 457
+        },
+        {
+          "fn": "setValue @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 439
+        },
+        {
+          "fn": "zs @ game-CK8l856t.js:0",
+          "selfMs": 375
+        },
+        {
+          "fn": "bindVertexArray @ ?:-1",
+          "selfMs": 344
+        },
+        {
+          "fn": "Ha @ game-CK8l856t.js:0",
+          "selfMs": 330
+        },
+        {
+          "fn": "slerpFlat @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 315
+        },
+        {
+          "fn": "nm @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 304
+        },
+        {
+          "fn": "get offsetParent @ ?:-1",
+          "selfMs": 294
+        }
+      ],
+      "botCombatLog": [
+        {
+          "t": 542,
+          "d": 2.5,
+          "alive": 125
+        },
+        {
+          "t": 1554,
+          "d": 2.5,
+          "alive": 124
+        },
+        {
+          "t": 2754,
+          "d": 3.2,
+          "alive": 125
+        },
+        {
+          "t": 4361,
+          "d": 4.6,
+          "alive": 124
+        },
+        {
+          "t": 6140,
+          "d": 1.5,
+          "alive": 124
+        },
+        {
+          "t": 7409,
+          "d": 1.6,
+          "alive": 124
+        },
+        {
+          "t": 8586,
+          "d": 2.3,
+          "alive": 123
+        },
+        {
+          "t": 9917,
+          "d": 1.4,
+          "alive": 124
+        },
+        {
+          "t": 26931,
+          "d": 1.2,
+          "alive": 123
+        },
+        {
+          "t": 27876,
+          "d": 1.2,
+          "alive": 123
+        },
+        {
+          "t": 29258,
+          "d": 2.4,
+          "alive": 122
+        },
+        {
+          "t": 30259,
+          "d": 6,
+          "alive": 120
+        }
+      ]
+    },
+    "c_floor16_combat": {
+      "url": "http://localhost:5288/iso.html?test&floor=16&level=14&abilities=all&gold=500&seed=42&debug=1",
+      "loadToPlayableS": 6.2,
+      "gameGl": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)",
+      "sampleWallS": 32.5,
+      "frames": 968,
+      "deliveredFps": 29.7,
+      "frameMs": {
+        "p50": 33.3,
+        "p95": 50.1,
+        "p99": 66.7,
+        "worst": 1166.7,
+        "over33ms": 273,
+        "over50ms": 49
+      },
+      "longTasks": {
+        "count": 42,
+        "totalMs": 2702,
+        "maxMs": 245
+      },
+      "heap": {
+        "samples": 156,
+        "startMB": 117.3,
+        "endMB": 117.3,
+        "peakMB": 117.3,
+        "allocRateMBs": 0,
+        "gcDrops": 0,
+        "gcDropTotalMB": 0
+      },
+      "rendererInfo": {
+        "calls": 1,
+        "triangles": 1,
+        "geometries": 146,
+        "textures": 307,
+        "programs": 261
+      },
+      "rendererInfoSeries": [
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        },
+        {
+          "calls": 1,
+          "tris": 1,
+          "geoms": 146,
+          "tex": 307,
+          "progs": 261
+        }
+      ],
+      "residentPcmMB": 14.8,
+      "monstersAliveAtEnd": 192,
+      "procs": {
+        "binary": "chrome-headless-shell.exe",
+        "myProcCount": 5,
+        "totalWorkingSetMB": 3408.6,
+        "perName": {
+          "chrome-headless-shell.exe": 3408.6
+        },
+        "gpuProcWorkingSetMB": 1432.3,
+        "maxRendererWorkingSetMB": 1624.2,
+        "foreignChromeCount": 82,
+        "foreignNames": [
+          "chrome.exe",
+          "chrome-headless-shell.exe"
+        ]
+      },
+      "cpuTopSelf": [
+        {
+          "fn": "(program) @ ?:-1",
+          "selfMs": 6709
+        },
+        {
+          "fn": "computeSeparation @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 2260
+        },
+        {
+          "fn": "update @ iso-BYTJSQ6d.js:2334",
+          "selfMs": 1724
+        },
+        {
+          "fn": "setFromQuaternion @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 1107
+        },
+        {
+          "fn": "(idle) @ ?:-1",
+          "selfMs": 864
+        },
+        {
+          "fn": "gh @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 761
+        },
+        {
+          "fn": "evaluate @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 573
+        },
+        {
+          "fn": "m @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 555
+        },
+        {
+          "fn": "multiplyMatrices @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 554
+        },
+        {
+          "fn": "Ib.renderBufferDirect @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 538
+        },
+        {
+          "fn": "_r @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 522
+        },
+        {
+          "fn": "tE @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 514
+        },
+        {
+          "fn": "stopFading @ dressing-CHbaQ7UH.js:3838",
+          "selfMs": 502
+        },
+        {
+          "fn": "slerpFlat @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 490
+        },
+        {
+          "fn": "vertexAttribPointer @ ?:-1",
+          "selfMs": 448
+        },
+        {
+          "fn": "X5 @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 431
+        },
+        {
+          "fn": "bindBuffer @ ?:-1",
+          "selfMs": 423
+        },
+        {
+          "fn": "updateMatrixWorld @ dressing-CHbaQ7UH.js:4",
+          "selfMs": 353
+        },
+        {
+          "fn": "sS @ iso-BYTJSQ6d.js:2408",
+          "selfMs": 341
+        },
+        {
+          "fn": "setValue @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 317
+        },
+        {
+          "fn": "upload @ dressing-CHbaQ7UH.js:3736",
+          "selfMs": 301
+        },
+        {
+          "fn": "bindVertexArray @ ?:-1",
+          "selfMs": 290
+        }
+      ],
+      "botCombatLog": [
+        {
+          "t": 692,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 1575,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 2032,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 3151,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 3991,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 4844,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 5956,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 6789,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 28012,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 28857,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 29412,
+          "d": 0.6,
+          "alive": 192
+        },
+        {
+          "t": 30768,
+          "d": 0.6,
+          "alive": 192
+        }
+      ]
+    }
+  }
+}
