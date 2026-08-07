@@ -1,0 +1,211 @@
+===WEBKIT_SMOKE_JSON===
+{
+  "checks": [
+    {
+      "name": "boot: loading screen fully left",
+      "verdict": "PASS",
+      "detail": "settled 10368ms, playable 23543ms"
+    },
+    {
+      "name": "fingerprint: iso bundle",
+      "verdict": "PASS",
+      "detail": "iso-BYTJSQ6d.js :: [\"iso-BYTJSQ6d.js\"]"
+    },
+    {
+      "name": "webgl: context is WebGL2",
+      "verdict": "PASS",
+      "detail": "webgl2 renderer=\"Apple GPU\" vendor=\"Apple Inc.\" maxTex=16384 maxSamples=8"
+    },
+    {
+      "name": "webgl: extension gaps",
+      "verdict": "WARN",
+      "detail": "missing: [\"WEBGL_compressed_texture_astc\",\"WEBGL_compressed_texture_etc\",\"OES_texture_half_float_linear\"] (of 30 present)"
+    },
+    {
+      "name": "audio: context running after trusted gesture",
+      "verdict": "FAIL",
+      "detail": "before=none after=none music=null streams=[]"
+    },
+    {
+      "name": "touch: zone table exists",
+      "verdict": "PASS",
+      "detail": "preset=compact anchor={\"x\":259.6,\"y\":590.4}"
+    },
+    {
+      "name": "touch: synthetic stick moves the crawler",
+      "verdict": "PASS",
+      "detail": "5.17 tiles in ~2.4s"
+    },
+    {
+      "name": "perf: 60s drive sampled",
+      "verdict": "INFO",
+      "detail": "p50=120ms p95=205ms p99=325ms max=896ms delivered=7.43fps minSecond=3fps long>50ms=447 long>100ms=370"
+    },
+    {
+      "name": "post-drive: sim alive and on floor 5",
+      "verdict": "PASS",
+      "detail": "{\"floor\":5,\"status\":\"playing\",\"hp\":9000,\"pos\":{\"x\":19.989363238834876,\"y\":23.335919924738832},\"audioState\":\"none\",\"plays\":16,\"residentPcmMB\":0,\"streams\":[],\"currentMusic\":null,\"musicEnergy\":0}"
+    },
+    {
+      "name": "touch: chip taps resolved as casts",
+      "verdict": "PASS",
+      "detail": "[\"tap\",\"tap\",\"refused\",\"refused\",\"tap\",\"tap\",\"refused\",\"refused\",\"tap\",\"tap\",\"refused\",\"refused\",\"tap\",\"tap\",\"refused\",\"refused\"]"
+    },
+    {
+      "name": "audio: sounds actually played during the drive",
+      "verdict": "PASS",
+      "detail": "16 plays, music=null, energy=0.000, resident PCM 0MB"
+    },
+    {
+      "name": "touchdebug: overlay boots on WebKit",
+      "verdict": "PASS",
+      "detail": "head=\"TOUCHES 0\" live={\"head\":\"TOUCHES 1\",\"dots\":1}"
+    },
+    {
+      "name": "shader: zero programs built after boot",
+      "verdict": "PASS",
+      "detail": "prewarmed=257 builtAfterBoot=0"
+    }
+  ],
+  "console": [
+    {
+      "type": "info",
+      "count": 1,
+      "text": "[shader-guard] armed: 257 programs prewarmed; any further build will be logged."
+    }
+  ],
+  "pageErrors": [],
+  "requestFailures": [],
+  "metrics": {
+    "assetsSettledMs": 10368,
+    "playableMs": 23543,
+    "webgl": {
+      "version": "webgl2",
+      "renderer": "Apple GPU",
+      "vendor": "Apple Inc.",
+      "maxTexture": 16384,
+      "maxSamples": 8,
+      "missing": [
+        "WEBGL_compressed_texture_astc",
+        "WEBGL_compressed_texture_etc",
+        "OES_texture_half_float_linear"
+      ],
+      "extCount": 30,
+      "contextLost": false
+    },
+    "audio": {
+      "before": "none",
+      "state": "none",
+      "residentPcmMB": 0,
+      "streams": [],
+      "streamsStarted": [],
+      "currentMusic": null,
+      "playsSoFar": 0
+    },
+    "driveMode": "touch",
+    "frame": {
+      "frames": 448,
+      "wallMs": 60267,
+      "fpsDelivered": 7.43,
+      "p50": 120,
+      "p95": 205,
+      "p99": 325,
+      "max": 896,
+      "longFrames50": 447,
+      "longFrames100": 370,
+      "minBucketFps": 3,
+      "buckets": [
+        11,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        10,
+        11,
+        11,
+        11,
+        11,
+        10,
+        10,
+        10,
+        11,
+        10,
+        9,
+        8,
+        3,
+        4,
+        5,
+        5,
+        5,
+        6,
+        6,
+        7,
+        7,
+        7,
+        6,
+        7,
+        7,
+        7,
+        7,
+        6,
+        8,
+        7,
+        6,
+        6,
+        7,
+        7,
+        7,
+        7,
+        8,
+        8,
+        7,
+        9,
+        8,
+        9,
+        9,
+        8,
+        8
+      ]
+    },
+    "post": {
+      "floor": 5,
+      "status": "playing",
+      "hp": 9000,
+      "pos": {
+        "x": 19.989363238834876,
+        "y": 23.335919924738832
+      },
+      "verdicts": [
+        "tap",
+        "tap",
+        "refused",
+        "refused",
+        "tap",
+        "tap",
+        "refused",
+        "refused",
+        "tap",
+        "tap",
+        "refused",
+        "refused",
+        "tap",
+        "tap",
+        "refused",
+        "refused"
+      ],
+      "audioState": "none",
+      "plays": 16,
+      "residentPcmMB": 0,
+      "streams": [],
+      "currentMusic": null,
+      "musicEnergy": 0
+    },
+    "shaderProgramsPrewarmed": 257,
+    "shaderProgramsBuiltAfterBoot": 0
+  }
+}

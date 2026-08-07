@@ -330,6 +330,13 @@ export async function verifyArtifact(req: VerifyRequest): Promise<VerifyReply> {
     if (req.requireFreshStart && proof.header.startKind !== "fresh") {
       return fail("rejected", "not a fresh start");
     }
+    // THE DEBUT (TUTORIAL.md first-run mercy) replays perfectly honestly — the
+    // flag rides the header and ReplaySession rebuilds the merciful world — but
+    // floor 1 was played under a stipend, a held clock and knockdowns instead
+    // of deaths, so wherever a fresh start is REQUIRED this is not one either.
+    if (req.requireFreshStart && proof.header.firstRun) {
+      return fail("rejected", "a first-run descent plays floor 1 under the debut mercy");
+    }
     // THE RULESET GATE, BEFORE A SINGLE TICK RUNS. A roam header builds a roam
     // world inside ReplaySession and replays to a perfectly honest floor 16.
     const ruleset = rulesetRefusal(proof.header);

@@ -69,9 +69,11 @@ a replacement the owner has cleared.
 
 | sound | verdict (owner, verbatim) | status |
 |---|---|---|
-| `dash` | "The dash sound effect sucks" | REGENERATED + WIRED (audio r2): `cast_dash.ogg` from gen-sfx-casts.mjs replaces it, the manifest id is now `cast_dash` and the Kenney file is deleted, so a stale id fails loud. **The verdict stays open until the owner clears the replacement by ear** (§9 audition sheet). Original scope note follows — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
+| `dash` | "The dash sound effect sucks" | REGENERATED + WIRED (audio r2): `cast_dash.ogg` from gen-sfx-casts.mjs replaces it, the manifest id is now `cast_dash` and the Kenney file is deleted, so a stale id fails loud. **SUPERSEDED BY AUDIO r3** — the r2 replacement was itself rejected in the robotic-set verdict below, and `cast_dash` is now a recorded swish (ASSETS.md, r3 sources). **The verdict stays open until the owner clears the r3 replacement by ear** (§9 audition sheet). Original scope note follows — it is also the template the 13 new cast cues would otherwise imitate (bullettime literally reuses it at 0.8 gain), so it goes through the same sonic-brief + spectrogram + audition pipeline as the new 13, not a quick patch. It is a Kenney stock clip (ASSETS.md), not a house render — the only cast cue that never went through a brief. |
 | `step_*` (all 12) | "the footsteps are really annoying.. let's not have any footsteps sound effects" | REMOVED outright (director, manifest, files, generator, tests). Not a volume problem — a sound the game should not have. |
-| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATED + WIRED (audio r2 **fix round** — it was silently NOT DONE in the first r2 cut, which shipped this row unchanged while updating the `dash` row directly above it). `gen-sfx-announcer.mjs` now renders it: THE SYSTEM FILES A PROMOTION — a stamp and two notes a fourth apart (G5→C6) in the house bell timbre, over before it can become a jingle. The measurement agreed with the ear about the old clip: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp, centroid 4773Hz / rolloff85 11813Hz — the brightest, most out-of-house object in the 22-clip survey, on `cur.level > prev.level`. New: 0.33s, centroid 1593Hz, and it PLAYS 6.0dB quieter (-15.3 → -21.3, §2.2a). Kept on the `sfx` bus, not `announcer`: that bus is the sidechain duck SOURCE and this edge would pump the bed all run. **The verdict stays open until the owner clears it by ear** (§9 row 2). |
+| `music_battle_c` (`battle_winter.ogg`) | **NO VERDICT YET — the owner has not heard the trim.** Opened by the payload work (HANDOFF §3d), not by a complaint. | **OPEN — needs the ear.** The bed is cut 262.45s → **88.40s** (`tools/audio/fix-beds.mjs battle_winter`). Two rounds independently trimmed this file and the LONGER, measured cut is what ships: the cut point is chosen by a deterministic continuation-correlation search over 60–90s (Pearson correlation of the 10ms RMS envelope of what FOLLOWS the cut against what the loop actually delivers, penalised for the level step across the blend), then a 1.2s equal-power crossfade — two beats at the track's ~100 BPM. What the instruments CAN say: the 95.1dB seam step is gone, measured **Δ0.8dB with no click** (`tools/audio/measure.mjs --loop`), inside the 0.1–1.5dB bound the six shipped band beds pass (§3); silence share 2% → 0%; -23.5 LUFS-I / -7.5 dBTP, so the §2.2 headroom contract still holds. What they CANNOT say, and nobody in this loop can hear: whether **88s is long enough before the repeat becomes obvious**, and whether this is the right 88 seconds musically. The director drops this bed 6s after the last blow, so a typical exposure is well under one pass — but a long fight loops it. **If the owner says it repeats, the fix is a longer window, not a revert**: re-run the tool against the `main@b7c15f3` source with a wider search range. Wire cost, for what the verdict is buying: 3,719,544 → 1,235,092 bytes, fetched MID-FIGHT on the floors where BATTLE_TRACKS picks this bed (floor % 3 === 2). |
+| **the r2 generated SFX set** (`cast_*` x13, `cast_dash`, `level_up` — the 23-clip §9 audition sheet) | "hmm it all sounds very robotic -- not necessarily what i was looking for sound effects" (2026-08-05, first ear pass over the audition sheet) | **REJECTED as a set.** The verdict is about CHARACTER, not levels: the `gen-sfx-*.mjs` synthesis pipeline produces measurement-clean renders that read as robotic. Audio r3 queued: rebuild the rejected cues from RECORDED/organic sources (CC0-first per ASSETS.md; layered foley — real cloth/air whoosh + physical impact + elemental texture), processed to the house loudness/seam targets; the generators demote to verifiers. The `dash` and `level_up` rows below stay OPEN and inherit this verdict — their r2 replacements are rejected too. Owner clears r3 by ear via a fresh audition sheet or nothing is cleared. <br><br>**AUDIO r3 HAS SHIPPED AND AWAITS THE OWNER'S EAR — THE VERDICT REMAINS OPEN.** All 14 cues are rebuilt by `tools/audio/build-casts-r3.mjs` from CC0 RECORDINGS (per-recording origin + license: ASSETS.md, "Audio r3 recorded sources" — 20 OpenGameArt submissions, every one CC0, so nothing is owed the credits screen). Not one oscillator is left in the family; the only synthesis is silence. Every layer is an edit of a real thing: real air displaced (Swishes Pack), a real circuit breaker thrown, a real chain winch paying out, a real cave-in, a real tree under load, a real machine spinning down, real thunder, a real typewriter, a real bell. `gen-sfx-casts.mjs`/`gen-sfx-announcer.mjs` are demoted to verifiers as specified, and still own `chain_line`/`weapon_flash`, which carry no verdict. <br><br>**The defect r3's first cut carried, found and fixed in this round** (it is the reason a recorded family is not just a synthesized one with better samples): a recording does not begin where the sound does. Every `r3_src` snippet carries pre-roll — metal_slam's slam is 43ms into the take, breaker_on's throw 142ms, sword_clash's clash 109ms, mech_clank's 65ms, the bell's strike 80ms — and the first cut enveloped them as though t=0 were the strike. That multiplied each transient by whatever the attack ramp had already decayed to, and in five cases (`cast_cutto`'s arrival, `cast_orbit`'s un-ship bite, `cast_cables`' pins, `cast_bullettime`'s jam, `cast_overcharge`'s breaker) kept nothing but room tone, so the layer the brief was built around was NOT IN THE FILE. `level_up` shipped a promotion with a stamp and no bell at all. The fix is `onset()`/`crest()` in the build script — align to where the recording speaks, then envelope. <br><br>**Measured, from the encoded files** (`tools/audio/measure.mjs`): nine actives -17.0…-17.4 LUFS momentary, peaks -4.9…-7.2 dBFS (ceiling -4.5); four ultimates -14.5…-14.7, peaks -3.3…-5.0 (ceiling -3.0); `level_up` -19.5 / -7.0. Every row inside §2.2a. **Distinctness** (`tools/audio/contactsheet.mjs`, 14 clips): ZERO flagged pairs; closest pair 1.91 (`cast_dash`/`cast_stance`) against a 1.68 adaptive threshold, up from the inherited 1.07 (`cast_bulwark`/`cast_cataclysm`, which was flagged). The flagged pair is fixed at its root: `cast_bulwark`'s plant now carries the peak (attack 19.6ms, was 294ms — it was 294ms because the plant was room tone, not because the dome was too loud). Build is deterministic: a rerun reproduces the bytes. A fresh audition sheet is regenerated by `tools/audio/mk-audition.mjs`. **Nothing here is cleared. Only the owner's ear can close this row, and it has not been given.** |
+| `level_up` | "can we also change the level up sound, it's annoying as shit" | REGENERATED + WIRED (audio r2 **fix round** — it was silently NOT DONE in the first r2 cut, which shipped this row unchanged while updating the `dash` row directly above it). `gen-sfx-announcer.mjs` now renders it: THE SYSTEM FILES A PROMOTION — a stamp and two notes a fourth apart (G5→C6) in the house bell timbre, over before it can become a jingle. The measurement agreed with the ear about the old clip: 0.44s of ~20 evenly-spaced harmonic lines at near-constant level with no decay ramp, centroid 4773Hz / rolloff85 11813Hz — the brightest, most out-of-house object in the 22-clip survey, on `cur.level > prev.level`. New: 0.33s, centroid 1593Hz, and it PLAYS 6.0dB quieter (-15.3 → -21.3, §2.2a). Kept on the `sfx` bus, not `announcer`: that bus is the sidechain duck SOURCE and this edge would pump the bed all run. **SUPERSEDED BY AUDIO r3**: the r2 render described above was rejected with the rest of the set, and `level_up` is now a real typewriter strike plus a real bell stepping G5→C6 (`build-casts-r3.mjs`; 0.33s, -19.5 LUFS momentary / -7.0 dBFS peak). The r3 cut also repaired a defect the r2 story could not see: the first r3 attempt trimmed the bell take before its 80ms strike, so it shipped a stamp with NO BELL. **The verdict stays open until the owner clears the r3 replacement by ear** (§9 row 2). |
 
 ### 1.4 THE SILENT MOMENTS (the gap list this track exists to close)
 
@@ -246,6 +248,21 @@ a replacement the owner has cleared.
     `musicSeam()`, and that probe is UNRUN (browser forbidden in the fix
     round). P0 for the next round that is allowed to launch one.
 
+23. **(E-23) OPEN — THE LOOP LADDER: rung 1 ships, rungs 2/3 are prepared,
+    and only an ear can say whether they are needed.** Streamed music loops
+    via native `el.loop` (rung 1) — a decoder seek-to-zero that MAY gap
+    audibly at the wrap, per browser/codec. The live instrument is
+    `engine.debugHook.musicSeam()` (null = UNPROVEN, never a pass) and it
+    needs a browser this round was not allowed. **Owner: listen for a
+    hiccup/silence at any bed's wrap** — fastest places are `music_collapse`
+    (wraps every ~24.7s; let the collapse timer run) and any band bed after
+    ~80s of ambience. If a bed audibly gaps, the escalation path is already
+    built, nothing to design: rung 2 = the spare deck in `src/audio/deck.ts`
+    (ping-pong crossfade across two elements); rung 3 = `stream: false` on
+    that one id in `src/audio/manifest.ts`, sending just that bed back to
+    sample-accurate buffered looping. If no gap is audible, close this row
+    and rungs 2/3 die unbuilt — which is the good outcome.
+
 Priority: P0 = 1.2's missing files + rows 1, 10, 11, 13, 21, 22. P1 = rows 3, 4,
 5, 6, 8, 9, 12, 14, 15, 16, 17. P2 = rows 2, 7, 18, 19, 20 (19/20 are
 trivially scriptable and fund the budget — do them early even though they're
@@ -321,21 +338,26 @@ load-bearing sentences above were, as shipped, FALSE:
 `tools/audio/played.mjs` is the instrument that measures at the right node
 (file momentary + 20log10(volume), plus the same figure through a 250Hz
 highpass), and `test/audioMix.test.ts` is the guard that keeps its verdict
-from drifting. Measured, shipped, r2 fix round:
+from drifting. Measured, shipped, **audio r3** (the r2 fix-round figures this
+replaces moved by tenths — r3 changed what the clips are made of, not what
+level they play at, which was never the complaint):
 
 | clip | file mom | vol | **as played** | on a laptop (250Hz HP) |
 |---|---|---|---|---|
 | `hit` — THE REFERENCE | -22.1 | 1.00 | **-22.1** | -29.0 |
 | `kill` (layers over hit) | -14.9 | 0.90 | **-15.8** | -39.5 |
-| actives (nine) | -16.9…-17.4 | 0.45 | **-23.9…-24.4** | -24.8…-30.7 |
-| `cast_stance` (the fatigue bet) | -16.9 | 0.36 | **-25.8** | -27.1 |
-| ultimates (four) | -14.5…-14.6 | 0.60 | **-18.9…-19.1** | -22.1…-31.6 |
+| actives (eight) | -17.0…-17.4 | 0.45 | **-23.9…-24.4** | -24.6…-33.5 |
+| `cast_stance` (the fatigue bet) | -17.1 | 0.36 | **-26.0** | -27.4 |
+| ultimates (four) | -14.5…-14.7 | 0.60 | **-19.0…-19.1** | -19.4…-33.1 |
 | `chain_line`, `weapon_flash` | -27.9 / -28.3 | 0.70 | **-31.0 / -31.4** | -34.6 / -31.5 |
-| `level_up` (§1.3a) | -19.3 | 0.80 | **-21.3** | -22.7 |
+| `level_up` (§1.3a) | -19.5 | 0.80 | **-21.4** | -21.7 |
 
-So the invariant now holds in the PRODUCT, not just in the files: every active
-sits 1.8–3.7dB under `hit`; every ultimate is above an ordinary hit and still
-3.1dB under a `kill`, so a death out-punches the cast that caused it.
+So the invariant still holds in the PRODUCT, not just in the files: every
+active sits 1.8–3.9dB under `hit`; every ultimate is above an ordinary hit and
+still 3.2dB under a `kill`, so a death out-punches the cast that caused it.
+(r3 moved the spread's wide end from 3.7 to 3.9dB, because `cast_stance` is
+now a real hardwood chock rather than a synthesized one and sits a fifth of a
+dB lower; the ordering, which is the tested invariant, is unchanged.)
 
 **The honest caveat about the -15 impact row.** The impacts do not meet their
 own target either: `hit` plays at -22.1 against a stated -15, because SFX r2
@@ -447,7 +469,7 @@ lap: 60-96s for ambient beds.
 | Menu / campfire | The check-in. Small, warm-ish, tired: soft pad + slow filtered arp, the only near-friendly cue in the game. | ~65 BPM | 60-75s | Synth |
 | Safe room | Keep `music_safe` (CC0 synthwave calm fits the vending-machine mercy of safe rooms) — re-encode MP3→OGG 96k. **r2: the source's fade-out tail trimmed + 2s loop crossfade** (`fix-beds.mjs`; seam step 20.7dB→0.8dB, LUFS preserved). | — | as-is | Existing |
 | (note) `dungeon.ogg` | Measured r2 with the corrected instrument: 3.9dB seam delta + seam click, inherited from the CC0 source. **Music r1: demoted as planned** — it now plays only when another bed is not PLAYABLE (fallback via sink.has, extended in the r2 fix round from the six band beds to every bed the director can request). Note "playable", not "decoded": under streaming (row E-22) no bed is ever decoded, so availability is optimistic and turns false when the element actually fails — 404, undecodable, CORS-tainted, or stalled past the deck watchdog. The seam flaw ships only in a degraded state nobody should reach; repair stays out of scope unless the audit disagrees. | — | — | Existing |
-| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). | — | as-is | Existing |
+| Battle rotation | Keep the three shipped battle tracks (rotation already per-floor). **Release-fixes: `battle_winter.ogg` trimmed 262.45s→88.40s / 3.55MB→1.18MB** (`fix-beds.mjs battle_winter` — HANDOFF §3d's mid-fight phone-stall fix; cut chosen by a deterministic continuation-correlation search, 1.2s loop crossfade; measured seam Δ0.8dB, no click, -23.5 LUFS-I / -7.5 dBTP). | — | 88s | Existing (CC-BY, change marked in ASSETS.md) |
 | Boss themes | Keep epic/tides/colossal (+ shipped final-phase escalation to colossal). Optional P2: a generated percussion LAYER the engine adds at low HP instead of a full bed swap. | — | as-is | Existing (CC-BY credited) |
 | Collapse | Keep, re-encode WAV→OGG. **r2: seam click + true peak fixed** (`fix-beds.mjs`: -2.0dB, 25ms loop crossfade → -1.4 dBTP, seam 0.3dB). Level vs the -20 LUFS family target stays phase C's. | — | as-is | Existing |
 

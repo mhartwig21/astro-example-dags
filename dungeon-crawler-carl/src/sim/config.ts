@@ -50,9 +50,78 @@ export const CONFIG = {
   // measured full-run deaths were collapse/warning-phase clock-outs.
   timerPerFloorFalloff: 1.6, // seconds shaved per floor descended
   timerMinSeconds: 60,
+  // ---- THE DEEP CLOCK OPENS (owner verdict 2026-08-07, after playing) -----
+  // "floor timers need to get a bit longer in later levels. It takes time to
+  // kill later mobs and bosses... I think a 10 scaling to 25% increase start
+  // at level 10 may be a good idea."
+  // ...and then, once the arithmetic above was put in front of him:
+  // "I thought the clock would increase a bit as we went! the game gets
+  // harder and slower."
+  //
+  // That is the whole story. The falloff above SHRINKS the budget with depth
+  // (120s -> 92.8s), which was never what the designer pictured, so every
+  // percentage he proposed did something other than what he meant: +25%
+  // merely FLATTENED floors 10-18 at ~116s, +15% left them still descending.
+  // A percentage of a decaying base is unreadable. So the deep half is
+  // expressed as what he actually wants to read — AN ABSOLUTE CURVE IN
+  // SECONDS. Floor 10 steps up to `timerDeepStartSeconds` (the inflection:
+  // the clock stops tightening and starts opening) and every floor after it
+  // lerps up to `timerDeepEndSeconds` at `finalFloor`, ~+4.25s per floor.
+  //
+  // Floors 1-9 keep the falloff untouched — the early shrink IS the pressure
+  // ramp, it has never been complained about, and floor 1 in particular
+  // carries THE DEBUT's held-clock arithmetic. Retune the late game from
+  // these three numbers alone; the per-floor seconds are asserted as a table
+  // in test/sim.test.ts ("the deep clock OPENS").
+  timerDeepFromFloor: 10, // the inflection floor: shrinking -> opening
+  timerDeepStartSeconds: 116, // ...its budget (a visible step up from 107.2)
+  timerDeepEndSeconds: 150, // ...ascending to this on finalFloor
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
+
+  // ---- THE DEBUT: the first run of a fresh profile (TUTORIAL.md) ----------
+  // Four cold passes measured the same wall: three of four first-timers died
+  // on floor 1 without finishing the FIRST objective, and two of three never
+  // reached the step that teaches the kit. A first hour that can be failed
+  // into confusion is a first hour nobody finishes, so floor 1 of a DEBUT
+  // (GameState.firstRun, set by the host from the fresh-profile read and
+  // carried in the proof header) has no fail state — and pays for it by being
+  // structurally unrankable. Every knob below reads ONLY under that flag;
+  // ordinary and competitive play never touches this block.
+  //
+  // The knockdown: a killing blow becomes a CUT TO COMMERCIAL — the crawler
+  // wakes at the floor entrance with this much of their bar, briefly
+  // untouchable, with the crowd's excitement spent. It costs position, health
+  // and hype; it cannot cost the run.
+  firstRunMercyHpFraction: 0.6,
+  firstRunMercyGraceSeconds: 2, // untouchable while the broadcast comes back
+  // ...AND THE KNOCKDOWN ESCALATES (r11 — the critic's severity-9 finding, in
+  // its words: "the tutorial no longer kills its players, it strands them ...
+  // mercy has no escalation or diagnosis"). The edit above is the right answer
+  // ONCE. Repeated verbatim it becomes a room that will not kill you and will
+  // not let you leave, which measured worse than dying: half a cohort finished
+  // a 7.5-minute first session on floor 1 at level 1.
+  //
+  // So on the Nth save the production stops re-staging the same scene and walks
+  // the crawler to the exit: they wake ON the stairs, not at the entrance. The
+  // player still presses the descend key themselves — the curriculum's verb is
+  // never performed for them — but the search that defeated them is over.
+  // Three, not two: the first knockdown is drama, the second is a pattern, the
+  // third is the production admitting the crawler is stuck.
+  firstRunEscortSaves: 3,
+  // The clock: the debut episode gets its full runtime. Floor 1 counts down
+  // normally (so the WARNING phase — and the collapse lesson it carries —
+  // lands with its real drums) and then HOLDS here instead of going lethal.
+  // Must sit below timerBaseSeconds * warningFraction (48s) or the warning
+  // never fires; test/tutorial-firstrun.test.ts asserts exactly that.
+  firstRunClockHoldSeconds: 30,
+  // The float: a floor-1 take is 3-8 kills at goldMin..goldMax, i.e. 16-30
+  // gold, against a cheapest first-shelf entry of 35 — the first shop was a
+  // locked door in two consecutive cold rounds. The System advances a debut
+  // crawler this much against future earnings, so the first shelf is a shelf
+  // and not a window. Must cover cheapestFirstShelfPrice(); the test proves it.
+  firstRunStipendGold: 40,
 
   // Player
   playerMaxHp: 100,
@@ -1880,8 +1949,23 @@ export const CHAMPIONS: {
   ] },
 ];
 
-/** Collapse timer budget (seconds) for a given floor (1-indexed). */
+/**
+ * Collapse timer budget (seconds) for a given floor (1-indexed).
+ *
+ * TWO HALVES, on purpose. Floors 1..timerDeepFromFloor-1 SHRINK on the linear
+ * falloff — that is the pressure ramp of the early game. From the inflection
+ * floor the clock OPENS INSTEAD: an absolute curve in seconds, lerping from
+ * timerDeepStartSeconds to timerDeepEndSeconds at finalFloor, because deep
+ * mobs and bosses honestly take longer to kill (DESIGN.md §5.2).
+ */
 export function floorTimeBudget(floor: number): number {
+  const from = CONFIG.timerDeepFromFloor;
+  if (floor >= from) {
+    const span = CONFIG.finalFloor - from;
+    const t = span > 0 ? Math.min(1, (floor - from) / span) : 1;
+    return CONFIG.timerDeepStartSeconds
+      + (CONFIG.timerDeepEndSeconds - CONFIG.timerDeepStartSeconds) * t;
+  }
   const raw = CONFIG.timerBaseSeconds - (floor - 1) * CONFIG.timerPerFloorFalloff;
   return Math.max(CONFIG.timerMinSeconds, raw);
 }

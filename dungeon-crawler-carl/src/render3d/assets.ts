@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
+import { assetUrl, assetInBuild } from "../assetUrl";
+import { SHARED_TEXTURES } from "./sharedTextures";
+import { mergeRigParts } from "./rigMerge";
+import { ATTACHMENT_NODES } from "./weaponry";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -353,6 +357,9 @@ const PRIORITY_KEYS = new Set([
   "player", "wall", "floor", "stairs", "torch_lit", "torch_mounted",
 ]);
 
+/** The builder bridge's output index (BUILDER.md). Absent from most builds. */
+const GENERATED_INDEX = "/assets/generated/index.json";
+
 export interface ModelStore {
   /** LIVE record — fills in as GLBs arrive. Hosts read it every frame. */
   models: Record<string, LoadedModel>;
@@ -371,6 +378,24 @@ export interface ModelStore {
  * generated index) as it settles — loaded or missing-and-skipped — so a boot
  * screen gating on the full wave can show real loaded/total progress.
  */
+/**
+ * THE ONLY MESH NODES A CHARACTER GLB MAY NOT HAVE MERGED AWAY.
+ *
+ * `mergeRigParts` (see rigMerge.ts) collapses a character's skinned parts into
+ * one mesh per material — a KayKit body ships as 6-14 separate SkinnedMeshes
+ * that share a material and a skeleton, and every one of them is a draw call
+ * in the colour pass AND the shadow pass. Nothing addresses a limb by name.
+ *
+ * The arsenal nodes are the exception: the 1.0 adventurer GLBs carry the class
+ * weapons as skinned nodes on the SAME material as the body, and the renderer
+ * toggles them (`hideAllAttachments`) and clones them onto other rigs as hand
+ * grafts. Merged into the body they would be untoggleable — hiding the sword
+ * would hide the knight. Naming them here keeps them whole while their bodies
+ * still merge, and it is keyed off the same table the toggling reads, so a new
+ * arsenal node cannot be added on one side only.
+ */
+const ARSENAL_NODES: ReadonlySet<string> = new Set(Object.values(ATTACHMENT_NODES).flat());
+
 export function startModelLoad(
   onProgress?: (loaded: number, total: number) => void,
 ): ModelStore {
@@ -378,6 +403,10 @@ export function startModelLoad(
   // Every shipped GLB is meshopt-compressed (scripts/compress-assets.mjs —
   // backlog #7's payload diet); without the decoder none of them parse.
   loader.setMeshoptDecoder(MeshoptDecoder);
+  // Manifest paths are the REAL filenames (the ones ASSETS.md licenses); a
+  // production build serves them under a content hash, so every load goes
+  // through assetUrl(). Dev/tools: it hands the path straight back.
+  const load = (url: string) => loader.loadAsync(assetUrl(url));
   const store: ModelStore = {
     models: {},
     onArrive: null,
@@ -425,7 +454,8 @@ export function startModelLoad(
 
   const loadModel = async (key: string, url: string): Promise<void> => {
     try {
-      const gltf = await loader.loadAsync(url);
+      const gltf = await load(url);
+      mergeRigParts(gltf.scene, ARSENAL_NODES);
       store.models[key] = { scene: gltf.scene, animations: gltf.animations };
       finalizeCharacter(key);
       store.onArrive?.(key);
@@ -438,14 +468,50 @@ export function startModelLoad(
   const wave1 = entries.filter(([k]) => PRIORITY_KEYS.has(k));
   const wave2 = entries.filter(([k]) => !PRIORITY_KEYS.has(k));
 
+  // Does this build ship any builder-generated assets? A production build says
+  // so in its hash map, and when the answer is no there is nothing to fetch —
+  // that lookup used to be a guaranteed 404 sitting INSIDE the boot gate, and a
+  // phantom entry in the denominator the bar reports. Without a map (dev, where
+  // the builder bridge can write the index while the page is open) we cannot
+  // know, so the request goes out exactly as it always did.
+  const generated = assetInBuild(GENERATED_INDEX);
+
   // Progress = files SETTLED (loaded or missing-and-skipped) across the WHOLE
   // manifest — models, rig clip packs, hero clip packs, the generated index —
-  // the boot bar must never stall on an asset we'd gracefully skip anyway.
+  // the boot bar must never stall on an asset we'd gracefully skip anyway, and
+  // must never count one this build will not even ask for.
   const totalFiles = entries.length +
     RIG_CLIP_MANIFEST.medium.length + RIG_CLIP_MANIFEST.large.length +
-    HERO_CLIP_MANIFEST.length + 1; // +1: the generated-assets index
+    HERO_CLIP_MANIFEST.length + (generated ? 1 : 0);
   let settled = 0;
   const tick = () => onProgress?.(++settled, totalFiles);
+
+  // SHARED-TEXTURE PREWARM. A KayKit pack ships one atlas, so the same image
+  // was embedded in every prop that used it — the dungeon atlas 57 times over.
+  // Those copies now live once under /assets/tex/ (tools/dedupe-textures.mjs),
+  // which took 1.78 MB out of the GLBs on the wire.
+  //
+  // That saving is entirely cache-dependent: ~250 GLBs parse concurrently, so
+  // 218 requests for 29 urls go out before the first response lands, and the
+  // duplicate bytes only disappear if the browser serves the other 217 without
+  // hitting the network. Chromium does coalesce them — measured A/B, byte for
+  // byte identical with and without this prewarm. But the owner tests on a real
+  // iPhone/iPad, and that coalescing is a browser optimisation rather than a
+  // guarantee; a browser that skipped it would download 1.84 MB of duplicates
+  // and leave the boot WORSE than before the change. So we put the bytes in the
+  // cache ourselves and stop depending on the optimisation.
+  //
+  // Deliberately NOT awaited before the priority wave: it races alongside it and
+  // is awaited only before wave 2, which is where the props actually live. That
+  // buys the guarantee without adding a serialisation point to first paint.
+  //
+  // Failures are ignored on purpose — a miss just means the GLTFLoader fetches
+  // that texture itself, exactly as it would have without this.
+  const prewarm = Promise.all(
+    SHARED_TEXTURES.map((u) =>
+      fetch(assetUrl(u), { cache: "force-cache" }).then((r) => r.arrayBuffer()).catch(() => null),
+    ),
+  ).then(() => {});
 
   const priorityWave = Promise.all(
     wave1.map((e) => loadModel(e[0], e[1]).finally(tick)),
@@ -454,13 +520,14 @@ export function startModelLoad(
 
   const background = async (): Promise<void> => {
     await priorityWave; // priority wave owns the bandwidth first
+    await prewarm; // shared atlases in cache before the 194 props ask for them
     await Promise.all([
       ...wave2.map((e) => loadModel(e[0], e[1]).finally(tick)),
       ...(Object.keys(RIG_CLIP_MANIFEST) as ("medium" | "large")[]).flatMap((rig) =>
         RIG_CLIP_MANIFEST[rig].map(async (url, slot) => {
           try {
             try {
-              rigSlots[rig][slot] = (await loader.loadAsync(url)).animations;
+              rigSlots[rig][slot] = (await load(url)).animations;
             } catch {
               return; // missing pack: rig characters just animate with less variety
             }
@@ -476,7 +543,7 @@ export function startModelLoad(
       ...HERO_CLIP_MANIFEST.map(async (url, slot) => {
         try {
           try {
-            heroSlots[slot] = (await loader.loadAsync(url)).animations;
+            heroSlots[slot] = (await load(url)).animations;
           } catch {
             return; // missing ability clip: the animator's playFirst fallbacks cover it
           }
@@ -490,21 +557,22 @@ export function startModelLoad(
       // committed ones ship like any other file). index.json maps key -> {url,
       // clips?}: props are plain models; creature entries carry armature-only
       // clip GLBs on the creature's own skeleton (bind by bone name, as ever).
-      (async () => {
+      ...(!generated ? [] : [(async () => {
         try {
-          const ix = await (await fetch("/assets/generated/index.json")).json() as
+          const ix = await (await fetch(assetUrl(GENERATED_INDEX))).json() as
             Record<string, { url: string; clips?: string[] }>;
           await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
             try {
-              const gltf = await loader.loadAsync(entry.url);
+              const gltf = await load(entry.url);
+              mergeRigParts(gltf.scene, ARSENAL_NODES);
               const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
-                (await loader.loadAsync(c)).animations));
+                (await load(c)).animations));
               store.models[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };
               store.onArrive?.(key);
             } catch { /* one bad generated asset never blocks the rest */ }
           }));
         } catch { /* no generated index: nothing crafted yet */ }
-      })().finally(tick),
+      })().finally(tick)]),
     ]);
   };
   store.complete = background();

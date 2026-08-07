@@ -1,13 +1,20 @@
 /**
- * THE GUIDE (TUTORIAL.md): Mordecai's once-ever first-session beats.
+ * THE GUIDE (TUTORIAL.md): Mordecai's once-ever first-session beats — his
+ * MODAL surface (the #dialogue panel, at rest).
  *
- * The reconciliation in one line: the System teaches the controls in the
- * moment (THE ONRAMP + sim tips, both shipped); Mordecai teaches the game at
- * rest — campfire, the first draft pause, safe rooms, the verdict, the second
- * check-in. He never speaks over live combat, never rides the announcer
- * channel, and never pre-explains a rule the System is about to demonstrate.
+ * THE LAW, rewritten by the tutorial rebuild (HANDOFF §3a — ONE VOICE):
+ * Mordecai teaches EVERYWHERE now. In play he owns the non-pausing strip
+ * (src/ui/coach.ts: instruction-first teaching lines, curriculum tip
+ * translations, objective step lines); at rest he owns this panel. The
+ * System no longer teaches on any surface — COURTESY EXPLANATION is dead as
+ * a format, and the announcer register survives for EVENTS only (ringside
+ * intros, achievements, hype). What still separates the two Mordecai
+ * surfaces: the STRIP carries instruction (what to press, sentence one); the
+ * MODAL carries judgement (what to pick, what to spend, why the cameras
+ * pay). No modal beat may restate a strip line's mechanism — the paraphrase
+ * test in test/guide.test.ts holds the modal side of that seam.
  *
- * Structure copied from the Onramp mold: a pure module — facts in, at most
+ * Structure in the Coach/Onramp mold: a pure module — facts in, at most
  * one beat out per call, unit-testable without a DOM. The host renders beats
  * through the SHIPPED #dialogue presentation (portrait, typewriter, numbered
  * choices, ESC farewell) and persists shown beats on the SHIPPED tips ledger
@@ -25,9 +32,10 @@
  *
  * Voice rules, binding (TUTORIAL.md §4): short declaratives; wry, never
  * breathless; protective under the gruffness; no exclamation marks; he says
- * "you" and means the person. No Mordecai line may contain "COURTESY
- * EXPLANATION" and no TIPS line may ever reach this module — the two-voice
- * test in test/guide.test.ts holds that line.
+ * "you" and means the person. No line here may contain "COURTESY
+ * EXPLANATION" (nobody's may, anywhere, any more) and no TIPS text may ever
+ * reach this module — the modal-surface tests in test/guide.test.ts hold
+ * that line.
  */
 
 /** Once-ever ledger keys. `tut.*` rides the browser tips ledger and flows
@@ -41,7 +49,8 @@ export type GuideBeatKey =
   | "tut.runback"  // B8 — the verdict aside (death is tuition)
   | "tut.menu2";   // B9 — the second check-in (the menu has doors too)
 
-/** The global skip (B0 choice 3): every beat ledgered + the onramp silenced. */
+/** The global skip (B0 choice 3): every beat ledgered + the coach and the
+ *  objectives curriculum silenced. */
 export const GUIDE_SKIP_KEY = "tut.skipAll";
 
 export const GUIDE_BEAT_KEYS: readonly GuideBeatKey[] = [
@@ -58,10 +67,16 @@ export interface GuideChoice {
    * close    — farewell; the beat's surface proceeds (always last in the list,
    *            and ESC is its keyboard twin everywhere).
    * open     — farewell INTO a surface: the host arms the named panel/tab.
-   * skipAll  — B0 only: ledger every beat + silence the remaining onramp
-   *            lines, answer with `reply`, then only a close remains.
+   * skipAll  — B0 only: OFFER the global skip. It does not skip anything by
+   *            itself — the host replaces the choice list with a confirmation
+   *            whose safe answer is first, and only `skipConfirm` consumes the
+   *            curriculum. A destructive control that fires on one input, from
+   *            a slot a benign choice occupied a moment earlier, is a
+   *            data-loss defect wearing a dialogue costume (r1).
+   * skipConfirm — the second input. Host-synthesised; never authored in the
+   *            beat table, so no beat can ship a one-tap skip by accident.
    */
-  effect: "reply" | "close" | "open" | "skipAll";
+  effect: "reply" | "close" | "open" | "skipAll" | "skipConfirm";
   reply?: string;
   open?: "draft" | "shop" | "bench";
 }
@@ -217,8 +232,9 @@ export class Guide {
   }
 
   /** True once the global skip has been taken (this session or any before):
-   *  the remaining ONRAMP lines are silenced too — a player who declined the
-   *  hand-holding gets no more of it from either voice. */
+   *  the remaining COACH lines and the objectives curriculum are silenced
+   *  too — a player who declined the hand-holding gets no more of it, on any
+   *  surface. */
   get skipped(): boolean {
     return this.seen.has(GUIDE_SKIP_KEY);
   }
@@ -301,7 +317,7 @@ export class Guide {
   /**
    * The global skip (B0 choice 3): every beat is consumed and the skip flag
    * set. Returns every key now owed to the ledger — the host records them all
-   * (and the onramp reads `skipped` from here on).
+   * (and the coach + objectives read `skipped` from here on).
    */
   skipAll(): string[] {
     const keys: string[] = [...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY];

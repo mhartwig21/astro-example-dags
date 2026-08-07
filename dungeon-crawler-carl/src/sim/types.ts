@@ -167,6 +167,11 @@ export interface Player {
   // (tipsSeen still owns once-ever).
   lowHpNow?: boolean;
   lowHpBrushes?: number;
+  // THE DEBUT (TUTORIAL.md first-run mercy): how many killing blows floor 1 of
+  // this crawler's first run turned into a CUT TO COMMERCIAL. Sim-truth, so
+  // the verdict and the tests can both read it; only ever non-zero while
+  // GameState.firstRun is set, which is why the run is unrankable.
+  mercySaves?: number;
   // The System's boredom bookkeeping (interference): seconds of hype flatline,
   // and how many times it has intervened without a hype recovery between.
   boredT?: number;
@@ -1235,6 +1240,23 @@ export interface GameState {
   // string (sim/dailyRules.ts) — never mid-run. Optional: older snapshots
   // lack it and read as the base game, which is what they were.
   dailyRule?: import("./dailyRules").DailyRuleId | null;
+  // THE DEBUT (TUTORIAL.md): this world was created for the FIRST run of a
+  // fresh profile. Set once at createGame by the host that read the profile
+  // (never mid-run), carried in the run-proof header so a replay rebuilds the
+  // same world, and read by exactly three rules — all of them floor 1 only:
+  // the stipend, the knockdown (firstRunMercyActive) and the clock hold.
+  // A world with this set is structurally unrankable (COMPETITIVE.md 2.5).
+  // Optional: older snapshots/saves lack it and read as an ordinary run,
+  // which is what they were.
+  firstRun?: boolean;
+  // THE DEBUT: latched the first time the floor-1 clock hold engages, so the
+  // System explains itself exactly once (a held clock the player was never
+  // told about is the difference between "deliberate" and "broken").
+  firstRunClockHeld?: boolean;
+  // THE DEBUT: latched when the production float has been ANNOUNCED (the gold
+  // itself is granted at construction, one frame earlier than any host can
+  // hear a line — see step()).
+  firstRunFloatSaid?: boolean;
   // Roam only: the guide NPC (Mordecai, entrance settlement). Kept as the
   // legacy singular field so v1 snapshots and the current renderer path stay
   // valid; the full roster lives in `npcs` below.

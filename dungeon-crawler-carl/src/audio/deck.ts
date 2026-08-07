@@ -98,6 +98,33 @@ export class MusicDeck {
    *  making sound and must not be re-claimed. */
   private releasing = false;
   private want = false; // we asked for playback (retried on unlock)
+  /** THE BED'S URL, HELD BACK BECAUSE THE PAGE HAS NOT BEEN TOUCHED YET.
+   *
+   *  Asset budget, measured: a cold visit to /iso.html reaches the check-in
+   *  menu, the director asks for `music_menu`, and the browser downloads all
+   *  838KB of menu.ogg at t=16.5s — with the AudioContext still suspended, on
+   *  a page that is not allowed to make a sound. The autoplay policy gates
+   *  play(); it does NOT gate the fetch, and `preload="auto"` + a `src` starts
+   *  one regardless of whether play() was refused a tick later. If the player
+   *  clicks PLAY straight through (the common case) that bed is torn down
+   *  before it was ever audible, and the whole download was waste.
+   *
+   *  So a gesture-blocked claim now parks its URL here instead of assigning
+   *  `src`, and unlock() attaches it. Nothing else about the claim changes:
+   *  `id` is still set at request time, so `busy`, `active()` and the engine's
+   *  currentMusic() all read exactly as before — a blocked deck is claimed and
+   *  silent, which is the state this file already models. It just no longer
+   *  spends the bytes. `started()` still excludes it, which is the assertion
+   *  probe-beds.mjs relies on, and probe-beds presses a key before asking. */
+  private pendingUrl: string | null = null;
+  /** Has this deck ever seen a user gesture? Deferral applies ONLY before the
+   *  first one. An AudioContext can go back to `suspended` long after the page
+   *  was clicked — a backgrounded tab, an iOS interruption — and by then the
+   *  engine has already dropped its one-shot unlock listeners, so a deck that
+   *  deferred on a late suspend would hold its URL forever and the soundtrack
+   *  would just stop. Past the first gesture this deck behaves exactly as it
+   *  did before: assign src, play(), let the retry/watchdog machinery run. */
+  private unlocked = false;
   private started = false; // the element has produced audio for this claim
   private volume = 1;
   private fade = 1.2;
@@ -219,6 +246,23 @@ export class MusicDeck {
     this.gain.gain.cancelScheduledValues(t);
     this.gain.gain.setValueAtTime(0, t);
     this.el.loop = opts.loop;
+    this.want = true;
+    this.pendingUrl = null;
+    // Blocked by the autoplay policy? Hold the URL — see `pendingUrl`. No
+    // watchdog either, for the same reason tryPlay() disarms it on
+    // NotAllowedError: this deck is BLOCKED, not stalled, and demoting the bed
+    // after 12s would walk an un-clicked page's soundtrack down to
+    // music_dungeon for no reason.
+    if (!this.unlocked && this.ctx.state !== "running") {
+      this.pendingUrl = url;
+      return;
+    }
+    this.attach(url);
+  }
+
+  /** Point the element at a bed and start it. Split out of claim() so unlock()
+   *  can run the identical sequence for a bed it deferred. */
+  private attach(url: string): void {
     this.el.preload = "auto";
     this.el.src = url;
     try {
@@ -226,7 +270,6 @@ export class MusicDeck {
     } catch {
       // Not seekable yet (no metadata): a fresh src already starts at 0.
     }
-    this.want = true;
     this.armWatchdog();
     this.tryPlay();
   }
@@ -238,6 +281,10 @@ export class MusicDeck {
    *  on `id !== null` and went blind for the 1.2s a bed spends fading out. */
   release(fade: number): void {
     this.want = false;
+    // A bed released before the page was ever touched: the fetch it would have
+    // cost never happens at all. This is the click-straight-through case, and
+    // the whole point of holding the URL.
+    this.pendingUrl = null;
     this.releasing = true;
     this.started = false;
     this.onStart = null;
@@ -260,7 +307,16 @@ export class MusicDeck {
    *  standard unlock, and it is a stated unknown — there is no iOS device on
    *  the dev box to verify it, so it is written to be harmless if unneeded. */
   unlock(): void {
+    this.unlocked = true;
     if (this.want) {
+      // A bed claimed before the gesture never got a `src` (see pendingUrl).
+      // NOW it is worth the bytes: attach it, which arms the watchdog itself.
+      if (this.pendingUrl !== null) {
+        const url = this.pendingUrl;
+        this.pendingUrl = null;
+        this.attach(url);
+        return;
+      }
       // Re-arm: until this gesture the deck was BLOCKED, not stalled, and
       // tryPlay's NotAllowedError branch disarmed the watchdog for exactly
       // that reason. From here on, silence means something is wrong.
@@ -318,6 +374,7 @@ export class MusicDeck {
   private teardown(): void {
     this.id = null;
     this.started = false;
+    this.pendingUrl = null;
     this.clearWatchdog();
     this.onError = null; // before the src goes: load() with no src fires error
     try {

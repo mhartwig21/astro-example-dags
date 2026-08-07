@@ -14,7 +14,7 @@
   "clips": [
     {
       "id": "hit",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\hit.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\hit.ogg",
       "sec": 0.451,
       "peakDb": -6.4,
       "rmsDb": -22.6,
@@ -43,7 +43,7 @@
     },
     {
       "id": "crit",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\crit.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\crit.ogg",
       "sec": 0.646,
       "peakDb": -6.2,
       "rmsDb": -23.3,
@@ -72,7 +72,7 @@
     },
     {
       "id": "kill",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\kill.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\kill.ogg",
       "sec": 0.237,
       "peakDb": -6.3,
       "rmsDb": -14.9,
@@ -101,7 +101,7 @@
     },
     {
       "id": "tell",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\tell.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\tell.ogg",
       "sec": 0.277,
       "peakDb": -9.5,
       "rmsDb": -20.2,
@@ -130,7 +130,7 @@
     },
     {
       "id": "ident",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\ident.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\ident.ogg",
       "sec": 0.86,
       "peakDb": -5.1,
       "rmsDb": -18.3,
@@ -159,7 +159,7 @@
     },
     {
       "id": "ident_high",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\ident_high.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\ident_high.ogg",
       "sec": 1.37,
       "peakDb": -4.2,
       "rmsDb": -17.1,
@@ -188,7 +188,7 @@
     },
     {
       "id": "boss_down",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\boss_down.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\boss_down.ogg",
       "sec": 2.2,
       "peakDb": -9.3,
       "rmsDb": -20.2,
@@ -217,7 +217,7 @@
     },
     {
       "id": "smash_wood",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\public\\audio\\sfx\\smash_wood.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\public\\audio\\sfx\\smash_wood.ogg",
       "sec": 0.437,
       "peakDb": -4.3,
       "rmsDb": -19.6,
@@ -246,7 +246,7 @@
     },
     {
       "id": "dash_old",
-      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\_src\\dash_old.ogg",
+      "file": "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\_src\\dash_old.ogg",
       "sec": 0.467,
       "peakDb": -1.2,
       "rmsDb": -16.3,
@@ -457,6 +457,6 @@
     }
   ],
   "sheets": [
-    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\audio2\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\ref\\sheet_ref_1.png"
+    "C:\\Users\\hartw\\astro-example-dags\\.claude\\worktrees\\release-fixes\\dungeon-crawler-carl\\tools\\audio\\_r2_sheets\\ref\\sheet_ref_1.png"
   ]
 }
