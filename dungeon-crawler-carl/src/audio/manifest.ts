@@ -237,6 +237,17 @@ export const AUDIO_MANIFEST = {
   // Battle rotation (regular combat; picked per floor — see director.ts).
   music_battle_a: { url: "/audio/music/battle_theme_a.ogg", bus: "music", volume: 0.5, loop: true },
   music_battle_b: { url: "/audio/music/battle_music.ogg", bus: "music", volume: 0.5, loop: true },
+  // TRIMMED 262.45s -> 64.0s (perf-mobile opt8, HANDOFF §3d; the cut lives in
+  // tools/audio/fix-beds.mjs and is documented as a derivative in ASSETS.md).
+  // Nothing here changes: same id, same url, same volume — it is the FILE that
+  // got shorter. Streaming does not make an over-long bed free, because the
+  // director picks this one by BATTLE_TRACKS[floor % 3] mid-fight, and the
+  // element then fetches and buffers the whole thing: measured 3,654,308 bytes
+  // arriving 12.9s into a floor-11 fight, 262.5s buffered ahead, in the scene
+  // that already runs at 9.1fps. The bed is dropped 6s after the last blow.
+  // Note the floor rule when probing this: index 2 is floors 2/5/8/11/14/17,
+  // so the floor-10 combat scene every perf probe drives picks battle_b and
+  // can never see this fetch at all.
   music_battle_c: { url: "/audio/music/battle_winter.ogg", bus: "music", volume: 0.5, loop: true },
   // Boss themes: city-boss arenas (floors 6/12) escalate to the final floor.
   music_boss_epic: { url: "/audio/music/boss_epic.ogg", bus: "music", volume: 0.55, loop: true },

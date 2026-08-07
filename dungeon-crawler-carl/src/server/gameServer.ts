@@ -271,9 +271,11 @@ const MIME: Record<string, string> = {
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
   ".ttf": "font/ttf",
-  // The UI fonts, subset (tools/subset-fonts.mjs). WOFF2 is brotli inside a
-  // font wrapper, so it is NOT in COMPRESSIBLE below — gzipping it again would
-  // burn CPU to add bytes.
+  // The UI fonts, subset (tools/subset-fonts.mjs). woff2 is the format
+  // iso.html actually ships; the ttf is only the legacy fallback src, and
+  // without this entry the woff2 went out as octet-stream. WOFF2 is brotli
+  // inside a font wrapper, so it is NOT in COMPRESSIBLE below — gzipping it
+  // again would burn CPU to add bytes.
   ".woff2": "font/woff2",
 };
 

@@ -3,6 +3,8 @@ import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { MeshoptDecoder } from "three/examples/jsm/libs/meshopt_decoder.module.js";
 import { assetUrl, assetInBuild } from "../assetUrl";
 import { SHARED_TEXTURES } from "./sharedTextures";
+import { mergeRigParts } from "./rigMerge";
+import { ATTACHMENT_NODES } from "./weaponry";
 
 // Asset loading seam. The renderer prefers real glTF models when they are present
 // under /public/assets (see ASSETS.md + scripts/fetch-assets.sh for the CC0 packs
@@ -376,6 +378,24 @@ export interface ModelStore {
  * generated index) as it settles — loaded or missing-and-skipped — so a boot
  * screen gating on the full wave can show real loaded/total progress.
  */
+/**
+ * THE ONLY MESH NODES A CHARACTER GLB MAY NOT HAVE MERGED AWAY.
+ *
+ * `mergeRigParts` (see rigMerge.ts) collapses a character's skinned parts into
+ * one mesh per material — a KayKit body ships as 6-14 separate SkinnedMeshes
+ * that share a material and a skeleton, and every one of them is a draw call
+ * in the colour pass AND the shadow pass. Nothing addresses a limb by name.
+ *
+ * The arsenal nodes are the exception: the 1.0 adventurer GLBs carry the class
+ * weapons as skinned nodes on the SAME material as the body, and the renderer
+ * toggles them (`hideAllAttachments`) and clones them onto other rigs as hand
+ * grafts. Merged into the body they would be untoggleable — hiding the sword
+ * would hide the knight. Naming them here keeps them whole while their bodies
+ * still merge, and it is keyed off the same table the toggling reads, so a new
+ * arsenal node cannot be added on one side only.
+ */
+const ARSENAL_NODES: ReadonlySet<string> = new Set(Object.values(ATTACHMENT_NODES).flat());
+
 export function startModelLoad(
   onProgress?: (loaded: number, total: number) => void,
 ): ModelStore {
@@ -435,6 +455,7 @@ export function startModelLoad(
   const loadModel = async (key: string, url: string): Promise<void> => {
     try {
       const gltf = await load(url);
+      mergeRigParts(gltf.scene, ARSENAL_NODES);
       store.models[key] = { scene: gltf.scene, animations: gltf.animations };
       finalizeCharacter(key);
       store.onArrive?.(key);
@@ -543,6 +564,7 @@ export function startModelLoad(
           await Promise.all(Object.entries(ix).map(async ([key, entry]) => {
             try {
               const gltf = await load(entry.url);
+              mergeRigParts(gltf.scene, ARSENAL_NODES);
               const clipSets = await Promise.all((entry.clips ?? []).map(async (c) =>
                 (await load(c)).animations));
               store.models[key] = { scene: gltf.scene, animations: [...gltf.animations, ...clipSets.flat()] };

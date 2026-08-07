@@ -4,14 +4,14 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { OutputShader } from "three/examples/jsm/shaders/OutputShader.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
 import { ELITE_TEXTURES, startModelLoad, type LoadedModel } from "./assets";
 import { assetUrl } from "../assetUrl";
 import { roomTemplateById } from "../content/rooms";
-import { mobDefById } from "../content/mobs";
+import { MOB_DEFS, mobDefById } from "../content/mobs";
 import type { CustomMobDef } from "../content/types";
 import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import {
@@ -29,6 +29,7 @@ import { dressRoomPurpose, spillPurposeDoorways, type DressEnv } from "./dressin
 import { ATTACHMENT_NODES, CANONICAL_LOADOUT, groundVisualFor, loadoutFor, rarityGlow } from "./weaponry";
 import { surfaceDetailMap } from "./surfaceMaps";
 import { FogOfWar } from "./fogOfWar";
+import { dedupeSkeletons } from "./rigMerge";
 import { AmbientParticles } from "./ambient";
 import { accentGlows, placeDecals, signatureDressing, voidSilhouettes, type EnvCtx } from "./envDressing";
 import { bakeLightGrid, neutralLightGrid, LM_SCALE, LM_AO_SCALE, type BakeLight, type BakeStain } from "./lightGrid";
@@ -39,6 +40,19 @@ import {
   loadQualityChoice, saveQualityChoice, urlQualityOverride,
   type QualityChoice, type QualityProfile, type QualityName,
 } from "./quality";
+
+/**
+ * WeakRef is ES2021 and this project's shared tsconfig declares the ES2020 lib.
+ * The slice used here (see blobPass) is declared locally rather than widening
+ * `lib` — that file is edited by every parallel stream, and widening it would
+ * also silently permit every other ES2021 API. The runtime floor is unchanged:
+ * WeakRef ships in Chrome 84, Firefox 79 and Safari 14.1 (iOS 14.5), all older
+ * than the WebGL2 + OES_texture_float_linear floor the renderer already needs.
+ */
+declare class WeakRef<T extends object> {
+  constructor(target: T);
+  deref(): T | undefined;
+}
 
 /**
  * WHAT THE TUNER DID, OR WOULD HAVE DONE — the surface that makes an automatic
@@ -56,7 +70,10 @@ export interface QualityNotice {
   readonly meanMs: number;
 }
 import { AoeBursts, FX_PAL, GroundDecals, Shockwaves, TELEGRAPH_GEO, makeTelegraphMat, makeLaneMat, makePoolMat, makeFissureMat, makeAnchorMat, makeDissolving } from "./fx";
-import { BossFx } from "./bossFx";
+import {
+  BossFx, makeShieldMat, makeTetherMat, makePunishMat, makeArenaMat, makePlateMat,
+  makeSporeMat, makeLanesMat, makePropsMat, makeCellsMat, makeSetMat, makeMarkMat, makeAideMat,
+} from "./bossFx";
 import { ASK_PAL, bossFamily } from "./bossSignatures";
 import {
   AIM_MIN_FOOTPRINT_PX, AIM_STROKE_PX, buildAimShape, buildRangeRing, disposeAimShape,
@@ -77,11 +94,6 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
   return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.85, metalness: 0.05, ...opts });
 }
 
-// Final display-space grade: per-band split-tone (darks lift toward the
-// district's shadow hue — colored dark, never true black — brights tint toward
-// its highlight), gentle saturation, and a film vignette tinted to the band's
-// void color. Runs AFTER OutputPass (tone map + sRGB), so it grades the same
-// values the player sees.
 /**
  * Walks the golden ratio to hand each rig a distinct mixer-flush phase — see
  * the phase-spread note in the rate-gated mixer. Module scope because it must
@@ -104,50 +116,168 @@ const MAP_SLOTS = [
   "clearcoatMap", "sheenColorMap", "transmissionMap", "iridescenceMap",
 ] as const;
 
-const GradeShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uShadow: { value: new THREE.Color(DEFAULT_MOOD.gradeShadow) },
-    uHighlight: { value: new THREE.Color(DEFAULT_MOOD.gradeHighlight) },
-    uSaturation: { value: DEFAULT_MOOD.gradeSaturation },
-    uVignette: { value: DEFAULT_MOOD.vignette },
-    uVigColor: { value: new THREE.Color(DEFAULT_MOOD.voidOuter) },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform vec3 uShadow;
-    uniform vec3 uHighlight;
-    uniform float uSaturation;
-    uniform float uVignette;
-    uniform vec3 uVigColor;
-    varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-      // Shadow lift: raise the blacks toward the band hue — a WHISPER of
-      // color in the dark, not a wash (a strong lift floats the whole
-      // darkness up to a flat lavender sheet).
-      c.rgb += uShadow * (1.0 - smoothstep(0.0, 0.3, l)) * 0.45;
-      // Highlight tint: pre-normalized to luma 1 CPU-side, so this shifts hue
-      // without changing exposure.
-      c.rgb *= mix(vec3(1.0), uHighlight, smoothstep(0.35, 1.0, l) * 0.4);
-      c.rgb = mix(vec3(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))), c.rgb, uSaturation);
-      // Film vignette, tinted toward the band's void rather than dead black.
-      // Capped to the OUTER ~10% of frame (final pass, issue #1): a vignette
-      // that starts mid-frame was stacking with the murk and crushing 60%+
-      // of every shot below 5% luminance.
-      float d = length(vUv - 0.5) * 1.4142;
-      float vig = 1.0 - uVignette * smoothstep(0.84, 1.16, d);
-      c.rgb = mix(uVigColor, c.rgb, vig);
-      gl_FragColor = c;
-    }`,
-};
+/**
+ * PER-BODY NUMERIC STATE — the single biggest source of per-frame garbage in
+ * this host, and it never looked like allocation at all.
+ *
+ * `Object3D.userData` is a plain `{}` that this renderer decorates with dozens
+ * of dynamic keys per body (clips, closures, flags, offsets). Once an object
+ * has collected that many dynamically-added properties V8 moves it to
+ * DICTIONARY mode, and a dictionary property slot is a generic tagged pointer:
+ * every `ud.someFloat = x` therefore BOXES A FRESH HeapNumber. The per-frame
+ * path writes ~11 such numbers per monster (velocity EMA, separation offset,
+ * knockback decay, flash envelope, four animation edge-detectors), so a floor
+ * of bodies mints thousands of 16-byte corpses every frame with no `new` in
+ * sight. Measured on the calm floor-2 scene: essentially 100% of update()'s
+ * sampled allocation was objects <=24 bytes.
+ *
+ * A class instance is the fix. Its fields are declared up front, so V8 keeps
+ * the object in fast mode with Double-representation fields, and a double
+ * store mutates the field's heap number IN PLACE instead of allocating a new
+ * one. Same arithmetic, same values, same frame — just somewhere V8 can write.
+ *
+ * NaN is the "unset" sentinel where the old code used `undefined`, because a
+ * field that holds both numbers and `undefined` gets a Tagged representation
+ * and boxes again — which would silently undo the whole point.
+ */
+class BodyNum {
+  /** smoothedVel: last sampled mesh position + the EMA'd velocity. */
+  lastX = NaN;
+  lastZ = NaN;
+  velX = 0;
+  velZ = 0;
+  /** Display-space separation offset (render-only crowd spacing). */
+  sepX = 0;
+  sepZ = 0;
+  /** Knockback impulse offset, decayed per frame. */
+  kbX = 0;
+  kbZ = 0;
+  /** applyHitFlash: previous sim hitFlash + the renderer-clocked envelope. */
+  prevHFVal = 0;
+  flashEnv = 0;
+  /** Animation edge detectors. */
+  prevStagger = 0;
+  prevHitFlash = 0;
+  flinchCd = 0;
+  prevPhase = 0;
+  stageT = 0;
+  gatherT = 0;
+  prevBlinkCd = NaN;
+  /** Dormant pose baseline (NaN = not currently dormant). */
+  dormYaw = NaN;
+  dormSy = NaN;
+}
+
+/** The body's numeric record, minted once per mesh (the reference write is the
+ *  only tagged store; every number after it lands in a Double field). */
+function bodyNum(o: THREE.Object3D): BodyNum {
+  const ud = o.userData as { num?: BodyNum };
+  let n = ud.num;
+  if (n === undefined) { n = new BodyNum(); ud.num = n; }
+  return n;
+}
+
+// ---------------------------------------------------------------------------
+// THE FINAL DISPLAY PASS — tone map + sRGB encode + the band grade, in ONE
+// full-screen pass.
+//
+// The grade is the per-band split-tone (darks lift toward the district's
+// shadow hue — colored dark, never true black — brights tint toward its
+// highlight), a gentle saturation pull, and a film vignette tinted to the
+// band's void color. It has to run on DISPLAY-REFERRED values, i.e. after
+// three's OutputPass has tone-mapped and sRGB-encoded the HDR frame, and it
+// still does: the body below is appended to the END of OutputShader's main().
+//
+// WHY IT IS NO LONGER ITS OWN PASS. It used to be a ShaderPass added
+// immediately after OutputPass — six ALU ops that cost a whole extra
+// full-resolution round trip: read the entire composed frame out of one
+// RGBA16F ping-pong target and write it into the other. On the integrated
+// part the post chain is roughly half the frame (quality.ts GPU_LAYERS) and a
+// full-screen pass is priced in BANDWIDTH, not in instructions, so the
+// cheapest shader in the chain was not a cheap pass. Composed here it is a
+// few instructions on a pass that was already running.
+//
+// IDENTICAL BY CONSTRUCTION, and that is the whole safety argument: the tone
+// map + color space half is three's own OutputShader source, unedited, and
+// the grade half is the previous fragment body verbatim — same constants,
+// same order, same operators — reading `gl_FragColor` where it used to read
+// `texture2D(tDiffuse, vUv)`, which is the same value. The one numeric
+// difference is a removal: that value no longer round-trips through a
+// half-float texture between the two halves.
+const GRADE_UNIFORMS = /* glsl */ `
+		uniform vec3 uShadow;
+		uniform vec3 uHighlight;
+		uniform float uSaturation;
+		uniform float uVignette;
+		uniform vec3 uVigColor;
+`;
+
+const GRADE_BODY = /* glsl */ `
+			// ---- band grade (display-referred; was a separate ShaderPass) ----
+			{
+				vec4 c = gl_FragColor;
+				float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+				// Shadow lift: raise the blacks toward the band hue — a WHISPER of
+				// color in the dark, not a wash (a strong lift floats the whole
+				// darkness up to a flat lavender sheet).
+				c.rgb += uShadow * (1.0 - smoothstep(0.0, 0.3, l)) * 0.45;
+				// Highlight tint: pre-normalized to luma 1 CPU-side, so this shifts hue
+				// without changing exposure.
+				c.rgb *= mix(vec3(1.0), uHighlight, smoothstep(0.35, 1.0, l) * 0.4);
+				c.rgb = mix(vec3(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))), c.rgb, uSaturation);
+				// Film vignette, tinted toward the band's void rather than dead black.
+				// Capped to the OUTER ~10% of frame (final pass, issue #1): a vignette
+				// that starts mid-frame was stacking with the murk and crushing 60%+
+				// of every shot below 5% luminance.
+				float d = length(vUv - 0.5) * 1.4142;
+				float vig = 1.0 - uVignette * smoothstep(0.84, 1.16, d);
+				c.rgb = mix(uVigColor, c.rgb, vig);
+				gl_FragColor = c;
+			}
+`;
+
+/**
+ * OutputShader's fragment source with the grade uniforms declared and the
+ * grade body spliced in as the last thing main() does.
+ *
+ * The two anchors are asserted rather than assumed. This is surgery on a
+ * library shader, so a three.js upgrade that rewrites OutputShader must fail
+ * LOUDLY at construction — the alternative is a silently ungraded frame that
+ * nothing in the test suite can see.
+ */
+function composeOutputGradeFragment(src: string): string {
+  const decl = "uniform sampler2D tDiffuse;";
+  if (!src.includes(decl)) throw new Error("OutputShader: tDiffuse declaration anchor missing");
+  let out = src.replace(decl, decl + "\n" + GRADE_UNIFORMS);
+  const endOfMain = /\}\s*$/;
+  if (!endOfMain.test(out)) throw new Error("OutputShader: end-of-main anchor missing");
+  out = out.replace(endOfMain, GRADE_BODY + "\n\t\t}");
+  return out;
+}
+
+/** OutputPass, plus the grade. Inherits render() unchanged — it drives
+ *  `this.material` / `this.uniforms`, both of which are still ours. */
+class OutputGradePass extends OutputPass {
+  constructor() {
+    super();
+    // `material.uniforms` IS this object (OutputPass hands it to the
+    // RawShaderMaterial by reference), so adding here adds to both.
+    Object.assign(this.uniforms, {
+      uShadow: { value: new THREE.Color(DEFAULT_MOOD.gradeShadow) },
+      uHighlight: { value: new THREE.Color(DEFAULT_MOOD.gradeHighlight) },
+      uSaturation: { value: DEFAULT_MOOD.gradeSaturation },
+      uVignette: { value: DEFAULT_MOOD.vignette },
+      uVigColor: { value: new THREE.Color(DEFAULT_MOOD.voidOuter) },
+    });
+    this.material.fragmentShader = composeOutputGradeFragment(OutputShader.fragmentShader);
+    this.material.needsUpdate = true;
+  }
+
+  /** The grade uniforms, for the per-band mood push. */
+  get grade(): Record<string, THREE.IUniform> {
+    return this.uniforms as Record<string, THREE.IUniform>;
+  }
+}
 
 // Bloom at a fraction of frame resolution (quality ladder).
 //
@@ -339,6 +469,10 @@ interface PropBatchLeaf {
   mesh: THREE.Mesh;
   /** Slot inside the batch, or -1 when this leaf is not currently drawn. */
   slot: number;
+  /** This prop's per-instance value/warmth variant, as a LINEAR rgb multiplier
+   *  (see worldLitProp). Null means 1,1,1. It used to live in the material's
+   *  `color`, which is what split one barrel geometry into four batches. */
+  tint: [number, number, number] | null;
 }
 interface PropBatch {
   mesh: THREE.InstancedMesh;
@@ -423,11 +557,18 @@ export class Renderer3D {
   private ambientLight: THREE.AmbientLight;
   private rim: THREE.DirectionalLight; // cool accent from behind-left (no shadow)
 
-  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB) -> Grade -> SMAA.
+  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB + grade) -> SMAA.
+  // Five passes, and the last three of them are conditional or fused on
+  // purpose: EffectComposer skips a pass with `enabled === false` outright
+  // (no target bind, no quad), so a preset that turns GTAO or bloom off truly
+  // pays nothing for it, and the grade is INSIDE OutputPass rather than
+  // behind it (see OutputGradePass). The composer also marks the last ENABLED
+  // pass renderToScreen, so there is no trailing copy blit to merge away
+  // either — SMAA's blend step already writes the default framebuffer.
   private composer: EffectComposer;
   private gtao: WorldGTAOPass;
   private bloom: ScaledBloomPass;
-  private gradePass: ShaderPass;
+  private output: OutputGradePass;
   // SMAA runs LAST, on the tone-mapped, graded, gamma-encoded image. Edge
   // detection wants perceptual (display-referred) values — running AA inside
   // the linear HDR chain makes it under-detect edges in the shadows and
@@ -781,15 +922,36 @@ export class Renderer3D {
       const c = m.clone();
       c.onBeforeCompile = (shader) => {
         Object.assign(shader.uniforms, this.wl, { uWlDim: { value: dim }, uWlDetP: { value: det } });
+        // PER-INSTANCE PROP TINT (batch:environment). A placed prop's band tint
+        // and value variant used to be baked into the material's `color`, which
+        // made every variant its own material and so its own draw call — 58
+        // prop batches on floor 10 for 16 real (geometry, material) groups. The
+        // multiply moves here so one InstancedMesh can carry all four variants.
+        //
+        // NOT via `vertexColors`/USE_COLOR: three.js only multiplies vColor
+        // into diffuseColor under USE_COLOR, and USE_COLOR also makes the
+        // vertex shader read a `color` ATTRIBUTE these geometries do not have.
+        // MeshStandardMaterial has no `defaultAttributeValues`, so the generic
+        // attribute stays at WebGL's (0,0,0,1) and every batched prop renders
+        // BLACK. That is not a hypothetical — it is what the first cut of this
+        // change shipped to the pixel gate.
+        const tintV = opts.prop
+          ? "\n#ifdef USE_INSTANCING_COLOR\n  vWlTint = instanceColor;\n#else\n  vWlTint = vec3(1.0);\n#endif"
+          : "";
+        const tintDecl = opts.prop ? "\nvarying vec3 vWlTint;" : "";
         shader.vertexShader = shader.vertexShader
-          .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;")
+          .replace("#include <common>", "#include <common>\nvarying vec3 vWlPos;" + tintDecl)
           .replace(
             "#include <project_vertex>",
-            "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif",
+            "#include <project_vertex>\n#ifdef USE_INSTANCING\n  vWlPos = (modelMatrix * instanceMatrix * vec4(transformed, 1.0)).xyz;\n#else\n  vWlPos = (modelMatrix * vec4(transformed, 1.0)).xyz;\n#endif" + tintV,
           );
         const head =
-          "#include <common>\nvarying vec3 vWlPos;\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
-        let stage = "#include <color_fragment>\n{\n";
+          "#include <common>\nvarying vec3 vWlPos;" + tintDecl + "\nfloat wlK;\nfloat wlFogG;\nfloat wlPropR = 1.0;\nvec3 wlBake;\nvec3 wlFogSil = vec3(0.0);\nvec3 wlDetN = vec3(0.0);\nfloat wlDetR = 0.0;\nuniform sampler2D uWlMask;\nuniform sampler2D uWlLm;\nuniform sampler2D uWlNoise;\nuniform sampler2D uWlDet;\nuniform vec4 uWlDetP;\nuniform vec2 uWlMapInv;\nuniform vec2 uWlPlayer;\nuniform vec3 uWlDark;\nuniform vec3 uWlFall;\nuniform vec3 uWlMurk;\nuniform vec3 uWlAtmo;\nuniform vec3 uWlGlint;\nuniform float uWlDim;\nuniform float uWlFlick;\nuniform float uWlTime;";
+        // The tint lands exactly where `color` used to: on diffuseColor before
+        // the prop zoning reads its luminance and saturation. Multiplication is
+        // commutative, so diffuse*map*tint is the same product the baked-in
+        // material colour produced — verified numerically, not by eye.
+        let stage = "#include <color_fragment>\n{\n" + (opts.prop ? "  diffuseColor.rgb *= vWlTint;\n" : "");
         if (opts.base) {
           // Masonry: darken toward the ground line, then a LIT top-edge bevel
           // band — the 2-tone wall (dark face, bright rim) that separates a
@@ -1117,21 +1279,59 @@ export class Renderer3D {
   /** Swap every standard material under a placed prop for its world-lit clone
    * (cached per source material, so a hundred barrels cost two clones). Props
    * then sink into the fog and the distance falloff exactly like the ground
-   * they stand on, instead of floating full-bright over the murk. */
+   * they stand on, instead of floating full-bright over the murk.
+   *
+   * THE TINT IS RECORDED, NOT JUST BAKED. The band tint and the per-placement
+   * value/warmth variant are a single multiply on `color`, but because they
+   * land on the material they used to be a BATCHING BOUNDARY: measured on
+   * floor 10, 58 prop batches resolved to 16 distinct (geometry, material
+   * state) groups, and every split inside a group was the tint and nothing
+   * else. So each clone also carries the untinted clone's cache key and its
+   * own multiplier, and batchStaticProps moves the multiply onto an
+   * InstancedMesh's per-instance colour — the same product, one draw call
+   * where there were four.
+   *
+   * THE ONE MEASURED RESIDUAL, so the next round does not re-discover it as a
+   * mystery: giving a prop batch an `instanceColor` makes three.js compile a
+   * DIFFERENT program (USE_INSTANCING_COLOR), and the recompile's rounding
+   * moves `wlN = cross(dFdx(vWlPos), dFdy(vWlPos))` in its last bits. On
+   * NEAR-HORIZONTAL faces that cross product is a cancellation, so barrel lids
+   * and crate tops shift by a few values while the vertical sides do not. The
+   * pixel gate scores it at 0.26-0.34 mean vs a 0.20-0.26 same-build noise
+   * floor, ~10 patches over 0.35% of the frame, invisible at 1:1 and at 8x
+   * side by side. It is NOT a colour error: the gate checks
+   * batchMaterial.color * instanceColor == the old tinted material.color for
+   * every live instance and the worst case is 3.3e-8. An A/B isolated it — the
+   * varying alone, with no instanceColor, sits ON the noise floor. */
   private worldLitProp(obj: THREE.Object3D, tint?: THREE.Color, variant = ""): void {
     obj.traverse((o) => {
       const mesh = o as THREE.Mesh;
       if (!mesh.isMesh || !mesh.material) return;
       const swap = (m: THREE.Material): THREE.Material => {
         if (!(m as THREE.MeshStandardMaterial).isMeshStandardMaterial) return m;
-        const key = variant ? `${m.uuid}:${variant}` : m.uuid;
+        // The UNTINTED clone is the batching identity, so it is minted first
+        // and every tinted variant points back at it by cache key. (A key, not
+        // the object: Material.copy() deep-copies userData through JSON, and a
+        // Material stored in there would serialize its whole graph.)
+        let base = this.wlPropCache.get(m.uuid);
+        if (!base) {
+          base = this.worldLit(m, { prop: true });
+          base.userData.wlPropBase = m.uuid;
+          this.wlPropCache.set(m.uuid, base);
+        }
+        // An identity tint is the base material — this collapses the `v0` /
+        // foliage-`f0` variants, which multiply by exactly [1,1,1], onto it.
+        if (!tint || (tint.r === 1 && tint.g === 1 && tint.b === 1)) return base;
+        const key = `${m.uuid}:${variant}`;
         let c = this.wlPropCache.get(key);
         if (!c) {
           c = this.worldLit(m, { prop: true });
           // MATERIAL ZONING for props (r5 issue #2: graybox setpieces): a
           // band tint multiplies the shared atlas so pale stone reads as the
           // band's stone — warm sandstone in the ruins, cold iron downstairs.
-          if (tint) (c as THREE.MeshStandardMaterial).color.multiply(tint);
+          (c as THREE.MeshStandardMaterial).color.multiply(tint);
+          c.userData.wlPropBase = m.uuid;
+          c.userData.wlPropTint = [tint.r, tint.g, tint.b];
           this.wlPropCache.set(key, c);
         }
         return c;
@@ -1810,6 +2010,15 @@ export class Renderer3D {
   private blobGeo: THREE.BufferGeometry | null = null;
   private blobMat: THREE.MeshBasicMaterial | null = null;
   private dirBlobMat: THREE.MeshBasicMaterial | null = null; // hero's crisp offset shadow
+  // ...all drawn as ONE InstancedMesh; see blobPass(). The discs themselves
+  // stay in the graph as the per-entity transform carriers.
+  private blobIM: THREE.InstancedMesh | null = null;
+  private blobRefs: WeakRef<THREE.Mesh>[] = [];
+  private blobCap = 256;
+  /** Measurement arm (tools/_fxab_wf.mjs): put every disc back on its own draw
+   *  call, so the batched and unbatched frames can be compared inside ONE page
+   *  on ONE sim state. Same pattern as heroShadowLegacy. */
+  blobBatchLegacy = false;
   // Torch flame glow cores (one per anchor), flickered per frame + fog-gated.
   private flameSprites: { s: THREE.Sprite; seed: number; base: number; tile: number; role: 0 | 1 | 2; baseOp: number }[] = [];
   // Vertical light streaks on the wall face behind each interior sconce —
@@ -1916,7 +2125,136 @@ export class Renderer3D {
     blob.scale.setScalar(worldR / gs);
     blob.renderOrder = 1;
     blob.userData.noAO = true;
+    blob.userData.contactBlob = true;
+    // DRAWN BY blobPass() AS ONE INSTANCED MESH, NOT AS N MESHES.
+    //
+    // The disc object STAYS in the graph exactly where it was. That is what
+    // makes this safe rather than surgery: every Box3.setFromObject still sees
+    // its geometry (Box3 ignores `visible`, so entity bounds are byte-identical
+    // to before), every `isMesh` traversal — applyAffixVisual's noAO skip,
+    // applyHeroShadowPolicy's caster walk, the debug censuses — still visits
+    // the same node, and the disc is still the thing that carries the world
+    // transform, parented to the entity, so it follows its owner for free.
+    // Only projectObject stops picking it up.
+    blob.visible = false;
     g.add(blob);
+    // WeakRef, so a disposed entity takes its disc's registry slot with it. A
+    // strong list would pin one Mesh per body ever spawned across 18 floors.
+    this.blobRefs.push(new WeakRef(blob));
+  }
+
+  /**
+   * Draw every contact-shadow disc in ONE call.
+   *
+   * WHY THIS IS THE FIRST THING TO BATCH: measured at this branch's HEAD with
+   * tools/_dcattr.mjs (floor 10, 124 monsters, production build, shipping
+   * server), the discs are the largest single-geometry-single-material cluster
+   * in the frame outside the post chain — 23 draws sharing ONE geometry, ONE
+   * material object and 2 triangles each. They need no material dedup, no
+   * atlasing and no shader work; they were already identical.
+   *
+   * AND IT CANNOT REORDER ANYTHING VISIBLE. Batching characteristically breaks
+   * transparency, because N depth-sorted draws become one draw in instance
+   * order. Here that is provably free: every disc is the SAME black at the SAME
+   * alpha with depthWrite off, and `dst*(1-a)*(1-a)` does not care which of two
+   * identical black quads lands first. They also cast no shadow (castShadow was
+   * never set), so the shadow pass cannot notice either.
+   *
+   * Called from scene.onBeforeRender — after three has updated the world
+   * matrices for this frame and before it builds the render list, so the discs
+   * are never a frame stale and nothing has to be traversed twice.
+   */
+  private blobPass(): void {
+    // A frame that overflows the instance buffer grows it and starts over, so
+    // a busy arena never costs a frame of missing contact shadows.
+    for (let attempt = 0; attempt < 4; attempt++) if (this.blobFill()) return;
+  }
+
+  /** One attempt at filling the batch. Returns false if capacity was grown and
+   *  the caller should retry. */
+  private blobFill(): boolean {
+    const refs = this.blobRefs;
+    const legacy = this.blobBatchLegacy;
+    const im = legacy ? this.blobIM : this.blobInstanced();
+    let n = 0, w = 0;
+    let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity;
+    for (let i = 0; i < refs.length; i++) {
+      const b = refs[i].deref();
+      if (b === undefined) continue; // owner collected: drop the slot
+      refs[w++] = refs[i];
+      if (legacy) { b.visible = true; continue; }
+      b.visible = false;
+      // LIVE == every ancestor visible AND the chain roots at this scene. The
+      // second half is not redundant: ~80% of the monster roster is removed
+      // from the graph entirely rather than hidden, and those bodies keep a
+      // stale matrixWorld that would stamp a disc on open floor.
+      let p: THREE.Object3D | null = b.parent;
+      while (p !== null && p !== this.scene) {
+        if (!p.visible) break;
+        p = p.parent;
+      }
+      if (p !== this.scene) continue;
+      if (n >= im!.instanceMatrix.count) { this.growBlobCapacity(); return false; }
+      im!.setMatrixAt(n, b.matrixWorld);
+      const e = b.matrixWorld.elements;
+      const r = Math.max(Math.hypot(e[0], e[1], e[2]), Math.hypot(e[8], e[9], e[10]));
+      if (e[12] - r < minX) minX = e[12] - r;
+      if (e[12] + r > maxX) maxX = e[12] + r;
+      if (e[14] - r < minZ) minZ = e[14] - r;
+      if (e[14] + r > maxZ) maxZ = e[14] + r;
+      n++;
+    }
+    refs.length = w;
+    if (!im) return true;
+    if (legacy) { im.count = 0; im.visible = false; return true; }
+    im.count = n;
+    im.visible = n > 0;
+    if (n === 0) return true;
+    im.instanceMatrix.needsUpdate = true;
+    // FRUSTUM CULLING MUST KEEP WORKING. three culls an InstancedMesh by
+    // object.boundingSphere, which it computes ONCE and never refreshes — a
+    // merged mesh with a stale sphere is either always drawn (costing more than
+    // the draws it replaced) or wrongly culled (discs pop out). The sphere is
+    // rebuilt here from the instances actually written; the mesh sits at the
+    // origin with an identity matrix, so world space IS its local space.
+    const bs = im.boundingSphere!;
+    const cx = (minX + maxX) / 2, cz = (minZ + maxZ) / 2;
+    bs.center.set(cx, 0.04, cz);
+    bs.radius = Math.hypot(maxX - cx, maxZ - cz) + 0.1;
+    return true;
+  }
+
+  private blobInstanced(): THREE.InstancedMesh {
+    if (this.blobIM) return this.blobIM;
+    const { geo, mat } = this.blobResources();
+    const im = new THREE.InstancedMesh(geo, mat, this.blobCap);
+    im.count = 0;
+    im.visible = false;
+    im.renderOrder = 1; // exactly the renderOrder every disc carried
+    im.castShadow = false;
+    im.receiveShadow = false;
+    im.userData.noAO = true;
+    im.userData.contactBlobBatch = true;
+    im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    im.boundingSphere = new THREE.Sphere();
+    this.blobIM = im;
+    this.scene.add(im);
+    return im;
+  }
+
+  /** Grow past the starting capacity (a boss arena can field more bodies than
+   *  a corridor). The frame that overflows skips its batch rather than dropping
+   *  discs — one frame of the old per-mesh path is invisible, a missing contact
+   *  shadow is not. */
+  private growBlobCapacity(): void {
+    const old = this.blobIM;
+    this.blobCap *= 2;
+    if (old) {
+      this.scene.remove(old);
+      old.dispose(); // instance buffers only — geo/mat are the shared singletons
+      this.blobIM = null;
+    }
+    this.blobInstanced();
   }
 
   private makeGlow(color: number, size: number): THREE.Sprite {
@@ -2062,12 +2400,13 @@ export class Renderer3D {
     // narrower than a human glance (and narrower than a SwiftShader frame) —
     // an exponential renderer-clocked tail stretches the visible flash to
     // ~250ms without touching sim timing. Also drives the scale-punch.
-    const prevHF = (ud.prevHFVal as number) ?? 0;
-    ud.prevHFVal = hitFlash;
-    let env = (ud.flashEnv as number) ?? 0;
+    const num = bodyNum(mesh);
+    const prevHF = num.prevHFVal;
+    num.prevHFVal = hitFlash;
+    let env = num.flashEnv;
     if (hitFlash > prevHF + 1e-6) env = 1;
     else if (env > 0) { env *= Math.exp(-dt * 8); if (env < 0.02) env = 0; }
-    ud.flashEnv = env;
+    num.flashEnv = env;
 
 
     // Rage alone waits its turn for the clone budget; a real HIT never does.
@@ -2380,6 +2719,15 @@ export class Renderer3D {
     this.scene.matrixAutoUpdate = false;
     this.scene.updateMatrix();
 
+    // Contact-shadow discs are re-drawn as one InstancedMesh (see blobPass).
+    // This hook is the only correct place for it: three fires
+    // scene.onBeforeRender AFTER scene.updateMatrixWorld() and BEFORE
+    // projectObject builds the render list, so the batch reads this frame's
+    // world matrices and nothing has to be traversed a second time. It fires
+    // exactly once per composed frame — the ~21 post passes render the
+    // composer's own quad scene, not this one.
+    this.scene.onBeforeRender = () => this.blobPass();
+
     this.scene.add(this.floorGroup);
     this.scene.add(this.fogBank.group);
     this.scene.add(this.ambientFx.group);
@@ -2458,9 +2806,9 @@ export class Renderer3D {
     this.bloom.setScale(this.quality.bloomScale);
     this.bloom.enabled = this.quality.bloom;
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-    this.gradePass = new ShaderPass(GradeShader);
-    this.composer.addPass(this.gradePass);
+    // Tone map + sRGB encode + the band grade, in ONE full-screen pass.
+    this.output = new OutputGradePass();
+    this.composer.addPass(this.output);
     // SMAA replaces the render target's MSAA — LAST, so it works on the final
     // display-referred image (see the field declaration). EffectComposer.setSize
     // forwards to every pass, so resize() needs no special case for it.
@@ -2598,14 +2946,55 @@ export class Renderer3D {
   private runAssetRefresh(): void {
     this.assetRefresh = null;
     this.builtFloor = -1; // next update() rebuilds the floor with real tiles
-    for (const mesh of this.playerMeshes.values()) this.scene.remove(mesh);
+    for (const mesh of this.playerMeshes.values()) this.retireBody(mesh);
     this.playerMeshes.clear();
-    for (const mesh of this.decoyMeshes.values()) this.scene.remove(mesh);
+    for (const mesh of this.decoyMeshes.values()) this.retireBody(mesh);
     this.decoyMeshes.clear();
     for (const mesh of this.breakableMeshes.values()) this.scene.remove(mesh);
     this.breakableMeshes.clear();
-    for (const mesh of this.monsters.values()) this.scene.remove(mesh);
+    for (const mesh of this.monsters.values()) this.retireBody(mesh);
     this.monsters.clear();
+  }
+
+  /**
+   * DROP A BODY *AND* ITS PER-INSTANCE GPU STATE.
+   *
+   * Every rigged body carries its own THREE.Skeleton (SkeletonUtils.clone
+   * mints one per clone — sharing the source's would collapse the pose), and
+   * three.js gives each skeleton a private bone texture: a 12x12 RGBA-float
+   * DataTexture holding that rig's ~36 bone matrices, re-uploaded every frame
+   * the body is in the scene.
+   *
+   * Nothing ever released them. `scene.remove(mesh)` unhooks the graph and
+   * leaves the GL objects behind, so every monster that ever spawned kept a
+   * live GL texture for the rest of the session. MEASURED on the floor-10
+   * fight (tools/_opt4_texcensus.mjs, 30 s window, 4x CPU throttle):
+   * renderer.info.memory.textures 362 -> 549, and the 187 new allocations were
+   * texStorage2D of 12x12 — all of them bone textures, not art. The count is a
+   * monotonic staircase for as long as the run lasts.
+   *
+   * Retiring them here makes the count breathe instead of climb: a spawn
+   * allocates one, the corpse's expiry gives it back. Geometry and materials
+   * are deliberately NOT disposed — they are shared with the loaded model and
+   * with the prewarmed program cache (see prewarm's note on why disposing a
+   * material releases the program it just compiled).
+   *
+   * Cannot change a pixel: the body is leaving the scene on the same line it
+   * always left it, and a skeleton whose boneTexture is null simply rebuilds
+   * one on its next use (three.js's computeBoneTexture is lazy) — which is
+   * also why a body that somehow came back would still render correctly.
+   */
+  private retireBody(mesh: THREE.Object3D): void {
+    this.scene.remove(mesh);
+    mesh.traverse((o) => {
+      const sm = o as THREE.SkinnedMesh;
+      if (!sm.isSkinnedMesh || !sm.skeleton) return;
+      const bt = sm.skeleton.boneTexture;
+      if (bt) {
+        bt.dispose();
+        sm.skeleton.boneTexture = null;
+      }
+    });
   }
 
   /**
@@ -2742,14 +3131,33 @@ export class Renderer3D {
     skinGeo.setAttribute("skinWeight", new THREE.Float32BufferAttribute(wt, 4));
 
     const out: THREE.Object3D[] = [];
-    // (side, alphaTest) rungs. FrontSide/0 is the common case and carries the
-    // full injected-shader chain; the others exist only to reach their DEPTH
-    // permutations, so they ride `plain`.
-    const SHAPES: Array<{ side: THREE.Side; alphaTest: number; chains: string[] }> = [
+    // (side, alphaTest, transparent, emissiveMap) rungs.
+    //
+    // EVERY RUNG NOW CARRIES THE FULL INJECTED-SHADER CHAIN (opt1-shader-
+    // prewarm). The previous cut paired flash/dissolve with FrontSide only, on
+    // the reasoning that side/alphaTest "fork the DEPTH material and not the
+    // lit one" — which is wrong for doubleSided: it is in the LIT program's
+    // cache key too (boolean layer 11), so the hero's double-sided cloth
+    // minted `chr1|dissolve` doubleSided programs on the first decoy expiry /
+    // death mid-fight (guard-caught: `paladin`, masks 134147/134179).
+    //
+    // TWO NEW AXES, both guard-caught on the floor-10 probe:
+    //   transparent   — GLB packs ship transparent character materials
+    //                   (`glass`), and `opaque` is in the cache key, so every
+    //                   glass mob's first appearance (and first death) built
+    //                   programs mid-fight.
+    //   emissiveMap   — generated creatures carry baked glow maps
+    //                   (`4GTN_glow`); USE_EMISSIVEMAP forks the program.
+    const SHAPES: Array<{
+      side: THREE.Side; alphaTest: number; transparent?: boolean; emissive?: boolean;
+      chains: string[];
+    }> = [
       { side: THREE.FrontSide, alphaTest: 0, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
-      { side: THREE.DoubleSide, alphaTest: 0, chains: ["plain"] },
-      { side: THREE.FrontSide, alphaTest: 0.5, chains: ["plain"] },
-      { side: THREE.DoubleSide, alphaTest: 0.5, chains: ["plain"] },
+      { side: THREE.DoubleSide, alphaTest: 0, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0.5, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.DoubleSide, alphaTest: 0.5, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0, transparent: true, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
+      { side: THREE.FrontSide, alphaTest: 0, emissive: true, chains: ["plain", "flash", "dissolve", "flash+dissolve"] },
     ];
     for (const mapped of [false, true]) {
       for (const skinned of [false, true]) {
@@ -2761,6 +3169,12 @@ export class Renderer3D {
               // alphaTest > 0 is what sets USE_ALPHATEST; the value is not in
               // the cache key, only whether it is non-zero.
               alphaTest: shape.alphaTest,
+              transparent: shape.transparent ?? false,
+              opacity: shape.transparent ? 0.5 : 1,
+              // Presence forks USE_EMISSIVEMAP; the 1x1 white pixel stands in
+              // for every glow map, same as `map` above.
+              emissiveMap: shape.emissive ? tex : null,
+              emissive: shape.emissive ? 0xffffff : 0x000000,
             });
             mat.name = `zoo_${mapped ? "map" : "flat"}`;
             let mesh: THREE.Mesh;
@@ -2775,6 +3189,7 @@ export class Renderer3D {
             }
             mesh.castShadow = true;
             mesh.receiveShadow = true;
+            this.armZooDepth(mesh, mat);
             const g = new THREE.Group();
             g.add(mesh);
             // Same call the real mobs take, so the same rimCache/uniform path
@@ -2816,6 +3231,44 @@ export class Renderer3D {
       this.scene.add(g);
       out.push(g);
     }
+    // THE WORLD-LIT PROP GRID (opt1-shader-prewarm / WebKit smoke). The
+    // streamed-prop warm mesh in prewarm() covers instanced+unmapped only.
+    // The WebKit smoke run logged post-boot builds of the MAPPED prop
+    // permutations: the lit `wl3p` program with USE_MAP (floor props arrive
+    // with textures behind the running game), and the instanced DEPTH program
+    // with USE_MAP — WebGLShadowMap copies `result.map = material.map` onto
+    // the shared shadow depth material, so a mapped instanced shadow caster
+    // forks a depth program nothing else builds. Close the whole
+    // map x instancing grid; castShadow on all so the depth permutations
+    // build in the same prewarm render pass (these sit at the focus point,
+    // inside the shadow camera, exactly like the rest of the zoo).
+    {
+      const pGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      this.zooScrap.push(pGeo);
+      for (const mapped of [false, true]) {
+        for (const instanced of [false, true]) {
+          const pm = this.worldLit(new THREE.MeshStandardMaterial({
+            color: 0x8a8079, map: mapped ? tex : null,
+          }), { prop: true });
+          let mesh: THREE.Mesh;
+          if (instanced) {
+            const im = new THREE.InstancedMesh(pGeo, pm, 1);
+            im.setMatrixAt(0, new THREE.Matrix4());
+            mesh = im;
+          } else {
+            mesh = new THREE.Mesh(pGeo, pm);
+          }
+          mesh.castShadow = mesh.receiveShadow = true;
+          this.armZooDepth(mesh, pm);
+          const g = new THREE.Group();
+          g.add(mesh);
+          g.scale.setScalar(0.003);
+          g.position.set(fx, 0.5, fz);
+          this.scene.add(g);
+          out.push(g);
+        }
+      }
+    }
     // The geometries and the 1x1 stand-in texture are only needed while the zoo
     // is resident; the caller releases them (see prewarm). The MATERIALS are
     // deliberately never disposed — three.js refcounts programs and destroys
@@ -2827,6 +3280,44 @@ export class Renderer3D {
 
   /** Disposable, non-program-bearing leftovers of buildCharacterZoo(). */
   private zooScrap: Array<THREE.Texture | THREE.BufferGeometry> = [];
+
+  /**
+   * Per-zoo-caster DEPTH materials (opt1-shader-prewarm), so every depth
+   * permutation compiles DETERMINISTICALLY.
+   *
+   * Why the zoo alone could not: the shadow pass runs every caster through
+   * three's ONE shared MeshDepthMaterial, and setProgram only recomputes a
+   * material's program on a version bump (or an explicitly-checked axis:
+   * skinning/instancing/envMap/fog — side and map are NOT checked). Which
+   * (map, side) depth permutations prewarm actually built therefore depended
+   * on caster ITERATION ORDER — whichever object happened to be current when
+   * an alphaTest polarity flip bumped the version got its program built, and
+   * the rest reused it. Measured: the mapped double-sided depth programs were
+   * built at the idle light count but not the combat one, and the first
+   * mid-fight version bump landing on such a caster linked them live
+   * (guard-caught: masks 142336/142368 with USE_MAP at 14 point lights).
+   *
+   * A custom depth material per zoo mesh gives each permutation its own
+   * materialProperties, so the first shadow render builds every program and
+   * the GLOBAL program cache (keyed on the cache string, not the material)
+   * hands them to the shared depth material whenever it recomputes later.
+   * getDepthMaterial overwrites side/map/alphaTest from the source material
+   * either way, so these compile the exact keys the shared one would.
+   * Never disposed (disposal would release the just-built programs); the
+   * list is cleared once prewarm's passes are done.
+   */
+  private zooDepthMats: THREE.MeshDepthMaterial[] = [];
+  private armZooDepth(mesh: THREE.Mesh, src: THREE.Material): void {
+    const m = src as THREE.MeshStandardMaterial;
+    const dm = new THREE.MeshDepthMaterial({
+      depthPacking: THREE.RGBADepthPacking,
+      map: m.map ?? null,
+      alphaTest: m.alphaTest,
+      side: m.side,
+    });
+    mesh.customDepthMaterial = dm;
+    this.zooDepthMats.push(dm);
+  }
 
   // ---- POST-BOOT SHADER-BUILD GUARD (dev only) --------------------------
   //
@@ -3016,25 +3507,45 @@ export class Renderer3D {
     this.matSweepTick = this.matSweepEvery - 1;
   }
 
+  /** Reused sweep state (see sweepNewMaterials): the node currently being
+   *  visited, the fresh-object list, and the two callbacks — all allocated
+   *  once, at construction, instead of once per node per sweep. */
+  private sweepFresh: THREE.Object3D[] = [];
+  private sweepNode: THREE.Object3D | null = null;
+  private sweepIsNew = false;
+  private sweepClassify = (m: THREE.Material): void => {
+    // The common case, by a very long way: a material we have already
+    // classified. One WeakSet probe and nothing else.
+    if (this.seenMats.has(m)) return;
+    this.seenMats.add(m);
+    if (!this.compiledKeys.has(this.matKey(this.sweepNode!, m))) this.sweepIsNew = true;
+  };
+  private sweepClaim = (m: THREE.Material): void => {
+    this.compiledKeys.add(this.matKey(this.sweepNode!, m));
+  };
+  private sweepVisit = (o: THREE.Object3D): void => {
+    this.sweepIsNew = false;
+    this.sweepNode = o;
+    this.eachMaterial(o, this.sweepClassify);
+    if (this.sweepIsNew) this.sweepFresh.push(o);
+  };
+
   private sweepNewMaterials(): void {
     if (!this.matSweepArmed || this.matSweepBusy) return;
     if (this.matSweepEvery > 1
       && (this.matSweepTick = (this.matSweepTick + 1) % this.matSweepEvery) !== 0) return;
-    const fresh: THREE.Object3D[] = [];
-    this.scene.traverse((o) => {
-      let isNew = false;
-      this.eachMaterial(o, (m) => {
-        // The common case, by a very long way: a material we have already
-        // classified. One WeakSet probe and nothing else.
-        if (this.seenMats.has(m)) return;
-        this.seenMats.add(m);
-        if (!this.compiledKeys.has(this.matKey(o, m))) isNew = true;
-      });
-      if (isNew) fresh.push(o);
-    });
+    // GC: this walks EVERY node in the scene (thousands on a dressed floor) on
+    // a 4-frame cadence. The callbacks are hoisted to stable instance-bound
+    // functions rather than written inline, because an inline arrow inside the
+    // traverse callback is a fresh closure PER NODE — the sweep's real cost was
+    // never the WeakSet probe, it was minting a few thousand closures to run it.
+    const fresh = this.sweepFresh;
+    fresh.length = 0;
+    this.scene.traverse(this.sweepVisit);
     if (!fresh.length) return;
     for (const o of fresh) {
-      this.eachMaterial(o, (m) => this.compiledKeys.add(this.matKey(o, m)));
+      this.sweepNode = o;
+      this.eachMaterial(o, this.sweepClaim);
       this.matParked.set(o, o.layers.mask);
       o.layers.set(Renderer3D.COMPILE_LAYER);
     }
@@ -3134,6 +3645,10 @@ export class Renderer3D {
     const TOTAL = 3;
     // Cash in the arrival debounce here, not on the player's first frame.
     this.flushAssetRefresh();
+    // The loose alternate-skin PNGs (elite B-variants, crafted defs). Not in
+    // the model manifest, so nothing else fetches them; lazily they land on
+    // the frame the first elite of a kind becomes visible.
+    await this.preloadSkinTextures();
     // 1) Every band's environment sky (PMREM's own blur programs compile here).
     for (let band = 0; band < 6; band++) {
       const theme = themeForFloor(band * 3 + 1);
@@ -3246,11 +3761,74 @@ export class Renderer3D {
     const cataWarm = this.buildFxRing("cataclysm");
     cataWarm.position.set(WX + 8, 0.06, WZ);
     warm.push(cataWarm);
+    // BOSS SIGNATURE RIGS (opt1-shader-prewarm). Every per-boss shader —
+    // shield dome + storm shell, tether cord (also the pooled adds cord),
+    // punish beacon, arena ring, armour plate, spore pod, the four ask
+    // silhouettes (lanes/props/cells/set), the mark reticle and the aide
+    // plate — is minted LAZILY on the first beat that needs it, i.e.
+    // mid-boss-fight by construction. Measured on the floor-10 probe:
+    // renderer programs grew 148 -> 164 during the fight, with
+    // getProgramParameter at ~1 s self-time and 0.6-1.7 s hitch frames.
+    // One warm mesh per distinct shader pair pays all of them here.
+    // ShaderMaterial cache keys still carry the scene light counts, so these
+    // must stay resident across BOTH compile passes below — they ride the
+    // same `warm` list as everything else.
+    {
+      const bwPlane = new THREE.PlaneGeometry(1, 1, 4, 1);
+      const bwSphere = new THREE.SphereGeometry(1, 8, 6);
+      this.zooScrap.push(bwPlane, bwSphere);
+      const bossWarm: Array<[THREE.BufferGeometry, THREE.ShaderMaterial]> = [
+        [bwSphere, makeShieldMat()],
+        [bwPlane, makeTetherMat()],
+        [bwPlane, makePunishMat()],
+        [TELEGRAPH_GEO, makeArenaMat()],
+        [bwPlane, makePlateMat()],
+        [TELEGRAPH_GEO, makeSporeMat()],
+        [TELEGRAPH_GEO, makeLanesMat()],
+        [TELEGRAPH_GEO, makePropsMat()],
+        [TELEGRAPH_GEO, makeCellsMat()],
+        [TELEGRAPH_GEO, makeSetMat()],
+        [bwPlane, makeMarkMat()],
+        [bwPlane, makeAideMat()],
+      ];
+      bossWarm.forEach(([geo, mat], i) => addWarm(new THREE.Mesh(geo, mat), WX + i * 2, WZ + 6));
+    }
+    // Hazard fissure scar + the player anchor ring: the same lazy-mint shape
+    // (first molten hazard / first post-boot frame with an anchor), so they
+    // compiled mid-play too. Seed/hue are uniforms, not GLSL literals — one
+    // instance covers every hazard and kit colour.
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makeFissureMat(0x8b1a1a, 0xffb057, 1)), WX + 10, WZ + 4);
+    addWarm(new THREE.Mesh(TELEGRAPH_GEO, makeAnchorMat(0x39c8e8)), WX + 12, WZ + 4);
+    // The aim telegraph's shared basic-material singletons (fill, the faded
+    // vertexColors ribbon, core, outline, range fill/edge): the first drag of
+    // a run used to build them mid-aim. Built through the exact factories the
+    // live drag uses, so the permutations (and the MATS singletons that keep
+    // the programs referenced) match by construction.
+    {
+      const aim = new THREE.Group();
+      for (const m of buildAimShape("line", 3, 0.6, 0, 0.12, 1)) aim.add(m);
+      for (const m of buildRangeRing(3, 0.12)) aim.add(m);
+      addWarm(aim, WX + 14, WZ + 4);
+    }
+    // The basic-material vertexColors permutations the WebKit smoke logged as
+    // post-boot builds (front- and back-sided; double-sided rides along for
+    // the aim ribbon's fork). Synthesized like the character zoo: only the
+    // permutation matters, not which object first wants it.
+    {
+      const cg = new THREE.BoxGeometry(0.2, 0.2, 0.2);
+      cg.setAttribute("color",
+        new THREE.BufferAttribute(new Float32Array(cg.attributes.position.count * 3).fill(1), 3));
+      this.zooScrap.push(cg);
+      const sides: THREE.Side[] = [THREE.FrontSide, THREE.BackSide, THREE.DoubleSide];
+      sides.forEach((side, i) => addWarm(new THREE.Mesh(cg, new THREE.MeshBasicMaterial({
+        transparent: true, vertexColors: true, depthWrite: false, side,
+      })), WX + 16 + i * 2, WZ + 4));
+    }
     onStep?.(2, TOTAL);
     await breathe();
 
-    // 3) Compile everything, run one full post pass (GTAO/bloom/output/grade
-    //    programs + shadow-pass depth materials), then expire the warmup FX.
+    // 3) Compile everything, run one full post pass (GTAO/bloom/output+grade/
+    //    SMAA programs + shadow-pass depth materials), then expire the warmup FX.
     //
     // THE ZOO STAYS RESIDENT ACROSS BOTH COMPILES BELOW. That is the point of
     // it: a forward renderer bakes the scene's light count into every lit
@@ -3272,6 +3850,13 @@ export class Renderer3D {
     // numPointLights 10 vs 14.
     const zoo = this.buildCharacterZoo();
     await this.compileForComposer();
+    // Force the manual shadow pass on BOTH warm renders (opt1-shader-prewarm).
+    // render() only rebuilds the shadow map on the preset's cadence or when
+    // dirty, so whichever of the two light counts missed the cadence got no
+    // shadow render — and its DEPTH permutations (e.g. mapped double-sided
+    // casters at the combat count) were then built mid-fight (guard-caught:
+    // masks 142336/142368 with USE_MAP at 14 point lights).
+    this.shadowDirty = true;
     this.render(); // NOT composer.render — render() arms the manual shadow pass
 
     // Put the FX light pool to sleep, then do it all again at the idle count.
@@ -3282,6 +3867,12 @@ export class Renderer3D {
     this.updateFxLights(31);
     this.updateFxLights(0.016);
     await this.compileForComposer();
+    // Depth materials are not lit, so the light-count change alone does not
+    // make them recompute — but numPointLights IS in their cache key. Bump
+    // every zoo depth material so the idle-count depth permutations build in
+    // the render below instead of on the first idle frame that needs one.
+    for (const dm of this.zooDepthMats) dm.needsUpdate = true;
+    this.shadowDirty = true; // same forced shadow pass at the idle count
     this.render(); // depth/shadow permutations at the idle light count too
 
     // Only now: expire the warmup FX and drop the props. Materials are
@@ -3290,6 +3881,9 @@ export class Renderer3D {
     // release). The pooled systems (particles, lights) live for the run.
     for (const o of warm) this.scene.remove(o);
     for (const o of zoo) this.scene.remove(o);
+    // Drop the tracking list only — the depth materials themselves are never
+    // disposed, so the programs they just built stay in the global cache.
+    this.zooDepthMats = [];
     // Geometry + the 1x1 stand-in texture hold no programs, so releasing them
     // is free and keeps a routine whose whole subject is memory discipline from
     // leaking its own scratch.
@@ -3378,6 +3972,12 @@ export class Renderer3D {
     // SkeletonUtils.clone: a plain .clone() leaves skinned meshes bound to the
     // source skeleton, which renders as a mangled/collapsed pose.
     const g = cloneSkinned(m.scene) as THREE.Group;
+    // ...and it mints a FRESH Skeleton per skinned mesh even where the source
+    // shared one, which costs a bone texture and a per-frame matrix upload
+    // apiece. After rigMerge a body's meshes genuinely share bones AND
+    // inverses, so the duplicates are provably interchangeable; dedupeSkeletons
+    // re-checks that element by element and collapses only what passes.
+    dedupeSkeletons(g);
     g.userData.modelKey = key; // capture-harness prop identification (propprobe)
     // KayKit characters ship their whole class arsenal visible at once; show one
     // clean canonical loadout instead (players get theirs from equipment).
@@ -3654,7 +4254,13 @@ export class Renderer3D {
     const play = ud.play as (n: string, force?: boolean) => void;
     const playFirst = ud.playFirst as (...n: string[]) => void;
     const hasClip = ud.hasClip as (n: string) => boolean;
-    const prev = this.animPrev.get(pl.id) ?? { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
+    // Kept and MUTATED, not rebuilt: the tail of this method used to `set` a
+    // fresh record with a `{ ...cds }` spread inside it every frame per player.
+    let prev = this.animPrev.get(pl.id);
+    if (!prev) {
+      prev = { swing: 0, dash: 0, alive: true, overcharged: false, cd: {}, flask: pl.flaskCharges };
+      this.animPrev.set(pl.id, prev);
+    }
     const cds = pl.cd as Partial<Record<string, number>>;
     const cdRose = (a: string) => (cds[a] ?? 0) > (prev.cd[a] ?? 0) + 1e-6;
 
@@ -3710,10 +4316,16 @@ export class Renderer3D {
       }
       else if ((ud.animBusy as () => number)() <= 0) this.playLocomotion(mesh, pl, plSpeed, move);
     }
-    this.animPrev.set(pl.id, {
-      swing: pl.attackSwing, dash: pl.dashTime, alive: pl.alive,
-      overcharged: pl.overcharged, cd: { ...cds }, flask: pl.flaskCharges,
-    });
+    prev.swing = pl.attackSwing;
+    prev.dash = pl.dashTime;
+    prev.alive = pl.alive;
+    prev.overcharged = pl.overcharged;
+    prev.flask = pl.flaskCharges;
+    // Copy the cooldowns across in place. A key that vanishes from `cds`
+    // leaves a stale entry behind, which reads identically: cdRose compares
+    // (cds[a] ?? 0) against (prev.cd[a] ?? 0) and 0 never rises above a
+    // non-negative number.
+    for (const k in cds) prev.cd[k] = cds[k];
     (ud.animTick as (dt: number) => void)(dt);
   }
 
@@ -3725,24 +4337,27 @@ export class Renderer3D {
    * reset the average instead of polluting it.
    */
   private smoothedVel(mesh: THREE.Group, dt: number): Vec2 {
-    const ud = mesh.userData;
-    const ix = ud.lastX === undefined ? 0 : (mesh.position.x - (ud.lastX as number)) / dt;
-    const iz = ud.lastZ === undefined ? 0 : (mesh.position.z - (ud.lastZ as number)) / dt;
-    ud.lastX = mesh.position.x;
-    ud.lastZ = mesh.position.z;
+    const num = bodyNum(mesh);
+    const ix = Number.isNaN(num.lastX) ? 0 : (mesh.position.x - num.lastX) / dt;
+    const iz = Number.isNaN(num.lastZ) ? 0 : (mesh.position.z - num.lastZ) / dt;
+    num.lastX = mesh.position.x;
+    num.lastZ = mesh.position.z;
     if (Math.hypot(ix, iz) > 25) {
-      ud.velX = 0; ud.velZ = 0; // teleport, not movement
+      num.velX = 0; num.velZ = 0; // teleport, not movement
     } else {
       const k = Math.min(1, dt / 0.1);
-      ud.velX = ((ud.velX as number) ?? 0) + (ix - ((ud.velX as number) ?? 0)) * k;
-      ud.velZ = ((ud.velZ as number) ?? 0) + (iz - ((ud.velZ as number) ?? 0)) * k;
+      num.velX += (ix - num.velX) * k;
+      num.velZ += (iz - num.velZ) * k;
     }
     // Reused scratch (GC sweep): one call per animated body per frame.
-    this.velOut.x = ud.velX as number;
-    this.velOut.y = ud.velZ as number;
+    this.velOut.x = num.velX;
+    this.velOut.y = num.velZ;
     return this.velOut;
   }
   private velOut: Vec2 = { x: 0, y: 0 };
+  /** Scratch point for fog probes that ask about a spot rather than an entity
+   *  (the lane telegraph's far end) — it used to be a fresh literal per body. */
+  private probeVec: Vec2 = { x: 0, y: 0 };
 
   /**
    * Feet vs facing: forward run/walk, backpedal when retreating under aim,
@@ -4540,34 +5155,71 @@ export class Renderer3D {
     }
   }
 
-  // Crafted-def alternate textures, loaded once per url (glTF convention:
-  // flipY off, sRGB — same as the elite B-variants below).
-  private defTex = new Map<string, THREE.Texture>();
-  private defTexFor(url: string): THREE.Texture {
-    let t = this.defTex.get(url);
+  /**
+   * ALTERNATE BODY SKINS — ELITE B-VARIANTS AND CRAFTED-DEF ATLASES.
+   *
+   * KEYED BY URL, NOT BY KIND. The elite table maps NINE monster kinds onto
+   * SIX distinct PNGs (swarmer/ranged/necromancer/boss all wear
+   * skeleton_texture_b), and the old cache was keyed by kind — so the same
+   * file was fetched, decoded and uploaded up to four times over a run, as
+   * four separate GL textures. Same pixels, same sampler settings, one
+   * texture. (glTF convention: flipY off, sRGB.)
+   *
+   * PRELOADED AT BOOT, not on the first elite of each kind to spawn. Lazily
+   * these are a fetch + decode + 1024^2 upload on the exact frame a new elite
+   * walks into view, i.e. mid-fight; preloadSkinTextures() below moves that
+   * behind the loading card. This lookup stays lazy so a host that never
+   * prewarms (the builder page) still works.
+   */
+  private skinTex = new Map<string, THREE.Texture>();
+  private skinTexFor(url: string): THREE.Texture {
+    let t = this.skinTex.get(url);
     if (!t) {
       t = new THREE.TextureLoader().load(assetUrl(url));
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
-      this.defTex.set(url, t);
+      this.skinTex.set(url, t);
     }
     return t;
   }
 
-  // Elite B-variant textures, loaded once and shared (same UV atlas as the
-  // embedded texture, recolored — glTF convention: flipY off, sRGB).
-  private eliteTex = new Map<string, THREE.Texture>();
   private eliteTexFor(kind: string): THREE.Texture | null {
     const url = ELITE_TEXTURES[kind];
-    if (!url) return null;
-    let t = this.eliteTex.get(kind);
-    if (!t) {
-      t = new THREE.TextureLoader().load(assetUrl(url));
+    return url ? this.skinTexFor(url) : null;
+  }
+
+  /**
+   * FETCH + DECODE + UPLOAD EVERY ALTERNATE SKIN, BEHIND THE LOADING SCREEN.
+   *
+   * These never came through the model manifest — they are loose PNGs the
+   * elite/crafted-def path swaps onto an already-loaded body — so
+   * preuploadTextures() (which walks arriving GLBs) never saw them and they
+   * stayed lazy. Six 1024^2 atlases is ~34 MB of GPU residency and a handful
+   * of network round trips; paid up front it is invisible, paid on first
+   * sight it is a synchronous decode+upload on a combat frame.
+   *
+   * Failures resolve rather than reject: a missing skin must degrade to
+   * three.js's own lazy path (and ultimately to the untinted body), never
+   * take the loading screen down with it.
+   */
+  async preloadSkinTextures(): Promise<void> {
+    const urls = new Set<string>(Object.values(ELITE_TEXTURES));
+    for (const d of MOB_DEFS) if (d.texture) urls.add(d.texture);
+    await Promise.all([...urls].map((url) => new Promise<void>((resolve) => {
+      if (this.skinTex.has(url)) { resolve(); return; }
+      const t = new THREE.TextureLoader().load(
+        assetUrl(url),
+        () => {
+          try { this.renderer.initTexture(t); } catch { /* falls back to lazy upload */ }
+          resolve();
+        },
+        undefined,
+        () => resolve(),
+      );
       t.flipY = false;
       t.colorSpace = THREE.SRGBColorSpace;
-      this.eliteTex.set(kind, t);
-    }
-    return t;
+      this.skinTex.set(url, t);
+    })));
   }
 
   /** Elite affix read: the pack's B-variant skin (a different individual),
@@ -4682,7 +5334,7 @@ export class Renderer3D {
     // swap the map on textured surfaces so the same body reads as a
     // different individual. Cloned materials — trash mobs stay unchanged.
     if (def?.texture && model) {
-      const tex = this.defTexFor(def.texture);
+      const tex = this.skinTexFor(def.texture);
       g.traverse((o) => {
         const m = o as THREE.Mesh;
         if (!m.isMesh || !m.material || m.userData.noAO) return;
@@ -4991,7 +5643,7 @@ export class Renderer3D {
     this.scene.background = new THREE.Color(theme.background);
     (this.scene.fog as THREE.Fog).color.set(theme.background);
 
-    const g = this.gradePass.uniforms;
+    const g = this.output.grade;
     (g.uShadow.value as THREE.Color).set(mood.gradeShadow);
     const hi = g.uHighlight.value as THREE.Color;
     hi.set(mood.gradeHighlight);
@@ -6736,6 +7388,26 @@ export class Renderer3D {
     this.propPark.matrixAutoUpdate = false;
     this.propPark.matrixWorldAutoUpdate = false;
 
+    // THE BATCH IDENTITY IS THE UNTINTED MATERIAL, NOT THE MATERIAL OBJECT.
+    // worldLitProp mints one clone per (source material, tint variant), so the
+    // same barrel geometry arrived here as three or four materials that were
+    // byte-identical apart from `color`. Measured on floor 10 at the previous
+    // HEAD: 58 batches -> 16 distinct (geometry, untinted material) groups, and
+    // on floor 4, 55 -> 16; deduping WITH colour in the key gave 55 and 43, so
+    // the split was the tint and nothing else. The tint moves to the batch's
+    // per-instance colour below.
+    const baseKey = (mat: THREE.Material): string =>
+      (mat.userData.wlPropBase as string | undefined) ?? mat.uuid;
+    const tintOf = (mat: THREE.Material): [number, number, number] | null =>
+      (mat.userData.wlPropTint as [number, number, number] | undefined) ?? null;
+    // The batch draws through the UNTINTED material and re-applies each
+    // member's tint per instance (worldLit's `vWlTint`, gated on
+    // USE_INSTANCING_COLOR). No new material and no new clone: the same object
+    // also serves the untinted prop meshes that never made a batch, where the
+    // #else arm makes the multiply a literal 1.0.
+    const batchMaterialFor = (mat: THREE.Material): THREE.Material =>
+      this.wlPropCache.get(baseKey(mat)) ?? mat;
+
     type Cand ={ e: Renderer3D["propEntries"][number]; mesh: THREE.Mesh; key: string };
     const cands: Cand[] = [];
     const counts = new Map<string, number>();
@@ -6753,7 +7425,8 @@ export class Renderer3D {
         const g = m.geometry as THREE.BufferGeometry | undefined;
         if (!g || !g.attributes?.position) return;
         if (g.morphAttributes && Object.keys(g.morphAttributes).length > 0) return;
-        const key = `${g.uuid}|${mat.uuid}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
+        if (g.attributes.color) return; // its own vColor would fight the tint
+        const key = `${g.uuid}|${baseKey(mat)}|${m.castShadow ? 1 : 0}${m.receiveShadow ? 1 : 0}|${m.renderOrder}`;
         counts.set(key, (counts.get(key) ?? 0) + 1);
         cands.push({ e, mesh: m, key });
       });
@@ -6765,7 +7438,8 @@ export class Renderer3D {
       if (cap < Renderer3D.PROP_BATCH_MIN) continue;
       let b = byKey.get(c.key);
       if (!b) {
-        const im = new THREE.InstancedMesh(c.mesh.geometry, c.mesh.material as THREE.Material, cap);
+        const im = new THREE.InstancedMesh(
+          c.mesh.geometry, batchMaterialFor(c.mesh.material as THREE.Material), cap);
         im.name = `propbatch:${c.mesh.name || "mesh"}`;
         im.castShadow = c.mesh.castShadow;
         im.receiveShadow = c.mesh.receiveShadow;
@@ -6774,6 +7448,10 @@ export class Renderer3D {
         im.visible = false; // nothing revealed yet; see propLeafShow
         im.frustumCulled = false; // culled per-instance by membership, see above
         im.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // Per-instance tint, initialised to the identity so an unwritten slot
+        // can never darken a prop. Written beside the matrix in propLeafWrite.
+        im.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3).fill(1), 3);
+        im.instanceColor.setUsage(THREE.DynamicDrawUsage);
         // THE TEARDOWN MUST NOT DISPOSE THIS GEOMETRY. buildFloor disposes every
         // InstancedMesh geometry it finds in floorGroup because tile geometry is
         // a per-build clone — but a prop batch points straight at the loader's
@@ -6788,11 +7466,15 @@ export class Renderer3D {
         this.propBatches.push(b);
       }
       c.mesh.visible = false; // the batch draws it now
-      (c.e.leaves ??= []).push({ batch: b, mesh: c.mesh, slot: -1 });
+      (c.e.leaves ??= []).push({
+        batch: b, mesh: c.mesh, slot: -1,
+        tint: tintOf(c.mesh.material as THREE.Material),
+      });
     }
   }
 
-  /** Write one leaf's current world transform into the slot it occupies. */
+  /** Write one leaf's current world transform (and its tint) into the slot it
+   *  occupies. Both travel with the slot, because propLeafHide swap-removes. */
   private propLeafWrite(leaf: PropBatchLeaf): void {
     if (leaf.slot < 0) return;
     // Read the leaf's matrixWorld rather than a captured local: a prop's
@@ -6802,6 +7484,14 @@ export class Renderer3D {
     // pure visibility flip cheap.
     this.batchMtx.multiplyMatrices(this.floorInv, leaf.mesh.matrixWorld);
     leaf.batch.mesh.setMatrixAt(leaf.slot, this.batchMtx);
+    const ic = leaf.batch.mesh.instanceColor;
+    if (ic) {
+      const o = leaf.slot * 3;
+      const t = leaf.tint;
+      ic.array[o] = t ? t[0] : 1;
+      ic.array[o + 1] = t ? t[1] : 1;
+      ic.array[o + 2] = t ? t[2] : 1;
+    }
     leaf.batch.dirty = true;
   }
 
@@ -6841,6 +7531,156 @@ export class Renderer3D {
     // teleported to the wrong place.
     b.mesh.setMatrixAt(last, Renderer3D.PROP_BATCH_HIDDEN);
     b.dirty = true;
+  }
+
+
+  /**
+   * Torch light pool, flame-sprite gutter, sconce streaks and the scrolling
+   * env-flow UVs — every light in the room, driven by float math only.
+   *
+   * Extracted from update() for the same measured reason as computeSeparation:
+   * update() is far too large for V8 to hand to TurboFan, and an unoptimized
+   * function BOXES EVERY INTERMEDIATE DOUBLE into a fresh HeapNumber. These
+   * loops run over every anchor, sprite and streak on the floor and do nothing
+   * but arithmetic, so inline they paid a HeapNumber per operand. Same values,
+   * same order, same frame — just somewhere the compiler can reach.
+   */
+  private updateFirelight(state: GameState, dt: number, time: number): void {
+    // Torch light pool: park the few real lights at the anchors nearest the
+    // player (off-screen torches don't need light). Reassignments FADE over
+    // ~0.3s — a sconce guttering out behind you, another catching ahead —
+    // instead of the old teleport-pop, then layered flicker on top.
+    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
+    if (this.heroLamp && lp) {
+      // The hero's warm counter-light rides just above and behind the crawler,
+      // guttering gently so it reads as carried firelight, not a headlamp.
+      // FIGHT KEY (r6 blocker: the crowd beat had no focal light): when a
+      // pack closes in the practical swells toward ~1.9x and lifts/widens —
+      // the fight becomes the brightest, warmest pixel cluster in the frame
+      // (LoL teamfight rule) and every ringed silhouette catches the kiss.
+      let packNear = 0;
+      for (const m of state.monsters) {
+        if (m.dormant || m.hp <= 0) continue;
+        const ddx = m.pos.x - lp.pos.x, ddy = m.pos.y - lp.pos.y;
+        if (ddx * ddx + ddy * ddy < 17.6 && ++packNear >= 6) break;
+      }
+      const fightK = Math.min(1, packNear / 4);
+      this.heroLamp.position.set(lp.pos.x + 0.3, 1.55 + 0.45 * fightK, lp.pos.y + 0.35);
+      this.heroLamp.distance = 7.5 + 4 * fightK;
+      this.heroLamp.intensity = this.heroLampBase * (1 + 1.25 * fightK)
+        * (0.93 + 0.07 * Renderer3D.torchFlicker(time, 4.2));
+    }
+    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
+      const order = this.torchOrder;
+      order.length = this.torchAnchors.length;
+      for (let i = 0; i < order.length; i++) order[i] = i;
+      const d2 = (i: number): number => {
+        const a = this.torchAnchors[i];
+        return (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2;
+      };
+      order.sort((a, b) => d2(a) - d2(b));
+      const desired = this.torchDesired;
+      desired.clear();
+      const nWant = Math.min(this.torchPool.length, order.length);
+      for (let i = 0; i < nWant; i++) desired.add(order[i]);
+      // First pass: lights already holding a desired anchor claim it.
+      for (const st of this.torchState) {
+        st.wanted = st.anchor >= 0 && desired.delete(st.anchor);
+      }
+      const fade = dt / 0.3;
+      for (let i = 0; i < this.torchPool.length; i++) {
+        const st = this.torchState[i];
+        const light = this.torchPool[i];
+        if (st.wanted) {
+          st.level = Math.min(1, st.level + fade);
+        } else {
+          st.level = Math.max(0, st.level - fade);
+          if (st.level === 0) {
+            // Dark: repark at an unclaimed near anchor (fades in from here).
+            for (const a of desired) { st.anchor = a; desired.delete(a); break; }
+          }
+        }
+        const t = st.anchor >= 0 ? this.torchAnchors[st.anchor] : null;
+        if (!t || st.level <= 0) { light.intensity = 0; continue; }
+        // ~8Hz flame dance: the SOURCE wanders a few cm and gutters, so the
+        // pool's edge crawls like firelight instead of breathing in place.
+        const fl = Renderer3D.torchFlicker(time, t.seed);
+        const w1 = Renderer3D.torchFlicker(time + 17.3, t.seed + 9.1) - 0.74;
+        const w2 = Renderer3D.torchFlicker(time + 31.7, t.seed + 23.7) - 0.74;
+        light.position.set(t.x + w1 * 0.55, 1.06 + (fl - 0.74) * 0.3, t.y + w2 * 0.55);
+        light.intensity = this.torchBase * st.level * fl;
+      }
+    }
+    // Flame glow layers: every anchor's core/mid/halo gutters with the same
+    // layered flicker the lights use (visible flicker gradient on the light
+    // pools), gated by the fog so unexplored sconces don't glow through the
+    // dark. Core dances hardest, the wide halo only breathes.
+    if (this.flameSprites.length > 0) {
+      const fAlphas = this.fogBank.alphas;
+      for (const f of this.flameSprites) {
+        const hidden = (fAlphas[f.tile] ?? 1) > 0.5;
+        if (hidden) {
+          // DISTANT EMBERS (critic r3 blocker: the unexplored field read as
+          // unrendered canvas): fogged sconces stay as faint guttering
+          // pinpricks in the murk — the dark reads as a place with lights
+          // burning in it, D2R-style, without lifting the murk's value floor.
+          if (f.role === 0) { f.s.visible = false; continue; }
+          f.s.visible = true;
+          const dfl = Renderer3D.torchFlicker(time * 0.55, f.seed);
+          const dmat = f.s.material as THREE.SpriteMaterial;
+          if (f.role === 1) {
+            dmat.opacity = 0.13 * (0.75 + 0.25 * dfl);
+            f.s.scale.setScalar(f.base * 0.5);
+          } else {
+            dmat.opacity = 0.06 * (0.85 + 0.15 * dfl);
+            f.s.scale.setScalar(f.base * 0.75);
+          }
+          continue;
+        }
+        f.s.visible = true;
+        const fl = Renderer3D.torchFlicker(time, f.seed);
+        const mat = f.s.material as THREE.SpriteMaterial;
+        if (f.role === 0) {
+          mat.opacity = f.baseOp * (0.7 + 0.3 * fl);
+          f.s.scale.setScalar(f.base * (0.72 + 0.5 * fl));
+        } else if (f.role === 1) {
+          mat.opacity = f.baseOp * (0.6 + 0.55 * Math.min(1, Math.max(0, (fl - 0.5) * 2)));
+          f.s.scale.setScalar(f.base * (0.78 + 0.38 * fl));
+        } else {
+          mat.opacity = f.baseOp * (0.85 + 0.2 * fl);
+          f.s.scale.setScalar(f.base * (0.94 + 0.1 * fl));
+        }
+      }
+    }
+    // Sconce wall streaks: gutter with their torch, hidden under fog.
+    if (this.torchStreaks.length > 0) {
+      const fAlphas = this.fogBank.alphas;
+      for (const t of this.torchStreaks) {
+        const hidden = (fAlphas[t.tile] ?? 1) > 0.5;
+        t.m.visible = !hidden;
+        if (hidden) continue;
+        const fl = Renderer3D.torchFlicker(time, t.seed);
+        (t.m.material as THREE.MeshBasicMaterial).opacity = t.baseOp * (0.72 + 0.28 * fl);
+      }
+    }
+    // Baked-pool gutter + fog-frontier drift for the world-lit materials.
+    this.wl.uWlFlick.value = 0.88 + 0.12 * Renderer3D.torchFlicker(time, 0.37);
+    this.wl.uWlTime.value = time;
+    this.chU.uChTime.value = time; // character accent-glow breathing
+    // Sewer channels etc: emissive water crawls along its run. Molten
+    // channels add a sinusoidal UV wobble — heat-shimmer on the emissive
+    // (r5 issue #3) without touching the shader.
+    for (const f of this.envFlow) {
+      if (f.wobble) {
+        const fq = f.freq ?? 1.6;
+        f.tex.offset.set(
+          time * f.sx + Math.sin(time * fq) * f.wobble,
+          time * f.sy + Math.sin(time * fq * 0.83 + 1.7) * f.wobble,
+        );
+      } else {
+        f.tex.offset.set(time * f.sx, time * f.sy);
+      }
+    }
   }
 
   private updateFogTint(state: GameState, px: number, pz: number): void {
@@ -6954,6 +7794,7 @@ export class Renderer3D {
       if (!b.dirty) continue;
       b.dirty = false;
       b.mesh.instanceMatrix.needsUpdate = true;
+      if (b.mesh.instanceColor) b.mesh.instanceColor.needsUpdate = true;
     }
     if (this.stairsObj) this.stairsObj.visible = (alphas[this.stairsTile] ?? 1) < 0.6;
   }
@@ -7721,6 +8562,98 @@ export class Renderer3D {
   // dozen fresh Sets every frame.
   private setPool: Set<number>[] = [];
   private setPoolI = 0;
+  // Same idea for the render-side separation pass: it used to mint a Map plus
+  // one {x,z} per overlapping body EVERY frame. Both are pooled now — the map
+  // is cleared and the offsets are handed out from a growing free list, so a
+  // steady-state pack allocates nothing at all.
+  private sepTargets = new Map<number, { x: number; z: number }>();
+  private sepPool: { x: number; z: number }[] = [];
+  private sepPoolI = 0;
+  /**
+   * RENDER-SIDE SEPARATION: overlapping enemies push each other's DISPLAY
+   * position apart (sim untouched), so a pack rings the player instead of
+   * interpenetrating into one mass of heads. O(n^2) over live monsters — fine
+   * at pack sizes; offsets ease in/out and are clamped small.
+   *
+   * IT LIVES IN ITS OWN METHOD FOR A MEASURED REASON, and the reason is not
+   * tidiness. `update()` is ~2,100 lines; V8 will not hand a function that
+   * large to TurboFan, so it runs in the interpreter forever — and the
+   * interpreter BOXES EVERY INTERMEDIATE DOUBLE as a fresh HeapNumber. This
+   * pair loop is nothing but double arithmetic, so inline in update() it was
+   * the single largest allocator in the whole host: measured by ablation on
+   * the calm floor-2 scene (37 monsters, 666 pairs), removing it dropped
+   * update()'s own allocation from 145.8 to 45.1 KB/frame — ~150 bytes of
+   * garbage per pair iteration, from a loop that allocates no objects at all.
+   *
+   * Small enough to be optimized, the same arithmetic keeps its doubles in
+   * registers and allocates nothing. Identical maths, identical offsets: this
+   * is a move, not a rewrite.
+   */
+  private computeSeparation(state: GameState): void {
+    this.sepTargets.clear();
+    this.sepPoolI = 0;
+    const live = state.monsters;
+    for (let i = 0; i < live.length; i++) {
+      const a = live[i];
+      if (a.dormant) continue;
+      const ra = 0.34 * (THEME.archetype[a.kind]?.scale ?? 1);
+      for (let j = i + 1; j < live.length; j++) {
+        const b = live[j];
+        if (b.dormant) continue;
+        const rb = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1);
+        let dx = a.pos.x - b.pos.x;
+        let dz = a.pos.y - b.pos.y;
+        const rr = ra + rb;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        let d = Math.sqrt(d2);
+        if (d < 1e-4) { // coincident: split on a stable per-id axis
+          dx = Math.sin(a.id * 1.7 + b.id);
+          dz = Math.cos(a.id * 1.7 + b.id);
+          d = 1;
+        }
+        const push = Math.min(0.4, (rr - d) * 0.5);
+        const nx = (dx / d) * push;
+        const nz = (dz / d) * push;
+        const ta = this.sepSlot(a.id);
+        ta.x += nx; ta.z += nz;
+        const tb = this.sepSlot(b.id);
+        tb.x -= nx; tb.z -= nz;
+      }
+    }
+    // Soft collision vs the HERO: overlapping mobs yield display-space ground
+    // around each player, so the crowd rings the crawler instead of clipping
+    // through the body (offset applied to the monster mesh only — the player
+    // mesh is the camera anchor and never shifts).
+    for (const plS of state.players) {
+      if (!plS.alive) continue;
+      for (const b of live) {
+        if (b.dormant) continue;
+        const rr = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1) + 0.4;
+        let dx = b.pos.x - plS.pos.x;
+        let dz = b.pos.y - plS.pos.y;
+        const d2 = dx * dx + dz * dz;
+        if (d2 >= rr * rr) continue;
+        let d = Math.sqrt(d2);
+        if (d < 1e-4) { dx = Math.sin(b.id * 2.3); dz = Math.cos(b.id * 2.3); d = 1; }
+        const push = Math.min(0.45, (rr - d) * 0.8);
+        const tb = this.sepSlot(b.id);
+        tb.x += (dx / d) * push;
+        tb.z += (dz / d) * push;
+      }
+    }
+  }
+
+  private sepSlot(id: number): { x: number; z: number } {
+    const have = this.sepTargets.get(id);
+    if (have) return have;
+    let t = this.sepPool[this.sepPoolI];
+    if (!t) { t = { x: 0, z: 0 }; this.sepPool[this.sepPoolI] = t; }
+    this.sepPoolI++;
+    t.x = 0; t.z = 0;
+    this.sepTargets.set(id, t);
+    return t;
+  }
   private scratchSet(): Set<number> {
     let s = this.setPool[this.setPoolI];
     if (!s) {
@@ -7768,7 +8701,7 @@ export class Renderer3D {
       state.seed !== this.builtSeed;
     if (rebuilt) {
       // Corpses belong to the old geometry — never carry them across a rebuild.
-      for (const d of this.dying) this.scene.remove(d.mesh);
+      for (const d of this.dying) this.retireBody(d.mesh);
       this.dying = [];
       this.buildFloor(state);
       this.matSweepNow(); // a rebuild is a material burst; sweep it this frame
@@ -7832,7 +8765,7 @@ export class Renderer3D {
       const skin = Renderer3D.skinIdFor(pl, state.seed);
       let mesh = this.playerMeshes.get(pl.id);
       if (mesh && mesh.userData.skinId !== skin) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.playerMeshes.delete(pl.id);
         this.loadoutKeys.delete(pl.id);
         mesh = undefined;
@@ -8011,7 +8944,7 @@ export class Renderer3D {
     }
     for (const [id, mesh] of this.playerMeshes) {
       if (!pSeen.has(id)) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.playerMeshes.delete(id);
         this.animPrev.delete(id);
         this.weaponStow.delete(id);
@@ -8054,7 +8987,7 @@ export class Renderer3D {
       (mesh.userData.animTick as ((d: number) => void) | undefined)?.(dt);
     }
     for (const [id, mesh] of this.decoyMeshes) {
-      if (!dSeen.has(id)) { this.scene.remove(mesh); this.decoyMeshes.delete(id); }
+      if (!dSeen.has(id)) { this.retireBody(mesh); this.decoyMeshes.delete(id); }
     }
 
     // SMASHABLES (phase 5): the plan's corner hoards as hittable entities.
@@ -8211,7 +9144,7 @@ export class Renderer3D {
       }
       for (const [id, mesh] of this.npcMeshes) {
         if (!seen.has(id)) {
-          this.scene.remove(mesh);
+          this.retireBody(mesh);
           this.npcMeshes.delete(id);
         }
       }
@@ -8222,60 +9155,8 @@ export class Renderer3D {
     // position apart (sim untouched), so a pack rings the player instead of
     // interpenetrating into one mass of heads. O(n^2) over live monsters —
     // fine at pack sizes; offsets ease in/out and are clamped small.
-    const sepTargets = new Map<number, { x: number; z: number }>();
-    {
-      const live = state.monsters;
-      for (let i = 0; i < live.length; i++) {
-        const a = live[i];
-        if (a.dormant) continue;
-        const ra = 0.34 * (THEME.archetype[a.kind]?.scale ?? 1);
-        for (let j = i + 1; j < live.length; j++) {
-          const b = live[j];
-          if (b.dormant) continue;
-          const rb = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1);
-          let dx = a.pos.x - b.pos.x;
-          let dz = a.pos.y - b.pos.y;
-          const rr = ra + rb;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= rr * rr) continue;
-          let d = Math.sqrt(d2);
-          if (d < 1e-4) { // coincident: split on a stable per-id axis
-            dx = Math.sin(a.id * 1.7 + b.id);
-            dz = Math.cos(a.id * 1.7 + b.id);
-            d = 1;
-          }
-          const push = Math.min(0.4, (rr - d) * 0.5);
-          const nx = (dx / d) * push;
-          const nz = (dz / d) * push;
-          const ta = sepTargets.get(a.id) ?? { x: 0, z: 0 };
-          ta.x += nx; ta.z += nz; sepTargets.set(a.id, ta);
-          const tb = sepTargets.get(b.id) ?? { x: 0, z: 0 };
-          tb.x -= nx; tb.z -= nz; sepTargets.set(b.id, tb);
-        }
-      }
-      // Soft collision vs the HERO: overlapping mobs yield display-space
-      // ground around each player, so the crowd rings the crawler instead of
-      // clipping through the body (offset applied to the monster mesh only —
-      // the player mesh is the camera anchor and never shifts).
-      for (const plS of state.players) {
-        if (!plS.alive) continue;
-        for (const b of live) {
-          if (b.dormant) continue;
-          const rr = 0.34 * (THEME.archetype[b.kind]?.scale ?? 1) + 0.4;
-          let dx = b.pos.x - plS.pos.x;
-          let dz = b.pos.y - plS.pos.y;
-          const d2 = dx * dx + dz * dz;
-          if (d2 >= rr * rr) continue;
-          let d = Math.sqrt(d2);
-          if (d < 1e-4) { dx = Math.sin(b.id * 2.3); dz = Math.cos(b.id * 2.3); d = 1; }
-          const push = Math.min(0.45, (rr - d) * 0.8);
-          const tb = sepTargets.get(b.id) ?? { x: 0, z: 0 };
-          tb.x += (dx / d) * push;
-          tb.z += (dz / d) * push;
-          sepTargets.set(b.id, tb);
-        }
-      }
-    }
+    const sepTargets = this.sepTargets;
+    this.computeSeparation(state);
 
     const sepEase = 1 - Math.exp(-10 * dt);
     this.flashCloneBudget = 4; // see applyHitFlash: Injunction enrages a FLOOR
@@ -8286,7 +9167,7 @@ export class Renderer3D {
       // Second-stage morphs (the understudy) CHANGE KIND mid-fight — drop the
       // old body and build the new one (the wolf takes the role).
       if (mesh && mesh.userData.simKind !== mon.kind) {
-        this.scene.remove(mesh);
+        this.retireBody(mesh);
         this.monsters.delete(mon.id);
         mesh = undefined;
       }
@@ -8371,12 +9252,13 @@ export class Renderer3D {
       const rage = (mon.injRageT ?? 0) > 0 ? 0.3 + 0.1 * Math.sin(time * 5 + mon.id) : 0;
       this.applyHitFlash(mesh, mon.hitFlash, dt, rage);
       const bs = (mesh.userData.baseScale as number) ?? 1;
+      const num0 = bodyNum(mesh);
       {
         // Separation is a pure display offset layered over the sim position:
         // strip last frame's offset, chase the sim, ease toward the new one.
-        const udS = mesh.userData;
-        const oldX = (udS.sepX as number) || 0;
-        const oldZ = (udS.sepZ as number) || 0;
+        const udS = num0;
+        const oldX = udS.sepX;
+        const oldZ = udS.sepZ;
         mesh.position.x -= oldX;
         mesh.position.z -= oldZ;
         this.smoothTo(mesh, mon.pos.x, 0, mon.pos.y, dt);
@@ -8390,8 +9272,8 @@ export class Renderer3D {
         // KNOCKBACK (audit r4 juice stack): hits shove the DISPLAY body a few
         // inches along the impact direction, easing back over ~150ms — pure
         // renderer offset (emitHits sets the impulse), sim position untouched.
-        const kbx = (udS.kbX as number) || 0;
-        const kbz = (udS.kbZ as number) || 0;
+        const kbx = udS.kbX;
+        const kbz = udS.kbZ;
         if (kbx !== 0 || kbz !== 0) {
           mesh.position.x += kbx;
           mesh.position.z += kbz;
@@ -8408,13 +9290,13 @@ export class Renderer3D {
         // A blink is not a sprint: the sim moves it instantly, but smoothTo
         // would glide the mesh across the gap. On the blink edge (cooldown
         // jumps up), poof both ends and SNAP the body to the far one.
-        const prevB = ud0.prevBlinkCd as number | undefined;
-        if (prevB !== undefined && mon.blinkCd > prevB + 1e-6) {
+        const prevB = num0.prevBlinkCd;
+        if (!Number.isNaN(prevB) && mon.blinkCd > prevB + 1e-6) {
           this.spawnGlow(mesh.position.x, 0.7, mesh.position.z, 0xbfe4ff, 0.9, 0.4, 2);
           this.spawnGlow(mon.pos.x, 0.7, mon.pos.y, 0xbfe4ff, 0.9, 0.4, 2);
           mesh.position.set(mon.pos.x, mesh.position.y, mon.pos.y);
         }
-        ud0.prevBlinkCd = mon.blinkCd;
+        num0.prevBlinkCd = mon.blinkCd;
       }
       if (mon.kind === "filcher" && ud0.lootProp) {
         // The Repo Rat shows its work: the repossessed pile only rides along
@@ -8445,27 +9327,27 @@ export class Renderer3D {
           // rank never moves in unison; amplitudes sit at the edge of notice,
           // because the trap must stay a trap while the room reads inhabited.
           if (mon.kind === "greeter" || mon.kind === "toysoldier") {
-            if (ud.dormYaw === undefined) {
-              ud.dormYaw = mesh.rotation.y;
-              ud.dormSy = mesh.scale.y;
+            if (Number.isNaN(num0.dormYaw)) {
+              num0.dormYaw = mesh.rotation.y;
+              num0.dormSy = mesh.scale.y;
             }
             const ph = (mon.id % 61) * 0.618;
             // Breath: ~1.2% of height, ~4 s period.
-            mesh.scale.y = (ud.dormSy as number) * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
+            mesh.scale.y = num0.dormSy * (1 + 0.012 * Math.sin(time * 1.55 + ph * 6.28));
             // The settle-tick: every ~5-8 s (per id) a quick 3-degree head
             // check that eases out over ~0.4 s. Smooth pulse, no RNG.
             const period = 5 + (mon.id % 4);
             const cyc = (time + ph * period) % period;
             const tick = Math.max(0, 1 - cyc / 0.4);
-            mesh.rotation.y = (ud.dormYaw as number) +
+            mesh.rotation.y = num0.dormYaw +
               0.016 * Math.sin(time * 0.45 + ph) +
               0.05 * tick * tick * Math.sin(ph * 9.7);
           }
         } else {
-        if (ud.dormYaw !== undefined) {
+        if (!Number.isNaN(num0.dormYaw)) {
           // Sprung: hand the body back to the live path exactly as it was.
-          mesh.scale.y = ud.dormSy as number;
-          ud.dormYaw = undefined;
+          mesh.scale.y = num0.dormSy;
+          num0.dormYaw = NaN;
         }
         if (ud.wasDormant) {
           ud.wasDormant = false;
@@ -8477,15 +9359,15 @@ export class Renderer3D {
           ud.revealed = true;
           playFirstM("awaken");
         }
-        const staggerRose = mon.stagger > 0 && !((ud.prevStagger as number) > 0);
+        const staggerRose = mon.stagger > 0 && !(num0.prevStagger > 0);
         // FLINCH (combat-feel program #15.1): a fresh hit interrupts the body,
         // not just the tint. Rate-limited so DoT ticks and flurries read as
         // occasional twitches instead of stun-lock theater; never during a
         // committed windup (interrupting attacks is the stagger system's job),
         // never on bosses (their hit-react IS the stagger).
-        const flashRose = mon.hitFlash > 0 && !((ud.prevHitFlash as number) > 0);
-        ud.prevHitFlash = mon.hitFlash;
-        ud.flinchCd = Math.max(0, ((ud.flinchCd as number) ?? 0) - dt);
+        const flashRose = mon.hitFlash > 0 && !(num0.prevHitFlash > 0);
+        num0.prevHitFlash = mon.hitFlash;
+        num0.flinchCd = Math.max(0, num0.flinchCd - dt);
         if (state.encounter?.monsterId === mon.id) {
           // One performance per introduction — playFirst force-restarts, so gate it.
           if (!ud.taunting) { ud.taunting = true; playFirstM("taunt", "idle"); }
@@ -8493,8 +9375,8 @@ export class Renderer3D {
           ud.taunting = false;
           // Boss phase-up is a MOMENT: the large rig transforms; medium bosses
           // fall back to a taunt. Edge-detected so it plays exactly once.
-          const phaseRose = (mon.phase ?? 0) > ((ud.prevPhase as number) ?? 0);
-          ud.prevPhase = mon.phase ?? 0;
+          const phaseRose = (mon.phase ?? 0) > num0.prevPhase;
+          num0.prevPhase = mon.phase ?? 0;
           if (phaseRose) {
             playFirstM("transform", "taunt", "hit");
           } else if (staggerRose) {
@@ -8503,10 +9385,10 @@ export class Renderer3D {
             if (mon.affix === "shielded") playFirstM("block_hit", "hit");
             else playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (
-            flashRose && (ud.flinchCd as number) <= 0 && mon.windup <= 0 &&
+            flashRose && num0.flinchCd <= 0 && mon.windup <= 0 &&
             mon.stagger <= 0 && mon.kind !== "boss" && mon.affix !== "shielded"
           ) {
-            ud.flinchCd = 0.7;
+            num0.flinchCd = 0.7;
             playFirstM((ud.hitAlt = !ud.hitAlt) ? "hit" : "hit_b", "hit");
           } else if (mon.windup > 0) {
             // Prefer a clip matching the committed attack; fall back to the
@@ -8544,9 +9426,9 @@ export class Renderer3D {
                   !(mon.kind === "drummer" || mon.kind === "shieldbearer" || mon.kind === "duelist")) {
                 ud.stagedRise = act.rise ?? null; // armed for the scene-break edge
                 if (act.burst && hasClipM(act.burst)) {
-                  ud.stageT = ((ud.stageT as number) ?? 0) + dt;
-                  if ((ud.stageT as number) >= burstPeriod(act, mon.id)) {
-                    ud.stageT = 0;
+                  num0.stageT += dt;
+                  if (num0.stageT >= burstPeriod(act, mon.id)) {
+                    num0.stageT = 0;
                     playFirstM(act.burst);
                   } else if ((ud.animBusy as () => number)() <= 0) {
                     playM(act.clip);
@@ -8573,7 +9455,7 @@ export class Renderer3D {
           }
         }
         } // end non-dormant branch
-        ud.prevStagger = mon.stagger;
+        num0.prevStagger = mon.stagger;
         // Full rate on screen (and inside the mode's rig budget); everything
         // else accumulates and flushes at offscreenRigHz. See the rig gate above.
         (ud.animTick as (dt: number, minStep?: number) => void)(
@@ -8581,14 +9463,14 @@ export class Renderer3D {
         );
         // Lift + scale-punch ride the renderer flash envelope (audit r4): the
         // struck body pops ~9% and settles over ~250ms instead of 2 frames.
-        const hitEnv = (ud.flashEnv as number) ?? 0;
+        const hitEnv = num0.flashEnv;
         mesh.position.y = 0.1 * hitEnv;
         mesh.scale.setScalar(bs * (1 + 0.09 * hitEnv));
       } else {
         // Bob while chasing; recoil pop + squash when just hit or staggered;
         // rear up through a windup (scaled by archetype size).
         const bob = mSpeed > 0.2 ? Math.abs(Math.sin(time * 10 + mon.id)) * 0.14 * bs : 0;
-        const hitEnvP = (mesh.userData.flashEnv as number) ?? 0;
+        const hitEnvP = num0.flashEnv;
         mesh.position.y = 0.18 * hitEnvP + bob;
         const squash = hitEnvP > 0.25 || mon.stagger > 0 ? 1 + 0.25 * Math.max(hitEnvP, mon.stagger > 0 ? 1 : 0) : 1;
         const rear = mon.windup > 0 ? 1 + 0.14 * (1 - mon.windup / Math.max(mon.windupTotal, 1e-3)) : 1;
@@ -8632,13 +9514,14 @@ export class Renderer3D {
         mat.uniforms.uTime.value = time + mon.id * 0.7;
         // Far end must be in vision too (audit r5): a lane pointing into the
         // murk must not streak across unexplored darkness toward the HUD.
-        strip.visible = mesh.visible &&
-          inVision({ x: mon.pos.x + laneDir.x * len, y: mon.pos.y + laneDir.y * len });
+        this.probeVec.x = mon.pos.x + laneDir.x * len;
+        this.probeVec.y = mon.pos.y + laneDir.y * len;
+        strip.visible = mesh.visible && inVision(this.probeVec);
         // Lane windups gather too (charger crouch, lasher coil).
         if (mesh.visible) {
-          ud0.gatherT = ((ud0.gatherT as number) ?? 0) - dt;
-          if ((ud0.gatherT as number) <= 0) {
-            ud0.gatherT = 0.06;
+          num0.gatherT -= dt;
+          if (num0.gatherT <= 0) {
+            num0.gatherT = 0.06;
             this.fxp.gather(mesh.position.x, 0.8, mesh.position.z, laneHex, prog);
           }
         }
@@ -8721,9 +9604,9 @@ export class Renderer3D {
         // CAST ANTICIPATION: motes gather INTO the body while the tell runs —
         // the caster visibly draws power before the strike fires.
         if (mesh.visible) {
-          ud0.gatherT = ((ud0.gatherT as number) ?? 0) - dt;
-          if ((ud0.gatherT as number) <= 0) {
-            ud0.gatherT = 0.06;
+          num0.gatherT -= dt;
+          if (num0.gatherT <= 0) {
+            num0.gatherT = 0.06;
             this.fxp.gather(mesh.position.x, 0.9 * ((mesh.userData.baseScale as number) ?? 1), mesh.position.z, telColor, prog);
           }
         }
@@ -8787,10 +9670,18 @@ export class Renderer3D {
           this.scene.add(ring);
           this.statusRings.set(mon.id, ring);
         }
-        const kind = st.find((e) => e.kind === "burn") ? "burn"
-          : st.find((e) => e.kind === "poison") ? "poison" : "chill";
+        // Dominant effect, burn > poison > chill. A plain scan: the two
+        // `find` calls this replaces minted two closures per statused body
+        // per frame, which on a burning pack is the pack's own weight in
+        // garbage for a colour lookup.
+        let hasBurn = false, hasPoison = false;
+        for (let i = 0; i < st.length; i++) {
+          const k = st[i].kind;
+          if (k === "burn") { hasBurn = true; break; }
+          if (k === "poison") hasPoison = true;
+        }
         const mat = ring.material as THREE.MeshBasicMaterial;
-        mat.color.setHex(kind === "burn" ? 0xff7a2f : kind === "poison" ? 0x7ed957 : 0x7fd4ff);
+        mat.color.setHex(hasBurn ? 0xff7a2f : hasPoison ? 0x7ed957 : 0x7fd4ff);
         mat.opacity = 0.22 + 0.1 * Math.sin(time * 6 + mon.id);
         ring.position.set(mon.pos.x, 0.04, mon.pos.y);
         ring.scale.setScalar(0.62 * (mon.elite ? CONFIG.eliteScale : mon.veteran ? CONFIG.veteranScale : 1));
@@ -8816,7 +9707,7 @@ export class Renderer3D {
         if (cage) { this.scene.remove(cage); this.pinCages.delete(id); }
         if (rebuilt) {
           // Floor change: the whole population turned over — no corpses.
-          this.scene.remove(mesh);
+          this.retireBody(mesh);
         } else {
           // Death: let the corpse play out (death clip / tumble) before removal.
           // Two death clips keep a cleared pack from dying in unison.
@@ -9451,141 +10342,7 @@ export class Renderer3D {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }
     }
 
-    // Torch light pool: park the few real lights at the anchors nearest the
-    // player (off-screen torches don't need light). Reassignments FADE over
-    // ~0.3s — a sconce guttering out behind you, another catching ahead —
-    // instead of the old teleport-pop, then layered flicker on top.
-    const lp = state.players.find((pl) => pl.alive) ?? state.players[0];
-    if (this.heroLamp && lp) {
-      // The hero's warm counter-light rides just above and behind the crawler,
-      // guttering gently so it reads as carried firelight, not a headlamp.
-      // FIGHT KEY (r6 blocker: the crowd beat had no focal light): when a
-      // pack closes in the practical swells toward ~1.9x and lifts/widens —
-      // the fight becomes the brightest, warmest pixel cluster in the frame
-      // (LoL teamfight rule) and every ringed silhouette catches the kiss.
-      let packNear = 0;
-      for (const m of state.monsters) {
-        if (m.dormant || m.hp <= 0) continue;
-        const ddx = m.pos.x - lp.pos.x, ddy = m.pos.y - lp.pos.y;
-        if (ddx * ddx + ddy * ddy < 17.6 && ++packNear >= 6) break;
-      }
-      const fightK = Math.min(1, packNear / 4);
-      this.heroLamp.position.set(lp.pos.x + 0.3, 1.55 + 0.45 * fightK, lp.pos.y + 0.35);
-      this.heroLamp.distance = 7.5 + 4 * fightK;
-      this.heroLamp.intensity = this.heroLampBase * (1 + 1.25 * fightK)
-        * (0.93 + 0.07 * Renderer3D.torchFlicker(time, 4.2));
-    }
-    if (this.torchAnchors.length > 0 && this.torchPool.length > 0) {
-      const order = this.torchOrder;
-      order.length = this.torchAnchors.length;
-      for (let i = 0; i < order.length; i++) order[i] = i;
-      const d2 = (i: number): number => {
-        const a = this.torchAnchors[i];
-        return (a.x - lp.pos.x) ** 2 + (a.y - lp.pos.y) ** 2;
-      };
-      order.sort((a, b) => d2(a) - d2(b));
-      const desired = this.torchDesired;
-      desired.clear();
-      const nWant = Math.min(this.torchPool.length, order.length);
-      for (let i = 0; i < nWant; i++) desired.add(order[i]);
-      // First pass: lights already holding a desired anchor claim it.
-      for (const st of this.torchState) {
-        st.wanted = st.anchor >= 0 && desired.delete(st.anchor);
-      }
-      const fade = dt / 0.3;
-      for (let i = 0; i < this.torchPool.length; i++) {
-        const st = this.torchState[i];
-        const light = this.torchPool[i];
-        if (st.wanted) {
-          st.level = Math.min(1, st.level + fade);
-        } else {
-          st.level = Math.max(0, st.level - fade);
-          if (st.level === 0) {
-            // Dark: repark at an unclaimed near anchor (fades in from here).
-            for (const a of desired) { st.anchor = a; desired.delete(a); break; }
-          }
-        }
-        const t = st.anchor >= 0 ? this.torchAnchors[st.anchor] : null;
-        if (!t || st.level <= 0) { light.intensity = 0; continue; }
-        // ~8Hz flame dance: the SOURCE wanders a few cm and gutters, so the
-        // pool's edge crawls like firelight instead of breathing in place.
-        const fl = Renderer3D.torchFlicker(time, t.seed);
-        const w1 = Renderer3D.torchFlicker(time + 17.3, t.seed + 9.1) - 0.74;
-        const w2 = Renderer3D.torchFlicker(time + 31.7, t.seed + 23.7) - 0.74;
-        light.position.set(t.x + w1 * 0.55, 1.06 + (fl - 0.74) * 0.3, t.y + w2 * 0.55);
-        light.intensity = this.torchBase * st.level * fl;
-      }
-    }
-    // Flame glow layers: every anchor's core/mid/halo gutters with the same
-    // layered flicker the lights use (visible flicker gradient on the light
-    // pools), gated by the fog so unexplored sconces don't glow through the
-    // dark. Core dances hardest, the wide halo only breathes.
-    if (this.flameSprites.length > 0) {
-      const fAlphas = this.fogBank.alphas;
-      for (const f of this.flameSprites) {
-        const hidden = (fAlphas[f.tile] ?? 1) > 0.5;
-        if (hidden) {
-          // DISTANT EMBERS (critic r3 blocker: the unexplored field read as
-          // unrendered canvas): fogged sconces stay as faint guttering
-          // pinpricks in the murk — the dark reads as a place with lights
-          // burning in it, D2R-style, without lifting the murk's value floor.
-          if (f.role === 0) { f.s.visible = false; continue; }
-          f.s.visible = true;
-          const dfl = Renderer3D.torchFlicker(time * 0.55, f.seed);
-          const dmat = f.s.material as THREE.SpriteMaterial;
-          if (f.role === 1) {
-            dmat.opacity = 0.13 * (0.75 + 0.25 * dfl);
-            f.s.scale.setScalar(f.base * 0.5);
-          } else {
-            dmat.opacity = 0.06 * (0.85 + 0.15 * dfl);
-            f.s.scale.setScalar(f.base * 0.75);
-          }
-          continue;
-        }
-        f.s.visible = true;
-        const fl = Renderer3D.torchFlicker(time, f.seed);
-        const mat = f.s.material as THREE.SpriteMaterial;
-        if (f.role === 0) {
-          mat.opacity = f.baseOp * (0.7 + 0.3 * fl);
-          f.s.scale.setScalar(f.base * (0.72 + 0.5 * fl));
-        } else if (f.role === 1) {
-          mat.opacity = f.baseOp * (0.6 + 0.55 * Math.min(1, Math.max(0, (fl - 0.5) * 2)));
-          f.s.scale.setScalar(f.base * (0.78 + 0.38 * fl));
-        } else {
-          mat.opacity = f.baseOp * (0.85 + 0.2 * fl);
-          f.s.scale.setScalar(f.base * (0.94 + 0.1 * fl));
-        }
-      }
-    }
-    // Sconce wall streaks: gutter with their torch, hidden under fog.
-    if (this.torchStreaks.length > 0) {
-      const fAlphas = this.fogBank.alphas;
-      for (const t of this.torchStreaks) {
-        const hidden = (fAlphas[t.tile] ?? 1) > 0.5;
-        t.m.visible = !hidden;
-        if (hidden) continue;
-        const fl = Renderer3D.torchFlicker(time, t.seed);
-        (t.m.material as THREE.MeshBasicMaterial).opacity = t.baseOp * (0.72 + 0.28 * fl);
-      }
-    }
-    // Baked-pool gutter + fog-frontier drift for the world-lit materials.
-    this.wl.uWlFlick.value = 0.88 + 0.12 * Renderer3D.torchFlicker(time, 0.37);
-    this.wl.uWlTime.value = time;
-    this.chU.uChTime.value = time; // character accent-glow breathing
-    // Sewer channels etc: emissive water crawls along its run. Molten
-    // channels add a sinusoidal UV wobble — heat-shimmer on the emissive
-    // (r5 issue #3) without touching the shader.
-    for (const f of this.envFlow) {
-      if (f.wobble) {
-        const fq = f.freq ?? 1.6;
-        f.tex.offset.set(
-          time * f.sx + Math.sin(time * fq) * f.wobble,
-          time * f.sy + Math.sin(time * fq * 0.83 + 1.7) * f.wobble,
-        );
-      } else {
-        f.tex.offset.set(time * f.sx, time * f.sy);
-      }
-    }
+    this.updateFirelight(state, dt, time);
 
     this.updateParticles(dt);
     this.updateFxLights(dt);
@@ -10029,7 +10786,10 @@ export class Renderer3D {
     // writes now so the sway shows this frame, not next.
     if (wroteBatch) {
       for (const bt of this.propBatches) {
-        if (bt.dirty) { bt.dirty = false; bt.mesh.instanceMatrix.needsUpdate = true; }
+        if (!bt.dirty) continue;
+        bt.dirty = false;
+        bt.mesh.instanceMatrix.needsUpdate = true;
+        if (bt.mesh.instanceColor) bt.mesh.instanceColor.needsUpdate = true;
       }
     }
   }
@@ -10151,9 +10911,9 @@ export class Renderer3D {
             if (h.dir) {
               const dl = Math.hypot(h.dir.x, h.dir.y) || 1;
               const kb = (crit ? 0.3 : 0.18) * (h.killed ? 1.4 : 1);
-              const bud = best.userData;
-              bud.kbX = Math.max(-0.45, Math.min(0.45, ((bud.kbX as number) || 0) + (h.dir.x / dl) * kb));
-              bud.kbZ = Math.max(-0.45, Math.min(0.45, ((bud.kbZ as number) || 0) + (h.dir.y / dl) * kb));
+              const bud = bodyNum(best);
+              bud.kbX = Math.max(-0.45, Math.min(0.45, bud.kbX + (h.dir.x / dl) * kb));
+              bud.kbZ = Math.max(-0.45, Math.min(0.45, bud.kbZ + (h.dir.y / dl) * kb));
             }
           }
         }
@@ -10393,7 +11153,7 @@ export class Renderer3D {
     for (let di = 0; di < this.dying.length; di++) {
       const d = this.dying[di];
       d.t -= dt;
-      if (d.t <= 0) { this.scene.remove(d.mesh); continue; }
+      if (d.t <= 0) { this.retireBody(d.mesh); continue; }
       if (d.fling) {
         // Launched: ballistic arc + tumble, death clip still playing.
         const f = d.fling;
