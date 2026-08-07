@@ -16,25 +16,52 @@
       /* ============ THE TORCHLIT BROADCAST (see STYLEGUIDE.md) ============
          Dungeon stone lit by torchfire, framed in bronze, announced in gold.
          Tokens first; every component below derives from them. */
+      /* WOFF2 SUBSETS, not raw TTF (asset budget). The four TTFs cost 436 KB
+         gzipped on the boot path; the same four as brotli-compressed WOFF2
+         subsets cost 168 KB. Two independent wins stacked:
+
+           - WOFF2 is brotli-with-a-font-model. It beats gzip-over-TTF by ~2x
+             on its own, and unlike gzip it survives the `immutable` cache
+             headers as a real file rather than a transport encoding.
+           - The subset drops whole SCRIPTS this game cannot render — full
+             Cyrillic, polytonic Greek, Vietnamese, IPA: 768 of Alegreya's
+             1235 codepoints. It does NOT drop symbols. Every codepoint the
+             font has above U+2000 is kept (─ § · → × … ✕ ◆ ± ≈ ° ≤ ≥ │ ▼ ▶ ☰
+             and the rest are typed straight into this document), and so are
+             Latin-1 + Latin Extended-A so a crawler name with accents still
+             renders in-family. Real small caps survive too: `smcp`/`c2sc` are
+             intact, which the whole --display treatment depends on.
+
+         Regenerate with `tools/subset-fonts.mjs`; the unmodified upstream TTFs
+         are kept in `tools/fonts-src/`. ASSETS.md records the modification —
+         both families are OFL 1.1 with no Reserved Font Name, so subsetting is
+         permitted, and the `name` table is preserved unchanged.
+
+         No TTF fallback `src` is declared on purpose: WOFF2 has been supported
+         since Safari 10 / iOS 10, and listing an unreachable second source
+         would only put 900 KB back in the deploy image. */
       @font-face {
         font-family: "Cinzel";
-        src: url("/fonts/Cinzel.ttf") format("truetype");
+        src: url("/fonts/Cinzel.woff2") format("woff2");
+        /* Cinzel is VARIABLE (wght 400..900) and stays variable: fvar/gvar/
+           avar/HVAR/STAT all survive the subset, so the 600/700/900 weights
+           this UI asks for are still real instances, not synthesized bold. */
         font-weight: 400 900;
         font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Regular.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Regular.woff2") format("woff2");
         font-weight: 400; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Bold.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Bold.woff2") format("woff2");
         font-weight: 700; font-style: normal; font-display: swap;
       }
       @font-face {
         font-family: "Alegreya Sans";
-        src: url("/fonts/AlegreyaSans-Italic.ttf") format("truetype");
+        src: url("/fonts/AlegreyaSans-Italic.woff2") format("woff2");
         font-weight: 400; font-style: italic; font-display: swap;
       }
       :root {

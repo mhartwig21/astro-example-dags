@@ -421,8 +421,32 @@ alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
 
 | File | Family | Role | Source |
 |---|---|---|---|
-| Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
-| AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+| Cinzel.woff2 (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
+| AlegreyaSans-{Regular,Bold,Italic}.woff2 | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
+
+**MODIFIED — subset + WOFF2 (asset budget).** The shipped `.woff2` files are
+NOT the upstream releases: they are subsets, produced by `tools/subset-fonts.mjs`
+from the unmodified upstream TTFs kept in `tools/fonts-src/` (those four files
+are byte-identical to Google Fonts and are build input only — nothing serves
+them). Measured: 436 KB gzipped on the wire → 168 KB, with the boot path down
+447,497 B → 172,832 B.
+
+Both families are OFL 1.1 **with no Reserved Font Name**, so subsetting and
+redistribution under the same license are permitted; the `name` table (family,
+subfamily, copyright, license URL) is preserved unchanged, and the OFL texts
+still ship alongside. Recording the modification here is the obligation this
+row exists to meet.
+
+What was dropped is only ever a whole script the game cannot render — Cyrillic,
+polytonic Greek, Vietnamese/Latin Extended Additional, IPA: 768 of Alegreya's
+1,235 codepoints. What was KEPT, deliberately: Basic Latin + Latin-1 + Latin
+Extended-A + combining diacriticals (so an accented crawler name still renders
+in-family), and **every codepoint the font has above U+2000** — the UI types
+─ § · → × … ✕ ◆ ± ≈ ° ≤ ≥ │ ▼ ▶ ☰ ↑ ↓ ← → straight into the DOM, and one
+missing symbol would silently swap to a fallback font mid-sentence. The
+`smcp`/`c2sc` small-caps features and Cinzel's variable axes (fvar/gvar/avar/
+HVAR/STAT, wght 400..900) survive intact; only `ss05`, a stylistic set for a
+dropped script and never enabled in CSS, is gone.
 
 ## AI-generated assets — `tools/asset-pipeline/`
 

@@ -271,10 +271,16 @@ const MIME: Record<string, string> = {
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
   ".ttf": "font/ttf",
+  // The UI fonts, subset (tools/subset-fonts.mjs). WOFF2 is brotli inside a
+  // font wrapper, so it is NOT in COMPRESSIBLE below — gzipping it again would
+  // burn CPU to add bytes.
+  ".woff2": "font/woff2",
 };
 
 // Worth gzipping on the wire: text plus GLB (raw geometry shrinks ~60%).
-// PNG/OGG/MP3 are internally compressed already — recompressing wastes CPU.
+// PNG/OGG/MP3/WOFF2 are internally compressed already — recompressing wastes
+// CPU. `.ttf` stays listed for anything that still ships one; the four UI
+// fonts no longer do.
 const COMPRESSIBLE = new Set([".glb", ".js", ".css", ".html", ".json", ".svg", ".txt", ".ttf", ".wav"]);
 
 export class GameServer {

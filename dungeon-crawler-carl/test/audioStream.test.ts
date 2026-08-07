@@ -35,6 +35,12 @@ class StubGain {
 /** Only what MusicDeck asks of a context. */
 class StubCtx {
   currentTime = 0;
+  /** The autoplay gate the deck reads before it will spend bytes on a `src`
+   *  (asset budget: 838KB of menu.ogg was being fetched onto a page that was
+   *  not allowed to make a sound). Default `running` so every case below keeps
+   *  testing the failure mode it was written for; the deferral gets its own
+   *  case, which flips this to `suspended`. */
+  state: AudioContextState = "running";
   sources: unknown[] = [];
   createGain(): StubGain { return new StubGain(); }
   createMediaElementSource(el: unknown): { connect: () => void } {
@@ -78,12 +84,13 @@ class StubAudio extends EventTarget {
   breakWith(code = 4): void { this.error = { code }; this.dispatchEvent(new Event("error")); }
 }
 
-function harness(count = 3, mode: StubAudio["mode"] = "ok") {
+function harness(count = 3, mode: StubAudio["mode"] = "ok", state: AudioContextState = "running") {
   StubAudio.made = [];
   (globalThis as unknown as { Audio: unknown }).Audio = StubAudio;
   // The elements are constructed inside the pool, so the mode has to be set
   // via the prototype default before construction for the reject cases.
   const ctx = new StubCtx();
+  ctx.state = state;
   const pool = new MusicDeckPool(ctx as unknown as AudioContext, new StubGain() as unknown as AudioNode, count);
   for (const el of StubAudio.made) el.mode = mode;
   return { ctx, pool, els: StubAudio.made };
@@ -166,6 +173,69 @@ describe("MusicDeck: the failure modes streaming introduced", () => {
     pool.unlock();
     await vi.advanceTimersByTimeAsync(13_000);
     expect(demoted).toBe(true);
+  });
+
+  // ---- ASSET BUDGET: a suspended context must not cost bytes -------------
+  // Measured on the shipping server, cold cache, no gesture: /iso.html reaches
+  // the check-in menu and downloads all 838KB of menu.ogg at t=16.5s while the
+  // AudioContext is still suspended. The autoplay policy gates play(), not the
+  // fetch — `preload="auto"` + a `src` starts one either way. If the player
+  // clicks PLAY straight through, every one of those bytes is discarded.
+
+  it("a bed claimed before the first gesture does not fetch", () => {
+    const { pool, els } = harness(1, "ok", "suspended");
+    const deck = pool.claim("music_menu" as SoundId, "/audio/music/menu.ogg", claim)!;
+    expect(els[0].src).toBe(""); // THE POINT: no URL on the element, no fetch
+    expect(els[0].playCalls).toBe(0);
+    // ...but the claim is real in every way the rest of the engine reads it:
+    // engine.current is set at request time and currentMusic() must still name
+    // the bed the director asked for.
+    expect(deck.busy).toBe(true);
+    expect(pool.active()).toEqual(["music_menu"]);
+    expect(deck.playing).toBe(false); // and started() still excludes it
+    expect(pool.started()).toEqual([]);
+  });
+
+  it("the gesture attaches the held bed and it plays normally", () => {
+    const { pool, els } = harness(1, "ok", "suspended");
+    pool.claim("music_menu" as SoundId, "/audio/music/menu.ogg", claim);
+    pool.unlock();
+    expect(els[0].src).toBe("/audio/music/menu.ogg");
+    expect(els[0].preload).toBe("auto");
+    els[0].speak();
+    expect(pool.started()).toEqual(["music_menu"]);
+  });
+
+  it("a bed released before the gesture is never fetched at all", () => {
+    // The click-straight-through case, and the whole saving: the player's
+    // first pointerdown unlocks audio AND starts the run, so the menu bed is
+    // handed back within the same gesture.
+    const { pool, els } = harness(1, "ok", "suspended");
+    const deck = pool.claim("music_menu" as SoundId, "/audio/music/menu.ogg", claim)!;
+    deck.release(1.2);
+    pool.unlock();
+    // The element is primed with the 44-byte SILENT_WAV (the pre-existing iOS
+    // per-element unlock) and NEVER with the bed: 838KB not spent.
+    expect(els[0].src.startsWith("data:audio/wav")).toBe(true);
+    expect(els[0].src).not.toContain("menu.ogg");
+  });
+
+  it("deferral applies only BEFORE the first gesture, never after", async () => {
+    // An AudioContext returns to `suspended` on its own — a backgrounded tab,
+    // an iOS interruption — and by then the engine has dropped its one-shot
+    // unlock listeners. A deck that deferred on a LATE suspend would hold its
+    // URL forever and the soundtrack would simply stop, with every debug hook
+    // reporting healthy music. That is worse than the bytes it would save.
+    vi.useFakeTimers();
+    const { ctx, pool, els } = harness(1, "ok", "suspended");
+    const deck = pool.claim("music_menu" as SoundId, "/a.ogg", claim)!;
+    pool.unlock(); // the gesture: this deck has now seen one, forever
+    els[0].speak();
+    deck.release(0);
+    await vi.advanceTimersByTimeAsync(200); // let the release fade tear down
+    ctx.state = "suspended"; // tab backgrounded, unlock listeners long gone
+    expect(pool.claim("music_battle_a" as SoundId, "/b.ogg", claim)).not.toBeNull();
+    expect(els[0].src).toBe("/b.ogg"); // fetched, because we are past a gesture
   });
 
   it("a play() rejection that is NOT the autoplay policy demotes the bed", async () => {

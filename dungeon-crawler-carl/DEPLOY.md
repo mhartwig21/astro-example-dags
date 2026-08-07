@@ -176,7 +176,7 @@ proving nothing had changed. On a phone that bill is round trips, not bytes.
 |---|---|---|
 | `/_app/iso-CxWpyPOz.js` | rollup (chunks moved off `/assets/` to `/_app/`) | `public, max-age=31536000, immutable` |
 | `/assets/characters/skeleton.d48770b5.glb`, `/audio/sfx/hit.<hash>.ogg` | per-file content hash | same |
-| `/icons.<hash>/ui/eye.svg`, `/fonts.<hash>/Cinzel.ttf` | per-TREE version | same |
+| `/icons.<hash>/ui/eye.svg`, `/fonts.<hash>/Cinzel.woff2` | per-TREE version | same |
 | `iso.html` / `index.html` / `builder.html` | — | `no-cache` (a deploy lands on the next load) |
 | anything under the asset trees NOT carrying a hash | — | the old `max-age=86400` + ETag |
 
