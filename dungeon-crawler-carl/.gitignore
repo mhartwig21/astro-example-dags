@@ -32,7 +32,9 @@ tools/_vr.json
 # Paydown round captures (tools/perfbaseline.mjs --out, tools/paydown.mjs,
 # tools/staticmatrix.mjs): same rule — harness committed, output not.
 tools/_pay*/
-tools/_ab*/
+# (_abshots also holds the two small JSON receipts ASSET-BUDGET.md quotes;
+# same rule as _r2pay below — the numbers are committed, the pictures are not.)
+tools/_ab*/*.png
 tools/_staticmatrix.png
 # r2 paydown captures: same rule again — harness committed, the PNG pile and
 # raw logs are not. The small JSON receipts ARE committed; they are the
@@ -59,3 +61,6 @@ tools/audio/_r2_sheets/**/*.png
 # rebuilds it from the clips + descriptors). The generator is the artifact;
 # the base64 bundle is not.
 tools/audio/_r2_sheets/audition.html
+# Clip-prune staging (tools/asset-pipeline/prune-character-clips.mjs writes
+# candidate GLBs here before --apply copies them into public/).
+tools/_prunestage/

@@ -1,0 +1,198 @@
+{
+  "base": "http://127.0.0.1:5285",
+  "gpu": "d3d11",
+  "boots": [
+    {
+      "label": "COLD CACHE",
+      "used": 642,
+      "net": 411,
+      "transfer": 12597892,
+      "decoded": 29751419,
+      "byType": {
+        "docs": {
+          "used": 1,
+          "net": 1,
+          "transfer": 160026,
+          "decoded": 557761
+        },
+        "js": {
+          "used": 4,
+          "net": 4,
+          "transfer": 573025,
+          "decoded": 1802537
+        },
+        "icons": {
+          "used": 29,
+          "net": 15,
+          "transfer": 13060,
+          "decoded": 29630
+        },
+        "fonts": {
+          "used": 4,
+          "net": 4,
+          "transfer": 173012,
+          "decoded": 171812
+        },
+        "other": {
+          "used": 3,
+          "net": 3,
+          "transfer": 1370,
+          "decoded": 470
+        },
+        "textures": {
+          "used": 246,
+          "net": 29,
+          "transfer": 309134,
+          "decoded": 2228292
+        },
+        "models": {
+          "used": 260,
+          "net": 260,
+          "transfer": 9555440,
+          "decoded": 23176592
+        },
+        "audio": {
+          "used": 95,
+          "net": 95,
+          "transfer": 1812825,
+          "decoded": 1784325
+        }
+      },
+      "firstPaint": 944,
+      "fcp": 944,
+      "settled": 2695,
+      "loadingDone": 7960,
+      "tti": 8749,
+      "bad": [],
+      "pageErrors": [],
+      "truncated": false
+    },
+    {
+      "label": "WARM CACHE (same context, nothing cleared)",
+      "used": 642,
+      "net": 4,
+      "transfer": 1670,
+      "decoded": 29751419,
+      "byType": {
+        "docs": {
+          "used": 1,
+          "net": 1,
+          "transfer": 300,
+          "decoded": 557761
+        },
+        "js": {
+          "used": 4,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 1802537
+        },
+        "icons": {
+          "used": 29,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 29630
+        },
+        "fonts": {
+          "used": 4,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 171812
+        },
+        "other": {
+          "used": 3,
+          "net": 3,
+          "transfer": 1370,
+          "decoded": 470
+        },
+        "textures": {
+          "used": 246,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 2228292
+        },
+        "models": {
+          "used": 260,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 23176592
+        },
+        "audio": {
+          "used": 95,
+          "net": 0,
+          "transfer": 0,
+          "decoded": 1784325
+        }
+      },
+      "firstPaint": 292,
+      "fcp": 292,
+      "settled": 1903,
+      "loadingDone": 2927,
+      "tti": 3301,
+      "bad": [],
+      "pageErrors": [],
+      "truncated": false
+    }
+  ],
+  "shots": [
+    {
+      "name": "floor01",
+      "url": "http://127.0.0.1:5285/iso.html?test&floor=1&level=5&abilities=all&gold=500&seed=42&eagerassets&clean=1",
+      "file": "tools/_abshots/floor01.png",
+      "bad": [],
+      "glb": 191
+    },
+    {
+      "name": "floor04",
+      "url": "http://127.0.0.1:5285/iso.html?test&floor=4&level=11&abilities=all&gold=500&seed=42&eagerassets&clean=1",
+      "file": "tools/_abshots/floor04.png",
+      "bad": [],
+      "glb": 191
+    },
+    {
+      "name": "floor10",
+      "url": "http://127.0.0.1:5285/iso.html?test&floor=10&level=23&abilities=all&gold=500&seed=42&eagerassets&clean=1",
+      "file": "tools/_abshots/floor10.png",
+      "bad": [],
+      "glb": 191
+    },
+    {
+      "name": "floor16",
+      "url": "http://127.0.0.1:5285/iso.html?test&floor=16&level=30&abilities=all&gold=500&seed=42&eagerassets&clean=1",
+      "file": "tools/_abshots/floor16.png",
+      "bad": [],
+      "glb": 191
+    },
+    {
+      "name": "combat-00-pre",
+      "url": "http://127.0.0.1:5285/iso.html?test&floor=7&level=18&abilities=all&gold=500&seed=42&eagerassets&clean=1",
+      "file": "tools/_abshots/combat-00-pre.png",
+      "bad": [],
+      "glb": 191
+    },
+    {
+      "name": "combat-1",
+      "file": "tools/_abshots/combat-01.png"
+    },
+    {
+      "name": "combat-2",
+      "file": "tools/_abshots/combat-02.png"
+    },
+    {
+      "name": "combat-3",
+      "file": "tools/_abshots/combat-03.png"
+    },
+    {
+      "name": "combat-4",
+      "file": "tools/_abshots/combat-04.png"
+    },
+    {
+      "name": "combat-5",
+      "file": "tools/_abshots/combat-05.png"
+    },
+    {
+      "name": "combat-6",
+      "file": "tools/_abshots/combat-06.png"
+    }
+  ],
+  "renderer": "ANGLE (Intel, Intel(R) Graphics (0x0000B0A0) Direct3D11 vs_5_0 ps_5_0, D3D11)"
+}

@@ -1,0 +1,3272 @@
+{
+ "rows": [
+  {
+   "p": "/iso.html",
+   "t": 160026,
+   "d": 557761
+  },
+  {
+   "p": "/_app/iso-CGVgxHaq.js",
+   "t": 283228,
+   "d": 794350
+  },
+  {
+   "p": "/_app/game-CK8l856t.js",
+   "t": 115576,
+   "d": 343760
+  },
+  {
+   "p": "/_app/save-Ba6E39Rp.js",
+   "t": 5024,
+   "d": 12158
+  },
+  {
+   "p": "/_app/dressing-DKYV_h5c.js",
+   "t": 169197,
+   "d": 652269
+  },
+  {
+   "p": "/icons.50c0a9a7/portraits/mordecai.svg",
+   "t": 1962,
+   "d": 4786
+  },
+  {
+   "p": "/fonts.c03a946e/AlegreyaSans-Regular.woff2",
+   "t": 41876,
+   "d": 41576
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/eye.svg",
+   "t": 520,
+   "d": 278
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/star.svg",
+   "t": 465,
+   "d": 176
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/rosette.svg",
+   "t": 565,
+   "d": 410
+  },
+  {
+   "p": "/fonts.c03a946e/Cinzel.woff2",
+   "t": 45584,
+   "d": 45284
+  },
+  {
+   "p": "/fonts.c03a946e/AlegreyaSans-Italic.woff2",
+   "t": 43276,
+   "d": 42976
+  },
+  {
+   "p": "/auth/providers",
+   "t": 316,
+   "d": 16
+  },
+  {
+   "p": "/rush",
+   "t": 441,
+   "d": 141
+  },
+  {
+   "p": "/fonts.c03a946e/AlegreyaSans-Bold.woff2",
+   "t": 42276,
+   "d": 41976
+  },
+  {
+   "p": "/icons.50c0a9a7/nouns/crown.svg",
+   "t": 954,
+   "d": 1582
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/skull.svg",
+   "t": 1133,
+   "d": 1601
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/party.svg",
+   "t": 974,
+   "d": 1227
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/marker.svg",
+   "t": 558,
+   "d": 419
+  },
+  {
+   "p": "/boards/deepest",
+   "t": 613,
+   "d": 313
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 7714,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.173ffbeb.webp",
+   "t": 10056,
+   "d": 9756
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 9618,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.1d69874b.webp",
+   "t": 43444,
+   "d": 43144
+  },
+  {
+   "p": "/assets/tex/t.1e771ddc.webp",
+   "t": 6244,
+   "d": 5944
+  },
+  {
+   "p": "/assets/tex/t.24415b75.webp",
+   "t": 7428,
+   "d": 7128
+  },
+  {
+   "p": "/assets/tex/t.26e99555.webp",
+   "t": 6158,
+   "d": 5858
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 10040,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.338f8690.webp",
+   "t": 7928,
+   "d": 7628
+  },
+  {
+   "p": "/assets/tex/t.428218bf.webp",
+   "t": 25570,
+   "d": 25270
+  },
+  {
+   "p": "/assets/tex/t.4ce323ee.webp",
+   "t": 7136,
+   "d": 6836
+  },
+  {
+   "p": "/assets/tex/t.56ccdf81.webp",
+   "t": 9730,
+   "d": 9430
+  },
+  {
+   "p": "/assets/tex/t.5f89e4e9.webp",
+   "t": 9042,
+   "d": 8742
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 8174,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.87c9ff2e.webp",
+   "t": 6640,
+   "d": 6340
+  },
+  {
+   "p": "/assets/tex/t.95f4e57f.webp",
+   "t": 7502,
+   "d": 7202
+  },
+  {
+   "p": "/assets/tex/t.87d102d4.webp",
+   "t": 7404,
+   "d": 7104
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 6796,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 8996,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.ad192113.webp",
+   "t": 11472,
+   "d": 11172
+  },
+  {
+   "p": "/assets/tex/t.a929c22c.webp",
+   "t": 6438,
+   "d": 6138
+  },
+  {
+   "p": "/assets/tex/t.b4c5b55b.webp",
+   "t": 9068,
+   "d": 8768
+  },
+  {
+   "p": "/assets/tex/t.b8eb29b7.webp",
+   "t": 13022,
+   "d": 12722
+  },
+  {
+   "p": "/assets/tex/t.c2b2fc84.webp",
+   "t": 14570,
+   "d": 14270
+  },
+  {
+   "p": "/assets/tex/t.c9199362.webp",
+   "t": 9826,
+   "d": 9526
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 8002,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 7516,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.ed597c74.webp",
+   "t": 10470,
+   "d": 10170
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 13130,
+   "d": 12830
+  },
+  {
+   "p": "/assets/characters/adventurer.f62d4895.glb",
+   "t": 314012,
+   "d": 1355852
+  },
+  {
+   "p": "/assets/dungeon/wall.a02a3c4a.glb",
+   "t": 6388,
+   "d": 13416
+  },
+  {
+   "p": "/assets/dungeon/floor.06af19c9.glb",
+   "t": 2058,
+   "d": 3428
+  },
+  {
+   "p": "/assets/dungeon/stairs.a626af19.glb",
+   "t": 5699,
+   "d": 10388
+  },
+  {
+   "p": "/assets/dungeon/torch_lit.edfc825c.glb",
+   "t": 4209,
+   "d": 6316
+  },
+  {
+   "p": "/assets/dungeon/torch_mounted.8812f489.glb",
+   "t": 5218,
+   "d": 7060
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/eye.svg",
+   "t": 0,
+   "d": 278
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/star.svg",
+   "t": 0,
+   "d": 176
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/rosette.svg",
+   "t": 0,
+   "d": 410
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/party.svg",
+   "t": 0,
+   "d": 1227
+  },
+  {
+   "p": "/icons.50c0a9a7/nouns/crown.svg",
+   "t": 0,
+   "d": 1582
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/skull.svg",
+   "t": 0,
+   "d": 1601
+  },
+  {
+   "p": "/icons.50c0a9a7/ui/marker.svg",
+   "t": 0,
+   "d": 419
+  },
+  {
+   "p": "/icons.50c0a9a7/stats/attack.svg",
+   "t": 0,
+   "d": 1227
+  },
+  {
+   "p": "/icons.50c0a9a7/items/gold.svg",
+   "t": 0,
+   "d": 1050
+  },
+  {
+   "p": "/icons.50c0a9a7/stats/spell.svg",
+   "t": 0,
+   "d": 1246
+  },
+  {
+   "p": "/icons.50c0a9a7/items/gold.svg",
+   "t": 849,
+   "d": 1050
+  },
+  {
+   "p": "/icons.50c0a9a7/stats/spell.svg",
+   "t": 1001,
+   "d": 1246
+  },
+  {
+   "p": "/icons.50c0a9a7/stats/attack.svg",
+   "t": 974,
+   "d": 1227
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/characters/skeleton.302a44f0.glb",
+   "t": 392343,
+   "d": 1724880
+  },
+  {
+   "p": "/assets/characters/skeleton_minion.62e3dcb4.glb",
+   "t": 65728,
+   "d": 101000
+  },
+  {
+   "p": "/assets/characters/orc_brute.891fd48d.glb",
+   "t": 145673,
+   "d": 200252
+  },
+  {
+   "p": "/assets/characters/skeleton_mage.f506413a.glb",
+   "t": 382028,
+   "d": 1711576
+  },
+  {
+   "p": "/assets/characters/clown.93a7296f.glb",
+   "t": 56815,
+   "d": 87364
+  },
+  {
+   "p": "/assets/characters/witch.cf4fb72c.glb",
+   "t": 64103,
+   "d": 100880
+  },
+  {
+   "p": "/assets/characters/vampire.5c715529.glb",
+   "t": 71390,
+   "d": 104824
+  },
+  {
+   "p": "/assets/characters/werewolf.3a88f80d.glb",
+   "t": 47230,
+   "d": 73808
+  },
+  {
+   "p": "/assets/characters/hoarder.9a54d7ad.glb",
+   "t": 211175,
+   "d": 296652
+  },
+  {
+   "p": "/assets/characters/plant_warrior.609419a4.glb",
+   "t": 72574,
+   "d": 105756
+  },
+  {
+   "p": "/assets/characters/necromancer.570ab1bf.glb",
+   "t": 85054,
+   "d": 119844
+  },
+  {
+   "p": "/assets/characters/orc_raider.8a2bb8ac.glb",
+   "t": 53765,
+   "d": 80012
+  },
+  {
+   "p": "/assets/characters/robot_one.c071d162.glb",
+   "t": 49805,
+   "d": 88068
+  },
+  {
+   "p": "/assets/characters/robot_two.5c99c959.glb",
+   "t": 51984,
+   "d": 87496
+  },
+  {
+   "p": "/assets/characters/clanker.79fc1fee.glb",
+   "t": 156722,
+   "d": 230208
+  },
+  {
+   "p": "/assets/characters/toy_soldier.60cba342.glb",
+   "t": 86382,
+   "d": 125956
+  },
+  {
+   "p": "/assets/characters/animatronic.9cb0c498.glb",
+   "t": 42110,
+   "d": 68188
+  },
+  {
+   "p": "/assets/characters/animatronic_creepy.aa91d266.glb",
+   "t": 55167,
+   "d": 83328
+  },
+  {
+   "p": "/assets/characters/werewolf_man.cbd9a59d.glb",
+   "t": 43633,
+   "d": 68592
+  },
+  {
+   "p": "/assets/characters/skeleton_rogue.9e469bbf.glb",
+   "t": 69151,
+   "d": 106844
+  },
+  {
+   "p": "/assets/characters/tiefling.b5b60c7f.glb",
+   "t": 106105,
+   "d": 149640
+  },
+  {
+   "p": "/assets/characters/skeleton_golem.4bfa27c5.glb",
+   "t": 79805,
+   "d": 117116
+  },
+  {
+   "p": "/assets/characters/caveman.6b936754.glb",
+   "t": 57021,
+   "d": 83360
+  },
+  {
+   "p": "/assets/characters/paladin.9f4fae1a.glb",
+   "t": 60203,
+   "d": 100880
+  },
+  {
+   "p": "/assets/characters/paladin_helmet.74bc55a9.glb",
+   "t": 67579,
+   "d": 111020
+  },
+  {
+   "p": "/assets/characters/cleric.b250a0b0.glb",
+   "t": 100215,
+   "d": 143512
+  },
+  {
+   "p": "/assets/characters/lorekeeper.f8d40be0.glb",
+   "t": 120172,
+   "d": 167744
+  },
+  {
+   "p": "/assets/characters/4gtn.e4f54631.glb",
+   "t": 132292,
+   "d": 201376
+  },
+  {
+   "p": "/assets/characters/4gtn_forgotten.e8206af0.glb",
+   "t": 187966,
+   "d": 267944
+  },
+  {
+   "p": "/assets/characters/ninja.ec90629b.glb",
+   "t": 64895,
+   "d": 98024
+  },
+  {
+   "p": "/assets/characters/marksman.b035c753.glb",
+   "t": 158319,
+   "d": 205472
+  },
+  {
+   "p": "/assets/characters/avian_swordsman.1067da7f.glb",
+   "t": 76455,
+   "d": 114060
+  },
+  {
+   "p": "/assets/characters/magical_girl.dfd78d6f.glb",
+   "t": 87362,
+   "d": 124444
+  },
+  {
+   "p": "/assets/characters/superhero.f7229c48.glb",
+   "t": 51631,
+   "d": 79540
+  },
+  {
+   "p": "/assets/characters/beast.74fefb69.glb",
+   "t": 45036,
+   "d": 71828
+  },
+  {
+   "p": "/assets/characters/beast_costume.fe51a6d4.glb",
+   "t": 48388,
+   "d": 75792
+  },
+  {
+   "p": "/assets/characters/combat_mech.1da67165.glb",
+   "t": 105394,
+   "d": 154540
+  },
+  {
+   "p": "/assets/characters/skeleton_warrior.62834b82.glb",
+   "t": 405642,
+   "d": 1741844
+  },
+  {
+   "p": "/assets/characters/black_knight.f76faf35.glb",
+   "t": 100080,
+   "d": 145084
+  },
+  {
+   "p": "/assets/characters/frost_golem.354e8cbe.glb",
+   "t": 177576,
+   "d": 232548
+  },
+  {
+   "p": "/assets/characters/demon_lord.89415063.glb",
+   "t": 143730,
+   "d": 195664
+  },
+  {
+   "p": "/assets/characters/barbarian.049f3273.glb",
+   "t": 307174,
+   "d": 1343588
+  },
+  {
+   "p": "/assets/characters/mage.98eb7e33.glb",
+   "t": 299357,
+   "d": 1335024
+  },
+  {
+   "p": "/assets/characters/rogue.03b5cd36.glb",
+   "t": 302940,
+   "d": 1340068
+  },
+  {
+   "p": "/assets/characters/rogue_hooded.7cca4e22.glb",
+   "t": 300066,
+   "d": 1336392
+  },
+  {
+   "p": "/assets/characters/crawler_knight.cf51c5fa.glb",
+   "t": 78209,
+   "d": 116440
+  },
+  {
+   "p": "/assets/characters/crawler_barbarian.e31589b8.glb",
+   "t": 83653,
+   "d": 119268
+  },
+  {
+   "p": "/assets/characters/crawler_druid.55122c7b.glb",
+   "t": 91058,
+   "d": 130736
+  },
+  {
+   "p": "/assets/characters/crawler_engineer.d939797e.glb",
+   "t": 96397,
+   "d": 135644
+  },
+  {
+   "p": "/assets/characters/crawler_mage.4549dce9.glb",
+   "t": 80722,
+   "d": 117020
+  },
+  {
+   "p": "/assets/characters/crawler_ranger.c3985b8f.glb",
+   "t": 99194,
+   "d": 142268
+  },
+  {
+   "p": "/assets/characters/crawler_rogue.b0decbc6.glb",
+   "t": 80251,
+   "d": 118160
+  },
+  {
+   "p": "/assets/characters/crawler_rogue_hooded.04c9be63.glb",
+   "t": 77949,
+   "d": 116412
+  },
+  {
+   "p": "/assets/dungeon/floor_dirt_small_A.b6f4011b.glb",
+   "t": 2224,
+   "d": 3516
+  },
+  {
+   "p": "/assets/dungeon/floor_dirt_small_weeds.2c2cd7b9.glb",
+   "t": 6155,
+   "d": 8824
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_small_broken_A.978d428d.glb",
+   "t": 2438,
+   "d": 3856
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_small_broken_B.3bda989c.glb",
+   "t": 2182,
+   "d": 3536
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_grate.49bc6899.glb",
+   "t": 2879,
+   "d": 5144
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_large.1443a0ec.glb",
+   "t": 3194,
+   "d": 5312
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_big_spikes.cadff820.glb",
+   "t": 7403,
+   "d": 15016
+  },
+  {
+   "p": "/assets/dungeon/wall_cracked.1ee0db83.glb",
+   "t": 20937,
+   "d": 34036
+  },
+  {
+   "p": "/assets/dungeon/wall_broken.7a1af747.glb",
+   "t": 11788,
+   "d": 18368
+  },
+  {
+   "p": "/assets/dungeon/wall_scaffold.ea114d59.glb",
+   "t": 7988,
+   "d": 15300
+  },
+  {
+   "p": "/assets/dungeon/wall_arched.397c3685.glb",
+   "t": 10292,
+   "d": 18340
+  },
+  {
+   "p": "/assets/dungeon/stairs_narrow.51bc8d76.glb",
+   "t": 5702,
+   "d": 10392
+  },
+  {
+   "p": "/assets/dungeon/stairs_walled.385d8420.glb",
+   "t": 9980,
+   "d": 18852
+  },
+  {
+   "p": "/assets/dungeon/stairs_wide.94abdbc3.glb",
+   "t": 5667,
+   "d": 10280
+  },
+  {
+   "p": "/assets/dungeon/stairs_wood_decorated.8fcdf5e2.glb",
+   "t": 29449,
+   "d": 41916
+  },
+  {
+   "p": "/assets/dungeon/barrel_small.ce3e5a80.glb",
+   "t": 4707,
+   "d": 6752
+  },
+  {
+   "p": "/assets/dungeon/box_small.5a24200a.glb",
+   "t": 3677,
+   "d": 5872
+  },
+  {
+   "p": "/assets/dungeon/crates_stacked.3adf6617.glb",
+   "t": 20352,
+   "d": 27304
+  },
+  {
+   "p": "/assets/dungeon/coin.a265b1cf.glb",
+   "t": 2529,
+   "d": 3984
+  },
+  {
+   "p": "/assets/dungeon/key.6792eb6a.glb",
+   "t": 2943,
+   "d": 4420
+  },
+  {
+   "p": "/assets/dungeon/barrel_large.5900f548.glb",
+   "t": 6551,
+   "d": 10144
+  },
+  {
+   "p": "/assets/dungeon/bottle_A_green.d4a75008.glb",
+   "t": 3649,
+   "d": 5308
+  },
+  {
+   "p": "/assets/dungeon/rubble_half.fe58501d.glb",
+   "t": 7196,
+   "d": 8888
+  },
+  {
+   "p": "/assets/dungeon/rubble_large.aaa9791f.glb",
+   "t": 12052,
+   "d": 14808
+  },
+  {
+   "p": "/assets/dungeon/trunk_small_A.161d85de.glb",
+   "t": 4497,
+   "d": 6376
+  },
+  {
+   "p": "/assets/dungeon/column.1a850a43.glb",
+   "t": 1849,
+   "d": 3416
+  },
+  {
+   "p": "/assets/dungeon/sword_shield_broken.7d0d53a9.glb",
+   "t": 7795,
+   "d": 9660
+  },
+  {
+   "p": "/assets/dungeon/keg.50abd11b.glb",
+   "t": 9699,
+   "d": 14436
+  },
+  {
+   "p": "/assets/dungeon/box_large.04b33e5c.glb",
+   "t": 3692,
+   "d": 5936
+  },
+  {
+   "p": "/assets/dungeon/shelf_small.24c4045d.glb",
+   "t": 2222,
+   "d": 3652
+  },
+  {
+   "p": "/assets/dungeon/table_medium_broken.e8ce2721.glb",
+   "t": 5808,
+   "d": 7932
+  },
+  {
+   "p": "/assets/dungeon/banner_red.52c9946c.glb",
+   "t": 2857,
+   "d": 4500
+  },
+  {
+   "p": "/assets/dungeon/banner_shield_red.de1c11ae.glb",
+   "t": 10292,
+   "d": 13996
+  },
+  {
+   "p": "/assets/dungeon/pillar_decorated.cf007465.glb",
+   "t": 11590,
+   "d": 15776
+  },
+  {
+   "p": "/assets/dungeon/chest_gold.6dd001f3.glb",
+   "t": 20650,
+   "d": 28360
+  },
+  {
+   "p": "/assets/dungeon/coin_stack_small.ce3fb8fc.glb",
+   "t": 7053,
+   "d": 9496
+  },
+  {
+   "p": "/assets/dungeon/coin_stack_medium.040a1ef7.glb",
+   "t": 13012,
+   "d": 18016
+  },
+  {
+   "p": "/assets/dungeon/coin_stack_large.44a23e7c.glb",
+   "t": 19270,
+   "d": 29932
+  },
+  {
+   "p": "/assets/dungeon/floor_dirt.8754e844.glb",
+   "t": 2712,
+   "d": 4604
+  },
+  {
+   "p": "/assets/dungeon/floor_dirt_grave.8e48ce5a.glb",
+   "t": 3289,
+   "d": 4908
+  },
+  {
+   "p": "/assets/dungeon/floor_dirt_small.62255e84.glb",
+   "t": 2351,
+   "d": 3972
+  },
+  {
+   "p": "/assets/dungeon/tree_dead_large.b07357de.glb",
+   "t": 3179,
+   "d": 4724
+  },
+  {
+   "p": "/assets/dungeon/tree_dead_medium.98dbe9b4.glb",
+   "t": 2755,
+   "d": 4196
+  },
+  {
+   "p": "/assets/dungeon/tree_dead_small.f6813e49.glb",
+   "t": 2736,
+   "d": 4144
+  },
+  {
+   "p": "/assets/dungeon/gravestone.0de16b93.glb",
+   "t": 4258,
+   "d": 6068
+  },
+  {
+   "p": "/assets/dungeon/grave_A.17fdd097.glb",
+   "t": 5024,
+   "d": 6968
+  },
+  {
+   "p": "/assets/dungeon/grave_B.687f4935.glb",
+   "t": 4640,
+   "d": 6508
+  },
+  {
+   "p": "/assets/dungeon/gravemarker_A.6c5edcd5.glb",
+   "t": 2643,
+   "d": 3980
+  },
+  {
+   "p": "/assets/dungeon/crypt.b22ae7a9.glb",
+   "t": 11877,
+   "d": 18112
+  },
+  {
+   "p": "/assets/dungeon/lantern_standing.a6328168.glb",
+   "t": 4281,
+   "d": 6312
+  },
+  {
+   "p": "/assets/dungeon/bench.fd7cf997.glb",
+   "t": 3636,
+   "d": 5480
+  },
+  {
+   "p": "/assets/dungeon/pumpkin_orange.090c0ecb.glb",
+   "t": 3928,
+   "d": 5452
+  },
+  {
+   "p": "/assets/dungeon/pumpkin_orange_small.445ee638.glb",
+   "t": 4133,
+   "d": 5664
+  },
+  {
+   "p": "/assets/dungeon/ribcage.6a9959fb.glb",
+   "t": 14862,
+   "d": 18564
+  },
+  {
+   "p": "/assets/dungeon/bone_A.993fbd77.glb",
+   "t": 3352,
+   "d": 4988
+  },
+  {
+   "p": "/assets/dungeon/summoning_circle.bebf3044.glb",
+   "t": 16508,
+   "d": 24100
+  },
+  {
+   "p": "/assets/dungeon/bookcase_single.68913f31.glb",
+   "t": 3840,
+   "d": 5876
+  },
+  {
+   "p": "/assets/dungeon/shelf_small_books.d80168c1.glb",
+   "t": 4410,
+   "d": 6340
+  },
+  {
+   "p": "/assets/dungeon/bookcase_double_decorateda.6c2829c8.glb",
+   "t": 16966,
+   "d": 38568
+  },
+  {
+   "p": "/assets/dungeon/book_single.040dcf78.glb",
+   "t": 2067,
+   "d": 3484
+  },
+  {
+   "p": "/assets/dungeon/bartop_a_medium.2fffe0c3.glb",
+   "t": 3280,
+   "d": 6820
+  },
+  {
+   "p": "/assets/dungeon/keg_decorated.adfa369a.glb",
+   "t": 26222,
+   "d": 35704
+  },
+  {
+   "p": "/assets/dungeon/stool_round.80ed44a4.glb",
+   "t": 3908,
+   "d": 6788
+  },
+  {
+   "p": "/assets/dungeon/plate_stack.09c494ff.glb",
+   "t": 4978,
+   "d": 7384
+  },
+  {
+   "p": "/assets/dungeon/chest_large_gold.76cea266.glb",
+   "t": 9741,
+   "d": 13616
+  },
+  {
+   "p": "/assets/dungeon/chest_mimic.ef4764d1.glb",
+   "t": 13392,
+   "d": 18952
+  },
+  {
+   "p": "/assets/dungeon/table_round_medium.8822242c.glb",
+   "t": 6016,
+   "d": 9404
+  },
+  {
+   "p": "/assets/dungeon/bed_a_single.8d1c58d5.glb",
+   "t": 4613,
+   "d": 9988
+  },
+  {
+   "p": "/assets/dungeon/bed_b_single.25573470.glb",
+   "t": 10892,
+   "d": 17352
+  },
+  {
+   "p": "/assets/dungeon/bed_floor.4cbe45a5.glb",
+   "t": 3226,
+   "d": 4752
+  },
+  {
+   "p": "/assets/dungeon/bed_decorated.7f7dec65.glb",
+   "t": 17373,
+   "d": 22888
+  },
+  {
+   "p": "/assets/dungeon/plate_food_a.47036bfd.glb",
+   "t": 7016,
+   "d": 9296
+  },
+  {
+   "p": "/assets/dungeon/chair.c375fa54.glb",
+   "t": 5313,
+   "d": 7688
+  },
+  {
+   "p": "/assets/dungeon/plate_food_b.351102c2.glb",
+   "t": 4662,
+   "d": 6592
+  },
+  {
+   "p": "/assets/dungeon/crate_large_decorated.5fdfce34.glb",
+   "t": 10431,
+   "d": 14200
+  },
+  {
+   "p": "/assets/dungeon/barrel_small_stack.f0548dec.glb",
+   "t": 14495,
+   "d": 23772
+  },
+  {
+   "p": "/assets/dungeon/pot_a_stew.b2ee59d9.glb",
+   "t": 7073,
+   "d": 10576
+  },
+  {
+   "p": "/assets/dungeon/pot_large.625e6b2e.glb",
+   "t": 4910,
+   "d": 7324
+  },
+  {
+   "p": "/assets/dungeon/crate_potatoes.0d085a04.glb",
+   "t": 7228,
+   "d": 11304
+  },
+  {
+   "p": "/assets/dungeon/food_barrel_fish.9d577a59.glb",
+   "t": 18296,
+   "d": 25328
+  },
+  {
+   "p": "/assets/dungeon/fuel_a_barrels.6a92f419.glb",
+   "t": 24796,
+   "d": 45824
+  },
+  {
+   "p": "/assets/dungeon/gems_sack.aa618e52.glb",
+   "t": 26506,
+   "d": 37888
+  },
+  {
+   "p": "/assets/dungeon/anvil.d6b51bf8.glb",
+   "t": 14826,
+   "d": 16964
+  },
+  {
+   "p": "/assets/dungeon/potion_huge_green.c486fc71.glb",
+   "t": 4648,
+   "d": 6696
+  },
+  {
+   "p": "/assets/dungeon/potion_large_blue.ad0e66e3.glb",
+   "t": 3087,
+   "d": 4832
+  },
+  {
+   "p": "/assets/dungeon/potion_medium_red.97baae02.glb",
+   "t": 3075,
+   "d": 4824
+  },
+  {
+   "p": "/assets/dungeon/wall_doorway.8f0d12ca.glb",
+   "t": 11389,
+   "d": 17080
+  },
+  {
+   "p": "/assets/dungeon/wall_gated.a25c8b61.glb",
+   "t": 6329,
+   "d": 9956
+  },
+  {
+   "p": "/assets/dungeon/wall_archedwindow_gated.28f2bff5.glb",
+   "t": 9968,
+   "d": 15556
+  },
+  {
+   "p": "/assets/dungeon/wall_window_open.8daab147.glb",
+   "t": 8823,
+   "d": 13588
+  },
+  {
+   "p": "/assets/dungeon/floor_tile_grate_open.3d16f756.glb",
+   "t": 2662,
+   "d": 4832
+  },
+  {
+   "p": "/assets/dungeon/pillar.69ddc927.glb",
+   "t": 2851,
+   "d": 4720
+  },
+  {
+   "p": "/assets/dungeon/weaponrack.c8436c26.glb",
+   "t": 4272,
+   "d": 6796
+  },
+  {
+   "p": "/assets/dungeon/dummy_base.6d46b123.glb",
+   "t": 23924,
+   "d": 31272
+  },
+  {
+   "p": "/assets/dungeon/weaponrack_decorated.b7a7e7c7.glb",
+   "t": 29551,
+   "d": 38156
+  },
+  {
+   "p": "/assets/dungeon/trainingdummy_base.9f308f2d.glb",
+   "t": 24599,
+   "d": 31356
+  },
+  {
+   "p": "/assets/dungeon/card_base.dec46a69.glb",
+   "t": 1778,
+   "d": 4120
+  },
+  {
+   "p": "/assets/dungeon/card_spades_ace.ba65b764.glb",
+   "t": 8628,
+   "d": 11472
+  },
+  {
+   "p": "/assets/dungeon/coin_gold.85f4afbf.glb",
+   "t": 3276,
+   "d": 6128
+  },
+  {
+   "p": "/assets/dungeon/card_hearts_king.e82406ca.glb",
+   "t": 35075,
+   "d": 37840
+  },
+  {
+   "p": "/assets/dungeon/coin_10_gold.64378d08.glb",
+   "t": 5276,
+   "d": 9252
+  },
+  {
+   "p": "/assets/dungeon/coin_silver.cad9f44c.glb",
+   "t": 3280,
+   "d": 6136
+  },
+  {
+   "p": "/assets/dungeon/rug_rectangle_a.a99a9894.glb",
+   "t": 1676,
+   "d": 3028
+  },
+  {
+   "p": "/assets/dungeon/rug_rectangle_b.ae146ae8.glb",
+   "t": 1677,
+   "d": 3028
+  },
+  {
+   "p": "/assets/dungeon/rug_oval_a.39065733.glb",
+   "t": 2591,
+   "d": 4388
+  },
+  {
+   "p": "/assets/dungeon/mug_a.725beb3b.glb",
+   "t": 3409,
+   "d": 5308
+  },
+  {
+   "p": "/assets/dungeon/mug_b.64f3207b.glb",
+   "t": 3419,
+   "d": 5380
+  },
+  {
+   "p": "/assets/dungeon/vampire_goblet.1a444f8b.glb",
+   "t": 10980,
+   "d": 16408
+  },
+  {
+   "p": "/assets/dungeon/basket_mushrooms.3e1a2ec9.glb",
+   "t": 16535,
+   "d": 21676
+  },
+  {
+   "p": "/assets/dungeon/mushroom.08ac42ca.glb",
+   "t": 3897,
+   "d": 5436
+  },
+  {
+   "p": "/assets/dungeon/crate_mushrooms.05360908.glb",
+   "t": 8928,
+   "d": 12788
+  },
+  {
+   "p": "/assets/dungeon/dishrack_plates.bbefc4ee.glb",
+   "t": 7144,
+   "d": 13592
+  },
+  {
+   "p": "/assets/dungeon/skull.aa520b01.glb",
+   "t": 5151,
+   "d": 6756
+  },
+  {
+   "p": "/assets/dungeon/lantern_hanging.9ecc4c7c.glb",
+   "t": 5425,
+   "d": 8412
+  },
+  {
+   "p": "/assets/dungeon/map.e1899177.glb",
+   "t": 12160,
+   "d": 15364
+  },
+  {
+   "p": "/assets/dungeon/map_rolled.6c4a7b92.glb",
+   "t": 4115,
+   "d": 5896
+  },
+  {
+   "p": "/assets/dungeon/bottle_a_labeled_green.ba900d5f.glb",
+   "t": 3750,
+   "d": 5372
+  },
+  {
+   "p": "/assets/dungeon/bottle_b_brown.6b08308b.glb",
+   "t": 3517,
+   "d": 5160
+  },
+  {
+   "p": "/assets/dungeon/banner_green.59ca8109.glb",
+   "t": 2888,
+   "d": 4472
+  },
+  {
+   "p": "/assets/dungeon/banner_blue.d2fa5394.glb",
+   "t": 2894,
+   "d": 4468
+  },
+  {
+   "p": "/assets/dungeon/banner_brown.972942df.glb",
+   "t": 2893,
+   "d": 4472
+  },
+  {
+   "p": "/assets/dungeon/banner_white.50bb64ff.glb",
+   "t": 2890,
+   "d": 4468
+  },
+  {
+   "p": "/assets/dungeon/gold_bars_stack_medium.1117b5ee.glb",
+   "t": 4894,
+   "d": 17368
+  },
+  {
+   "p": "/assets/dungeon/gems_pile_large.d0ae3911.glb",
+   "t": 12280,
+   "d": 19620
+  },
+  {
+   "p": "/assets/dungeon/money_pile_medium.989bd5e1.glb",
+   "t": 17364,
+   "d": 26804
+  },
+  {
+   "p": "/assets/dungeon/gems_chest.3e2be730.glb",
+   "t": 29050,
+   "d": 41500
+  },
+  {
+   "p": "/assets/dungeon/weapon_sword_a.92a91807.glb",
+   "t": 4657,
+   "d": 6596
+  },
+  {
+   "p": "/assets/dungeon/weapon_sword_e.38705018.glb",
+   "t": 8339,
+   "d": 11036
+  },
+  {
+   "p": "/assets/dungeon/weapon_axe_a.61f2c83b.glb",
+   "t": 13075,
+   "d": 16616
+  },
+  {
+   "p": "/assets/dungeon/weapon_axe_c.91e7bf85.glb",
+   "t": 10281,
+   "d": 13464
+  },
+  {
+   "p": "/assets/dungeon/weapon_hammer_b.d585695f.glb",
+   "t": 8344,
+   "d": 11192
+  },
+  {
+   "p": "/assets/dungeon/weapon_spear_a.a3d2d269.glb",
+   "t": 11542,
+   "d": 17648
+  },
+  {
+   "p": "/assets/dungeon/weapon_halberd.fd54b4bc.glb",
+   "t": 14286,
+   "d": 20972
+  },
+  {
+   "p": "/assets/dungeon/weapon_dagger_a.8ae8f5f1.glb",
+   "t": 5832,
+   "d": 7800
+  },
+  {
+   "p": "/assets/dungeon/weapon_wand_a.ed349705.glb",
+   "t": 6515,
+   "d": 8648
+  },
+  {
+   "p": "/assets/dungeon/weapon_staff_b.dde3c436.glb",
+   "t": 9483,
+   "d": 12192
+  },
+  {
+   "p": "/assets/dungeon/weapon_staff_d.0dc7a9c3.glb",
+   "t": 17993,
+   "d": 25924
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_1_a.945c3e64.glb",
+   "t": 6273,
+   "d": 8064
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_1_b.d0b9f553.glb",
+   "t": 6668,
+   "d": 8556
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_2_a.2b271ed6.glb",
+   "t": 3598,
+   "d": 5104
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_3_a.448f0d0d.glb",
+   "t": 8399,
+   "d": 11724
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_5_a.1a29b521.glb",
+   "t": 6391,
+   "d": 8548
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_bare_1_a.9cb548aa.glb",
+   "t": 4601,
+   "d": 6228
+  },
+  {
+   "p": "/assets/dungeon/forest_bush_1_a.e2d9aa38.glb",
+   "t": 2099,
+   "d": 3424
+  },
+  {
+   "p": "/assets/dungeon/forest_bush_2_a.454a4e58.glb",
+   "t": 1511,
+   "d": 2892
+  },
+  {
+   "p": "/assets/dungeon/forest_bush_4_a.0c7e29a9.glb",
+   "t": 1598,
+   "d": 2928
+  },
+  {
+   "p": "/assets/dungeon/forest_rock_1_a.e3ab06c7.glb",
+   "t": 2017,
+   "d": 3384
+  },
+  {
+   "p": "/assets/dungeon/forest_rock_3_c.fb621b1c.glb",
+   "t": 2755,
+   "d": 4084
+  },
+  {
+   "p": "/assets/dungeon/forest_rock_6_a.9f2b84db.glb",
+   "t": 1930,
+   "d": 3304
+  },
+  {
+   "p": "/assets/dungeon/forest_grass_1_a.1af83469.glb",
+   "t": 1987,
+   "d": 3312
+  },
+  {
+   "p": "/assets/dungeon/forest_grass_2_a.3361abcd.glb",
+   "t": 1874,
+   "d": 3268
+  },
+  {
+   "p": "/assets/dungeon/cliff_side_b.7d845a57.glb",
+   "t": 1755,
+   "d": 3060
+  },
+  {
+   "p": "/assets/dungeon/cliff_side_f.6b5694a4.glb",
+   "t": 1756,
+   "d": 3104
+  },
+  {
+   "p": "/assets/dungeon/cliff_side_d.69f69555.glb",
+   "t": 1733,
+   "d": 3040
+  },
+  {
+   "p": "/assets/dungeon/cliff_side_h.098db6c2.glb",
+   "t": 1725,
+   "d": 3036
+  },
+  {
+   "p": "/assets/dungeon/cliff_inner_a.10532075.glb",
+   "t": 1761,
+   "d": 3068
+  },
+  {
+   "p": "/assets/dungeon/cliff_inner_c.e7292930.glb",
+   "t": 1769,
+   "d": 3072
+  },
+  {
+   "p": "/assets/dungeon/cliff_inner_g.80060788.glb",
+   "t": 1766,
+   "d": 3068
+  },
+  {
+   "p": "/assets/dungeon/cliff_inner_i.d695ba4b.glb",
+   "t": 1763,
+   "d": 3064
+  },
+  {
+   "p": "/assets/dungeon/cliff_outer_a.c0e11e58.glb",
+   "t": 1926,
+   "d": 3296
+  },
+  {
+   "p": "/assets/dungeon/cliff_outer_c.1a69fb57.glb",
+   "t": 1921,
+   "d": 3292
+  },
+  {
+   "p": "/assets/dungeon/cliff_outer_g.ee47b729.glb",
+   "t": 1903,
+   "d": 3236
+  },
+  {
+   "p": "/assets/dungeon/cliff_outer_i.ecda2afb.glb",
+   "t": 1902,
+   "d": 3240
+  },
+  {
+   "p": "/assets/dungeon/forest_tree_4_a.93a6b02b.glb",
+   "t": 4649,
+   "d": 6412
+  },
+  {
+   "p": "/assets/dungeon/forest_rock_5_a.90d3d608.glb",
+   "t": 1642,
+   "d": 3092
+  },
+  {
+   "p": "/assets/dungeon/forest_rock_5_c.cc4086fb.glb",
+   "t": 2261,
+   "d": 3684
+  },
+  {
+   "p": "/assets/dungeon/fence_gate.959efd19.glb",
+   "t": 8634,
+   "d": 13248
+  },
+  {
+   "p": "/assets/dungeon/clown_bomb.c0afc47e.glb",
+   "t": 3366,
+   "d": 5292
+  },
+  {
+   "p": "/assets/dungeon/plant_warrior_arrow.f118e4ba.glb",
+   "t": 6570,
+   "d": 9884
+  },
+  {
+   "p": "/assets/dungeon/weapon_arrow_a.d6bd65ff.glb",
+   "t": 2331,
+   "d": 3720
+  },
+  {
+   "p": "/assets/dungeon/gem_medium.0d750072.glb",
+   "t": 2621,
+   "d": 4124
+  },
+  {
+   "p": "/assets/dungeon/orc_wardrum_stick.99f4892e.glb",
+   "t": 2385,
+   "d": 3696
+  },
+  {
+   "p": "/assets/dungeon/orc_wardrum.a5d1f7b6.glb",
+   "t": 15614,
+   "d": 23056
+  },
+  {
+   "p": "/assets/dungeon/smokebomb.7b7ea6f3.glb",
+   "t": 4316,
+   "d": 6216
+  },
+  {
+   "p": "/assets/dungeon/fx_nova_ring.39ae8f97.glb",
+   "t": 29780,
+   "d": 34832
+  },
+  {
+   "p": "/assets/dungeon/fx_cataclysm_crown.c96342f2.glb",
+   "t": 17099,
+   "d": 19948
+  },
+  {
+   "p": "/assets/dungeon/fx_implosion_cone.36566ed1.glb",
+   "t": 21146,
+   "d": 25080
+  },
+  {
+   "p": "/assets/dungeon/fx_flame_wall.c26a4d7e.glb",
+   "t": 17389,
+   "d": 20484
+  },
+  {
+   "p": "/assets/dungeon/fx_detonation_star.abfc3e03.glb",
+   "t": 16033,
+   "d": 19096
+  },
+  {
+   "p": "/assets/dungeon/fx_blast_star.a73a3c45.glb",
+   "t": 20708,
+   "d": 23816
+  },
+  {
+   "p": "/assets/dungeon/system_loot_box.d1df8059.glb",
+   "t": 33141,
+   "d": 38588
+  },
+  {
+   "p": "/assets/dungeon/sponsor_shell.77e751fd.glb",
+   "t": 23177,
+   "d": 27488
+  },
+  {
+   "p": "/assets/dungeon/gavel_anchor.4450cc0d.glb",
+   "t": 17279,
+   "d": 20588
+  },
+  {
+   "p": "/assets/dungeon/descent_portal.4072feb4.glb",
+   "t": 31950,
+   "d": 37232
+  },
+  {
+   "p": "/assets/characters/rig_medium_movementbasic.e412c298.glb",
+   "t": 70117,
+   "d": 175620
+  },
+  {
+   "p": "/assets/characters/rig_medium_general.008abaf3.glb",
+   "t": 88847,
+   "d": 260340
+  },
+  {
+   "p": "/assets/characters/rig_medium_combatmelee.408d0a9c.glb",
+   "t": 122905,
+   "d": 393516
+  },
+  {
+   "p": "/assets/characters/rig_medium_combatranged.a2b14357.glb",
+   "t": 84576,
+   "d": 231132
+  },
+  {
+   "p": "/assets/characters/rig_medium_special.79696e24.glb",
+   "t": 109226,
+   "d": 298616
+  },
+  {
+   "p": "/assets/characters/rig_medium_movementadvanced.77071c79.glb",
+   "t": 72905,
+   "d": 196796
+  },
+  {
+   "p": "/assets/characters/rig_medium_simulation.d929dd11.glb",
+   "t": 82043,
+   "d": 208836
+  },
+  {
+   "p": "/assets/characters/rig_medium_tools.38b40ac6.glb",
+   "t": 88721,
+   "d": 251936
+  },
+  {
+   "p": "/assets/characters/rig_large_general.e1067891.glb",
+   "t": 82634,
+   "d": 177756
+  },
+  {
+   "p": "/assets/characters/rig_large_movementbasic.c0e75664.glb",
+   "t": 71015,
+   "d": 131652
+  },
+  {
+   "p": "/assets/characters/rig_large_combatmelee.9d42ff16.glb",
+   "t": 110139,
+   "d": 296660
+  },
+  {
+   "p": "/assets/characters/rig_large_movementadvanced.0fd162c2.glb",
+   "t": 67906,
+   "d": 124712
+  },
+  {
+   "p": "/assets/characters/rig_large_simulation.87165024.glb",
+   "t": 64750,
+   "d": 104300
+  },
+  {
+   "p": "/assets/characters/rig_large_special.595a9c40.glb",
+   "t": 68710,
+   "d": 125032
+  },
+  {
+   "p": "/assets/characters/extradition.faeb101b.glb",
+   "t": 14832,
+   "d": 43140
+  },
+  {
+   "p": "/assets/characters/flask_drink.e4a33e74.glb",
+   "t": 14516,
+   "d": 42304
+  },
+  {
+   "p": "/assets/characters/stuntdouble_cast.99a42cd1.glb",
+   "t": 15649,
+   "d": 44900
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.56ccdf81.webp",
+   "t": 0,
+   "d": 9430
+  },
+  {
+   "p": "/assets/tex/t.a929c22c.webp",
+   "t": 0,
+   "d": 6138
+  },
+  {
+   "p": "/assets/tex/t.87c9ff2e.webp",
+   "t": 0,
+   "d": 6340
+  },
+  {
+   "p": "/assets/tex/t.4ce323ee.webp",
+   "t": 0,
+   "d": 6836
+  },
+  {
+   "p": "/assets/tex/t.ed597c74.webp",
+   "t": 0,
+   "d": 10170
+  },
+  {
+   "p": "/assets/tex/t.ed597c74.webp",
+   "t": 0,
+   "d": 10170
+  },
+  {
+   "p": "/assets/tex/t.ed597c74.webp",
+   "t": 0,
+   "d": 10170
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.c2b2fc84.webp",
+   "t": 0,
+   "d": 14270
+  },
+  {
+   "p": "/assets/tex/t.c2b2fc84.webp",
+   "t": 0,
+   "d": 14270
+  },
+  {
+   "p": "/assets/tex/t.428218bf.webp",
+   "t": 0,
+   "d": 25270
+  },
+  {
+   "p": "/assets/tex/t.428218bf.webp",
+   "t": 0,
+   "d": 25270
+  },
+  {
+   "p": "/assets/tex/t.4ce323ee.webp",
+   "t": 0,
+   "d": 6836
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.a77958a8.webp",
+   "t": 0,
+   "d": 8696
+  },
+  {
+   "p": "/assets/tex/t.b4c5b55b.webp",
+   "t": 0,
+   "d": 8768
+  },
+  {
+   "p": "/assets/tex/t.b4c5b55b.webp",
+   "t": 0,
+   "d": 8768
+  },
+  {
+   "p": "/assets/tex/t.338f8690.webp",
+   "t": 0,
+   "d": 7628
+  },
+  {
+   "p": "/assets/tex/t.338f8690.webp",
+   "t": 0,
+   "d": 7628
+  },
+  {
+   "p": "/assets/tex/t.1e771ddc.webp",
+   "t": 0,
+   "d": 5944
+  },
+  {
+   "p": "/assets/tex/t.5f89e4e9.webp",
+   "t": 0,
+   "d": 8742
+  },
+  {
+   "p": "/assets/tex/t.5f89e4e9.webp",
+   "t": 0,
+   "d": 8742
+  },
+  {
+   "p": "/assets/tex/t.26e99555.webp",
+   "t": 0,
+   "d": 5858
+  },
+  {
+   "p": "/assets/tex/t.87d102d4.webp",
+   "t": 0,
+   "d": 7104
+  },
+  {
+   "p": "/assets/tex/t.24415b75.webp",
+   "t": 0,
+   "d": 7128
+  },
+  {
+   "p": "/assets/tex/t.24415b75.webp",
+   "t": 0,
+   "d": 7128
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.dbed9aac.webp",
+   "t": 0,
+   "d": 7216
+  },
+  {
+   "p": "/assets/tex/t.26e99555.webp",
+   "t": 0,
+   "d": 5858
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 0,
+   "d": 12830
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 0,
+   "d": 12830
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 0,
+   "d": 12830
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.87d102d4.webp",
+   "t": 0,
+   "d": 7104
+  },
+  {
+   "p": "/assets/tex/t.87d102d4.webp",
+   "t": 0,
+   "d": 7104
+  },
+  {
+   "p": "/assets/tex/t.87d102d4.webp",
+   "t": 0,
+   "d": 7104
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.b8eb29b7.webp",
+   "t": 0,
+   "d": 12722
+  },
+  {
+   "p": "/assets/tex/t.b8eb29b7.webp",
+   "t": 0,
+   "d": 12722
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.1d69874b.webp",
+   "t": 0,
+   "d": 43144
+  },
+  {
+   "p": "/assets/tex/t.1e771ddc.webp",
+   "t": 0,
+   "d": 5944
+  },
+  {
+   "p": "/assets/tex/t.b8eb29b7.webp",
+   "t": 0,
+   "d": 12722
+  },
+  {
+   "p": "/assets/tex/t.1d69874b.webp",
+   "t": 0,
+   "d": 43144
+  },
+  {
+   "p": "/assets/tex/t.ad192113.webp",
+   "t": 0,
+   "d": 11172
+  },
+  {
+   "p": "/assets/tex/t.ad192113.webp",
+   "t": 0,
+   "d": 11172
+  },
+  {
+   "p": "/assets/tex/t.ad192113.webp",
+   "t": 0,
+   "d": 11172
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 0,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.1d69874b.webp",
+   "t": 0,
+   "d": 43144
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 0,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 0,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 0,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.9e978957.webp",
+   "t": 0,
+   "d": 6496
+  },
+  {
+   "p": "/assets/tex/t.87c9ff2e.webp",
+   "t": 0,
+   "d": 6340
+  },
+  {
+   "p": "/assets/tex/t.a929c22c.webp",
+   "t": 0,
+   "d": 6138
+  },
+  {
+   "p": "/assets/tex/t.a929c22c.webp",
+   "t": 0,
+   "d": 6138
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 0,
+   "d": 12830
+  },
+  {
+   "p": "/assets/tex/t.173ffbeb.webp",
+   "t": 0,
+   "d": 9756
+  },
+  {
+   "p": "/assets/tex/t.f57333b3.webp",
+   "t": 0,
+   "d": 12830
+  },
+  {
+   "p": "/assets/tex/t.173ffbeb.webp",
+   "t": 0,
+   "d": 9756
+  },
+  {
+   "p": "/assets/tex/t.c9199362.webp",
+   "t": 0,
+   "d": 9526
+  },
+  {
+   "p": "/assets/tex/t.c9199362.webp",
+   "t": 0,
+   "d": 9526
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.6ad3ddca.webp",
+   "t": 0,
+   "d": 7874
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.196b435a.webp",
+   "t": 0,
+   "d": 9318
+  },
+  {
+   "p": "/assets/tex/t.173ffbeb.webp",
+   "t": 0,
+   "d": 9756
+  },
+  {
+   "p": "/assets/tex/t.56ccdf81.webp",
+   "t": 0,
+   "d": 9430
+  },
+  {
+   "p": "/assets/tex/t.ed597c74.webp",
+   "t": 0,
+   "d": 10170
+  },
+  {
+   "p": "/assets/tex/t.db1b2a8d.webp",
+   "t": 0,
+   "d": 7702
+  },
+  {
+   "p": "/assets/tex/t.2a6f4b06.webp",
+   "t": 0,
+   "d": 9740
+  },
+  {
+   "p": "/assets/tex/t.95f4e57f.webp",
+   "t": 0,
+   "d": 7202
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.95f4e57f.webp",
+   "t": 0,
+   "d": 7202
+  },
+  {
+   "p": "/assets/tex/t.24415b75.webp",
+   "t": 0,
+   "d": 7128
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/assets/tex/t.115a496b.webp",
+   "t": 0,
+   "d": 7414
+  },
+  {
+   "p": "/audio/sfx/hit.76ef2d46.ogg",
+   "t": 8793,
+   "d": 8493
+  },
+  {
+   "p": "/audio/sfx/crit.5e40a443.ogg",
+   "t": 11290,
+   "d": 10990
+  },
+  {
+   "p": "/audio/sfx/player_hurt.6d65fdc1.ogg",
+   "t": 6524,
+   "d": 6224
+  },
+  {
+   "p": "/audio/sfx/heal.8c361b62.ogg",
+   "t": 9311,
+   "d": 9011
+  },
+  {
+   "p": "/audio/sfx/gold.8a91f969.ogg",
+   "t": 25694,
+   "d": 25394
+  },
+  {
+   "p": "/audio/sfx/item.ae3cbf69.ogg",
+   "t": 10792,
+   "d": 10492
+  },
+  {
+   "p": "/audio/sfx/swing.01df17a2.ogg",
+   "t": 5781,
+   "d": 5481
+  },
+  {
+   "p": "/audio/sfx/tell.5abe328a.ogg",
+   "t": 6292,
+   "d": 5992
+  },
+  {
+   "p": "/audio/sfx/kill.9113a5c0.ogg",
+   "t": 5152,
+   "d": 4852
+  },
+  {
+   "p": "/audio/sfx/boss_intro.2dc1976f.ogg",
+   "t": 18903,
+   "d": 18603
+  },
+  {
+   "p": "/audio/sfx/dot_burn.41664c68.ogg",
+   "t": 6696,
+   "d": 6396
+  },
+  {
+   "p": "/audio/sfx/dot_poison.671d8314.ogg",
+   "t": 6549,
+   "d": 6249
+  },
+  {
+   "p": "/audio/sfx/apply_burn.e298baf2.ogg",
+   "t": 7317,
+   "d": 7017
+  },
+  {
+   "p": "/audio/sfx/dot_chill.4e480d42.ogg",
+   "t": 9414,
+   "d": 9114
+  },
+  {
+   "p": "/audio/sfx/apply_poison.b245283c.ogg",
+   "t": 5281,
+   "d": 4981
+  },
+  {
+   "p": "/audio/sfx/apply_chill.0a82c14c.ogg",
+   "t": 7292,
+   "d": 6992
+  },
+  {
+   "p": "/audio/sfx/smash_wood.345d6147.ogg",
+   "t": 6776,
+   "d": 6476
+  },
+  {
+   "p": "/audio/sfx/smash_clay.ca08316a.ogg",
+   "t": 7900,
+   "d": 7600
+  },
+  {
+   "p": "/audio/sfx/band_sting.e8a13836.ogg",
+   "t": 12458,
+   "d": 12158
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_aggro_a.838ebe70.ogg",
+   "t": 12066,
+   "d": 11766
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_aggro_b.8c1cf327.ogg",
+   "t": 11416,
+   "d": 11116
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_pain_a.7c4f1f9c.ogg",
+   "t": 9086,
+   "d": 8786
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_pain_b.c51b4266.ogg",
+   "t": 9636,
+   "d": 9336
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_death_a.c4c406d4.ogg",
+   "t": 14465,
+   "d": 14165
+  },
+  {
+   "p": "/audio/sfx/barks/bark_skel_death_b.fc06ebed.ogg",
+   "t": 13860,
+   "d": 13560
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_aggro_b.fac13a75.ogg",
+   "t": 10475,
+   "d": 10175
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_aggro_a.4f2455d2.ogg",
+   "t": 10705,
+   "d": 10405
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_pain_a.79ad6bee.ogg",
+   "t": 8279,
+   "d": 7979
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_pain_b.efb25882.ogg",
+   "t": 8318,
+   "d": 8018
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_death_a.bc1af1f2.ogg",
+   "t": 12512,
+   "d": 12212
+  },
+  {
+   "p": "/audio/sfx/barks/bark_org_death_b.5a472d64.ogg",
+   "t": 12334,
+   "d": 12034
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_aggro_b.443ebd17.ogg",
+   "t": 8804,
+   "d": 8504
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_pain_a.4eda501e.ogg",
+   "t": 7557,
+   "d": 7257
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_aggro_a.f74c775e.ogg",
+   "t": 8812,
+   "d": 8512
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_pain_b.23014b4c.ogg",
+   "t": 7670,
+   "d": 7370
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_death_a.123d9881.ogg",
+   "t": 10633,
+   "d": 10333
+  },
+  {
+   "p": "/audio/sfx/barks/bark_hum_death_b.fa43c87b.ogg",
+   "t": 10567,
+   "d": 10267
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_aggro_a.db385cf2.ogg",
+   "t": 9861,
+   "d": 9561
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_aggro_b.70d63e43.ogg",
+   "t": 9851,
+   "d": 9551
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_pain_a.8caf3c5b.ogg",
+   "t": 7974,
+   "d": 7674
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_pain_b.d7c464fd.ogg",
+   "t": 7878,
+   "d": 7578
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_death_a.5f5fb591.ogg",
+   "t": 13112,
+   "d": 12812
+  },
+  {
+   "p": "/audio/sfx/barks/bark_mech_death_b.8e5b20ba.ogg",
+   "t": 13070,
+   "d": 12770
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_aggro_a.63f12243.ogg",
+   "t": 10988,
+   "d": 10688
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_aggro_b.8429045d.ogg",
+   "t": 11051,
+   "d": 10751
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_pain_a.93b30eb8.ogg",
+   "t": 8031,
+   "d": 7731
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_pain_b.9480e705.ogg",
+   "t": 8036,
+   "d": 7736
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_death_a.f6663dba.ogg",
+   "t": 13519,
+   "d": 13219
+  },
+  {
+   "p": "/audio/sfx/cast_dash.b5a37cca.ogg",
+   "t": 5703,
+   "d": 5403
+  },
+  {
+   "p": "/audio/sfx/barks/bark_air_death_b.155270fa.ogg",
+   "t": 13488,
+   "d": 13188
+  },
+  {
+   "p": "/audio/sfx/bolt.13f34561.ogg",
+   "t": 9508,
+   "d": 9208
+  },
+  {
+   "p": "/audio/sfx/nova.250d59c4.ogg",
+   "t": 12794,
+   "d": 12494
+  },
+  {
+   "p": "/audio/sfx/cast_orbit.68d4c5d9.ogg",
+   "t": 6482,
+   "d": 6182
+  },
+  {
+   "p": "/audio/sfx/cast_stance.b5b0460c.ogg",
+   "t": 4825,
+   "d": 4525
+  },
+  {
+   "p": "/audio/sfx/cast_overcharge.1b28eae8.ogg",
+   "t": 6507,
+   "d": 6207
+  },
+  {
+   "p": "/audio/sfx/cast_crowdsurf.d7e46cdb.ogg",
+   "t": 8011,
+   "d": 7711
+  },
+  {
+   "p": "/audio/sfx/cast_cutto.0a3418b9.ogg",
+   "t": 6191,
+   "d": 5891
+  },
+  {
+   "p": "/audio/sfx/cast_stuntdouble.6bd6e2f2.ogg",
+   "t": 7612,
+   "d": 7312
+  },
+  {
+   "p": "/audio/sfx/cast_bulwark.7ab498dd.ogg",
+   "t": 8315,
+   "d": 8015
+  },
+  {
+   "p": "/audio/sfx/cast_cables.0023aa9a.ogg",
+   "t": 6481,
+   "d": 6181
+  },
+  {
+   "p": "/audio/sfx/cast_airstrike.a8c2a9e9.ogg",
+   "t": 8556,
+   "d": 8256
+  },
+  {
+   "p": "/audio/sfx/cast_cataclysm.cbfd27c9.ogg",
+   "t": 10439,
+   "d": 10139
+  },
+  {
+   "p": "/audio/sfx/cast_injunction.c1448640.ogg",
+   "t": 9159,
+   "d": 8859
+  },
+  {
+   "p": "/audio/sfx/cast_bullettime.6f167e43.ogg",
+   "t": 7011,
+   "d": 6711
+  },
+  {
+   "p": "/audio/sfx/chain_line.18afd6ee.ogg",
+   "t": 4704,
+   "d": 4404
+  },
+  {
+   "p": "/audio/sfx/weapon_flash.d66505a1.ogg",
+   "t": 4566,
+   "d": 4266
+  },
+  {
+   "p": "/audio/sfx/level_up.00b4dcdb.ogg",
+   "t": 6184,
+   "d": 5884
+  },
+  {
+   "p": "/audio/sfx/lootbox.65be5fe4.ogg",
+   "t": 15251,
+   "d": 14951
+  },
+  {
+   "p": "/audio/sfx/door_unlock.ba9ba60b.ogg",
+   "t": 10508,
+   "d": 10208
+  },
+  {
+   "p": "/audio/sfx/achievement.582b561b.ogg",
+   "t": 11172,
+   "d": 10872
+  },
+  {
+   "p": "/audio/sfx/descend.4ab93bab.ogg",
+   "t": 23148,
+   "d": 22848
+  },
+  {
+   "p": "/audio/sfx/death.b4b3bc74.ogg",
+   "t": 7335,
+   "d": 7035
+  },
+  {
+   "p": "/audio/sfx/victory.1010c9b5.ogg",
+   "t": 40248,
+   "d": 39948
+  },
+  {
+   "p": "/audio/sfx/ident.42f78b5e.ogg",
+   "t": 8448,
+   "d": 8148
+  },
+  {
+   "p": "/audio/sfx/stamp.8e91500c.ogg",
+   "t": 6184,
+   "d": 5884
+  },
+  {
+   "p": "/audio/sfx/ident_high.53a72197.ogg",
+   "t": 11709,
+   "d": 11409
+  },
+  {
+   "p": "/audio/sfx/count_tick.1cc46069.ogg",
+   "t": 4799,
+   "d": 4499
+  },
+  {
+   "p": "/audio/sfx/count_go.d437fc22.ogg",
+   "t": 9177,
+   "d": 8877
+  },
+  {
+   "p": "/audio/sfx/ledger_bank.72f087f4.ogg",
+   "t": 13557,
+   "d": 13257
+  },
+  {
+   "p": "/audio/sfx/door_close.95f5920f.ogg",
+   "t": 5639,
+   "d": 5339
+  },
+  {
+   "p": "/audio/sfx/draft_pick.c5396dd8.ogg",
+   "t": 7909,
+   "d": 7609
+  },
+  {
+   "p": "/audio/sfx/draft_bank.142d6f9d.ogg",
+   "t": 5754,
+   "d": 5454
+  },
+  {
+   "p": "/audio/sfx/descend_whoosh.fa8ace94.ogg",
+   "t": 13977,
+   "d": 13677
+  },
+  {
+   "p": "/audio/sfx/verdict.b503aeb5.ogg",
+   "t": 13405,
+   "d": 13105
+  },
+  {
+   "p": "/audio/sfx/till.a142430b.ogg",
+   "t": 6646,
+   "d": 6346
+  },
+  {
+   "p": "/audio/sfx/boss_phase.c5de8173.ogg",
+   "t": 13738,
+   "d": 13438
+  },
+  {
+   "p": "/audio/sfx/boss_punish.94d16ec7.ogg",
+   "t": 8529,
+   "d": 8229
+  },
+  {
+   "p": "/audio/sfx/boss_down.0b5a893c.ogg",
+   "t": 13862,
+   "d": 13562
+  },
+  {
+   "p": "/audio/sfx/sponsor.241c8570.ogg",
+   "t": 31200,
+   "d": 30900
+  },
+  {
+   "p": "/audio/sfx/announce.d21d0f0b.ogg",
+   "t": 5148,
+   "d": 4848
+  },
+  {
+   "p": "/audio/sfx/crowd.9f35f16d.ogg",
+   "t": 19056,
+   "d": 18756
+  },
+  {
+   "p": "/audio/sfx/warning.3f75b11d.ogg",
+   "t": 7566,
+   "d": 7266
+  },
+  {
+   "p": "/audio/sfx/buy.4b857968.ogg",
+   "t": 13394,
+   "d": 13094
+  },
+  {
+   "p": "/audio/sfx/equip.f29560a2.ogg",
+   "t": 21791,
+   "d": 21491
+  },
+  {
+   "p": "/icons.50c0a9a7/melee.svg",
+   "t": 1079,
+   "d": 1428
+  },
+  {
+   "p": "/icons.50c0a9a7/dash.svg",
+   "t": 641,
+   "d": 521
+  },
+  {
+   "p": "/icons.50c0a9a7/bolt.svg",
+   "t": 806,
+   "d": 856
+  },
+  {
+   "p": "/icons.50c0a9a7/flask.svg",
+   "t": 579,
+   "d": 401
+  },
+  {
+   "p": "/icons.50c0a9a7/melee.svg",
+   "t": 0,
+   "d": 1428
+  },
+  {
+   "p": "/icons.50c0a9a7/dash.svg",
+   "t": 0,
+   "d": 521
+  },
+  {
+   "p": "/icons.50c0a9a7/bolt.svg",
+   "t": 0,
+   "d": 856
+  },
+  {
+   "p": "/icons.50c0a9a7/flask.svg",
+   "t": 0,
+   "d": 401
+  },
+  {
+   "p": "/audio/music/menu.7cd8a38b.ogg",
+   "t": 838358,
+   "d": 838058
+  }
+ ],
+ "byClass": {
+  "docs": {
+   "ref": 1,
+   "net": 1,
+   "wire": 160026,
+   "dAll": 557761,
+   "dNet": 557761
+  },
+  "js": {
+   "ref": 4,
+   "net": 4,
+   "wire": 573025,
+   "dAll": 1802537,
+   "dNet": 1802537
+  },
+  "icons": {
+   "ref": 29,
+   "net": 15,
+   "wire": 13060,
+   "dAll": 29630,
+   "dNet": 17208
+  },
+  "fonts": {
+   "ref": 4,
+   "net": 4,
+   "wire": 173012,
+   "dAll": 171812,
+   "dNet": 171812
+  },
+  "other": {
+   "ref": 3,
+   "net": 3,
+   "wire": 1370,
+   "dAll": 470,
+   "dNet": 470
+  },
+  "textures": {
+   "ref": 246,
+   "net": 29,
+   "wire": 309134,
+   "dAll": 2228292,
+   "dNet": 300434
+  },
+  "models": {
+   "ref": 260,
+   "net": 260,
+   "wire": 9555440,
+   "dAll": 23176592,
+   "dNet": 23176592
+  },
+  "audio": {
+   "ref": 95,
+   "net": 95,
+   "wire": 1812825,
+   "dAll": 1784325,
+   "dNet": 1784325
+  }
+ }
+}
