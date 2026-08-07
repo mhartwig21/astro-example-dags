@@ -267,6 +267,9 @@ const MIME: Record<string, string> = {
   ".wav": "audio/wav",
   ".txt": "text/plain; charset=utf-8",
   ".ttf": "font/ttf",
+  // woff2 is the format iso.html actually ships; the ttf is only the legacy
+  // fallback src. Without this entry it went out as octet-stream.
+  ".woff2": "font/woff2",
 };
 
 // Worth gzipping on the wire: text plus GLB (raw geometry shrinks ~60%).

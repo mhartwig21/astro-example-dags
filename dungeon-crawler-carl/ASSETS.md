@@ -374,6 +374,15 @@ alongside the files (`OFL-Cinzel.txt`, `OFL-AlegreyaSans.txt`).
 | Cinzel.ttf (variable) | Cinzel | Display: titles, labels, buttons | github.com/google/fonts (ofl/cinzel) |
 | AlegreyaSans-{Regular,Bold,Italic}.ttf | Alegreya Sans | Body: text, tooltips, data | github.com/google/fonts (ofl/alegreyasans) |
 
+The `.woff2` beside each TTF is a **derivative** of that same OFL original —
+subset to the ranges the UI types and recompressed (927 KB -> 224 KB on the
+cold-boot wire). It is what `iso.html` loads; the TTF stays as the second
+`src:` for pre-woff2 WebKit and as the license-bearing master. The OFL permits
+this (modified copies stay under the OFL, and neither the reserved family
+names nor the license texts change). Regenerate both with
+`python tools/fonts/subset.py` — its header documents the two settings that
+must not drift (keep all layout features, don't instance variable Cinzel).
+
 ## AI-generated assets — `tools/asset-pipeline/`
 
 The asset pipeline (`tools/asset-pipeline/`) generates new models with Meshy AI
