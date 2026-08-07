@@ -636,3 +636,479 @@ node tools/_mobile/webkit_smoke.mjs    > tools/_final_webkit.json
 One browser at a time — the box crashes at ~6 headless browsers (HANDOFF §5).
 Port 5288 only; other 52xx ports belong to other worktrees. Never trust a
 server you have not fingerprinted against your own `dist/`.
+
+---
+---
+
+# ROUND 2 — the draw-call round
+
+Appended, not merged. **Everything above this line is round 1**
+(`perf-mobile@54a173e`) and is left exactly as it was written. This section
+re-measures at `perf-mobile@d7a5cd8`, three commits later, and reports what the
+three draw-call commits did to the sheet round 1 produced.
+
+Round 1's thesis was *tails*: stop the freezes. Round 2's thesis was **draw
+calls** — a CPU-side cost paid per frame by the main thread, and on a
+phone-class CPU going through WebKit's WebGL-to-Metal translation typically the
+dominant runtime cost. Three commits attacked three classes of object:
+characters, environment, FX overlays.
+
+---
+
+## 11. Method — what changed since §1, and why
+
+Same three scenes, same probes, same 4x CPU throttle, same 1180x820 @ dsf 2.
+Two things about the harness are different and both matter.
+
+**`vite preview` is banned for measurement on this project.** §1 and §10 above
+tell you to serve `dist/` with `vite preview`. Do not. It serves GLB
+identity-encoded and does not send the precompressed representation the shipping
+server sends, and measuring against it produced two separate false conclusions
+in earlier streams. Round 2 served the production build with the **shipping
+server**:
+
+```
+npm run build
+STATIC_DIR=dist PORT=5288 npx tsx src/server/gameServer.ts   &
+```
+
+**Fingerprint before trusting anything.** Round 2's check, run before the first
+probe:
+
+| check | result |
+|---|---|
+| bundle name in `dist/iso.html` | `iso-CPI36A8V.js` |
+| bundle name in served `/iso.html` | `iso-CPI36A8V.js` |
+| served `/iso.html` vs `dist/iso.html` | **byte-identical** (`cmp`) |
+| `GET /assets/characters/4gtn.glb` | `content-encoding: gzip`, `content-type: model/gltf-binary` |
+
+Both probes fingerprint again themselves and throw on a mismatch. The WebKit
+smoke recorded `iso-CPI36A8V.js` independently.
+
+### 11.1 The contention record (read this before any fps number)
+
+Round 1 had to print two disagreeing runs because ~80 foreign `chrome.exe` and
+~83 `node` processes from parallel worktrees were live throughout. Round 2
+waited for a quiet box instead, twice, and **the instrument recorded its own
+contention**: `_perfprobe_wf.mjs` counts every `%chrome%` process it does not
+own, so a sibling's headless browser shows up as exactly +5.
+
+| | foreign chrome | verdict |
+|---|---:|---|
+| run 1, floor 2 | 77 | quiet (77 = the owner's own Chrome, this box's floor) |
+| run 1, floor 10 | **82** | **sibling headless live** |
+| run 1, floor 16 | **82** | **sibling headless live** |
+| run 2, all three scenes | 77 | quiet |
+
+Timeline: a sibling browser was live on arrival, went quiet at 06:36:38, and I
+started immediately. It **relaunched at 06:38:09**, mid-run-1, which is what the
+82s are. I waited again (06:41 → 06:46:38) and ran run 2 entirely inside the
+quiet window. `npm test` and `npm run typecheck` were run during the waits, not
+during the samples. The draw-call probe's run 1 fell entirely inside the
+contended window; its run 2 entirely inside the quiet one.
+
+**The disagreement between the two runs is not explained by that contention**,
+and I am not going to pretend it is: on floor 10 the *contended* run was the
+faster one (18.9 vs 16.6 fps). Treat the run-to-run spread below as the
+instrument's own error bar on this box.
+
+---
+
+## 12. Headline — baseline → round 1 → round 2
+
+`tools/_perfprobe2_wf.mjs` for the geometry columns, `tools/_perfprobe_wf.mjs`
+for the frame columns. Every round-2 cell is **both runs, unaveraged**.
+
+### Floor 10 combat — the scene this round was aimed at
+
+| metric | baseline | round 1 final | **round 2 run 1 / run 2** |
+|---|---:|---:|---:|
+| **draw calls / rAF** | **556.7** | **551.8** | **273.2 / 299.5** |
+| triangles / rAF | 936,992 | 891,984 | 954,430 / 1,025,009 |
+| render passes / rAF | 23 | 22 | **22 / 22** |
+| **delivered fps** | **9.1** | **13.7 / 10.1** | **18.9 / 16.6** |
+| frame p50 | 100.0 ms | 66.8 / 83.4 ms | **50.0 / 50.1 ms** |
+| frame p95 | 150.0 ms | 133.4 / 150.0 ms | **66.8 / 83.3 ms** |
+| frame p99 | 516.7 ms | 183.4 / 200.0 ms | **149.9 / 100.0 ms** |
+| worst frame | 1,683.2 ms | 250.0 / 1,099.9 ms | 866.7 / 816.6 ms |
+| long tasks | 294 / 29,843 ms | 306 / 26,571, 320 / 29,726 | 274 / 17,080, 365 / 22,511 |
+| longest long task | 622 ms | 241 / 226 ms | **380 / 140 ms** |
+| geometries | 149 | 141 / 146 | **95 / 85** |
+| textures over the fight | 278 → 510 (**+232**) | +58 / +49 | **+10 / +16** |
+| programs during fight | 164 (grew 16) | 257 (grew 0) | 261 (grew 0 in-window) |
+| monsters alive at end | 119 | 122 / 116 | 120 / 125 |
+
+**Draw calls per frame are down 46-51% from the baseline** and the two runs'
+ranges do not overlap it. Median frame time halved from the baseline
+(100.0 → 50.0 ms) and is a full vsync step better than round 1's. p99 is down
+71-81% from baseline.
+
+### Floor 2 calm — round 1's one wrong-way metric, reversed
+
+| metric | baseline | round 1 final | **round 2 run 1 / run 2** |
+|---|---:|---:|---:|
+| draw calls / rAF | 230.0 | 228.7 | **192.3 / 192.3** |
+| triangles / rAF | 480,056 | 478,762 | 478,696 / 479,038 |
+| render passes / rAF | 23 | 22 | 22 / 22 |
+| delivered fps | 36.3 | 33.0 / 31.5 | **47.9 / 40.1** |
+| **frame p50** | **16.7 ms** | **33.3 / 33.3 ms** | **16.7 / 16.7 ms** |
+| frame p95 | 66.7 ms | 50.0 / 33.4 ms | 33.4 / 33.4 ms |
+| frame p99 | 183.4 ms | 99.9 / 50.1 ms | 33.4 / 49.9 ms |
+| worst frame | 533.2 ms | 1,150.0 / 1,166.6 ms | 766.6 / 1,033.3 ms |
+| frames > 33 ms | 167 | 212 / 208 | 67 / 123 (**4.5% / 9.8%** of frames) |
+| long tasks | 72 / 7,006 / max 397 | 42 / 3,530, 9 / 1,685 | **0 / 0, 1 / 53** |
+| heap alloc | 10.13 MB/s | 6.51 MB/s | 6.12 / 7.43 MB/s |
+
+**§4's stated regression is gone.** The calm median went 16.7 → 33.3 ms in
+round 1 (both runs) and is back at **16.7 ms in both runs** here, with delivered
+fps above the original baseline for the first time on this branch. There is a
+mechanism — this scene's draw calls fell 16% — but see §15 for what I will not
+claim about the magnitude.
+
+### Floor 16 combat
+
+| metric | baseline | round 1 final | **round 2 run 1 / run 2** |
+|---|---:|---:|---:|
+| draw calls / rAF | 231.5 | 230.0 | **203.5 / 204.0** |
+| triangles / rAF | 877,875 | 875,226 | 872,026 / 875,226 |
+| render passes / rAF | 23 | 22 | 22 / 22 |
+| delivered fps | 27.3 | 29.7 / 27.6 | **26.3 / 32.1** |
+| frame p50 | 33.3 ms | 33.3 / 33.3 ms | 33.3 / 33.3 ms |
+| frame p95 | 50.0 ms | 50.1 / 50.1 ms | 66.7 / 50.0 ms |
+| frame p99 | 66.7 ms | 66.7 / 66.7 ms | 100.0 / 50.1 ms |
+| worst frame | 1,949.9 ms | 1,166.7 / 1,133.3 ms | **700.0 / 799.9 ms** |
+| frames > 33 ms | 307 | 273 / 280 | 316 / 214 (38.9% / 21.1%) |
+| long tasks | 44 / 2,470 / max 87 | 42 / 2,702, 57 / 3,571 | **1 / 59, 15 / 827** |
+| geometries | — | — | 79 / 80 |
+
+Floor 16 is where the two runs disagree most (26.3 vs 32.1 fps), and run 1 is
+the contended one. **That disagreement is the error bar; I am not averaging it
+into a single number.** The p50 has not moved in three measurements — this scene
+is vsync-pinned at 33.3 ms and dominated by `computeSeparation`, not by draw
+calls (§8.1, still open, still the highest-value host-side move).
+
+### `frames > 33 ms` is a count, not a rate — do not compare it across rounds
+
+It rises when fps rises, because more delivered frames means more frames to
+count. Floor 10 reads 490 / 505 here against a baseline 296, and that is not a
+regression: as a *fraction* it is 81.3% / 95.3% of frames, on a scene that is
+genuinely too heavy for a 4x-throttled iGPU and always will be. Fractions are
+given above where I have both numerator and denominator; the baseline sheet did
+not record frame totals, so the baseline fractions cannot be reconstructed.
+
+---
+
+## 13. Per-class ledger — the three commits, with gate results
+
+| # | class | change | floor-10 calls/frame, own A/B | gate | commit |
+|---|---|---|---:|---|---|
+| 1 | **characters** | merge each rig's skinned parts into one SkinnedMesh per material | 620.2 / 559.0 → **355.3 / 372.6** | PASS | `eb25a1b` |
+| 2 | **environment** | carry a prop's tint per instance so its batches merge | 373.5 / 409.7 → **314.6 / 305.5** | PASS, one measured residual | `0f6549f` |
+| 3 | **FX overlays** | draw every contact-shadow disc in one instanced call | 305.0 / 322.6 → **282.0 / 293.0** | PASS, byte-identical | `d7a5cd8` |
+
+Each commit re-measured its own baseline before starting, because the census
+that opened the round was stale within one commit. The arms above are each
+change's own A/B, not a chain — which is why they do not compose arithmetically
+into the 273 / 300 in §12.
+
+### 13.1 Characters — `eb25a1b`
+
+A KayKit character ships as 6-14 separate `SkinnedMesh` nodes already sharing one
+material and one bone set; nothing in this codebase addresses a limb on its own.
+Cleric 8 parts → 2, paladin 11 → 2, 4GTN 12 → 2. Meshes per drawn rig
+9.33 → 3.33; body colour draws/frame 26 → 8; body shadow draws/frame 8.5 → 2.
+
+`InstancedMesh` per (geometry, material) is the **wrong** tool here and was not
+used: `SkinnedMesh` cannot be instanced, and it turned out not to matter, because
+the win is intra-rig rather than inter-rig.
+
+**The non-obvious part.** The shipped GLBs are gltfpack output with
+`KHR_mesh_quantization`, so every primitive owns a *separate* skin whose
+`inverseBindMatrices` carry that primitive's dequantization. The skins bind
+identical bones and are still not interchangeable. Naive `mergeGeometries`
+reproduces the pose of exactly one part and scatters the rest across the arena.
+The fix derives the rewrite (`v' = Bm_ref⁻¹ · Q_p · Bm_p · v`, with
+`Q_p = bi_ref[j]⁻¹ · bi_p[j]` proven joint-independent) and **checks six
+preconditions per group**, refusing any group that fails one — so a model that
+cannot merge loses nothing. Only positions are rewritten (int16 grid → float32,
+strictly more precise); normals, UVs, skin indices and weights are copied
+bit-for-bit, legal precisely because `Q` is verified to be a uniform scale.
+
+*Proof independent of the pixel gate:* `tools/_rigmerge_verify.mjs` loads all
+**68** shipped character GLBs through the real `GLTFLoader` + `MeshoptDecoder`,
+CPU-skins every vertex before and after across four random poses, and
+index-aligns the point clouds. 68 of 68 merged, zero groups refused, **worst
+position error 4.674e-7 world units** on a 1.1-unit-tall character.
+`test/rigMerge.test.ts` guards the math permanently, including five refusal paths.
+
+*Gate:* two pinned scenes, clock frozen on an absolute base (§7.4), **six frames
+per scene 992 ms of animation apart** rather than one still, and — because the
+raw diffs were non-zero — the gate's own noise floor established by running it
+twice on the same build. All twelve frames sit inside the same-build control
+range; on floor 10 the change diff is *below* the control on every frame.
+Transparency: transparent draws/frame identical (40 → 40, 39 → 39), and blended
+geometry is refused by construction. Shadow casting: every drawn mesh still
+carries `castShadow`; `mon:171` shadow draws 4 → 1 per frame as its 8 meshes
+became 2. Frustum culling: `DRAWN_WHILE_INVISIBLE` empty in both arms, zero
+merged meshes with `frustumCulled` disabled.
+
+*Side effects visible in §12:* live GL textures on the floor-10 fight 379/348 →
+200, geometries 135/133 → 86, and **skeletons across 125 tracked rigs
+1086 → 198** — the bone-texture collapse §8.3 asked for. That is the mechanism
+behind the +232 → +10/+16 texture-growth row.
+
+### 13.2 Environment — `0f6549f`
+
+§8's census claimed prop batches differed only by "material-clone identity, not
+any real material difference". **That was wrong**, and deduping on it would have
+merged nothing: every placed prop draws a quantized value/warmth variant
+(`PROP_VARIANTS`/`FOLIAGE_VARIANTS`) baked into a cloned material's colour.
+Keying with colour merges 55 of 58 batches on floor 10 — i.e. nothing. The fix
+moves the tint off the material onto the batch's per-instance colour: batches
+58 → 20 on floor 10, 55 → 22 on floor 4.
+
+**The trap that almost shipped:** `material.vertexColors = true` +
+`InstancedMesh.instanceColor` renders every batched prop **black**. three.js only
+multiplies `vColor` into `diffuseColor` under `USE_COLOR`, and `USE_COLOR` makes
+the vertex shader read a `color` *attribute* these geometries do not have.
+(`defaultAttributeValues.color = [1,1,1]` is defined in the `ShaderMaterial`
+constructor; `MeshStandardMaterial` has none, so the generic attribute stays at
+WebGL's `(0,0,0,1)`.) The pixel gate caught it — floor-4 mean 1.77 against a 0.20
+noise floor, 240 max channel delta. The shipped fix injects the multiply into
+`worldLit`'s own prop stage, gated on `USE_INSTANCING_COLOR`. Setting
+`material.defaultAttributeValues` would also work, but `Material.copy()` does not
+copy it, so any future clone would silently revert to black props — a landmine,
+deliberately not taken.
+
+*Gate:* pinned absolute clock, 5 stills per scene, read by eye at 1:1 and 8x,
+plus `tools/_diffmap` (connected-component analysis separating 1-2px edge rims
+from filled patches — this is what turned "0.28 vs 0.20, is that noise?" into a
+decidable question). Tint correctness is checked as arithmetic, not by eye: the
+gate asserts `batchMaterial.color * instanceColor == the old tinted
+material.color` for every live instance on both floors, **worst case 3.3e-8**.
+Frustum culling is not weakened — this is not a spatial merge, it merges material
+variants of one geometry over the same membership set, so instances submitted per
+frame are unchanged (floor 10: 54 live before and after) while drawn batch
+objects fell 31 → 11.
+
+*The residual, declared:* before-vs-after sits at 0.264-0.341 mean against a
+0.197-0.263 same-build noise floor, with 9-10 "thick" components, reproduced
+across two independent captures. A/B isolated it to the `USE_INSTANCING_COLOR`
+**program recompile**, not the merge: the added varying with no `instanceColor`
+sits on the noise floor (0.205-0.252, 1 thick), while tint transport *without*
+the merge reproduces the residual (0.253-0.302, 8 thick). Mechanism is
+`wlN = cross(dFdx(vWlPos), dFdy(vWlPos))` moving in its last bits — a
+cancellation on near-horizontal faces, which is why it lands on barrel lids and
+crate tops and not on the barrels' vertical sides. ~10 patches over 0.35% of the
+frame, invisible at 1:1 and at 8x. Recorded rather than averaged away.
+
+### 13.3 FX overlays — `d7a5cd8`
+
+Contact-shadow discs draw as one `InstancedMesh`: that bucket goes 43 → 3 draws
+on a dense frame. Interleaved drift-cancelling A/B (`tools/_fxdc_wf.mjs`), run
+twice: per-mesh 305.0 → batched 282.0, and 322.6 → 293.0. All ten interleaved
+rounds negative, -18.5 to -34.3. Honest figure **-23 to -30 calls/frame**.
+
+*Gate:* the decisive instrument was a **same-page A/B on one frozen sim state**
+(batched → legacy per-mesh → batched again), so no cross-run drift is involved.
+Both scenes **byte-identical, mean 0.000, max channel delta 0**. On a dense
+41-disc frame with every body hidden so the frame *is* the discs: mean 0.025 /
+19 pixels over threshold, against a same-setting noise floor of 0.035 / 36 —
+**the batch differs from the per-mesh path by less than the per-mesh path differs
+from itself.** Order-independence is proven, not eyeballed: all discs are the
+same black at the same alpha with `depthWrite` off, so `dst·(1-a)·(1-a)` is
+commutative. Frustum culling verified still culling — the `InstancedMesh`
+bounding sphere is rebuilt every frame from the instances actually written
+(r=7.32 around a pack, r=0.69 with one disc live), because three computes an
+`InstancedMesh` sphere once and never refreshes it, so a stale sphere would have
+made the merged mesh always-drawn.
+
+*Declined, with the numbers:* `GroundDecals` (9 draws, genuinely instanceable,
+worth 8 calls — but the slots carry *different* colours, so collapsing 9
+depth-sorted transparent quads into one instance-ordered draw can composite
+differently where marks overlap); `hazardRings` (0-6 draws, six ShaderMaterials
+with per-ring uniforms, at most 5 calls). Measured and *not* manufactured into
+work: particles are already 3 draws total for the whole system; health bars and
+damage numbers are DOM and cost **zero** WebGL draw calls; the post-chain's 21
+fullscreen quads are one draw per pass by construction.
+
+### 13.4 What the round did not touch, and why
+
+- **`floorGroup`** — 98-99 colour draws at 100% instance fill, 188 chunks over 14
+  families. Raising `CHUNK` is pixel-safe but trades CPU draw calls for GPU
+  instances on a scene already at ~1M triangles, and nobody walked that curve.
+  **This is now the single largest remaining bucket.**
+- **18 torch `Sprite`s** — one geometry, 18 `SpriteMaterial`s, ~16 amortized
+  calls. Needs a camera-facing-quad shader, i.e. real visual risk.
+- **Handslot weapon grafts** — 1-2 static draws each, and merging them would
+  break `hideAllAttachments`. Deliberately left alone; `ATTACHMENT_NODES` is
+  passed into the merge as untouchable, keyed off the same table the toggling
+  reads, so a new arsenal node cannot be added on one side only.
+- **Monster material clones** — the census's "dedupe them" advice is dangerous as
+  written: `applyHitFlash` clones per-mesh specifically so each body owns its own
+  `uChHitFlash`/`uChHitTint` uniform *objects*, which no field comparison can
+  see. Deduping on field evidence would have silently killed the per-body hit
+  flash. It is a uniform-ownership problem, not a redundant-state problem — and
+  the rig merge collapsed it as a side effect anyway.
+
+---
+
+## 14. WebKit / iPad-viewport smoke — round 1 vs round 2
+
+`tools/_mobile/webkit_smoke.mjs`, Playwright WebKit, 1180x820 @ dsf 2, touch,
+iPad UA, floor 5, 60 s touch-driven play. One run.
+
+| check | round 1 | **round 2** |
+|---|---|---|
+| boot: loading screen fully left | PASS 10,368 / 23,543 ms | PASS **10,410 / 21,279 ms** |
+| fingerprint: iso bundle | PASS | PASS `iso-CPI36A8V.js` |
+| webgl: context is WebGL2 | PASS `Apple GPU`, maxTex 16384 | PASS, identical |
+| webgl: extension gaps | WARN (3 of 30 missing) | WARN, identical |
+| **shader: zero programs built after boot** | **PASS** (257 prewarmed, 0 built) | **FAIL** (261 prewarmed, **2 built**) |
+| touch: zone table exists | PASS | PASS (`compact`) |
+| touch: synthetic stick moves the crawler | PASS 5.17 tiles | PASS 5.17 tiles |
+| touch: chip taps resolved as casts | PASS | PASS |
+| touchdebug overlay boots | PASS | PASS |
+| post-drive: sim alive on floor 5 | PASS | PASS |
+| audio: context running after gesture | FAIL | FAIL (same headless limitation; 17 plays dispatched) |
+| perf: 60 s drive | p50 120, p95 205, p99 325, max 896, 7.43 fps | **p50 104, p95 116, p99 128**, max **1,162**, **9.4 fps** |
+
+**The frame distribution tightened a lot and the tail got worse.** p95 205 → 116
+and p99 325 → 128 ms is the draw-call reduction showing up on a different
+engine; the single worst frame went 896 → 1,162 ms. `frames > 50 ms` reads
+564 of 564 — that metric is saturated on this stand-in and carries no
+information; p50/p95/p99 are the signal.
+
+**Do not read the 9.4 fps as an iPad number.** WebKit-on-Windows reports
+`Apple GPU` while running through a Windows compositor with no Metal path. It is
+a correctness-and-behaviour proxy, exactly as §5 says.
+
+Two 404s for `/assets/generated/index.json` are pre-existing (the builder's
+dev-only generated-content index is not in `dist/`) and benign.
+
+---
+
+## 15. What got worse
+
+Seven things. One is a real regression with an identified cause.
+
+1. **The shader-prewarm guard fails again: 0 → 2 programs built after boot.**
+   This is round 1's headline win partially undone, and it is the most important
+   item here. Both builds carry the `wl3p` (world-lit prop) custom cache key —
+   one with `uv` (mapped), one without.
+
+   *Cause, traced:* commit `0f6549f` ships prop batches with an `instanceColor`
+   attribute. `USE_INSTANCING_COLOR` forks a program permutation, and the prewarm
+   zoo's prop grid (`renderer3d.ts`, the "THE WORLD-LIT PROP GRID" block) builds
+   its `InstancedMesh` with `setMatrixAt` only — it **never calls `setColorAt`**,
+   so it never mints an `instanceColor` buffer and never builds the two
+   permutations the shipped batches now need. The grid closes the
+   `map × instancing` square; it does not close
+   `map × instancing × instanceColor`.
+
+   *Reproduced on both engines, not just WebKit* (`tools/_r2_shaderguard.mjs`,
+   headless Chrome, 25 s of play per scene, console tally of the in-app
+   shader guard):
+
+   | scene | prewarmed | built after boot |
+   |---|---:|---:|
+   | floor 2 | 259 | 0 |
+   | floor 5 | 261 | 0 |
+   | floor 10 | 261 | 0 |
+   | **floor 16** | 265 | **2** |
+   | **floor 5, WebKit** | 261 | **2** |
+
+   *Not fixed in this round, deliberately.* The fix is small — call `setColorAt`
+   on the zoo's instanced prop mesh so both permutations build behind the loading
+   card — but it changes the bundle, and every number in §12 was measured against
+   `iso-CPI36A8V.js` on a box that took two waits to get quiet. Shipping the fix
+   here would leave this sheet describing a build that is not HEAD. **It is the
+   first item for the next round**, and it should be re-gated with the WebKit
+   smoke plus `_r2_shaderguard.mjs` on all four floors.
+
+2. **Floor-10 triangles are up**: 936,992 (baseline) and 891,984 (round 1) →
+   954,430 / 1,025,009. The two runs disagree by 70k, and monsters-alive-at-end
+   was 120 and 125 against a baseline 119, so most of this tracks live monster
+   count on a scene §7 already documents as non-reproducible. But I cannot prove
+   it is *all* scene state. Floor 2 (478,696 / 479,038 vs 480,056) and floor 16
+   (872,026 / 875,226 vs 877,875) are flat, so whatever this is, it is specific
+   to floor 10. Flagged, not explained.
+
+3. **Longest long task on floor 10, run 1: 380 ms**, against round 1's 241 / 226.
+   Run 2 read 140 ms. Run 1 is the contended run. Both are far below the 622 ms
+   baseline, but round 1's result does not cleanly hold.
+
+4. **WebKit's worst single frame: 896 → 1,162 ms**, while every percentile below
+   it improved. One frame in a 60 s drive.
+
+5. **Resident programs are up ~4 per scene** (255/257/261 → 259/261/265). The
+   prewarm zoo grew to cover permutations earlier streams found. §4 named
+   resident program count as the prime suspect for round 1's floor-2 median
+   regression; that regression reversed anyway, which weakens the hypothesis
+   without killing it.
+
+6. **Floor-2 worst frame: 533.2 ms (baseline) → 766.6 / 1,033.3 ms.** Round 1
+   read 1,150 / 1,166, so this is better than round 1 and worse than baseline. It
+   is a single frame against a p99 of 33.4 / 49.9 ms.
+
+7. **Floor-16 delivered fps run 1 (26.3) is below the baseline (27.3)**, while
+   run 2 (32.1) is above it and above round 1. Run 1 is the contended run. The
+   scene's p50 has not moved in three measurements.
+
+---
+
+## 16. What only a real iPhone / iPad can settle
+
+§9 stands in full. Round 2 adds four items and sharpens one.
+
+1. **Whether cutting draw calls ~50% is worth what this round assumes it is.**
+   The entire premise — that draw calls dominate on a phone-class CPU through
+   WebKit's WebGL-to-Metal translation — is an *argument*, not a measurement.
+   Nothing on this box establishes the draw-call-to-frame-time conversion; the
+   census that opened the round could only bracket it at 0-20%. On the local
+   proxy floor 10 gained 9.1 → 18.9/16.6 fps across two rounds, but the local
+   proxy is immediate-mode D3D11 on an Intel iGPU, where the per-call cost is
+   *lower* than the thing this round is modelling. **If the premise is right the
+   device win is larger than the local one; if it is wrong the local number is
+   the whole win.** Only the device says which.
+2. **Whether the merged rigs still look right in motion, on a 6-inch screen.**
+   The gate proves pixels did not change across six frames a second of animation
+   apart, and the CPU-skinning verifier proves 4.674e-7 world units of positional
+   error across 68 characters and four poses. Neither proves a cape or a shoulder
+   plate reads correctly at arm's length while the camera moves.
+3. **Whether the prop-tint residual is visible on an OLED.** ~10 patches over
+   0.35% of a frame, on near-horizontal faces, from a shader recompile changing
+   `dFdx`/`dFdy` in their last bits. Invisible at 8x on a desktop panel. A
+   phone's contrast curve is not a desktop panel's.
+4. **Whether the two post-boot shader builds are felt.** On desktop they are two
+   hitches, once, at floor 16. On an iPad, where no shader disk cache softens them
+   and the compiler is Apple's, round 1's own evidence says post-boot builds are
+   exactly what the owner feels as a freeze.
+5. **Sharpened from §9.1:** round 1 said the *direction* of every change should
+   hold and the magnitudes would not. Round 2's changes are CPU-side draw
+   submission, which is the one class where a tile-based deferred renderer's
+   different cost model should *not* reverse the direction — the call still has to
+   cross the translation layer. That is the strongest reason to expect this round
+   to travel to the device, and it is still a reason, not a measurement.
+
+---
+
+## 17. Reproducing round 2
+
+```
+cd .claude/worktrees/perf-mobile/dungeon-crawler-carl
+npm run build
+STATIC_DIR=dist PORT=5288 npx tsx src/server/gameServer.ts &     # NOT vite preview
+curl -s localhost:5288/iso.html | grep -o 'iso-[A-Za-z0-9_-]*\.js'   # must match dist/
+curl -sI -H 'Accept-Encoding: gzip' localhost:5288/assets/characters/4gtn.glb | grep content-encoding
+# then WAIT for a quiet box: zero chrome-headless-shell root processes you did not start
+node tools/_perfprobe_wf.mjs        # twice, saving each run
+node tools/_perfprobe2_wf.mjs       # twice, saving each run
+node tools/_mobile/webkit_smoke.mjs
+node tools/_r2_shaderguard.mjs      # console tally of post-boot program builds
+```
+
+Port 5288 only. One headless browser at a time, closed in a `finally`. Check
+`foreignChromeCount` in the probe output **afterwards** — 77 is this box's floor
+(the owner's own Chrome); anything above it is a sibling stream that was inside
+your sample.
