@@ -36,6 +36,7 @@ import { TouchController } from "./input/touch";
 import { TouchDebugOverlay } from "./input/touchDebug";
 import { TouchShell } from "./input/touchShell";
 import { HudLayout, parseSafeOverride } from "./ui/hudLayout";
+import { annKey, NotifMix, type ClimaxKind, type NotifOp } from "./ui/notify";
 import {
   Segmented, attachPanel, hideSheet, showSheet, sheetOpen as mathSheetOpen,
 } from "./ui/panelTouch";
@@ -437,6 +438,9 @@ function startRun(mode: RunMode, runKind: GameState["runKind"] = "race"): void {
   // reach startRun are already deferred past module evaluation, so the card
   // surface's module-level state is live by the time this runs.
   resetTutorialSurface();
+  // ...nor a stale notification backlog, nor the previous run's death lock:
+  // the last run's news is not this run's news (src/ui/notify.ts).
+  resetNotifications();
   resetCoachSampling();
   // A new run is a new crawler: mid-step objective progress is re-earned
   // (completed steps are not — the curriculum is a career, not a run).
@@ -1738,11 +1742,10 @@ function fadeOutLogLine(el: HTMLElement): void {
  *  temporal dead zone that killed the whole host at boot. */
 const ANN_LIVE_MS = 3400;
 const liveAnnouncements = new Map<string, number>();
-/** Normalized so "Descending to floor 2." and "Descending to floor 2" are one
- *  line: case, surrounding space and terminal punctuation are presentation. */
-function annKey(text: string): string {
-  return text.toLowerCase().replace(/[\s.!:—-]+$/g, "").replace(/\s+/g, " ").trim();
-}
+// `annKey` (the exact-sentence key: case, surrounding space and terminal
+// punctuation are presentation) now lives in src/ui/notify.ts beside the
+// SHAPE key the notification mix coalesces on — one file owns "what counts as
+// the same line", and both surfaces read it from there.
 function noteLiveAnnouncement(text: string): void {
   const now = performance.now();
   for (const [k, exp] of liveAnnouncements) if (exp <= now) liveAnnouncements.delete(k);
@@ -1830,6 +1833,12 @@ function pushLogLine(text: string, spokenAloud = false): void {
  */
 function presentSimOutput(anns: readonly Announcement[], events: readonly string[]): void {
   for (const a of anns) showAnnouncement(a);
+  // ...and the mix is pumped HERE, not only on the frame tick, so a line the
+  // policy releases in the same frame it arrived claims its text before the
+  // feed drains below. A line the mix is HOLDING makes no claim, which is
+  // exactly right: the archive echo is the only copy the player has until it
+  // is released.
+  updateNotifications(state);
   if (events.length === 0) return;
   const spoken = new Set(anns.map((a) => annKey(a.text)));
   for (const e of events) pushLogLine(e, spoken.has(annKey(e)));
@@ -2235,6 +2244,9 @@ function postBossCall(
   bossCallEl.classList.remove("on");
   void (bossCallEl as HTMLElement).offsetWidth; // restart the punch
   bossCallEl.classList.add("on");
+  // ONE SYSTEM SENTENCE PER PATCH OF PIXELS: the headline band stands down
+  // while the call-out owns them (iso.html body.bosscall).
+  document.body.classList.add("bosscall");
 }
 
 function postBossBeat(text: string, seconds: number, strong = false): void {
@@ -2368,6 +2380,7 @@ function updateBossBar(s: GameState): void {
     bossCallUntil = 0;
     bossCallRank = 0;
     bossCallEl.classList.remove("on");
+    document.body.classList.remove("bosscall");
   }
   // ONE MARQUEE PER MOMENT (the rule the hype row already follows): during the
   // ringside freeze the NAME CARD owns the introduction, so the health plate
@@ -7955,6 +7968,7 @@ function spawnLevelUpText(p: Player): void {
 // nothing.
 const TOAST_MAX = 3; // visible toasts before the oldest is evicted
 const TOAST_HOLD_MS = 3200; // anchored near the action bar — doesn't need as long to catch
+const TOAST_FADE_MS = 350; // how long an evicted/expired node lingers mid-fade
 const BANNER_HOLD_MS = 3400;
 
 
@@ -8067,7 +8081,7 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
     if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
-    showBanner(a);
+    applyNotifOps(notif.offer(a, performance.now()));
     return;
   }
   // Level-ups get the world-space ring + floating text (see the
@@ -8076,12 +8090,13 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   if (a.kind === "levelup") return;
   if (!TICKER_KINDS[notifyLevel].includes(a.kind)) return; // HUD log still has it
   if (cleanMode) return; // ?clean=1: no toast chatter over showcase frames
-  // ...and the feed does not echo a line the player is reading centre-screen
-  // right now (see pushLogLine): identical text on two surfaces in the same
-  // instant is noise, not redundancy. Claimed here, at the moment the line is
-  // ACCEPTED for the louder surface, not when it eventually paints.
-  noteLiveAnnouncement(a.text);
-  queueToast(a);
+  // Everything past here is an OFFER, not a paint (src/ui/notify.ts): the mix
+  // ranks it, coalesces it against what is already on the glass, holds it
+  // under a climax lock and releases at most one line per pump. The line's
+  // claim on the feed (`noteLiveAnnouncement`) is made where it actually
+  // PAINTS, not here — a line the mix is holding for eight seconds must not
+  // suppress the archive echo that is doing its job in the meantime.
+  applyNotifOps(notif.offer(a, performance.now()));
 }
 
 /**
@@ -8096,80 +8111,210 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
  * same three subtitles stacked anyway (the collapse is a 350ms fade, so every
  * one of them is still on the glass while it happens).
  *
- * They are sequential news, so they are delivered sequentially: during a floor
- * transition — and for as long as the backlog it created lasts — toasts are
- * released one every TOAST_STAGGER_MS. Ordinary combat chatter is untouched
- * (a kill/loot burst stacking is the game's texture, not a wall of text at a
- * door): the meter only engages inside the transition window.
+ * They are sequential news, so they are delivered sequentially. That rule now
+ * lives in the mix below as the "descend" climax (one slot, and the gap is the
+ * previous line's own reading time), so it can no longer disagree with the
+ * cap, the ranking or the coalescer — which is how the audit still caught the
+ * descent firing three stacked subtitles plus four duplicated ticker lines at
+ * once after two rounds of fixing exactly that.
+ *
+ * THE MIX (src/ui/notify.ts). Everything above `showAnnouncement`'s tail is
+ * ROUTING — which surface a line belongs to. This is the POLICY — whether the
+ * glass can afford it right now, ranked, coalesced, and locked out of the
+ * game's biggest moments. `holdMs` restates TOAST_HOLD_MS + the fade, because
+ * the module models the glass and the host is the thing that knows how long a
+ * node actually lives here.
  */
-/** How long a metered line owns the glass before the next one is released:
- *  its own reading time, floored and capped. Nothing is deleted unread — the
- *  previous line has had this long, alone, before the next arrives. */
-function toastDwellMs(text: string): number {
-  return Math.min(2600, Math.max(1400, 26 * text.length));
+const notif = new NotifMix({
+  max: TOAST_MAX,
+  holdMs: TOAST_HOLD_MS + TOAST_FADE_MS,
+  bannerMs: BANNER_HOLD_MS,
+});
+
+function applyNotifOps(ops: readonly NotifOp[]): void {
+  for (const op of ops) {
+    switch (op.op) {
+      case "banner": showBanner(op.a); break;
+      case "toast": showToast(op.a, op.key, op.count, op.holdMs); break;
+      case "bump": bumpToast(op.key, op.text, op.count, op.holdMs); break;
+      case "hold": holdToast(op.key, op.holdMs); break;
+      case "retire": retireToast(op.key); break;
+      // "drop": nothing to do — the archive feed and the `log` array already
+      // have the line, and this channel is only about the loud surface.
+      default: break;
+    }
+  }
+  renderToastOverflow();
 }
-/** A door's worth of news. Past it the OLDEST queued line is dropped — the
- *  archive feed still has every one of them, and a trickle that outlives the
- *  moment it belongs to is the metronome bug in a different surface. */
-const TOAST_QUEUE_MAX = 5;
-const toastQueue: Announcement[] = [];
-let toastTimer = 0;
-let toastNextAt = -Infinity;
-function queueToast(a: Announcement): void {
-  const transition = performance.now() - floorSwitchAt < FLOOR_QUIET_MS;
-  if (!transition && toastQueue.length === 0 && toastTimer === 0) { showToast(a); return; }
-  toastQueue.push(a);
-  while (toastQueue.length > TOAST_QUEUE_MAX) toastQueue.shift();
-  drainToastQueue();
-}
-function drainToastQueue(): void {
-  if (toastTimer !== 0 || toastQueue.length === 0) return;
-  toastTimer = window.setTimeout(() => {
-    toastTimer = 0;
-    const next = toastQueue.shift();
-    // ONE AT A TIME MEANS ONE ON THE GLASS. The line being replaced has had
-    // its whole dwell alone; fading it as the next arrives is what makes a
-    // burst read as sequential news instead of as a wall that grew.
-    if (next) { fadeToasts(); showToast(next); }
-    drainToastQueue();
-  }, Math.max(0, toastNextAt - performance.now()));
-}
-/** Retire whatever is on the toast layer now (mid-fade, never yanked). */
-function fadeToasts(): void {
-  for (const old of [...toastLayer.children] as HTMLElement[]) {
-    if (old.dataset.dying) continue;
-    old.dataset.dying = "1";
-    old.classList.remove("show");
-    setTimeout(() => old.remove(), 350);
+
+/**
+ * GRACEFUL OVERFLOW, WITHOUT A SCROLLING LOG (owner standing rule). The
+ * backlog is ONE compact chip in the toast column's own slot, not a column
+ * that grows — and it stands down entirely inside a climax, because the whole
+ * point of the lock is that the boss bar and the death moment get clean glass.
+ */
+const toastMoreEl = document.createElement("div");
+toastMoreEl.className = "toast toast-more";
+toastMoreEl.dataset.chip = "1";
+function renderToastOverflow(): void {
+  const n = notif.pending();
+  const show = n > 0 && notif.climaxNow() === null;
+  if (!show) {
+    if (toastMoreEl.parentElement) toastMoreEl.remove();
+    return;
+  }
+  toastMoreEl.textContent = `+${n} more`;
+  if (!toastMoreEl.parentElement) {
+    toastLayer.appendChild(toastMoreEl);
+    requestAnimationFrame(() => toastMoreEl.classList.add("show"));
   }
 }
 
-function showToast(a: Announcement): void {
-  // Every line, metered or not, books its own reading time — so the first
-  // arrival line through a door cannot yank the corridor line it followed.
-  toastNextAt = performance.now() + toastDwellMs(a.text);
+/**
+ * THE CLIMAX LOCK — AAA-AUDIT.md gap #7, verbatim: "while a boss bar or death
+ * beat is active, queue normal-priority toasts/achievements; drain them
+ * after." Confirmed from play (owner verdict #2) and from the census: 93-100%
+ * of the frames with a boss health bar up also carried an unrelated overlay
+ * line, 79-92% carried three or more, and the staged boss capture was 322 of
+ * 322 frames.
+ *
+ * Four states, and each one is read from the thing itself rather than from a
+ * flag someone has to remember to set:
+ *  - "death"   — the local crawler just went down, or the run is over. The
+ *                census's restatement of #7 matters here: the IN MEMORIAM
+ *                card is already clean (4.2% of dead frames carried an
+ *                overlay); what was unprotected is the INSTANT, which arrived
+ *                under a PARTY WIPE banner AND a "succumbed to the poison"
+ *                toast. So this is a hard cut — see NotifMix.setClimax.
+ *  - "boss"    — the health plate, the ringside card, or a live call-out. The
+ *                fight's own lines still get through; nothing else does.
+ *  - "descend" — the door's sequential news (r3 finding 2), now expressed as
+ *                one slot with a reading-time gap instead of its own meter.
+ */
+const DEATH_BEAT_MS = 7000;
+/**
+ * The plate BLINKS. It engages on "nearest introduced elite/boss within 16m",
+ * so an elite that steps to 16.1m drops it for a few frames and brings it
+ * straight back. Without hysteresis every blink is an open door: measured at
+ * floor 13, chatter released into one of those gaps was on the glass for 53%
+ * of the scenario's boss-bar frames while every other scenario was at 0%.
+ */
+const BOSS_LINGER_MS = 1500;
+let deathBeatUntil = 0;
+let bossSeenAt = -Infinity;
+let climaxWasAlive = true;
+function climaxKind(): ClimaxKind {
+  const now = performance.now();
+  if (now < deathBeatUntil || state.status !== "playing") return "death";
+  if (state.encounter || bossCallUntil > hudNow
+    || document.body.classList.contains("bossplate")) bossSeenAt = now;
+  if (now - bossSeenAt < BOSS_LINGER_MS) return "boss";
+  if (now - floorSwitchAt < FLOOR_QUIET_MS) return "descend";
+  return null;
+}
+
+/**
+ * One frame of the notification mix. Called after updateBossBar so the lock
+ * sees THIS frame's plate, and from presentSimOutput so a line released in
+ * the same frame it arrived can claim its text before the archive feed drains
+ * (the r3 ordering rule — the announcer gets first refusal).
+ */
+function updateNotifications(s: GameState): void {
+  const now = performance.now();
+  const alive = s.status === "playing" && me(s).alive !== false;
+  if (climaxWasAlive && !alive) deathBeatUntil = now + DEATH_BEAT_MS;
+  climaxWasAlive = alive;
+  applyNotifOps(notif.setClimax(climaxKind(), now));
+  applyNotifOps(notif.pump(now));
+}
+
+/** A new run inherits no backlog and no death lock. */
+function resetNotifications(): void {
+  notif.reset();
+  deathBeatUntil = 0;
+  bossSeenAt = -Infinity;
+  climaxWasAlive = true;
+  for (const el of liveToasts()) fadeToastEl(el);
+  renderToastOverflow();
+}
+
+/** Live toast nodes — mid-fade ones are already gone as far as the cap is
+ *  concerned, and the chip is furniture, not a line. */
+function liveToasts(): HTMLElement[] {
+  return ([...toastLayer.children] as HTMLElement[])
+    .filter((e) => !e.dataset.dying && !e.dataset.chip);
+}
+
+/** Retire a node mid-fade, never yanked. */
+function fadeToastEl(el: HTMLElement): void {
+  if (el.dataset.dying) return;
+  el.dataset.dying = "1";
+  el.classList.remove("show");
+  setTimeout(() => el.remove(), TOAST_FADE_MS);
+}
+
+/** A lower-ranked line yielding to a climax: shortened, not yanked. */
+function holdToast(key: string, holdMs: number): void {
+  for (const el of liveToasts()) if (el.dataset.key === key) armToastHold(el, holdMs);
+}
+
+function retireToast(key: string): void {
+  for (const el of liveToasts()) if (el.dataset.key === key) fadeToastEl(el);
+}
+
+/** The mix's holdMs includes the fade; the DOM timer is to the fade's START.
+ *  Both surfaces read the SAME number, which is the only way the module's
+ *  model of the glass can stay true to the glass. */
+function armToastHold(el: HTMLElement, holdMs: number): void {
+  const prev = Number(el.dataset.holdTimer || 0);
+  if (prev) clearTimeout(prev);
+  el.dataset.holdTimer = String(setTimeout(() => fadeToastEl(el), Math.max(0, holdMs - TOAST_FADE_MS)));
+}
+
+/** Rule 3 on the glass: the line already up takes the count and the newest
+ *  wording instead of a second slot — but never past its maxLife, which the
+ *  mix enforces by shortening the holdMs it hands back here. */
+function bumpToast(key: string, text: string, count: number, holdMs: number): void {
+  for (const el of liveToasts()) {
+    if (el.dataset.key !== key) continue;
+    el.dataset.count = String(count);
+    el.textContent = count > 1 ? `${text}  ×${count}` : text;
+    el.classList.remove("bumped");
+    void el.offsetWidth; // restart the tick
+    el.classList.add("bumped");
+    armToastHold(el, holdMs);
+    return;
+  }
+}
+
+function showToast(a: Announcement, key: string, count: number, holdMs: number): void {
+  // ...and the feed does not echo a line the player is reading centre-screen
+  // right now (see pushLogLine). Claimed at the PAINT, which under the mix is
+  // the only moment the claim is true.
+  noteLiveAnnouncement(a.text);
   const el = document.createElement("div");
   el.className = `toast toast-${a.kind}`;
-  el.textContent = a.text;
-  toastLayer.appendChild(el);
+  el.dataset.key = key;
+  el.dataset.count = String(count);
+  el.textContent = count > 1 ? `${a.text}  ×${count}` : a.text;
+  // The chip stays at the bottom of the column-reverse stack: insert lines
+  // before it, never after.
+  toastLayer.insertBefore(el, toastMoreEl.parentElement === toastLayer ? toastMoreEl : null);
   // No tip reaches the ticker any more (the curriculum branch above either
   // paints a card or drops the line), so the ledger write that used to live
   // here is gone. The card path spends in displayTutorialCard, which is now
   // the ONLY place a sim tip becomes a once-EVER fact.
-  // Fade the oldest out instead of yanking it instantly — a burst of
-  // announcements (kill + loot + level-up) shouldn't cut one off mid-read.
-  // `if`, not `while`: each call adds exactly one child, and the evicted
-  // element lingers (mid-fade) for 350ms before actually leaving the DOM.
-  if (toastLayer.children.length > TOAST_MAX) {
-    const oldest = toastLayer.firstElementChild as HTMLElement;
-    oldest.classList.remove("show");
-    setTimeout(() => oldest.remove(), 350);
-  }
+  //
+  // THE CAP IS A BACKSTOP NOW, AND IT COUNTS CORRECTLY (census, measured up to
+  // TEN visible toasts against a declared TOAST_MAX of 3). The old path took
+  // `firstElementChild` and deleted it 350ms later WITHOUT marking it, so
+  // every toast arriving inside that fade re-evicted the SAME dying node and
+  // the layer grew unbounded through a burst. `liveToasts()` skips dying
+  // nodes, and `while` — not `if` — closes the gap for good.
+  const live = liveToasts();
+  while (live.length > TOAST_MAX) fadeToastEl(live.shift()!);
   requestAnimationFrame(() => el.classList.add("show"));
-  setTimeout(() => {
-    el.classList.remove("show");
-    setTimeout(() => el.remove(), 350);
-  }, TOAST_HOLD_MS);
+  armToastHold(el, holdMs);
 }
 
 // Headline moments (boss down, new band, wipe): one at a time, front and center.
@@ -8317,7 +8462,13 @@ function cardMomentMs(c: QueuedCard): number {
  * belongs to the modal).
  */
 function tutorialBlocked(): boolean {
-  return dlgOpen || document.body.classList.contains("modal");
+  // ...and a teaching card does not paint over the game's biggest moments
+  // either (AAA-AUDIT #7 — the census photographed an evergreen hype card on
+  // the rail through a boss fight and through a 16-mob floor-17 pack). The
+  // card WAITS: pumpTutorialQueue re-asks every 400ms, and dropStaleCards
+  // retires anything whose moment expired while the boss was up — unspent, so
+  // the lesson is still owed.
+  return dlgOpen || document.body.classList.contains("modal") || climaxKind() !== null;
 }
 
 /** Retire every card whose moment has passed — UNSPENT, so the concept is
@@ -13865,6 +14016,8 @@ async function main(): Promise<void> {
     updateSkills(state);
     updateShowHud(state);
     updateBossBar(state);
+    // After the plate, so the climax lock reads THIS frame's boss bar.
+    updateNotifications(state);
     drawMinimap(state);
     // The exit beacon projects through THIS frame's camera, so it is placed
     // after renderer.update the same way the damage numbers are.

@@ -551,7 +551,11 @@
            bottom strip:        #hud-log left · #cockpit center · #minimap right
                                 · #draft-badge pinned just above #cockpit (banked drafts)
                                 · #toasts pinned just above #draft-badge (normal-priority
-                                  System chatter)
+                                  System chatter). THE COLUMN IS CAPPED, NOT GROWN
+                                  (src/ui/notify.ts): at most 3 lines plus ONE
+                                  ".toast-more" chip carrying the held backlog. It
+                                  never scrolls and it stands down inside a climax
+                                  lock, so a boss bar or a death beat gets clean glass
            modals (z 20-28):    #inv/#abil/#sheet/#ledger 20 (#ledger = THE CRAWL
                                   LEDGER, NICHE.md 4.3: contracts/stamps/streak,
                                   toggled by the "ledger" binding, default L)
@@ -596,6 +600,14 @@
          bar. While it is up, the System's headline band steps down so the two
          never share pixels (host toggles body.bossplate). */
       body.bossplate #headline { top: max(28%, 232px); }
+      /* ...and the CALL-OUT (#bosscall, top max(27%, min(236px,34vh))) lands on
+         the same pixels as that stepped-down band. A census capture caught the
+         boss's "UNLOAD / EXPOSED CORE" painted straight through the System's
+         headline text — two System sentences, both unreadable, neither surface
+         aware the other existed. The call-out is the beat the fight is FOR and
+         it lasts ~3s, so the banner yields to it (host toggles body.bosscall),
+         the same stand-down grammar as body.bossplate #banner. */
+      body.bosscall #headline { visibility: hidden; }
       .ann { background: rgba(12,10,20,0.82); border: 1px solid #c9a24b; color: #f5e6bf;
         padding: 8px 16px; border-radius: 6px; font-size: 14px; letter-spacing: 0.3px;
         box-shadow: 0 4px 20px rgba(0,0,0,0.5); opacity: 0; transform: translateY(-8px);
@@ -828,6 +840,18 @@
       .toast-boss { --tc: #c0392f; } .toast-progress { --tc: #c9a24b; } .toast-levelup { --tc: #5a87c6; }
       .toast-loot { --tc: #9a6bd0; } .toast-achievement { --tc: #f2c14e; } .toast-show { --tc: #a99f8c; }
       .toast-flavor { --tc: #a99f8c; }
+      /* THE COALESCE TICK: a repeated line takes a count instead of a second
+         slot (src/ui/notify.ts rule 3 — at floor-13 pack density 43 of every
+         67 toasts a minute were the same sentence). The tick is how the player
+         can tell the counter moved rather than the line simply sitting there. */
+      .toast.bumped { animation: toast-bump 0.24s ease-out; }
+      @keyframes toast-bump { 40% { transform: translateY(-3px) scale(1.035); } }
+      /* GRACEFUL OVERFLOW, NOT A SCROLLING LOG: the backlog the mix is holding
+         is ONE compact chip in the column's own slot. It never grows, it never
+         scrolls, and it stands down entirely inside a climax lock. */
+      .toast.toast-more { --tc: #5f5a4e; background: rgba(12,10,20,0.62);
+        color: #8e8878; font-size: 11px; letter-spacing: 0.16em; padding: 2px 9px;
+        font-variant: small-caps; border-bottom-width: 1px; }
 
       /* Minimap: framed like an instrument, not a raw canvas — bronze bezel,
          corner-cap diamonds, inner vignette (house frame language). */

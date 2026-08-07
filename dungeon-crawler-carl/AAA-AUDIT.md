@@ -171,6 +171,36 @@ router — a climax lock: while a boss bar or death beat is active, queue
 normal-priority toasts/achievements; drain them after. The priority field
 already exists on `state.announcements`.
 
+**SHIPPED — the climax lock, `src/ui/notify.ts` + main3d's router.**
+Confirmed from play first (owner, 2026-08-07: "in late levels
+notifications... they're a total mess!"), then measured with
+`tools/_mixbrowser.mjs` over the shipping build and diffed with
+`tools/_notifdiff.mjs`. Rank → climax lock → coalesce → cap with a "+N
+more" chip → banner/ticker dedupe. Before → after, per staged scenario:
+- **boss bar up with an unrelated TOAST or teaching card on screen:
+  85-99.8% → 0.0% in every scenario.** What is left over a boss plate is
+  the fight's own lines and at most one `#headline` banner (its own zone,
+  one at a time, already stepped down by `body.bossplate`).
+- boss bar with 3+ overlay elements: 33-94% → 0.0-11.9%.
+- toast lines per sim-minute at pack density: 134-179 → 25-49.
+- max simultaneous overlay elements: 11 → 3 (worst case 6, at floor 17
+  with no boss up: 3 toasts + chip + banner + card).
+- the biggest repeated sentence went from 64-74% of the toast channel to
+  8-33%, because repeats now coalesce into one line with a `×N` count.
+- the INSTANT of death: 12.2 toasts/sim-min → **0**. The IN MEMORIAM card
+  was always clean (the census re-measured it at 4.2% overlay); what was
+  unprotected was the moment, which arrived under a PARTY WIPE banner AND
+  a "succumbed to the poison" toast. The banner is now the only line.
+Evidence: `tools/_shots/mixnotif4/climax_boss.png` (boss plate + UNLOAD
+call-out + two lines, both about this fight),
+`tools/_shots/mixnotif4/f15_pack_stack3_1.png` (the punish window is the
+newest of three fight lines, not buried under five combo counters),
+`tools/_shots/mixnotif4/climax_death.png` (IN MEMORIAM alone).
+Also closed here: the boss CALL-OUT used to paint through the `#headline`
+banner's text — two System sentences on the same pixels — which the
+census photographed and nobody had named. `body.bosscall` stands the
+banner down.
+
 **8. Loot has no ground presentation. (sev 4)**
 The "first loot" beat is an unlabeled tiny prop with no beam, no nameplate,
 no rarity color on the ground (`tools/_shots/audit_first/08_first_loot.png`);
