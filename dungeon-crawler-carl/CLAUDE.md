@@ -125,7 +125,10 @@ presentation:
                     bossFx.ts (BOSSES-V2 §5: per-boss signature table, the
                     shield/tether/punish/arena/plate/spore shaders, and the
                     camera intent a boss beat may borrow)
-  src/audio/        engine + manifest (clips, silent fallback) + director
+  src/audio/        engine + manifest (clips, silent fallback) + mix.ts (THE
+                    MIX LAYER: tiered voice budget, self-overlap caps, focus
+                    windows — SOUNDPLAN §2.5; what the director ASKS for and
+                    what SOUNDS are different things now) + director
                     (maps sim events → sound ids)
 support:
   src/input/        rebindable keys + mouse aim + notify verbosity (dcc:* keys)
@@ -153,7 +156,9 @@ Both loaders degrade gracefully, so the game always runs with zero assets:
   animator fuzzy-matches animation names, so new rigged packs inherit the
   animation state machine.
 - **Audio**: `src/audio/manifest.ts` loads from `public/audio/`; missing →
-  silence. New sounds: add to the manifest + map in `src/audio/director.ts`.
+  silence. New sounds: add to the manifest, map in `src/audio/director.ts`,
+  and give it a TIER in `src/audio/mix.ts` (unlisted ids fall through to a
+  pattern rule, which is a guess — SOUNDPLAN §2.5).
 - Record every new asset's origin + license in `ASSETS.md` (CC-BY additionally
   requires the in-game credits entry). `scripts/fetch-assets.sh` has download
   pointers.
