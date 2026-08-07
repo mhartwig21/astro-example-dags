@@ -6153,7 +6153,10 @@ function rebuildMinimapStatic(s: GameState, minX: number, minY: number, maxX: nu
         (wallAt(x - 1, y) && wallAt(x + 1, y)) || (wallAt(x, y - 1) && wallAt(x, y + 1));
       g.fillStyle =
         t === Tile.StairsDown ? "#e8b84f" :
-        t === Tile.DoorLocked ? "#f2c14e" :
+        // The seal wears its own hue here too (it used to be chart gold, which
+        // is also the stairs, also the walls' ink, also the EXIT diamond). A
+        // locked door and the key that opens it now match on every surface.
+        t === Tile.DoorLocked ? SEAL_CSS :
         corridor ? CORRIDOR : ROOM;
       g.fillRect(X(x), Y(y), sc + 0.5, sc + 0.5);
       if (t !== Tile.StairsDown && t !== Tile.DoorLocked) {
@@ -6262,7 +6265,22 @@ function drawMinimap(s: GameState): void {
     minY = Math.min(minY, Math.floor(s.map.stairs.y));
     maxY = Math.max(maxY, Math.floor(s.map.stairs.y));
   }
-  const key = `${s.floor}:${map.w}x${map.h}:${count}:${marked ? 1 : 0}`;
+  // THE KEY IS FRAMED THROUGH FOG — a deliberate choice, not an oversight.
+  // The chart auto-frames the EXPLORED region, so a key dropped in a room you
+  // then walked out of would sit outside the frame entirely and the mark would
+  // have nothing to draw on. The owner's complaint is that the key is
+  // missable; a chart that can only show it while you are already looking at
+  // it does not answer that. Nothing is given away: the key exists ONLY after
+  // the party killed the carrier, so its position is a fact they earned, and
+  // the surrounding map stays as dark as they left it.
+  const keyAt = keyOnFloor(s);
+  if (keyAt) {
+    minX = Math.min(minX, Math.floor(keyAt.x));
+    maxX = Math.max(maxX, Math.floor(keyAt.x));
+    minY = Math.min(minY, Math.floor(keyAt.y));
+    maxY = Math.max(maxY, Math.floor(keyAt.y));
+  }
+  const key = `${s.floor}:${map.w}x${map.h}:${count}:${marked ? 1 : 0}:${keyAt ? 1 : 0}`;
   if (key !== mmKey) {
     mmKey = key;
     rebuildMinimapStatic(s, minX, minY, maxX, maxY);
@@ -6282,9 +6300,16 @@ function drawMinimap(s: GameState): void {
     if (dx * dx + dy * dy > vis2) continue;
     const boss = m.kind === "boss";
     const cx = X(m.pos.x), cy = Y(m.pos.y);
-    const r = boss ? 3.6 : 2.1;
-    mmCtx.shadowColor = boss ? "rgba(255,110,70,0.9)" : "rgba(224,110,60,0.7)";
-    mmCtx.fillStyle = boss ? "#ff7a4d" : "#e0703f";
+    // The KEYHOLDER is not one of the reds: while it lives it is the floor's
+    // objective, so it burns in the seal's hue on the chart exactly as it does
+    // over its own head in the world. Still fog-gated like every other
+    // monster — the hunt is the floor, and this only makes the answer
+    // unmistakable once you can see it.
+    const holder = !!m.hasKey;
+    const r = boss ? 3.6 : holder ? 3.2 : 2.1;
+    mmCtx.shadowColor = holder ? "rgba(255,54,200,0.95)"
+      : boss ? "rgba(255,110,70,0.9)" : "rgba(224,110,60,0.7)";
+    mmCtx.fillStyle = holder ? SEAL_CSS : boss ? "#ff7a4d" : "#e0703f";
     mmCtx.strokeStyle = "rgba(10,7,4,0.85)";
     mmCtx.lineWidth = 0.8;
     mmCtx.beginPath();
@@ -6299,6 +6324,12 @@ function drawMinimap(s: GameState): void {
       mmCtx.beginPath();
       mmCtx.arc(cx, cy, r + 2.2, 0, Math.PI * 2);
       mmCtx.strokeStyle = "rgba(255,122,77,0.6)";
+      mmCtx.stroke();
+    }
+    if (holder) {
+      mmCtx.beginPath();
+      mmCtx.arc(cx, cy, r + 2 + Math.sin(performance.now() / 220) * 1.2, 0, Math.PI * 2);
+      mmCtx.strokeStyle = "rgba(255,54,200,0.75)";
       mmCtx.stroke();
     }
   }
@@ -6390,6 +6421,59 @@ function drawMinimap(s: GameState): void {
       mmCtx.fillText("EXIT", cx, cy + 15);
       mmCtx.restore();
     }
+  }
+  // THE KEY, LAST — nothing on this chart is allowed to draw over it.
+  // A keyhole glyph inside an expanding sonar ring: the shape says "key", the
+  // motion says "here", and the label says it in words for the player who is
+  // reading the chart for the first time under a collapse timer.
+  if (keyAt) {
+    const cx = X(keyAt.x), cy = Y(keyAt.y);
+    const t = performance.now() / 1000;
+    mmCtx.save();
+    // Sonar: two rings, half a cycle apart, so there is always one growing.
+    for (const phase of [0, 0.5]) {
+      const k = ((t * 0.9 + phase) % 1);
+      mmCtx.globalAlpha = 0.75 * (1 - k);
+      mmCtx.strokeStyle = SEAL_CSS;
+      mmCtx.lineWidth = 1.6;
+      mmCtx.beginPath();
+      mmCtx.arc(cx, cy, 3 + k * 9, 0, Math.PI * 2);
+      mmCtx.stroke();
+    }
+    mmCtx.globalAlpha = 1;
+    // Ink plate under the glyph: the chart's parchment is a mid value and a
+    // thin mark on it is exactly what got missed in the first place.
+    mmCtx.fillStyle = "rgba(8,5,3,0.85)";
+    mmCtx.beginPath();
+    mmCtx.arc(cx, cy, 5.4, 0, Math.PI * 2);
+    mmCtx.fill();
+    mmCtx.shadowColor = "rgba(255,54,200,0.95)";
+    mmCtx.shadowBlur = 7;
+    mmCtx.fillStyle = SEAL_CSS;
+    // Keyhole: a bit ring over a tapered stem.
+    mmCtx.beginPath();
+    mmCtx.arc(cx, cy - 1.2, 2.1, 0, Math.PI * 2);
+    mmCtx.fill();
+    mmCtx.beginPath();
+    mmCtx.moveTo(cx - 1.5, cy + 3.6);
+    mmCtx.lineTo(cx + 1.5, cy + 3.6);
+    mmCtx.lineTo(cx + 0.7, cy + 0.4);
+    mmCtx.lineTo(cx - 0.7, cy + 0.4);
+    mmCtx.closePath();
+    mmCtx.fill();
+    mmCtx.shadowBlur = 0;
+    mmCtx.fillStyle = "#15100b";
+    mmCtx.beginPath();
+    mmCtx.arc(cx, cy - 1.2, 0.85, 0, Math.PI * 2);
+    mmCtx.fill();
+    mmCtx.font = "700 8px ui-monospace, monospace";
+    mmCtx.textAlign = "center";
+    mmCtx.lineWidth = 2.5;
+    mmCtx.strokeStyle = "rgba(8,5,3,0.9)";
+    mmCtx.strokeText("KEY", cx, cy + 14);
+    mmCtx.fillStyle = SEAL_CSS;
+    mmCtx.fillText("KEY", cx, cy + 14);
+    mmCtx.restore();
   }
 }
 
@@ -8063,11 +8147,28 @@ function showAnnouncement(a: Announcement, hooks?: CardHooks): void {
   // longer reach HERE at all — the `kind === "tip"` branch above always
   // returns now — which tsc proved by calling the old `a.kind !== "tip"` guard
   // a comparison with no overlap. Kept as a comment rather than a dead test.
-  if (a.priority === "high") {
+  // THE KEY IS A HEADLINE (owner: the key must not be missable).
+  //
+  // The sim files every stairs-district line as `progress`/normal, which lands
+  // it in the right-rail ticker beside "+14 gold" — and the keyholder dies
+  // inside the loudest half-second on the floor (a kill, an elite payout, a
+  // level-up, four drops), which is precisely when a ticker line is read by
+  // nobody. Four lines carry the whole lock: the floor is locked, the
+  // keyholder is down, someone has the key, and the System waived the door.
+  // Each one is the difference between descending and not, so each one takes
+  // the centre banner instead.
+  //
+  // The sim is untouched (it is read-only for this branch): the promotion is
+  // host-side, and it is the priority this moment should have been authored
+  // with. MERGE NOTE for the notification-priority branch: these lines must
+  // come out of that filter as HIGH — masking a key line to reduce late-floor
+  // noise reintroduces exactly the run-ending bug this branch fixed.
+  const keyLine = a.kind === "progress" && /\bKEY(HOLDER)?\b|\bkey\b/i.test(a.text);
+  if (a.priority === "high" || keyLine) {
     // One presentation per moment: the ringside TITLE CARD (updateBossBar)
     // already announces the intro — no duplicate center banner on top of it.
     if (a.kind === "boss" && a.text.includes("RINGSIDE INTRODUCTION")) return;
-    showBanner(a);
+    showBanner(a, keyLine ? "ann banner key" : "ann banner");
     return;
   }
   // Level-ups get the world-space ring + floating text (see the
@@ -9533,6 +9634,154 @@ function renderExitMark(): void {
   const paces = `${Math.max(1, Math.round(exitDistance(state)))} paces`;
   if (paces !== exitMarkText) { exitMarkText = paces; exitMarkDist.textContent = paces; }
   if (!exitMarkShown) { exitMarkEl.style.display = "flex"; exitMarkShown = true; }
+}
+
+// ===========================================================================
+// THE KEY (owner verdict, from play): "in late levels its really easy to miss
+// the key lying on the floor. We really need to fix that! It should show on
+// the mini map and be obvious".
+//
+// From LOCKED_FLOOR_MIN (floor 3) up, the stairs district is sealed and one
+// resident carries the key. Kill it and the key lands wherever it died — on
+// floor 15 that is a room holding four corpses, a smashed barrel, three other
+// drops and whatever the last ultimate set on fire. A player who loses that
+// key cannot descend, and the collapse clock does not care. It is the single
+// hardest progression stop in the game.
+//
+// The fix is the EXIT's fix, applied to the other thing a floor can hide,
+// because that pattern is already shipped and already learned:
+//   - the CHART marks it (drawMinimap, in THEME.seal, framed through fog);
+//   - the WORLD marks it (the 6-unit seal pillar, renderer3d.dressKeyBeacon);
+//   - the GLASS marks it (#keymark below — the exit beacon's twin, same
+//     projection, same edge-pinning, same "N paces" grammar, its own colour);
+//   - and the drop is a HEADLINE, not ticker chatter (keyLine, below).
+// The seal doors wear the same hue, so "locked" and "the pink thing on the
+// floor" are one sentence rather than two facts a player has to join up.
+// ===========================================================================
+
+/** The seal's hue, once. Must equal THEME.seal — the chart and the CSS marker
+ *  are the two surfaces three.js cannot hand it to. */
+const SEAL_CSS = "#ff36c8";
+
+/** The dropped key, if this floor has one lying on the ground right now. */
+function keyOnFloor(s: GameState): { x: number; y: number } | null {
+  if (!s.map.locked) return null;
+  const k = s.loot.find((l) => l.kind === "key");
+  return k ? { x: k.pos.x, y: k.pos.y } : null;
+}
+
+/**
+ * THE NEAREST SEAL a crawler is actually standing in front of.
+ *
+ * Point 5 of the ask: a player who reaches the sealed stairs without the key
+ * must be told what is missing. The world already says "locked" (the wards),
+ * but the words live here, and they are PROXIMITY-GATED on purpose: the locked
+ * doors ring the stairs room, so marking them from across the map would hand
+ * out the exit's position for free and quietly delete the floor's search. At
+ * 7 tiles the door is on your screen already — naming it costs nothing.
+ */
+const SEAL_PROMPT_TILES = 7;
+function nearestSeal(s: GameState): { x: number; y: number } | null {
+  if (!s.map.locked) return null;
+  const p = me(s);
+  if (!p) return null;
+  const map = s.map;
+  let best: { x: number; y: number } | null = null;
+  let bestD = SEAL_PROMPT_TILES * SEAL_PROMPT_TILES;
+  for (let i = 0; i < map.tiles.length; i++) {
+    if (map.tiles[i] !== Tile.DoorLocked) continue;
+    const x = (i % map.w) + 0.5, y = Math.floor(i / map.w) + 0.5;
+    const d = (x - p.pos.x) ** 2 + (y - p.pos.y) ** 2;
+    if (d < bestD) { bestD = d; best = { x, y }; }
+  }
+  return best;
+}
+
+/**
+ * What the key marker is pointing at this frame, and what it says.
+ *
+ * Two states, and the order matters: a key on the ground always outranks a
+ * door, because once the key exists the door is no longer the problem.
+ *   - "KEY"     — it is down and nobody has picked it up. Always, floor-wide.
+ *   - "SEALED"  — no key yet, but you are at a gate. Says what is missing.
+ * While the keyholder is still alive and you are nowhere near a door, this is
+ * silent: hunting the carrier is the floor, and the carrier already wears the
+ * seal over its head.
+ */
+function keyMarkTarget(s: GameState):
+  { pos: { x: number; y: number }; label: string; sealed: boolean } | null {
+  if (s.status !== "playing") return null;
+  const k = keyOnFloor(s);
+  if (k) return { pos: k, label: "KEY", sealed: false };
+  const door = nearestSeal(s);
+  if (door) return { pos: door, label: "SEALED", sealed: true };
+  return null;
+}
+
+/**
+ * THE KEY BEACON — #exitmark's twin (r11's pattern, deliberately not a new
+ * one). Same projection, same edge chevron, same paces grammar; the only
+ * differences are the colour it wears and the fact that it does not retire,
+ * because unlike the debut's exit lesson, a missing key is not something a
+ * player stops being able to lose after floor 1.
+ */
+const keyMarkEl = document.getElementById("keymark")!;
+const keyMarkArrow = keyMarkEl.querySelector("i") as HTMLElement;
+const keyMarkLabel = keyMarkEl.querySelector("b") as HTMLElement;
+const keyMarkDist = keyMarkEl.querySelector("em") as HTMLElement;
+let keyMarkShown = false;
+let keyMarkText = "";
+let keyMarkLabelText = "";
+function renderKeyMark(): void {
+  const target = keyMarkTarget(state);
+  const on = !!target && !menuOpen && !document.body.classList.contains("modal")
+    && !document.body.classList.contains("checkin") && !atShopCounter();
+  if (!on || !target) {
+    if (keyMarkShown) { keyMarkEl.style.display = "none"; keyMarkShown = false; }
+    return;
+  }
+  const W = window.innerWidth, H = window.innerHeight;
+  const sp = renderer.worldToScreen(target.pos.x, 1.2, target.pos.y);
+  let x = sp.x, y = sp.y;
+  if (!sp.visible) { x = W - x; y = H - y; } // un-mirror the behind-camera case
+  const cx = W / 2, cy = H / 2;
+  const mx = Math.max(48, Math.min(140, W * 0.06));
+  // ASYMMETRIC MARGINS, measured off a real 1600x900 frame. The exit beacon's
+  // single margin put this marker's bottom-edge case straight onto the hotbar,
+  // where the one thing a lost player needs — the range — was crammed into the
+  // ability row. The bottom keeps clear of the cockpit, the top of the boss
+  // plate, and the top band also sits BELOW the exit beacon's, so on the rare
+  // floor that lights both they never stack into one unreadable glyph.
+  const myTop = Math.max(64, Math.min(160, H * 0.1)) + 34;
+  const myBot = Math.max(140, Math.min(220, H * 0.19));
+  const off = !sp.visible || x < mx || x > W - mx || y < myTop || y > H - myBot;
+  let ang = 0;
+  if (off) {
+    let dx = x - cx, dy = y - cy;
+    const len = Math.hypot(dx, dy) || 1;
+    dx /= len; dy /= len;
+    const my = dy < 0 ? myTop : myBot;
+    const t = Math.min(
+      Math.abs((W / 2 - mx) / (Math.abs(dx) < 1e-4 ? 1e-4 : dx)),
+      Math.abs((H / 2 - my) / (Math.abs(dy) < 1e-4 ? 1e-4 : dy)),
+    );
+    x = cx + dx * t;
+    y = cy + dy * t;
+    ang = Math.atan2(dy, dx) + Math.PI / 2; // the glyph points UP at rest
+  }
+  x = Math.max(mx, Math.min(W - mx, x));
+  y = Math.max(myTop, Math.min(H - myBot, y));
+  keyMarkEl.style.transform = `translate(${Math.round(x)}px, ${Math.round(y)}px) translate(-50%, -50%)`;
+  keyMarkArrow.style.transform = `rotate(${ang}rad)`;
+  keyMarkEl.classList.toggle("edge", off);
+  keyMarkEl.classList.toggle("sealed", target.sealed);
+  const p = me(state);
+  const dist = p ? Math.hypot(target.pos.x - p.pos.x, target.pos.y - p.pos.y) : 0;
+  // A gate says what it wants; a key says how far away it is.
+  const dText = target.sealed ? "find the key" : `${Math.max(1, Math.round(dist))} paces`;
+  if (dText !== keyMarkText) { keyMarkText = dText; keyMarkDist.textContent = dText; }
+  if (target.label !== keyMarkLabelText) { keyMarkLabelText = target.label; keyMarkLabel.textContent = target.label; }
+  if (!keyMarkShown) { keyMarkEl.style.display = "flex"; keyMarkShown = true; }
 }
 
 /**
@@ -13869,6 +14118,7 @@ async function main(): Promise<void> {
     // The exit beacon projects through THIS frame's camera, so it is placed
     // after renderer.update the same way the damage numbers are.
     renderExitMark();
+    renderKeyMark();
     updateRoamUi(state);
     requestAnimationFrame(frame);
   }

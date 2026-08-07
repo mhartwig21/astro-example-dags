@@ -1917,6 +1917,14 @@ export class Renderer3D {
   private portalPos: Vec2 | null = null;
   private wasInSafeRoom = false;
   private lastExploredVersion = -1;
+  /**
+   * THE SEALS. One ward per DoorLocked tile, parented to floorGroup so the
+   * rebuild on unlock (mapVersion bump) disposes them for free. They pulse in
+   * THEME.seal — the same hue as the key that opens them — so a crawler who
+   * walks into the sealed stairs district reads "this is locked, and the thing
+   * that opens it is that colour" without a single line of text.
+   */
+  private sealWards: THREE.Object3D[] = [];
 
   // Ability visuals, per player id.
   private orbitBlades = new Map<number, THREE.Group[]>();
@@ -5482,7 +5490,7 @@ export class Renderer3D {
       scale = 0.55;
     } else if (l.kind === "key") {
       obj = this.modelInstance("key");
-      scale = 0.6;
+      scale = 1.15; // the one pickup on the floor that gates the floor: read it big
     } else if (l.kind === "tome") {
       const book = this.models["armory_arcana"]?.scene.getObjectByName("Spellbook");
       if (book) { obj = book.clone(true); scale = 0.8; }
@@ -5547,12 +5555,93 @@ export class Renderer3D {
       beam.position.y = 1.4;
       group.add(beam);
     }
+    if (l.kind === "key") this.dressKeyBeacon(group, obj);
     return group;
+  }
+
+  /**
+   * THE KEY BEACON (owner verdict: "in late levels its really easy to miss the
+   * key lying on the floor ... it should be obvious").
+   *
+   * A late floor's room is corpses, smashed furniture, four other drops and
+   * whatever the last ultimate left burning. A 0.6-scale gold key with the
+   * same soft halo as a copper coin loses that fight every time, and losing it
+   * is not a missed pickup — it is a run that cannot descend while the
+   * collapse clock runs. So the key stops being loot and becomes a LANDMARK,
+   * and it is deliberately over-built on four separate channels, because any
+   * one of them can be swallowed by a busy frame:
+   *
+   *   COLOUR  — THEME.seal, which nothing else in the game may use.
+   *   HEIGHT  — a 6-unit pillar. Corpses are ~0.3 tall, props ~1.5, the walls
+   *             ~2.2: the beacon has to clear all of it and still be on
+   *             screen, so it leaves the top of the frame.
+   *   FOOTPRINT — a rune ring on the ground, so the pillar has a THERE. A
+   *             beam alone is ambiguous about which tile to stand on.
+   *   MOTION  — counter-rotating rings and a breathing core, so a static
+   *             cluttered frame still has one thing pulsing in it.
+   *
+   * Everything is additive and depth-write-off (the shipped beam recipe), so
+   * it never occludes the fight happening in front of it. No point light: a
+   * three.js light added mid-fight recompiles every material in the scene, and
+   * a hitch at the exact moment a keyholder dies is a worse bug than the one
+   * being fixed.
+   */
+  private dressKeyBeacon(group: THREE.Group, keyMesh: THREE.Object3D | null): void {
+    const seal = THEME.seal;
+    // The key itself burns — the model ships gold-metal, which is the colour
+    // the whole complaint is about.
+    keyMesh?.traverse((c) => {
+      const mesh = c as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const mat = (mesh.material as THREE.MeshStandardMaterial).clone();
+      mat.emissive = new THREE.Color(seal);
+      mat.emissiveIntensity = 1.15;
+      mesh.material = mat;
+    });
+    const add = (o: THREE.Object3D): THREE.Object3D => { group.add(o); return o; };
+    const beamMat = (color: number, opacity: number): THREE.MeshBasicMaterial =>
+      new THREE.MeshBasicMaterial({
+        color, transparent: true, opacity,
+        blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+      });
+    // The pillar: wide skirt, white-hot core inside it. Taller and ~3x the
+    // girth of a legendary's beam — the key outranks any drop on the floor.
+    const skirt = new THREE.Mesh(new THREE.CylinderGeometry(0.16, 0.42, 6.0, 12, 1, true), beamMat(seal, 0.4));
+    skirt.position.y = 2.7;
+    add(skirt);
+    const core = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.14, 6.0, 8, 1, true), beamMat(THEME.sealCore, 0.5));
+    core.position.y = 2.7;
+    add(core);
+    // The mark on the floor: a filled disc under a bright rim, so the tile to
+    // stand on is unambiguous even when the pillar is off the top of frame.
+    const disc = new THREE.Mesh(new THREE.CircleGeometry(0.95, 30), beamMat(seal, 0.22));
+    disc.rotation.x = -Math.PI / 2;
+    disc.position.y = -0.32;
+    add(disc);
+    const rim = new THREE.Mesh(new THREE.RingGeometry(0.82, 0.97, 30), beamMat(THEME.sealCore, 0.5));
+    rim.rotation.x = -Math.PI / 2;
+    rim.position.y = -0.31;
+    add(rim);
+    // Two broken rings, counter-rotating: a solid ring's spin is invisible.
+    const ringA = new THREE.Mesh(new THREE.RingGeometry(0.55, 0.72, 24, 1, 0, Math.PI * 1.5), beamMat(seal, 0.6));
+    ringA.rotation.x = -Math.PI / 2;
+    ringA.position.y = -0.24;
+    add(ringA);
+    const ringB = new THREE.Mesh(new THREE.RingGeometry(1.05, 1.16, 28, 1, 0, Math.PI * 1.25), beamMat(THEME.sealCore, 0.45));
+    ringB.rotation.x = -Math.PI / 2;
+    ringB.position.y = -0.3;
+    add(ringB);
+    // A second halo above the model so the beacon has a bright waist at eye
+    // height — the read from across a room, before the pillar registers.
+    const waist = this.makeGlow(seal, 2.2);
+    waist.position.y = 0.35;
+    add(waist);
+    group.userData.keyFx = { skirt, core, ringA, ringB, waist, rim, disc };
   }
 
   private lootColor(kind: string): number {
     if (kind === "tome") return 0x66f0c8; // ability tome: unmistakable teal
-    if (kind === "key") return 0xffd23e; // stairs-district key: bright gold
+    if (kind === "key") return THEME.seal; // stairs-district key: the seal owns its own hue
     if (kind === "shrine") return 0xc58cff; // System Shrine: bargain purple
     if (kind === "service") return 0xc9a24b; // service contract: System gold
     return kind === "gold" ? THEME.gold : kind === "heal" ? THEME.heal : THEME.weaponLoot;
@@ -6618,6 +6707,67 @@ export class Renderer3D {
           break;
         }
       }
+    }
+
+    // 2b) THE SEAL ITSELF (owner: the key must be obvious — and so must the
+    //     thing it opens). A locked door used to be an ordinary door block
+    //     with a banner beside it: a crawler arriving at the stairs district
+    //     with no key had nothing on the glass explaining why the way down
+    //     refused them. Each sealed tile now wears a standing rune plate in
+    //     THEME.seal plus a threshold arc on the floor — the same hue the key
+    //     and its chart glyph wear, so "sealed" and "the pink thing" are one
+    //     sentence. Additive, depth-write off, one tiny group per door.
+    this.sealWards = [];
+    for (let i = 0; i < map.tiles.length; i++) {
+      if (map.tiles[i] !== Tile.DoorLocked) continue;
+      const dx0 = (i % map.w) + 0.5, dy0 = Math.floor(i / map.w) + 0.5;
+      // Face the plate ACROSS the opening, not edge-on: a door passable along
+      // map-y (three.js Z) wants its normal on Z, which is the plane's rest
+      // orientation; the other case turns a quarter.
+      const walkable = (n: number): boolean =>
+        n >= 0 && n < map.tiles.length && map.tiles[n] !== Tile.Wall;
+      const openNS = walkable(i - map.w) || walkable(i + map.w);
+      const ward = new THREE.Group();
+      ward.position.set(dx0, 0, dy0);
+      if (!openNS) ward.rotation.y = Math.PI / 2;
+      const wardMat = (color: number, opacity: number): THREE.MeshBasicMaterial =>
+        new THREE.MeshBasicMaterial({
+          color, transparent: true, opacity,
+          blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+        });
+      // Both faces get the seal — a crawler can arrive at a gate from either
+      // side, and half a landmark is a landmark you can walk past.
+      for (const s of [1, -1] as const) {
+        const face = new THREE.Group();
+        face.rotation.y = s === 1 ? 0 : Math.PI;
+        const plate = new THREE.Mesh(new THREE.PlaneGeometry(0.98, 1.05), wardMat(THEME.seal, 0.3));
+        plate.position.set(0, 0.62, 0.52);
+        plate.userData.sealRole = "field";
+        face.add(plate);
+        // THE KEYHOLE — the same silhouette the chart draws for the dropped key
+        // (a bit ring over a tapered stem). A first pass used a torus padlock
+        // and the capture showed why that was wrong: at this camera distance the
+        // ring and its shackle merge into one bright oval that says "magic",
+        // not "locked". A keyhole survives being 40 pixels tall, and it is
+        // already the shape the player will next see on the minimap.
+        const bit = new THREE.Mesh(new THREE.CircleGeometry(0.115, 18), wardMat(THEME.sealCore, 0.95));
+        bit.position.set(0, 0.72, 0.55);
+        face.add(bit);
+        const stemShape = new THREE.Shape();
+        stemShape.moveTo(-0.1, -0.24); stemShape.lineTo(0.1, -0.24);
+        stemShape.lineTo(0.045, 0.02); stemShape.lineTo(-0.045, 0.02);
+        const stem = new THREE.Mesh(new THREE.ShapeGeometry(stemShape), wardMat(THEME.sealCore, 0.95));
+        stem.position.set(0, 0.72, 0.55);
+        face.add(stem);
+        const sill = new THREE.Mesh(new THREE.RingGeometry(0.5, 0.72, 20, 1, Math.PI * 1.15, Math.PI * 0.7), wardMat(THEME.seal, 0.5));
+        sill.rotation.x = -Math.PI / 2;
+        sill.position.set(0, 0.03, 0.62);
+        sill.userData.sealRole = "field";
+        face.add(sill);
+        ward.add(face);
+      }
+      this.floorGroup.add(ward);
+      this.sealWards.push(ward);
     }
 
     // 3) Corner clutter clusters (2 corners per room, 1-2 props each). The pool
@@ -8730,6 +8880,27 @@ export class Renderer3D {
       (this.portalSwirl.material as THREE.MeshBasicMaterial).opacity = 0.32 + 0.1 * Math.sin(time * 2.6);
       if (this.portalCore) this.portalCore.rotation.z = -time * 2.6;
     }
+    // The seals breathe in step with each other — a floor's locks are ONE
+    // system, so they pulse as one rather than as a dozen unrelated props.
+    if (this.sealWards.length > 0) {
+      // Measured off a capture: at 0.24-0.40 the field painted the doors out
+      // into flat pink panels and outshouted the key beacon itself in the same
+      // frame. The gate is a STATEMENT, not the objective — the field sits back
+      // far enough that the door art still reads through it, and the keyhole
+      // above keeps the brightness.
+      const glow = 0.13 + 0.11 * (0.5 + 0.5 * Math.sin(time * 2.2));
+      for (const ward of this.sealWards) {
+        ward.traverse((o) => {
+          const mesh = o as THREE.Mesh;
+          if (!mesh.isMesh) return;
+          const mat = mesh.material as THREE.MeshBasicMaterial;
+          // The plate and the threshold arc are the soft FIELD; the keyhole
+          // glyph stays hot, because the glyph is the part that has to be
+          // readable from across the room.
+          mat.opacity = mesh.userData.sealRole === "field" ? glow : 0.6 + glow;
+        });
+      }
+    }
     const inSafeRoom = !!state.safeRoom;
     if (inSafeRoom && !this.wasInSafeRoom && this.portalPos) {
       this.burst(this.portalPos.x, this.portalPos.y, 0xc9a24b, 16, 0.85, 1.3);
@@ -9614,13 +9785,32 @@ export class Renderer3D {
         this.scene.remove(tel);
         this.telegraphs.delete(mon.id);
       }
-      // Key carrier: a floating gold octahedron over the head marks the keyholder.
+      // Key carrier: a floating seal-coloured octahedron over the head marks
+      // the keyholder. It wears THEME.seal and carries a halo of its own, so
+      // "the thing that has the key" and "the key on the ground" are visibly
+      // the same errand — the hunt hands off to the beacon without the player
+      // having to be told twice.
       let marker = this.keyMarkers.get(mon.id);
       if (mon.hasKey && !marker) {
         marker = new THREE.Mesh(
-          new THREE.OctahedronGeometry(0.16, 0),
-          flat(0xffd23e, { emissive: 0xaa7700, emissiveIntensity: 0.9, metalness: 0.6, roughness: 0.3 }),
+          new THREE.OctahedronGeometry(0.26, 0),
+          flat(THEME.seal, { emissive: THEME.seal, emissiveIntensity: 1.1, metalness: 0.6, roughness: 0.3 }),
         );
+        marker.add(this.makeGlow(THEME.seal, 1.3));
+        // ...and a slim mast above it. A capture of a real floor-15 melee had
+        // the head mark sitting inside a red boss telegraph with four bodies on
+        // top of it: an 0.26 octahedron loses that frame. The mast is thin
+        // enough to cost nothing and tall enough to be the only seal-coloured
+        // thing standing up out of the scrum.
+        const mast = new THREE.Mesh(
+          new THREE.CylinderGeometry(0.035, 0.075, 2.0, 6, 1, true),
+          new THREE.MeshBasicMaterial({
+            color: THEME.seal, transparent: true, opacity: 0.5,
+            blending: THREE.AdditiveBlending, depthWrite: false, side: THREE.DoubleSide,
+          }),
+        );
+        mast.position.y = 1.1;
+        marker.add(mast);
         this.scene.add(marker);
         this.keyMarkers.set(mon.id, marker);
       } else if (!mon.hasKey && marker) {
@@ -10333,10 +10523,33 @@ export class Renderer3D {
         this.scene.add(mesh); this.loot.set(l.id, mesh);
       }
       // Equipment bobs a touch higher and spins faster so drops read as "loot".
-      const lift = l.kind === "item" || l.kind === "tome" ? 0.55 : 0.4;
+      const lift = l.kind === "key" ? 1.0 : l.kind === "item" || l.kind === "tome" ? 0.55 : 0.4;
       mesh.position.set(l.pos.x, lift + Math.sin(time * 3 + l.id) * 0.08, l.pos.y);
       mesh.rotation.y = time * 2.4;
-      mesh.visible = inVision(l.pos);
+      // THE KEY IS NEVER FOGGED. Every other drop is a reward you find by
+      // being there; the stairs-district key is the floor's gate, and a
+      // beacon that switches off the moment you turn a corner is exactly the
+      // "where did it go" the owner reported. Once it is on the ground its
+      // pillar burns through fog and walls until someone picks it up — the
+      // sim already told the whole party it exists.
+      const fx = mesh.userData.keyFx as Record<string, THREE.Object3D> | undefined;
+      if (fx) {
+        mesh.visible = true;
+        const breathe = 0.78 + 0.22 * Math.sin(time * 3.4);
+        (fx.skirt as THREE.Mesh).scale.set(breathe, 1, breathe);
+        ((fx.core as THREE.Mesh).material as THREE.MeshBasicMaterial).opacity = 0.34 + 0.22 * breathe;
+        fx.ringA.rotation.z = time * 1.1;
+        fx.ringB.rotation.z = -time * 0.7;
+        (fx.waist as THREE.Sprite).scale.setScalar(2.0 + 0.45 * breathe);
+        // The rings and the disc live in the group, which BOBS — undo the bob
+        // for the ground marks so they stay welded to the tile.
+        const bob = mesh.position.y - lift;
+        for (const o of [fx.disc, fx.rim, fx.ringA, fx.ringB]) {
+          if (o) o.position.y = (o.userData.y0 ??= o.position.y) - bob;
+        }
+      } else {
+        mesh.visible = inVision(l.pos);
+      }
     }
     for (const [id, mesh] of this.loot) {
       if (!lootSeen.has(id)) { this.scene.remove(mesh); this.loot.delete(id); }

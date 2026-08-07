@@ -69,3 +69,7 @@ tools/_prunestage/
 # same rule as every other harness above — the probe scripts are committed,
 # the 135 MB of PNGs they photograph are not.
 tools/_shots/
+
+# Key-visibility round captures (tools/_key_visible.mjs): same rule as every
+# harness above — the probe IS the artifact, its multi-megabyte frames are not.
+tools/_keyshots/
