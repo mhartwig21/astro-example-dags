@@ -64,3 +64,8 @@ tools/audio/_r2_sheets/audition.html
 # Clip-prune staging (tools/asset-pipeline/prune-character-clips.mjs writes
 # candidate GLBs here before --apply copies them into public/).
 tools/_prunestage/
+
+# Tutorial round captures (tools/_tut_shoot_*.mjs, tools/_tut_fix_r2.mjs):
+# same rule as every other harness above — the probe scripts are committed,
+# the 135 MB of PNGs they photograph are not.
+tools/_shots/

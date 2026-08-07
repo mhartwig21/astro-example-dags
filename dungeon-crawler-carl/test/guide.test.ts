@@ -2,8 +2,15 @@
  * THE GUIDE (TUTORIAL.md): the pure beat sequencer — sim facts in, at most
  * one never-before-seen beat out. These tests hold the doc's binding rules:
  * once EVER per beat, one beat per surface visit, the System demonstrates
- * before Mordecai debriefs (B6), socketing must be POSSIBLE before B7, the
- * global skip consumes everything, and the two voices never share a line.
+ * before Mordecai debriefs (B6), socketing must be POSSIBLE before B7, and
+ * the global skip consumes everything.
+ *
+ * RESCOPED by the tutorial rebuild (ONE VOICE): the old "two voices never
+ * share a line" tests now bind the MODAL surface only. Mordecai teaches
+ * mechanics on the STRIP by design (src/ui/coach.ts — test/coach.test.ts
+ * asserts coverage there); what stays forbidden HERE is the modal beats
+ * restating the sim TIPS' mechanism text — the modal is judgement, the strip
+ * is instruction, and no line may live on both sides of that seam.
  */
 import { describe, expect, it } from "vitest";
 import {
@@ -91,11 +98,11 @@ describe("guide: once-ever beats on the shipped ledger pattern", () => {
     expect(g.menuReturn(5)).toBeNull();
   });
 
-  it("the global skip consumes every beat and silences both voices", () => {
+  it("the global skip consumes every beat and silences every surface", () => {
     const g = new Guide();
     const keys = g.skipAll();
     expect(new Set(keys)).toEqual(new Set([...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY]));
-    expect(g.skipped).toBe(true); // onrampObserve reads this: no more onramp lines
+    expect(g.skipped).toBe(true); // coachObserve/objectivesObserve read this: no more lines
     expect(g.campfire()).toBeNull();
     expect(g.draftOpen()).toBeNull();
     expect(g.safeRoomBeat({ showMet: true, glyphReady: true })).toBeNull();
@@ -152,13 +159,18 @@ describe("a beat is spent when it PAINTS (r5 blocker 1)", () => {
   });
 });
 
-describe("guide: the two voices never sound like each other (TUTORIAL.md B2)", () => {
+describe("guide: THE MODAL SURFACE — judgement, never the System's text (rescoped)", () => {
+  // These tests bind GUIDE_BEATS (the #dialogue modal) and ONLY that surface.
+  // The strip (src/ui/coach.ts) deliberately names mechanisms and keys — its
+  // inverse rule lives in test/coach.test.ts. A line moved between surfaces
+  // changes which law applies; the surface is named here so a green suite
+  // stays green about the right thing.
   const beatText = Object.values(GUIDE_BEATS).flatMap((b) => [
     ...b.lines,
     ...b.choices.flatMap((c) => (c.reply ? [c.reply] : [])),
   ]);
 
-  it("no Mordecai line wears the System's ribbon or register", () => {
+  it("no modal line wears the dead COURTESY ribbon or the announcer register", () => {
     for (const line of beatText) {
       expect(line).not.toMatch(/COURTESY EXPLANATION/);
       expect(line).not.toMatch(/^NOTICE:/);
@@ -166,7 +178,7 @@ describe("guide: the two voices never sound like each other (TUTORIAL.md B2)", (
     }
   });
 
-  it("no System tip text ever reaches the dialogue surface, verbatim or trimmed", () => {
+  it("no System tip text ever reaches the MODAL surface, verbatim or trimmed", () => {
     for (const tip of Object.values(TIPS)) {
       const body = tip.replace(/^COURTESY EXPLANATION:\s*/, "");
       for (const line of beatText) {
@@ -180,10 +192,11 @@ describe("guide: the two voices never sound like each other (TUTORIAL.md B2)", (
   // between floors" against "sponsors send gifts between floors"). A paraphrase
   // is not a quotation, so quotation-matching cannot see it. This is the
   // coarser instrument that can: two lines about the same MECHANISM converge
-  // on the same content words, and the division-of-labor rule says only one
-  // voice per mechanism. Domain nouns are not exempted on purpose — if
-  // Mordecai needs three of a tip's words to make his point, his point IS the
-  // tip's point, and the fix is to find the thing the System will never say.
+  // on the same content words, and only one surface owns a mechanism. The
+  // STRIP (coach.ts) owns mechanism now — so a MODAL beat needing three of a
+  // tip's content words means his modal point IS the strip's point, and the
+  // fix is still the same: the modal says the thing the mechanism line will
+  // never say (what it costs you, and why you should pay it anyway).
   const PARAPHRASE_LIMIT = 3;
   const content = (s: string): Set<string> =>
     new Set((s.toLowerCase().match(/[a-z']{4,}/g) ?? []).filter((w) => !STOP.has(w)));
@@ -196,7 +209,7 @@ describe("guide: the two voices never sound like each other (TUTORIAL.md B2)", (
     "something", "everything", "one", "two", "their", "which", "would", "could", "should",
   ]);
 
-  it("no beat paraphrases a System tip's mechanism (r4 blocker: B6)", () => {
+  it("no MODAL beat paraphrases a sim tip's mechanism (r4 blocker: B6; modal-only law)", () => {
     for (const [id, tip] of Object.entries(TIPS)) {
       const tw = content(tip.replace(/^COURTESY EXPLANATION:\s*/, ""));
       for (const line of beatText) {

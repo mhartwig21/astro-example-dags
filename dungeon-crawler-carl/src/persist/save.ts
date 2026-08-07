@@ -48,6 +48,26 @@ export function recordTips(ids: string[] | undefined): void {
   }
 }
 
+/**
+ * THE ONE WAY BACK (tutorial r1 major). The ledger is otherwise append-only,
+ * on purpose — a once-ever line that came back would not be once-ever. But the
+ * campfire's "Skip the hand-holding" writes twelve keys from a single input,
+ * and a first-timer who took it by accident had no undo, no confirm and no
+ * signal that anything had happened. Destroying an onboarding permanently on a
+ * mistyped digit is a data-loss defect; this is its inverse, and it is only
+ * ever reachable from an explicit control the player pressed.
+ */
+export function forgetTips(ids: string[]): void {
+  if (!ids.length) return;
+  try {
+    const drop = new Set(ids);
+    const kept = knownTips().filter((id) => !drop.has(id));
+    localStorage.setItem(TIPS_KEY, JSON.stringify(kept));
+  } catch {
+    // Best-effort, like the run save.
+  }
+}
+
 /** Mark every previously-seen tip as already delivered to this character. */
 export function seedTips(p: Player): void {
   const merged = new Set([...(p.tipsSeen ?? []), ...knownTips()]);
@@ -72,6 +92,11 @@ export interface SaveData {
   // Roam campaigns: quest progress, consumed vendor stock, smashed hoards
   // (#25) — overlaid onto the deterministically rebuilt floor on CONTINUE.
   roam?: RoamSaveState;
+  // THE DEBUT (TUTORIAL.md first-run mercy): was this world created as a fresh
+  // profile's first run? It has to round-trip, or a first-timer who refreshes
+  // the tab mid-floor-1 resumes into a world where the mercy silently stopped
+  // existing. Absent on every save written before the flag existed.
+  firstRun?: boolean;
   // Character progression only — the floor itself is regenerated from seed + floor,
   // so we never persist transient monster/loot/timer state. Effective stats
   // (maxHp/baseDamage/…) are recomputed from level + bonuses + equipment on load.
@@ -118,6 +143,7 @@ export function toSaveData(state: GameState, p: Player, mode?: RunMode): SaveDat
       mode,
       runKind: state.runKind,
       roam: state.runKind === "roam" ? toRoamSave(state) : undefined,
+      firstRun: state.firstRun || undefined,
       player: {
         name: p.name,
         skin: p.skin,
