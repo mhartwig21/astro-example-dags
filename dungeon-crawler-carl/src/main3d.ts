@@ -4598,6 +4598,13 @@ function shelfLinkClass(s: GameState, e: CatalogEntry): string {
   return "";
 }
 
+/** Gear, buyable right now, and the slot it wants is empty — the one shelf
+ *  state that is true of every debut crawler and of almost nobody else. */
+function fillsEmptySlot(s: GameState, e: CatalogEntry): boolean {
+  if (e.slot === undefined) return false;
+  return !me(s).equipment[e.slot] && buyBlocker(s, e) === null;
+}
+
 function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, number>): string {
   const room = shopRoomOf(s)!;
   const p = me(s);
@@ -4619,6 +4626,11 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
     // shelf. The one state the shop never showed and the only one that answers
     // "what can I actually click?" — the tempo read, at a glance.
     buyBlocker(s, e) === null ? "ready" : "",
+    // FILLS AN EMPTY SLOT (r9, severity 5): "ready to buy" answers what you
+    // CAN click; on a shelf full of near-identical prices it does not answer
+    // what is worth clicking. A crawler wearing nothing has that answer on
+    // their own equipped row, and this is that row projected onto the shelf.
+    fillsEmptySlot(s, e) ? "fits" : "",
     shelfLinkClass(s, e),
   ].filter(Boolean).join(" ");
   const stockBadge = Number.isFinite(left) && !soldOut && !locked
@@ -4626,9 +4638,12 @@ function shelfTileHtml(s: GameState, e: CatalogEntry, owned: Record<string, numb
   // The tile's hover text now carries the NAME plus why it can't be bought —
   // the grid stops being 40 anonymous icons even before the card renders.
   const blocker = buyBlocker(s, e);
+  const readyText = fillsEmptySlot(s, e)
+    ? ` — READY TO BUY · FILLS YOUR EMPTY ${String(e.slot).toUpperCase()} SLOT`
+    : " — READY TO BUY";
   return (
     `<div class="${cls}" data-id="${e.id}" style="--tc:${TIER_COLOR[e.tier]}" ` +
-    `title="${esc(e.name)}${blocker ? ` — ${blocker}` : " — READY TO BUY"}">` +
+    `title="${esc(e.name)}${blocker ? ` — ${blocker}` : readyText}">` +
     `<div class="ibox">${itemIconHtml(e.id)}${stockBadge}<b class="gem"></b></div>` +
     `<div class="iprice">${soldOut ? "SOLD OUT" : `${coin}${price}`}</div>` +
     `</div>`
@@ -5383,6 +5398,16 @@ function renderShopPage(s: GameState): void {
   const room = shopRoomOf(s);
   if (!room) return;
   const p = me(s);
+  // THE FIRST SHELF FOLDS THE WANT-LIST (r9, severity 5 — the affordance
+  // count). THE CHASE is five drop-only boss uniques with no prices: it
+  // cannot be bought, it is undefined vocabulary at the one shelf that has
+  // never been explained to anybody, and it was one of six navigation
+  // affordances on a tutorial's first shop. It is a FOLD, not a lock — the
+  // same rule as `body.coldboot` on the menu — and it returns at shop 2, by
+  // which point the panel has taught its own words once.
+  const foldChase = !!objectives && !objectives.finished && (shopRoomOf(s)?.nextFloor ?? 9) - 1 <= 1;
+  if (foldChase && shopView === "chase") shopView = "stock";
+  srTabChase.style.display = foldChase ? "none" : "";
   srTabStock.classList.toggle("active", shopView === "stock");
   srTabAll.classList.toggle("active", shopView === "all");
   srTabChase.classList.toggle("active", shopView === "chase");
@@ -5488,7 +5513,11 @@ function renderShopSide(s: GameState): void {
       (hidden > 0
         ? `<div class="itile more" title="${hidden} more item${hidden === 1 ? "" : "s"} — sell or equip to thin the bag"><div class="ibox">+${hidden}</div></div>`
         : "")
-    : `<span class="bempty">empty — buy components, they wait here</span>`;
+    // r9 (severity 5): the old copy — "buy components, they wait here" — was
+    // the bag repeating the shop lesson's false claim. Gear you buy for an
+    // OPEN slot never touches the bag; the sim equips it on purchase. The bag
+    // is where the second-best copy waits, and where either one is sold.
+    : `<span class="bempty">empty — gear you buy for an open slot goes straight on you; the rest waits here, and sells here</span>`;
   renderShopDetail(s);
 }
 
@@ -9047,10 +9076,36 @@ function cheapestShelfPrice(s: GameState): number {
  */
 function shopLessonLine(s: GameState): string {
   const p = me(s);
+  // WHAT IS WORTH BUYING, not merely what is cheapest (r9, severity 5). A
+  // debut crawler stands at this shelf wearing nothing, and the answer to
+  // "which of these 24 tiles" is the one that fills a slot they have open.
+  const fits = cheapestFittingEntry(s);
+  if (fits) return shopBeatLine("fits", fits.name, fits.price, p.gold, fits.slot);
   const cheapest = cheapestShelfEntry(s);
   if (!cheapest) return "";
   return shopBeatLine(cheapest.price > p.gold ? "broke" : "afford",
     cheapest.name, cheapest.price, p.gold);
+}
+
+/**
+ * The cheapest thing on this shelf that is BUYABLE RIGHT NOW and lands in an
+ * EMPTY equipment slot — the tile whose value a first-timer can verify in one
+ * glance at their own equipped row. `buyBlocker` is the same gate the tile's
+ * `ready` ring reads, so the lesson can never name something the panel will
+ * refuse to sell. Null when the crawler is fully dressed or nothing fits.
+ */
+function cheapestFittingEntry(s: GameState): { name: string; price: number; slot: string } | null {
+  const room = shopRoomOf(s);
+  if (!room) return null;
+  const p = me(s);
+  let best: { name: string; price: number; slot: string } | null = null;
+  for (const e of CATALOG) {
+    if (e.slot === undefined || p.equipment[e.slot]) continue;
+    if (buyBlocker(s, e) !== null) continue;
+    const price = effectivePrice(p, e.id, room.nextFloor);
+    if (!best || price < best.price) best = { name: e.name, price, slot: e.slot };
+  }
+  return best;
 }
 
 /**

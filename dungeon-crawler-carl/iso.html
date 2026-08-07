@@ -4369,6 +4369,14 @@
         0 0 7px rgba(242,193,78,0.18); }
       .itile.ready .iprice { color: #f2c14e; }
       .tier-h .tnote.ready { color: #b99648; }
+      /* FILLS AN EMPTY SLOT (r9): the debut crawler's read. "Ready" says what
+         you can click; this says which of the ready tiles you are not already
+         wearing a better version of — a green corner flag, the same green the
+         OWNED pip uses, on the opposite corner so the two never collide. */
+      .itile.fits .ibox::after { content: ""; position: absolute; right: 0; bottom: 0;
+        border: 5px solid transparent; border-right-color: #6da356; border-bottom-color: #6da356;
+        opacity: 0.9; }
+      .itile.fits .ibox { border-color: #6da356; }
       /* BUILD LINKAGE: selecting a completed work lights its components (green
          = in the bag, amber-dashed = the next thing to buy); selecting a
          component lights what it builds into. */

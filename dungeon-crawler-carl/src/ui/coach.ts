@@ -317,11 +317,31 @@ export const COACH_TIP_IDS: readonly string[] = Object.keys(COACH_TIP_BEATS);
 // that actually generated (main3d's shopLessonLine), so the lesson can never
 // name a tile that is not there or a price that is not the one on it.
 // ---------------------------------------------------------------------------
-export const COACH_SHOP_BEATS: Record<"afford" | "broke", TeachBeat> = {
+// r9 (critic finding, severity 5) — THE SHELF'S OWN COPY WAS THE DEFECT.
+//
+// The finding was "18 of 24 buyable tiles do nothing yet, against an empty
+// equipped row". The shelf is not the liar; this paragraph was. Every
+// basic-tier entry in `sim/catalog.ts` carries a `slot` AND `affixes` — they
+// are wearable stat sticks — and `buyCatalogItem` (sim/game.ts) equips a
+// bought piece the instant its slot is empty or its score beats what is worn.
+// A debut crawler's equipped row is six empty slots, so on the FIRST shelf
+// every one of those tiles goes ON THE CRAWLER at the moment of purchase.
+// The only sentence on the glass about them said the opposite — "parts rather
+// than gear ... they build into the real thing at a later shelf" — so the
+// panel talked a first-timer out of the one shelf where nothing is deferred.
+// It says the true thing now, and there is a third variant for the case the
+// critic was actually looking at: an EMPTY SLOT, named, with the tile that
+// fills it. `{slot}` is a host substitution off the crawler's own equipment.
+export const COACH_SHOP_BEATS: Record<"afford" | "broke" | "fits", TeachBeat> = {
+  fits: {
+    verb: "Buy", needsKey: false,
+    instruction: "Buy the {item} for {price} gold — your {slot} slot is empty, so it goes straight on you.",
+    wry: "Tiles marked COMPONENTS are gear you wear today that a later shelf builds into something bigger; nothing here is saving itself for later, and anything already in your bag sells here.",
+  },
   afford: {
     verb: "Buy", needsKey: false,
     instruction: "Buy the {item} for {price} gold — it is the one thing on this shelf your purse can reach.",
-    wry: "Gold you spend is gear; gold you hoard is ballast. Tiles marked COMPONENTS are parts rather than gear — they build into the real thing at a later shelf — and anything already in your bag sells here.",
+    wry: "Gold you spend is gear; gold you hoard is ballast. Tiles marked COMPONENTS are gear you wear today that a later shelf builds into something bigger, and anything already in your bag sells here.",
   },
   broke: {
     verb: "Read", needsKey: false,
@@ -330,14 +350,16 @@ export const COACH_SHOP_BEATS: Record<"afford" | "broke", TeachBeat> = {
   },
 };
 
-/** Render a shop beat with the live shelf numbers substituted. */
+/** Render a shop beat with the live shelf numbers substituted. `slot` is the
+ *  empty equipment slot the `fits` form names; the other two ignore it. */
 export function shopBeatLine(
-  which: "afford" | "broke", item: string, price: number, gold: number,
+  which: "afford" | "broke" | "fits", item: string, price: number, gold: number, slot = "",
 ): string {
   return renderBeat(COACH_SHOP_BEATS[which])
     .replace(/\{item\}/g, item)
     .replace(/\{price\}/g, String(price))
-    .replace(/\{gold\}/g, String(gold));
+    .replace(/\{gold\}/g, String(gold))
+    .replace(/\{slot\}/g, slot);
 }
 
 /** The host-side translation seam: a curriculum tipId in, Mordecai's line

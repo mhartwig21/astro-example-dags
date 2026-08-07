@@ -10,6 +10,98 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r9 — THE SHELF SAID THE FALSE THING: the severity-5 pair (host + instrument)
+
+The fourth critic round scored 6.5 and left nine findings above severity 5 that
+are curriculum-architecture work, plus exactly two at severity 5. This round is
+those two, at their cause. **Zero `src/sim` changes — `RULES_HASH` is untouched
+and no recorded run proof is retired.** Measured on the glass by
+`tools/_tut_r9_shelf.mjs` (one browser, port 5287, cold profile, 9/9 green);
+frame in `tools/_shots/tut_r9/shelf_first.png`.
+
+1. **"THE FIRST SHELF IS 18/24 TILES THAT DO NOTHING YET, AGAINST AN EMPTY
+   EQUIPPED ROW."** The shelf was never the liar; the panel's own copy was.
+   Every `basic`-tier catalog entry (`src/sim/catalog.ts`) carries a `slot` AND
+   `affixes` — they are wearable stat sticks — and `buyCatalogItem`
+   (`src/sim/game.ts`, the `p.equipment[item.slot]` branch) equips a purchase
+   the instant its slot is empty or its score beats what is worn. A debut
+   crawler's equipped row is six empty slots, so on the FIRST shelf nothing is
+   deferred for anybody. The only two sentences on the glass about it said the
+   opposite: `COACH_SHOP_BEATS.afford` called COMPONENTS tiles "parts rather
+   than gear — they build into the real thing at a later shelf", and the bag's
+   empty state said "buy components, they wait here". The shop talked the
+   player out of the one shelf where everything works immediately. Four fixes:
+   - The beats say the true thing (`gear you wear today that a later shelf
+     builds into something bigger`), and `test/coach.test.ts` fails any shelf
+     beat that defers a COMPONENTS tile without saying it is useful today.
+   - A third form, **`fits`**, exists for the case the critic was looking at:
+     it names the EMPTY SLOT and the tile that fills it ("your weapon slot is
+     empty, so it goes straight on you"). `shopLessonLine` prefers it, off
+     `cheapestFittingEntry` — cheapest, buyable NOW (same `buyBlocker` gate the
+     tile's ready ring reads), landing in a slot the crawler has open.
+   - The shelf carries the same read: `fillsEmptySlot` adds a `fits` class and
+     a green corner flag, and the tile's own hover text names the slot. "Ready
+     to buy" answers what you CAN click; on 24 tiles priced within 20 gold of
+     each other it never answered what is worth clicking. Measured cold at the
+     bare 40-gold stipend: 3 of the 4 ready tiles marked, all three STARTER.
+   - **THE CHASE is folded at the first shelf** while the curriculum is live
+     (returns at shop 2). Five drop-only boss uniques with no prices cannot be
+     bought, are undefined vocabulary, and were one of six navigation
+     affordances on a tutorial's first shop. A fold, not a lock — the same rule
+     as `body.coldboot` on the menu. Sub-tabs at the first shelf: 3 → 2.
+
+   The 18-tile COMPONENTS row is deliberately NOT thinned. Thinning it would
+   have been the symptom fix: those tiles are the build tree and they are
+   wearable, so the defect was always the sentence next to them.
+2. **THE INSTRUMENT WAS NOT TRUSTWORTHY ENOUGH TO CERTIFY ITS OWN ROUND.**
+   Three defects in `tools/_tut_r7_cold.mjs`, all the same mistake in different
+   clothes — a SAMPLED observation published as a MEASURED outcome:
+   - `engagements` incremented once per decision tick spent inside engage
+     range, so it counted dwell and was then compared to a swing COUNT as if
+     they shared a unit (B: 433 vs 36; A: 52 vs 93). It counts ENTRY EDGES now,
+     with dwell kept separately as `contactTicks` and `swings` renamed
+     `swingAttempts`, which is what it always was.
+   - `stepStates[title].peak` never observed the completing frame, so "Get
+     Moving".peak was 2 in all five passes while `obj.move` ledgered every
+     time — and the round read that gap as a defect in the game rather than in
+     its own sampling rate. Completion is READ FROM THE LEDGER every tick now
+     (`ledgerAt` timestamps each `obj.*` key); `peak` is a labelled footnote.
+   - `reachedFive` was set true when the step ARMED, which is what produced the
+     headline "4/4 reached THE FIVE" against an actual 2/4 completion. Arming
+     and completion are two fields (`armedFive` / `completedFive`), plus
+     `stepsCompleted` and `curriculumComplete`, and the headline prints both.
+   Also: `TUT_OUT` now selects the shots directory. A round may not overwrite
+   the battery that judged it — the r7/r8 evidence in `tools/_shots/tut_r7` is
+   the only before-picture there is.
+
+**Verified on the glass** (`_tut_r9_shelf.mjs`, staged safe room on a cold
+enrolled profile — labelled a STAGED UI CHECK, never reported as a cold
+outcome): lesson "Buy the Boxcutter for 35 gold — your weapon slot is empty, so
+it goes straight on you", 3 fits-marked tiles of 4 ready, sub-tabs
+`[IN STOCK, ALL ITEMS]`, bag copy corrected. The corrected instrument was also
+re-run cold (profile D, 210s): `armedFive: true, completedFive: false` — the
+distinction the round had been publishing as one number.
+
+**Owed after this round, and named honestly.** Everything the critic filed at
+severity 6+ is untouched and is one piece of architecture: the coach prose slot
+multiplexes reactive tips with objective teaching, fires each step's intro once,
+caps lectures at seven, and never re-nudges an unfinished item
+(`src/ui/coach.ts:344` — "null means DROP"). That is the root cause of the
+stalls, the unclaimed drafts, and the two profiles that ended a 7.5-minute
+session on step 2. It is a rewrite of the slot's ownership rules, not a patch.
+Also owed: monotonic first-session progress, stairs wayfinding under the
+collapse clock, mercy escalation/diagnosis on a stuck floor 1, the draft-claim
+prompt, THE SHOW's untaught vocabulary, and the verdict screen's nine choices.
+
+One severity-3 item is NARROWED but not fixed, deliberately: "Mordecai's panel
+persists as an empty chrome box after graduation" (A_99_final.png). It is not
+`#coach-head` — `body.coaching` correctly hides that the moment `finished`
+turns true (iso.html:574-575). It is `#tutorial .tut-head`, which
+`body.coaching` hides *while* the curriculum runs (iso.html:665) and therefore
+un-hides at graduation, leaving a strip card's plaque with no body under it.
+Fixing it without a reproduction would be a guess, and this feature's own law
+is that a claim about delivery is a claim about pixels.
+
 ## r8 — THE COLUMN AND THE ROOM: the third critic round, host-side
 
 Five host findings, each fixed at its cause. Zero sim changes — `RULES_HASH` is

@@ -381,6 +381,39 @@ describe("GEAR, EQUIPPING AND THE SHELF ARE TAUGHT BY SOMEBODY (r3, finding 4)",
     // No token survives to the glass in either form.
     for (const line of [afford, broke]) expect(line).not.toMatch(/\{[a-z]+\}/);
   });
+
+  // r9, severity 5: "the first shelf is 18/24 tiles that do nothing yet". The
+  // shelf was never the liar — every basic-tier catalog entry has a `slot` and
+  // `affixes`, and buyCatalogItem equips into an empty slot on purchase. The
+  // panel's own copy was what deferred them, and a debut crawler is exactly
+  // the crawler for whom nothing on that shelf is deferred.
+  it("no shelf beat may call a COMPONENTS tile something you cannot wear today", () => {
+    for (const [id, b] of Object.entries(COACH_SHOP_BEATS)) {
+      const line = renderBeat(b);
+      expect(line, `shop:${id}`).not.toMatch(/parts rather than gear/i);
+      expect(line, `shop:${id}`).not.toMatch(/build into the real thing/i);
+      // Any mention of a later shelf must be the ADDITIONAL claim, never the
+      // only one: the tile has to be useful today in the same breath.
+      if (/later shelf/i.test(line)) expect(line, `shop:${id}`).toMatch(/wear today/i);
+    }
+    // The claim that replaced it has to be the true one, in both forms that
+    // mention the tile label at all.
+    for (const which of ["fits", "afford"] as const) {
+      expect(renderBeat(COACH_SHOP_BEATS[which])).toMatch(/COMPONENTS are gear you wear today/);
+    }
+  });
+
+  it("the `fits` beat names the EMPTY SLOT, so the value is checkable on the equipped row", () => {
+    const fits = shopBeatLine("fits", "Boxcutter", 35, 131, "weapon");
+    expect(fits).toContain("Boxcutter");
+    expect(fits).toContain("35 gold");
+    expect(fits).toContain("weapon slot is empty");
+    expect(fits).not.toMatch(/\{[a-z]+\}/);
+    // ...and the slot token never leaks into the forms that do not take one.
+    for (const which of ["afford", "broke"] as const) {
+      expect(shopBeatLine(which, "Boxcutter", 35, 131)).not.toMatch(/\{slot\}/);
+    }
+  });
 });
 
 describe("SHIFT IS THE DASH, AND THE STRIP MAY NOT SAY OTHERWISE (r2 blocker)", () => {
