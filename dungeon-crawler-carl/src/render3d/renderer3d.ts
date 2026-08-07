@@ -4,7 +4,7 @@ import { RenderPass } from "three/examples/jsm/postprocessing/RenderPass.js";
 import { GTAOPass } from "three/examples/jsm/postprocessing/GTAOPass.js";
 import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPass.js";
 import { OutputPass } from "three/examples/jsm/postprocessing/OutputPass.js";
-import { ShaderPass } from "three/examples/jsm/postprocessing/ShaderPass.js";
+import { OutputShader } from "three/examples/jsm/shaders/OutputShader.js";
 import { SMAAPass } from "three/examples/jsm/postprocessing/SMAAPass.js";
 import { Tile, type BossEvent, type GameState, type HitEvent, type Monster, type Player, type Vec2 } from "../sim/types";
 import { DEFAULT_MOOD, THEME, type BandMood } from "./theme";
@@ -79,11 +79,6 @@ function flat(color: number, opts: Partial<THREE.MeshStandardMaterialParameters>
   return new THREE.MeshStandardMaterial({ color, flatShading: true, roughness: 0.85, metalness: 0.05, ...opts });
 }
 
-// Final display-space grade: per-band split-tone (darks lift toward the
-// district's shadow hue — colored dark, never true black — brights tint toward
-// its highlight), gentle saturation, and a film vignette tinted to the band's
-// void color. Runs AFTER OutputPass (tone map + sRGB), so it grades the same
-// values the player sees.
 /**
  * Walks the golden ratio to hand each rig a distinct mixer-flush phase — see
  * the phase-spread note in the rate-gated mixer. Module scope because it must
@@ -160,50 +155,107 @@ function bodyNum(o: THREE.Object3D): BodyNum {
   return n;
 }
 
-const GradeShader = {
-  uniforms: {
-    tDiffuse: { value: null as THREE.Texture | null },
-    uShadow: { value: new THREE.Color(DEFAULT_MOOD.gradeShadow) },
-    uHighlight: { value: new THREE.Color(DEFAULT_MOOD.gradeHighlight) },
-    uSaturation: { value: DEFAULT_MOOD.gradeSaturation },
-    uVignette: { value: DEFAULT_MOOD.vignette },
-    uVigColor: { value: new THREE.Color(DEFAULT_MOOD.voidOuter) },
-  },
-  vertexShader: /* glsl */ `
-    varying vec2 vUv;
-    void main() {
-      vUv = uv;
-      gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-    }`,
-  fragmentShader: /* glsl */ `
-    uniform sampler2D tDiffuse;
-    uniform vec3 uShadow;
-    uniform vec3 uHighlight;
-    uniform float uSaturation;
-    uniform float uVignette;
-    uniform vec3 uVigColor;
-    varying vec2 vUv;
-    void main() {
-      vec4 c = texture2D(tDiffuse, vUv);
-      float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
-      // Shadow lift: raise the blacks toward the band hue — a WHISPER of
-      // color in the dark, not a wash (a strong lift floats the whole
-      // darkness up to a flat lavender sheet).
-      c.rgb += uShadow * (1.0 - smoothstep(0.0, 0.3, l)) * 0.45;
-      // Highlight tint: pre-normalized to luma 1 CPU-side, so this shifts hue
-      // without changing exposure.
-      c.rgb *= mix(vec3(1.0), uHighlight, smoothstep(0.35, 1.0, l) * 0.4);
-      c.rgb = mix(vec3(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))), c.rgb, uSaturation);
-      // Film vignette, tinted toward the band's void rather than dead black.
-      // Capped to the OUTER ~10% of frame (final pass, issue #1): a vignette
-      // that starts mid-frame was stacking with the murk and crushing 60%+
-      // of every shot below 5% luminance.
-      float d = length(vUv - 0.5) * 1.4142;
-      float vig = 1.0 - uVignette * smoothstep(0.84, 1.16, d);
-      c.rgb = mix(uVigColor, c.rgb, vig);
-      gl_FragColor = c;
-    }`,
-};
+// ---------------------------------------------------------------------------
+// THE FINAL DISPLAY PASS — tone map + sRGB encode + the band grade, in ONE
+// full-screen pass.
+//
+// The grade is the per-band split-tone (darks lift toward the district's
+// shadow hue — colored dark, never true black — brights tint toward its
+// highlight), a gentle saturation pull, and a film vignette tinted to the
+// band's void color. It has to run on DISPLAY-REFERRED values, i.e. after
+// three's OutputPass has tone-mapped and sRGB-encoded the HDR frame, and it
+// still does: the body below is appended to the END of OutputShader's main().
+//
+// WHY IT IS NO LONGER ITS OWN PASS. It used to be a ShaderPass added
+// immediately after OutputPass — six ALU ops that cost a whole extra
+// full-resolution round trip: read the entire composed frame out of one
+// RGBA16F ping-pong target and write it into the other. On the integrated
+// part the post chain is roughly half the frame (quality.ts GPU_LAYERS) and a
+// full-screen pass is priced in BANDWIDTH, not in instructions, so the
+// cheapest shader in the chain was not a cheap pass. Composed here it is a
+// few instructions on a pass that was already running.
+//
+// IDENTICAL BY CONSTRUCTION, and that is the whole safety argument: the tone
+// map + color space half is three's own OutputShader source, unedited, and
+// the grade half is the previous fragment body verbatim — same constants,
+// same order, same operators — reading `gl_FragColor` where it used to read
+// `texture2D(tDiffuse, vUv)`, which is the same value. The one numeric
+// difference is a removal: that value no longer round-trips through a
+// half-float texture between the two halves.
+const GRADE_UNIFORMS = /* glsl */ `
+		uniform vec3 uShadow;
+		uniform vec3 uHighlight;
+		uniform float uSaturation;
+		uniform float uVignette;
+		uniform vec3 uVigColor;
+`;
+
+const GRADE_BODY = /* glsl */ `
+			// ---- band grade (display-referred; was a separate ShaderPass) ----
+			{
+				vec4 c = gl_FragColor;
+				float l = dot(c.rgb, vec3(0.2126, 0.7152, 0.0722));
+				// Shadow lift: raise the blacks toward the band hue — a WHISPER of
+				// color in the dark, not a wash (a strong lift floats the whole
+				// darkness up to a flat lavender sheet).
+				c.rgb += uShadow * (1.0 - smoothstep(0.0, 0.3, l)) * 0.45;
+				// Highlight tint: pre-normalized to luma 1 CPU-side, so this shifts hue
+				// without changing exposure.
+				c.rgb *= mix(vec3(1.0), uHighlight, smoothstep(0.35, 1.0, l) * 0.4);
+				c.rgb = mix(vec3(dot(c.rgb, vec3(0.2126, 0.7152, 0.0722))), c.rgb, uSaturation);
+				// Film vignette, tinted toward the band's void rather than dead black.
+				// Capped to the OUTER ~10% of frame (final pass, issue #1): a vignette
+				// that starts mid-frame was stacking with the murk and crushing 60%+
+				// of every shot below 5% luminance.
+				float d = length(vUv - 0.5) * 1.4142;
+				float vig = 1.0 - uVignette * smoothstep(0.84, 1.16, d);
+				c.rgb = mix(uVigColor, c.rgb, vig);
+				gl_FragColor = c;
+			}
+`;
+
+/**
+ * OutputShader's fragment source with the grade uniforms declared and the
+ * grade body spliced in as the last thing main() does.
+ *
+ * The two anchors are asserted rather than assumed. This is surgery on a
+ * library shader, so a three.js upgrade that rewrites OutputShader must fail
+ * LOUDLY at construction — the alternative is a silently ungraded frame that
+ * nothing in the test suite can see.
+ */
+function composeOutputGradeFragment(src: string): string {
+  const decl = "uniform sampler2D tDiffuse;";
+  if (!src.includes(decl)) throw new Error("OutputShader: tDiffuse declaration anchor missing");
+  let out = src.replace(decl, decl + "\n" + GRADE_UNIFORMS);
+  const endOfMain = /\}\s*$/;
+  if (!endOfMain.test(out)) throw new Error("OutputShader: end-of-main anchor missing");
+  out = out.replace(endOfMain, GRADE_BODY + "\n\t\t}");
+  return out;
+}
+
+/** OutputPass, plus the grade. Inherits render() unchanged — it drives
+ *  `this.material` / `this.uniforms`, both of which are still ours. */
+class OutputGradePass extends OutputPass {
+  constructor() {
+    super();
+    // `material.uniforms` IS this object (OutputPass hands it to the
+    // RawShaderMaterial by reference), so adding here adds to both.
+    Object.assign(this.uniforms, {
+      uShadow: { value: new THREE.Color(DEFAULT_MOOD.gradeShadow) },
+      uHighlight: { value: new THREE.Color(DEFAULT_MOOD.gradeHighlight) },
+      uSaturation: { value: DEFAULT_MOOD.gradeSaturation },
+      uVignette: { value: DEFAULT_MOOD.vignette },
+      uVigColor: { value: new THREE.Color(DEFAULT_MOOD.voidOuter) },
+    });
+    this.material.fragmentShader = composeOutputGradeFragment(OutputShader.fragmentShader);
+    this.material.needsUpdate = true;
+  }
+
+  /** The grade uniforms, for the per-band mood push. */
+  get grade(): Record<string, THREE.IUniform> {
+    return this.uniforms as Record<string, THREE.IUniform>;
+  }
+}
 
 // Bloom at a fraction of frame resolution (quality ladder).
 //
@@ -479,11 +531,18 @@ export class Renderer3D {
   private ambientLight: THREE.AmbientLight;
   private rim: THREE.DirectionalLight; // cool accent from behind-left (no shadow)
 
-  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB) -> Grade -> SMAA.
+  // Post chain: Render -> GTAO -> Bloom -> Output (ACES + sRGB + grade) -> SMAA.
+  // Five passes, and the last three of them are conditional or fused on
+  // purpose: EffectComposer skips a pass with `enabled === false` outright
+  // (no target bind, no quad), so a preset that turns GTAO or bloom off truly
+  // pays nothing for it, and the grade is INSIDE OutputPass rather than
+  // behind it (see OutputGradePass). The composer also marks the last ENABLED
+  // pass renderToScreen, so there is no trailing copy blit to merge away
+  // either — SMAA's blend step already writes the default framebuffer.
   private composer: EffectComposer;
   private gtao: WorldGTAOPass;
   private bloom: ScaledBloomPass;
-  private gradePass: ShaderPass;
+  private output: OutputGradePass;
   // SMAA runs LAST, on the tone-mapped, graded, gamma-encoded image. Edge
   // detection wants perceptual (display-referred) values — running AA inside
   // the linear HDR chain makes it under-detect edges in the shadows and
@@ -2515,9 +2574,9 @@ export class Renderer3D {
     this.bloom.setScale(this.quality.bloomScale);
     this.bloom.enabled = this.quality.bloom;
     this.composer.addPass(this.bloom);
-    this.composer.addPass(new OutputPass());
-    this.gradePass = new ShaderPass(GradeShader);
-    this.composer.addPass(this.gradePass);
+    // Tone map + sRGB encode + the band grade, in ONE full-screen pass.
+    this.output = new OutputGradePass();
+    this.composer.addPass(this.output);
     // SMAA replaces the render target's MSAA — LAST, so it works on the final
     // display-referred image (see the field declaration). EffectComposer.setSize
     // forwards to every pass, so resize() needs no special case for it.
@@ -3536,8 +3595,8 @@ export class Renderer3D {
     onStep?.(2, TOTAL);
     await breathe();
 
-    // 3) Compile everything, run one full post pass (GTAO/bloom/output/grade
-    //    programs + shadow-pass depth materials), then expire the warmup FX.
+    // 3) Compile everything, run one full post pass (GTAO/bloom/output+grade/
+    //    SMAA programs + shadow-pass depth materials), then expire the warmup FX.
     //
     // THE ZOO STAYS RESIDENT ACROSS BOTH COMPILES BELOW. That is the point of
     // it: a forward renderer bakes the scene's light count into every lit
@@ -5321,7 +5380,7 @@ export class Renderer3D {
     this.scene.background = new THREE.Color(theme.background);
     (this.scene.fog as THREE.Fog).color.set(theme.background);
 
-    const g = this.gradePass.uniforms;
+    const g = this.output.grade;
     (g.uShadow.value as THREE.Color).set(mood.gradeShadow);
     const hi = g.uHighlight.value as THREE.Color;
     hi.set(mood.gradeHighlight);
