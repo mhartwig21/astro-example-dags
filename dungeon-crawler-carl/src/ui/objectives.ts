@@ -168,7 +168,17 @@ export interface ObjectiveStep {
  *  S1–S2 are floor 1's first two fights; S3 closes on the first descent; S4
  *  arms in the safe room that descent routes through; S5 is floor 2+ combat,
  *  where hype and favorites actually flow — so the guided spine dissolves
- *  exactly as the game starts teaching itself. */
+ *  exactly as the game starts teaching itself.
+ *
+ *  ...AND EACH STEP IS INTRODUCED BY A PAUSE, THEN TRACKED BY THIS CARD (r14
+ *  + r15). S1's hold fires at second zero, before anything is in range, which
+ *  is why the dash is taught there rather than behind three kills. S4 is the
+ *  exception and it is a structural one: its card arms while the crawler is at
+ *  a counter, and a counter is a modal the lull gate refuses, so the safe
+ *  room's paused teaching is B5 (src/ui/guide.ts) and this step's instruction
+ *  lives on the card, the standing ask, and the shelf's own Mordecai row —
+ *  all three of which survive the shop panel. The hold explains; the card
+ *  remembers; every key an item names, the hold named first (coach.test.ts). */
 export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
   {
     id: "obj.move", title: "Get Moving",

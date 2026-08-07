@@ -24,6 +24,14 @@
  * translations) and is also the demotion path when a hold cannot happen.
  * B0's `lines` are PAGES now: one line, one page, advanced by the player.
  *
+ * ...AND SO ARE B5's (r15, the curriculum round). `obj.saferoom`'s introduction
+ * cannot pause — it arms at a shop counter, and a counter is a modal the lull
+ * gate refuses — so the safe room's paused teaching is this beat, which fires
+ * in the gap between the room stopping the world and the panel opening. It
+ * took that step's slot in the six-hold cap (src/ui/hold.ts HOLD_SAFEROOM_KEY);
+ * the count did not move, the member did. The other beats here are at-rest
+ * conversations riding a pause the player already chose, and are unchanged.
+ *
  * Structure in the Coach/Onramp mold: a pure module — facts in, at most
  * one beat out per call, unit-testable without a DOM. The host renders beats
  * through the SHIPPED #dialogue presentation (portrait, typewriter, numbered
@@ -99,10 +107,18 @@ export interface GuideBeat {
 
 // The beat table as DATA (TUTORIAL.md §3, lines verbatim).
 export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
+  // B0 PAGES (r14) AND ITS MIDDLE PAGE IS THE FEATURE'S OWN ONBOARDING (r15).
+  // A player is about to be interrupted five more times by a man they have met
+  // once; the honest place to say so is inside the first interruption, which is
+  // the only one that costs them nothing. It names the three controls the panel
+  // itself advertises — advance, wave off, and the list that remembers — so the
+  // first time the world stops in a corridor it reads as a promise being kept
+  // rather than as a crash.
   "tut.campfire": {
     key: "tut.campfire",
     lines: [
       "Name's Mordecai. I managed crawlers before the dungeon ate my license. Now I mind the fires and try to keep a few of you alive past the first week.",
+      "When something down there is worth knowing, I'll stop the clock and say it once. Space moves me along, Esc waves me off, and the list I leave on your glass remembers what I asked for.",
       "The System talks a lot down there. Listen to WHAT it says, never HOW it says it. I'll be at the safe rooms when you want an answer from someone with a pulse.",
     ],
     choices: [
@@ -129,6 +145,19 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
     // ESC does the same as the one choice — there is no way to lose the draft.
     choices: [{ id: "picks", label: "Show me the picks.", effect: "open", open: "draft" }],
   },
+  // B5 IS A HOLD NOW (r15), and it is the shelf's only paused teaching.
+  //
+  // `obj.saferoom`'s introduction cannot pause: it arms while the crawler is at
+  // a counter, and the counter is a modal the lull gate refuses — so it would
+  // wait out its deadline and demote onto a strip the shop panel is covering.
+  // This beat already fires in the one honest gap (the safe room has stopped
+  // the world; the panel has not opened yet), so it took the slot and it pages.
+  //
+  // Which means the two lines that used to arrive at once are three pages the
+  // player steps through, and the third is the one the economy round kept
+  // finding nobody had: what to do at a shelf you cannot afford. It stays
+  // JUDGEMENT (the modal's half of the seam) — the prices, the tiles and the
+  // word COMPONENTS are the panel's own Mordecai row, COACH_SHOP_BEATS.
   "tut.saferoom": {
     key: "tut.saferoom",
     lines: [
@@ -137,6 +166,7 @@ export const GUIDE_BEATS: Record<GuideBeatKey, GuideBeat> = {
       // the room is FOR, which is the one thing the panel can't.
       "Safe room. Nothing in here is trying to kill you, and that stops being true the second you take those stairs. Sit down. Breathe. It counts as work.",
       "Spend the gold. The exchange rate only gets worse with depth, and nobody's buried with their savings. If you're sitting on a draft, cash it here — nothing's chewing on you for once.",
+      "And if the whole shelf is out of reach, read it anyway and remember the cheapest thing on it. What a floor costs is worth knowing before the floor that can afford it.",
     ],
     choices: [
       { id: "shop", label: "Open the shop.", effect: "open", open: "shop" },

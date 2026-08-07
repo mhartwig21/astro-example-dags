@@ -50,6 +50,9 @@ tools/_r3cost_*/*.png
 # Tutorial r1 captures (tools/_tut_r1.mjs): harness + the report receipt are
 # committed; the PNG pile is not (same rule as every probe round above).
 tools/_tut_shots/*.png
+# Tutorial r15 curriculum captures (tools/_tut_r15_curriculum.mjs): same rule —
+# the battery is the artifact, the PNG pile of paused pages is not.
+tools/_tut_r15_shots/*.png
 # Audio r2 spectrogram/waveform sheets (tools/audio/contactsheet.mjs): 21MB of
 # PNG per full run. Same rule as every round above — contactsheet.mjs IS the
 # artifact and its descriptors.json is the receipt the distinctness numbers

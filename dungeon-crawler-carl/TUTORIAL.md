@@ -10,6 +10,126 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r15 — THE CURRICULUM, RE-AUTHORED FOR THE PAUSE
+
+r14 changed the DELIVERY and left the words alone. That was the right order and
+it left the job half done: five beats still written to fit one glanced-at strip
+line, now painted on a surface that has stopped the world and is waiting for a
+keypress. **A paused page that owns the screen is a different writing job than a
+one-line card.** It can carry two or three sentences, name the key, and point at
+the thing — and it costs a deliberate press, so it had better be worth one.
+
+### What the pause bought, and what it therefore cost
+
+1. **THE INSTRUCTION NAMES ITS KEY.** All five step introductions were keyless,
+   because a strip card names at most one control and a step needs three. They
+   carry the objectives card's `{tokens}` now (`OBJ_LABEL_TOKENS`), substituted
+   by the host at PAINT — not at build, because a beat may wait 25 seconds for a
+   lull and a rebind in that window must not leave a stale key on the one
+   surface that stopped the game to say it. The panel draws them as KEY CAPS
+   (`DLG_KEYCAP` + `.dlg-key`): the typewriter marks its control labels and
+   reveals a cap one character at a time, so the word the player has to press is
+   not a word in the middle of a sentence. `test/coach.test.ts` holds the law
+   that made this safe to do: **every key a step's CHECKLIST will ask for, that
+   step's HOLD named first.**
+2. **THE PAGES A PAUSE CAN AFFORD** (`OBJ_INTRO_PAGES`, between the instruction
+   and the quip, each with its own pointer in `OBJ_HOLD_PAGE_TARGETS`). This is
+   where the beats four rounds could not land finally got room:
+   - **the dash** — r1 moved it out of THE FIVE and onto a floor-1 strip prompt
+     at T+10s, and r13 still measured a cold profile 258 seconds into a session
+     without pressing it once. It is now a page of its own in `obj.move`'s
+     hold — the FIRST hold of the run, which fires at second zero with nothing
+     in range and is the only beat every session is guaranteed to get — with the
+     hotbar the only un-dimmed thing on the glass. `obj.five` then drills it.
+   - **the draft** (r10 sev 8: every cold profile finished holding unclaimed
+     drafts) and **the descent** (r11 sev 9: two of four deaths were
+     collapse-timer executions with zero wayfinding) get a page each in
+     `obj.payday`, pointing at the DRAFT badge and at the stairs in the world.
+   - **THE FIVE** — four slots and an ultimate, two of them padlocked — is a
+     page with the row lit behind it instead of a clause in a quip.
+3. **THE QUIP IS A QUIP AGAIN.** `obj.five`'s wry carried the definition of THE
+   FIVE; `obj.show`'s carried three definitions. That is explanation smuggled
+   into the register slot, and it existed only because the strip was one line —
+   exactly the prose this round was told to cut. A test now caps a wry's length
+   and forbids a control in it.
+4. **THE DEMOTION KEEPS INSTRUCTION + QUIP AND NEVER THE MIDDLE PAGES.** A
+   four-sentence card during a fight is the delivery the owner rejected. Every
+   lesson on those pages keeps its shipped reactive carrier on the strip
+   (`dashkit`, the `draftBanked` translation, `linger`/`collapse`, the standing
+   ask's escalations), so a player who can never be held — co-op, a refusal,
+   25s of unbroken combat — loses the PAUSE, not the curriculum.
+5. **A HOLD SUPERSEDES THE STRIP LINES IT JUST DELIVERED** (`Coach.supersede`,
+   `OBJ_INTRO_SUPERSEDES`). `start`/`contact`/`dashkit` ARE `obj.move`'s pages;
+   saying both is the trickle the owner rejected plus the same lesson twice.
+   Claimed on the OPENING edge only. Deliberately not the topic ledger: a topic
+   is claimed by whichever beat paints, and reusing it here would have quietly
+   retired r1's post-death re-teach for a player who died on step one.
+6. **B0 TEACHES THE INTERRUPTION IT IS AN EXAMPLE OF.** A player is about to be
+   stopped five more times by a man they have met once; the honest place to say
+   so is inside the first interruption, which is the only one that costs them
+   nothing. Its new middle page names the clock stopping, Space, Esc, and the
+   list — so the first pause in a corridor reads as a promise kept, not a crash.
+
+### The slot that moved (and the cap that did not)
+
+**`obj.saferoom`'s hold could never open**, and r14 filed the reason without
+acting on it: that step arms while the crawler is standing at a counter, a
+counter is a modal, and the lull gate refuses a modal — so it could only burn
+its 25-second deadline and demote onto a strip the shop panel is covering. The
+gold-at-the-shelf lesson had no paused delivery at all.
+
+The safe room already HAS a paused moment: **B5 (`tut.saferoom`) fires in the
+gap between the room stopping the world and the shop panel opening.** So B5
+pages now, like B0, and takes that slot (`HOLD_SAFEROOM_KEY`). Six holds still,
+one member different:
+
+> B0 campfire · obj.move · obj.five · obj.payday · **B5 safe room** · obj.show
+
+B5's two lines became three: the third is what the economy rounds kept finding
+nobody had — what to do at a shelf you cannot afford. It stays JUDGEMENT (the
+modal's half of the seam); the prices, the tiles and the word COMPONENTS remain
+the panel's own Mordecai row (`COACH_SHOP_BEATS`).
+
+### Measured — and the pointer was BROKEN, which r14's instrument could not see
+
+`tools/_tut_r15_curriculum.mjs`, cold profile, ONE headless browser, port 5292,
+shipping server on `dist`. Falsifying sentences, written first: *"it told me to
+press {dash}"* and *"it pointed at nothing."* ALL PASS, including: B0 pages 3
+and names both controls; the run opens on `obj.move`'s hold at second zero;
+page one reads **"Walk with `WASD`, and hit whatever gets inside arm's reach
+with `Space`"** with two caps at 57x23 and no surviving token; the dash page
+carries one cap (`Shift`); the last page rings `#objectives`; B5 holds, pages 3,
+and hands the player to the shelf it was talking about; 3 holds of 6.
+
+**THE POINTER WAS NOT WORKING, AND `opacity: 1.00` SAID IT WAS.** r14 measured
+the spotlight exemption against the 35% modal dim and stopped there. But
+`#dialogue.tut` is z 29 and paints its own scrim plus two 9%-tall letterbox
+bars, while `body.hold .holdlit` was z 27 (without `!important`, so on an
+id-styled element it was never applied at all), `#holdring` was 28 and
+`body.dlg #coach` 26. On a real frame: the hotbar the dash page was pointing at
+was UNDER the bottom letterbox bar, the ring was under it too, and the
+objectives card sat under the scrim reading grey — every one of them measuring
+`opacity: 1.00`. r13 had filed that card illegible at severity 3 and an opacity
+probe called it fixed.
+
+The lit element, `#coach` and the ring now outrank the panel that cast them
+(z 30/30/31), and **the probe asks `elementFromPoint`, not `opacity`.** One
+instrument note for the next agent, because it cost a false FAIL here too: the
+teaching HUD is `pointer-events: none` by design, so a naive hit test can never
+return it — lend the element a pointer for one synchronous read and give it
+back. Hit-testability is not paint order. And do not wait the typewriter out in
+that harness: `setInterval(16ms)` is dilated to ~3fps, so a 215-character page
+takes ~30 real seconds and a probe that slept on it read half a sentence and
+failed on the word "das". Press Space to finish the text — the shipped double
+duty is the honest instrument.
+
+### Still owed
+
+The WORLD pointer (obj.payday's descent page → the exit beacon) is the one
+target still unproven end to end; the HUD half is now measured. BACKLOG #33
+carries it, along with the two numbers that remain defensible rather than
+measured (the six-hold cap, the 25s deadline).
+
 ## r14 — THE HOLD (the owner stops the game)
 
 **The owner played the integrated build and reversed the delivery law.**

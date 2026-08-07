@@ -145,11 +145,15 @@ setting). `kind:"tip"` never rides either: it is translated into Mordecai's
 voice and painted on his strip (the `#tutorial` card surface) or dropped — the
 System teaches nothing (TUTORIAL.md, ONE VOICE).
 
-**A teaching beat INTERRUPTS (TUTORIAL.md r14 — THE HOLD).** The owner played
-the build and said nobody reads long text mid-fight, so an *instructional*
-beat — the campfire plus the five objective-step introductions — stops the sim
-and is stepped through page by page on the `#dialogue` panel (`src/ui/hold.ts`
-+ one adapter beside `guideShow`). `dlgOpen` is already the solo loop's pause
+**A teaching beat INTERRUPTS (TUTORIAL.md r14 — THE HOLD; curriculum r15).**
+The owner played the build and said nobody reads long text mid-fight, so an
+*instructional* beat — the campfire, four of the five objective-step
+introductions, and the safe room's B5 — stops the sim and is stepped through
+page by page on the `#dialogue` panel (`src/ui/hold.ts` + one adapter beside
+`guideShow`). Six holds in a first session, hard cap. A page names the
+player's live binds (the objectives card's `{tokens}`, drawn as key caps) and
+points at what it names: the spotlight outranks the panel, and the checklist
+under it tracks what the page just asked for. `dlgOpen` is already the solo loop's pause
 gate, so the pause is the ABSENCE of `step()` and costs no sim change: the
 collapse clock, cooldowns and AI all stop by arithmetic, a held run replays
 byte-exactly, and `RULES_HASH` does not rotate. *Reactive* beats (lowhp,

@@ -27,12 +27,13 @@ import {
   HOLD_CAMPFIRE_KEY, HOLD_DEADLINE_MS, HOLD_DWELL_MS, HOLD_LOW_HP, HOLD_LULL_TILES,
   HOLD_MAX_SESSION, HOLD_NOHOLD_KEY, HOLD_REFUSE_ASK, HOLD_REFUSE_DONE,
   HOLD_REFUSE_LABEL, HOLD_REFUSE_SAFE, HOLD_REFUSE_TAKE, HOLD_RESUME_KEY,
-  HOLD_STEP_KEYS, HoldPager, HoldScheduler, OBJ_HOLD_HANDOFF, OBJ_HOLD_TARGETS,
-  advanceLabel, decodeHoldResume, encodeHoldResume, holdKeyForStep, linesHoldPages,
-  lullOk, objHoldPages,
+  HOLD_SAFEROOM_KEY, HOLD_STEPS, HOLD_STEP_KEYS, HoldPager, HoldScheduler,
+  OBJ_HOLD_HANDOFF, OBJ_HOLD_PAGE_TARGETS, OBJ_HOLD_TARGETS,
+  advanceLabel, decodeHoldResume, encodeHoldResume, holdKeyForGuide, holdKeyForStep,
+  linesHoldPages, lullOk, objHoldPages,
   type HoldWorld,
 } from "../src/ui/hold";
-import { OBJ_INTRO_BEATS } from "../src/ui/coach";
+import { OBJ_INTRO_BEATS, OBJ_INTRO_PAGES } from "../src/ui/coach";
 import { OBJ_STEP_IDS } from "../src/ui/objectives";
 import { GUIDE_BEATS, GUIDE_SKIP_KEY } from "../src/ui/guide";
 
@@ -316,9 +317,22 @@ describe("dismissal — three verbs, three scopes, three controls", () => {
 });
 
 describe("what may hold: instructional beats, and the checklist they hand off to", () => {
-  it("the hold set is exactly the campfire plus the five step introductions", () => {
-    expect(HOLD_STEP_KEYS.length).toBe(OBJ_STEP_IDS.length);
-    expect([HOLD_CAMPFIRE_KEY, ...HOLD_STEP_KEYS].length).toBe(HOLD_MAX_SESSION);
+  it("the hold set is six, and the safe room's slot belongs to the beat that can use it", () => {
+    // r15 amended WHICH six, not how many. `obj.saferoom`'s introduction arms
+    // while the crawler is standing at a counter, a counter is a modal, and the
+    // lull gate refuses a modal — so its hold could only ever burn the deadline
+    // and demote onto a strip the shop panel is covering. B5 fires in the gap
+    // between the safe room stopping the world and the panel opening, which is
+    // the one paused moment the shelf lesson has, so it took the slot.
+    const SET = [HOLD_CAMPFIRE_KEY, HOLD_SAFEROOM_KEY, ...HOLD_STEPS.map(holdKeyForStep)];
+    expect(SET.length).toBe(HOLD_MAX_SESSION);
+    expect(new Set(SET).size).toBe(HOLD_MAX_SESSION); // six distinct deliveries
+    expect(HOLD_STEPS).not.toContain("obj.saferoom");
+    expect(HOLD_STEPS.length).toBe(OBJ_STEP_IDS.length - 1);
+    // ...and a guide beat's hold key is built the same way a step's is, so the
+    // resume record and the scheduler cannot tell them apart.
+    expect(HOLD_CAMPFIRE_KEY).toBe(holdKeyForGuide("tut.campfire"));
+    expect(HOLD_SAFEROOM_KEY).toBe(holdKeyForGuide("tut.saferoom"));
     for (const id of OBJ_STEP_IDS) expect(HOLD_STEP_KEYS).toContain(holdKeyForStep(id));
   });
 
@@ -337,12 +351,17 @@ describe("what may hold: instructional beats, and the checklist they hand off to
     // sentence, the key in it) and `wry` (the register, never the key), and
     // THAT SEAM IS THE PAGE BREAK. A player who reads one page has the
     // instruction; a player who reads both has Mordecai.
+    //
+    // r15 put the pages a PAUSE can afford between them (OBJ_INTRO_PAGES) —
+    // which changes neither end of the seam: the instruction is still first and
+    // still alone, and the quip is still last.
     for (const id of OBJ_STEP_IDS) {
       const beat = OBJ_INTRO_BEATS[id];
       const pages = objHoldPages(id, beat);
-      expect(pages.length, id).toBe(2);
+      expect(pages.length, id).toBe(2 + OBJ_INTRO_PAGES[id].length);
       expect(pages[0].text, id).toBe(beat.instruction);
-      expect(pages[1].text, id).toBe(beat.wry);
+      expect(pages[pages.length - 1].text, id).toBe(beat.wry);
+      expect(pages.slice(1, -1).map((p) => p.text), id).toEqual([...OBJ_INTRO_PAGES[id]]);
       // Sentence one is still exactly one sentence, on its own page.
       expect(pages[0].text, id).toMatch(/^[^.!?]+\.$/);
     }
@@ -360,17 +379,55 @@ describe("what may hold: instructional beats, and the checklist they hand off to
     expect(OBJ_HOLD_HANDOFF).toEqual({ kind: "hud", id: "objectives" });
   });
 
+  it("EVERY page a pause pays for is pointed at something (r15)", () => {
+    // Pointing is the whole argument for pausing: "press this, over there" is
+    // followable only while nothing is moving. A middle page with no target
+    // declared would silently fall back to pointing nowhere — which is a page
+    // that could just as well have been a strip card.
+    for (const id of OBJ_STEP_IDS) {
+      const targets = OBJ_HOLD_PAGE_TARGETS[id];
+      expect(targets.length, `${id} page targets`).toBe(OBJ_INTRO_PAGES[id].length);
+      const pages = objHoldPages(id, OBJ_INTRO_BEATS[id]);
+      pages.slice(1, -1).forEach((p, i) => {
+        expect(p.target, `${id} page ${i + 1}`).toEqual(targets[i]);
+        expect(p.target.kind, `${id} page ${i + 1}`).not.toBe("none");
+      });
+    }
+    // The one page that points INTO THE WORLD is the descent — the lesson two
+    // of four cold deaths died without (r11: "zero wayfinding").
+    expect(OBJ_HOLD_PAGE_TARGETS["obj.payday"]).toContainEqual({ kind: "world", what: "stairs" });
+  });
+
   it("a wry-less beat still ends on the checklist rather than pointing nowhere", () => {
     const pages = objHoldPages("obj.move", {
       verb: "Move", needsKey: false, instruction: "Move out.",
-    });
+    }, []);
     expect(pages.length).toBe(1);
     expect(pages[0].target).toEqual(OBJ_HOLD_HANDOFF);
   });
 
-  it("the campfire pages its shipped lines and points at nothing — there is no dungeon behind it", () => {
-    const pages = linesHoldPages(GUIDE_BEATS["tut.campfire"].lines);
-    expect(pages.length).toBe(GUIDE_BEATS["tut.campfire"].lines.length);
-    for (const p of pages) expect(p.target).toEqual({ kind: "none" });
+  it("the two guide holds page their shipped lines and point at nothing", () => {
+    // B0 is a conversation at a campfire with no dungeon behind it; B5 fires in
+    // the beat before the shop panel it is about has opened. Neither has
+    // anything on the glass to ring, and their last page carries the beat's own
+    // numbered choices, which are the hand-off.
+    for (const key of ["tut.campfire", "tut.saferoom"] as const) {
+      const pages = linesHoldPages(GUIDE_BEATS[key].lines);
+      expect(pages.length, key).toBe(GUIDE_BEATS[key].lines.length);
+      expect(pages.length, key).toBeGreaterThan(1); // a one-page hold is a card with extra steps
+      for (const p of pages) expect(p.target, key).toEqual({ kind: "none" });
+    }
+  });
+
+  it("B0's own middle page teaches the interruption it is an example of (r15)", () => {
+    // A player is about to be stopped five more times by a man they have met
+    // once. The honest place to say so is inside the first interruption, which
+    // is the only one that costs them nothing — and it must name the two
+    // controls the panel advertises, or the first pause in a corridor reads as
+    // a crash rather than as a promise being kept.
+    const lines = GUIDE_BEATS["tut.campfire"].lines.join(" ");
+    expect(lines).toMatch(/stop the clock/i);
+    expect(lines).toMatch(/\bSpace\b/);
+    expect(lines).toMatch(/\bEsc\b/);
   });
 });

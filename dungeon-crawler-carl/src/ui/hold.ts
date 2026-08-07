@@ -34,7 +34,7 @@
  */
 
 import { OBJ_STEP_IDS, type ObjStepId } from "./objectives";
-import type { TeachBeat } from "./coach";
+import { OBJ_INTRO_PAGES, type TeachBeat } from "./coach";
 
 /**
  * THE MODALITY REFUSAL, AND IT IS NOT A CURRICULUM REFUSAL.
@@ -99,16 +99,27 @@ export const HOLD_DEADLINE_MS = 25000;
 export const HOLD_DWELL_MS = 400;
 
 /**
- * SIX HOLDS IN A FIRST SESSION, AND IT IS A HARD CAP: the campfire B0 plus the
- * five objective-step introductions. INSTRUCTIONAL beats hold; REACTIVE beats
- * (contact, lowhp, elite, boss, pickup, the knockdown diagnoses, every tip
- * translation) stay on the non-pausing strip forever. Pausing on `lowhp` would
- * stop the world at the worst possible moment and hand out a free heal;
- * pausing on `boss` would stop a boss fight.
+ * SIX HOLDS IN A FIRST SESSION, AND IT IS A HARD CAP. INSTRUCTIONAL beats hold;
+ * REACTIVE beats (contact, lowhp, elite, boss, pickup, the knockdown diagnoses,
+ * every tip translation) stay on the non-pausing strip forever. Pausing on
+ * `lowhp` would stop the world at the worst possible moment and hand out a free
+ * heal; pausing on `boss` would stop a boss fight.
+ *
+ * WHICH SIX, amended by r15 (the curriculum round) — the count did not move,
+ * one member did. r14 spent a slot on `obj.saferoom`'s introduction and filed
+ * the reason it could never open: that step arms while the crawler is standing
+ * at a counter, a counter is a modal, and the lull gate refuses a modal — so
+ * its hold could only wait out the deadline and demote onto a strip the shop
+ * panel is covering. The safe room already HAS a paused teaching moment that
+ * fires before the panel opens (B5, `tut.saferoom`), so the slot went to the
+ * beat that can actually use it:
+ *
+ *   B0 `tut.campfire` · obj.move · obj.five · obj.payday · B5 `tut.saferoom`
+ *   · obj.show
  *
  * The number is DEFENSIBLE, NOT MEASURED — nobody has watched a cold cohort
  * against this build, and this project's standing lesson is that a defensible
- * number reported as a measured one is how the last four rounds went wrong.
+ * number reported as a measured one is how four rounds went wrong.
  */
 export const HOLD_MAX_SESSION = 6;
 
@@ -408,24 +419,70 @@ export function holdKeyForStep(id: ObjStepId): string {
 
 export const HOLD_STEP_KEYS: readonly string[] = OBJ_STEP_IDS.map(holdKeyForStep);
 
-/** The campfire (B0) — the one guide beat that holds, and it already did. */
-export const HOLD_CAMPFIRE_KEY = "hold.tut.campfire";
+/** A guide beat's hold key (B0's campfire, B5's safe room). Same namespacing
+ *  rule as the steps': a DELIVERY is not a ledger entry. */
+export function holdKeyForGuide(beatKey: string): string {
+  return `hold.${beatKey}`;
+}
+
+/** The campfire (B0) — the guide beat that has held since r6. */
+export const HOLD_CAMPFIRE_KEY = holdKeyForGuide("tut.campfire");
+/**
+ * THE SAFE ROOM (B5) — the hold r15 moved the fifth step's slot to.
+ *
+ * `obj.saferoom`'s introduction could never open one: it arms at a counter,
+ * a counter is a modal, and the lull gate refuses a modal. B5 fires on the
+ * rising edge of the safe-room VISIT, before the shop panel opens, in a world
+ * the safe room has already stopped — the one paused moment the shelf lesson
+ * actually has. So it pages now, like the campfire, and takes the slot.
+ */
+export const HOLD_SAFEROOM_KEY = holdKeyForGuide("tut.saferoom");
+
+/** Steps whose introduction is delivered as a HOLD. `obj.saferoom` is not one
+ *  (see HOLD_SAFEROOM_KEY): its instruction lives on the persistent card and
+ *  the standing ask, both of which survive the shop modal, and its paused
+ *  teaching is B5's. */
+export const HOLD_STEPS: readonly ObjStepId[] =
+  OBJ_STEP_IDS.filter((id) => id !== "obj.saferoom");
 
 /**
- * WHAT EACH STEP'S FIRST PAGE POINTS AT. All four are elements the host
- * already draws; none is new furniture.
+ * WHAT EACH STEP'S FIRST PAGE POINTS AT. All are elements the host already
+ * draws; none is new furniture.
  *  - obj.move   — nothing. Walking is the ask and the world is the illustration.
  *  - obj.five   — the hotbar, which is the row of keys the page is naming.
- *  - obj.payday — the STAIRS, in the world, through the shipped exit beacon.
- *  - obj.saferoom — the safe room panel, which is the thing to open.
- *  - obj.show   — the Show readout, the three nouns the page defines.
+ *  - obj.payday — nothing: the page is the step's three asks in one sentence,
+ *    and the two that need a finger get their own pointed page below.
+ *  - obj.saferoom — the safe room panel, which is the thing to open. (Kept
+ *    honest for the demotion path and for a probe; this step does not hold.)
+ *  - obj.show   — the Show readout, the numbers the page is about.
  */
 export const OBJ_HOLD_TARGETS: Record<ObjStepId, HoldTarget> = {
   "obj.move": { kind: "none" },
   "obj.five": { kind: "hud", id: "cockpit" },
-  "obj.payday": { kind: "world", what: "stairs" },
+  "obj.payday": { kind: "none" },
   "obj.saferoom": { kind: "hud", id: "saferoom" },
   "obj.show": { kind: "hud", id: "show" },
+};
+
+/**
+ * ...AND WHAT EACH OF THE PAGES BETWEEN POINTS AT (r15), index for index with
+ * `OBJ_INTRO_PAGES`. Pointing is the whole argument for pausing: an instruction
+ * that says "press this, over there" is followable only while nothing is moving.
+ *  - obj.move's dash page lights the hotbar the key sits on;
+ *  - obj.five's dash page and FIVE page keep it lit — the padlocked slots the
+ *    second page explains are on that same row;
+ *  - obj.payday's draft page lights the DRAFT badge (which is only on the glass
+ *    when something is actually banked — the host refuses to ring a hidden
+ *    element rather than draw a lie), and its descent page points INTO THE
+ *    WORLD at the stairs, through the shipped exit beacon;
+ *  - obj.show's page lights the Show readout it is defining.
+ */
+export const OBJ_HOLD_PAGE_TARGETS: Record<ObjStepId, readonly HoldTarget[]> = {
+  "obj.move": [{ kind: "hud", id: "cockpit" }],
+  "obj.five": [{ kind: "hud", id: "cockpit" }, { kind: "hud", id: "cockpit" }],
+  "obj.payday": [{ kind: "hud", id: "draft-badge" }, { kind: "world", what: "stairs" }],
+  "obj.saferoom": [],
+  "obj.show": [{ kind: "hud", id: "show" }],
 };
 
 /** The checklist the hold hands off to. §8: the card is the hold's CONTINUITY,
@@ -440,23 +497,39 @@ export const OBJ_HOLD_HANDOFF: HoldTarget = { kind: "hud", id: "objectives" };
  * splits every teaching beat into `instruction` — exactly one imperative
  * sentence, the key in it — and `wry`, the register, which may never carry the
  * key. That seam IS the page break: page one is the instruction, alone, with
- * the pointer on the thing it names; page two is the quip, with the pointer on
- * the checklist that will remember it. A player who reads one page has the
- * instruction; a player who reads both has Mordecai.
+ * the pointer on the thing it names; the LAST page is the quip, with the
+ * pointer on the checklist that will remember it. A player who reads one page
+ * has the instruction; a player who reads both has Mordecai.
  *
  * So the pause mechanism did not invent a prose format — it inherited the one
  * the riddle fix already proved, and paging it is what makes the rule visible
  * instead of merely tested.
+ *
+ * BETWEEN THEM, WHAT THE PAUSE PAYS FOR (r15). `OBJ_INTRO_PAGES` is prose that
+ * would be indefensible on a strip card during a fight and is exactly right on
+ * a page the player advances by hand: two or three sentences, a key, a pointer
+ * on the thing being named. The seam is unchanged — the instruction is still
+ * first and alone, the quip is still last and still key-free — and the middle
+ * is where the lessons four rounds could not land finally have room.
  */
-export function objHoldPages(id: ObjStepId, beat: TeachBeat): HoldPage[] {
+export function objHoldPages(
+  id: ObjStepId, beat: TeachBeat, middle: readonly string[] = OBJ_INTRO_PAGES[id] ?? [],
+): HoldPage[] {
+  const targets = OBJ_HOLD_PAGE_TARGETS[id] ?? [];
   const pages: HoldPage[] = [{ text: beat.instruction, target: OBJ_HOLD_TARGETS[id] }];
+  middle.forEach((text, i) => pages.push({ text, target: targets[i] ?? { kind: "none" } }));
   if (beat.wry) pages.push({ text: beat.wry, target: OBJ_HOLD_HANDOFF });
-  else pages[0] = { text: beat.instruction, target: OBJ_HOLD_HANDOFF };
+  // A beat with no quip still ends on the checklist rather than pointing
+  // nowhere: the hand-off is a law of the last page, not of the wry.
+  else pages[pages.length - 1] = { ...pages[pages.length - 1], target: OBJ_HOLD_HANDOFF };
   return pages;
 }
 
-/** A guide beat's lines, one page each, pointing at nothing: B0 is a
- *  conversation at a campfire with no dungeon behind it to point into. */
+/** A guide beat's lines, one page each, pointing at nothing. Neither of the two
+ *  guide beats that hold has anything to point AT: B0 is a conversation at a
+ *  campfire with no dungeon behind it, and B5 fires in the beat before the shop
+ *  panel it is about has opened. Their last page carries the beat's own
+ *  numbered choices, which are the hand-off. */
 export function linesHoldPages(lines: readonly string[]): HoldPage[] {
   return lines.map((text) => ({ text, target: { kind: "none" } as HoldTarget }));
 }

@@ -69,8 +69,8 @@ import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
   ASK_DRAFT_KEY, ASK_LOST_KEY, COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS,
-  StandingAsk, castKeyIndex, castSlotIndices, coachTipLine, diagnoseKnockdown,
-  renderBeat, shopBeatLine,
+  OBJ_INTRO_SUPERSEDES, StandingAsk, castKeyIndex, castSlotIndices, coachTipLine,
+  diagnoseKnockdown, renderBeat, shopBeatLine,
   type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
@@ -80,9 +80,9 @@ import {
 } from "./ui/guide";
 import {
   HOLD_CAMPFIRE_KEY, HOLD_ESC_HINT, HOLD_NOHOLD_KEY, HOLD_REFUSE_ASK, HOLD_REFUSE_DONE,
-  HOLD_REFUSE_LABEL, HOLD_REFUSE_SAFE, HOLD_REFUSE_TAKE, HOLD_RESUME_KEY,
+  HOLD_REFUSE_LABEL, HOLD_REFUSE_SAFE, HOLD_REFUSE_TAKE, HOLD_RESUME_KEY, HOLD_SAFEROOM_KEY,
   HoldPager, HoldScheduler, advanceLabel, decodeHoldResume, encodeHoldResume,
-  holdKeyForStep, linesHoldPages, objHoldPages,
+  holdKeyForGuide, holdKeyForStep, linesHoldPages, objHoldPages,
   type HoldPage, type HoldTarget, type HoldWorld,
 } from "./ui/hold";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
@@ -6445,8 +6445,24 @@ let dlgFullText: string[] = [];
 let dlgShown = 0; // characters revealed so far, across every line
 let dlgTypeTimer = 0;
 
+/**
+ * A CONTROL IS A CAP, NOT A WORD — on this surface too (r15).
+ *
+ * The strip and the objectives card have drawn the key the line names as a KEY
+ * CAP since r2, and the panel could not, because the typewriter reveals a plain
+ * string character by character. Now that the panel is where an INSTRUCTION is
+ * delivered (r14 — THE HOLD), "press Shift" buried in a sentence is the one
+ * word the player must not have to hunt for.
+ *
+ * So a hold page marks its control labels with this sentinel and the renderer
+ * splits on it. The marks are not characters: they are stripped before the
+ * reveal budget is counted, so the typewriter's timing is exactly what it was
+ * and a cap types in one character at a time like everything around it.
+ */
+const DLG_KEYCAP = "\u0001";
+
 function dlgTotalChars(): number {
-  return dlgFullText.reduce((n, l) => n + l.length, 0);
+  return dlgFullText.reduce((n, l) => n + l.replace(/\u0001/g, "").length, 0);
 }
 
 function dlgRenderText(): void {
@@ -6454,9 +6470,17 @@ function dlgRenderText(): void {
   let html = "";
   for (const line of dlgFullText) {
     if (budget <= 0) break;
-    const take = Math.min(line.length, budget);
-    budget -= take;
-    html += `<div class="dlg-line">${esc(line.slice(0, take))}</div>`;
+    // Even runs are prose, odd runs are key caps (the sentinel wraps a label).
+    const runs = line.split(DLG_KEYCAP);
+    let out = "";
+    for (let i = 0; i < runs.length && budget > 0; i++) {
+      const take = Math.min(runs[i].length, budget);
+      budget -= take;
+      if (take <= 0) continue;
+      const chunk = esc(runs[i].slice(0, take));
+      out += i % 2 ? `<kbd class="dlg-key">${chunk}</kbd>` : chunk;
+    }
+    html += `<div class="dlg-line">${out}</div>`;
   }
   dlgTextEl.innerHTML = html;
   dlgTextEl.classList.toggle("typing", dlgShown < dlgTotalChars());
@@ -6730,10 +6754,11 @@ function guideShow(beat: GuideBeat, after?: () => void, paged = false): void {
   dlgEl.style.display = "flex";
   requestAnimationFrame(() => dlgEl.classList.add("show"));
   // A PAGED beat is a HOLD (TUTORIAL.md r14): one line, one page, stepped by
-  // the player. Only B0's campfire takes this branch among the guide beats —
-  // the rest are at-rest conversations that already ride a pause the player
-  // chose (a draft, a safe room, the check-in menu) and are unchanged.
-  if (paged) { holdBegin(HOLD_CAMPFIRE_KEY, linesHoldPages(beat.lines)); return; }
+  // the player. Two guide beats take this branch — B0's campfire and, since
+  // r15, B5's safe room, which is the shelf lesson's only paused moment. The
+  // rest are at-rest conversations that already ride a pause the player chose
+  // (a draft, the check-in menu) and are unchanged.
+  if (paged) { holdBegin(holdKeyForGuide(beat.key), linesHoldPages(beat.lines)); return; }
   dlgStartType(beat.lines);
   guideRenderChoices();
 }
@@ -6881,6 +6906,11 @@ interface HoldPending {
   demote: () => void;
   /** Re-asked at the moment of opening: the world may have moved past it. */
   stillTrue?: () => boolean;
+  /** Run on the OPENING edge, never on the queueing one (r15): what this beat
+   *  takes off the strip now that it is delivering the lesson with the world
+   *  stopped. A demoted beat runs it never, which is why the strip's floor-1
+   *  script is still whole for a player who can never be held. */
+  onShow?: () => void;
   /** A refresh mid-lesson resumes on the page it was reading. */
   resumePage?: number;
   /** Only the step introductions carry the modality refusal; B0's campfire
@@ -6957,11 +6987,33 @@ function holdBegin(key: string, pages: HoldPage[], o: { refusable?: boolean; pag
   holdSaveResume();
 }
 
+/**
+ * A PAGE NAMES THE PLAYER'S OWN KEYS, LIVE (r15). The curriculum's pages carry
+ * the objectives card's `{tokens}` — the same table, the same substitution, so
+ * the paused page and the checklist under it can never name different keys, and
+ * neither can name a bind this crawler does not have. Substituted at PAINT
+ * rather than at build: a beat may wait up to twenty-five seconds for a lull,
+ * and a rebind in that window must not leave a stale key on the one surface
+ * that stopped the game to say it.
+ *
+ * Controls come back wrapped in the typewriter's key-cap sentinel; a number
+ * ({hypeline}) and a heading ({bearing}) are prose and do not, and on touch
+ * every token expands to a phrase rather than a cap.
+ */
+function holdPageText(text: string): string {
+  return text.split(/(\{[a-z]+\})/g).map((part) => {
+    if (!/^\{[a-z]+\}$/.test(part)) return part;
+    const sub = objItemLabel(part);
+    if (part === "{hypeline}" || part === "{bearing}" || touchMode) return sub;
+    return DLG_KEYCAP + sub + DLG_KEYCAP;
+  }).join("");
+}
+
 /** Paint the current page: its text, its pointer, and its control. */
 function holdRenderPage(): void {
   if (!holdPager) return;
   const page = holdPager.page;
-  dlgStartType([page.text]);
+  dlgStartType([holdPageText(page.text)]);
   holdAimAt(page.target);
   holdRenderControls();
 }
@@ -7277,6 +7329,7 @@ function holdOpenPanel(key: string, pend: HoldPending): void {
   dlgEl.style.display = "flex";
   requestAnimationFrame(() => dlgEl.classList.add("show"));
   holdBegin(key, pend.pages, { refusable: pend.refusable, page: pend.resumePage });
+  pend.onShow?.();
 }
 
 // ---- Contract ledger (right rail, collapsible) ----
@@ -10225,12 +10278,33 @@ function objectivesSync(): void {
     // page hands off to the checklist it just introduced. This card is what
     // that beat falls back to when it can never hold: co-op, a profile that
     // refused the interruption, or twenty-five seconds of unbroken combat.
+    //
+    // ...and the demotion carries INSTRUCTION + QUIP, never the hold's middle
+    // pages (r15). Those pages exist because a stopped world can be read; a
+    // four-sentence card during a fight is the exact delivery the owner
+    // rejected. Everything on them keeps its shipped reactive carrier on this
+    // same strip — the dash prompt, the draft translation, the standing ask's
+    // escalations — so a player who can never be held loses the pause, not the
+    // curriculum. The tokens are substituted here for the same reason the pages
+    // substitute them: a card may not name a bind this crawler does not have.
     const strip = (): void => {
-      showTutorialCard({ text: renderBeat(beat), kind: "tip", priority: "normal" },
+      showTutorialCard({ text: objItemLabel(renderBeat(beat)), kind: "tip", priority: "normal" },
         { momentMs: 60000, stillTrue });
     };
-    holdRequest(holdKeyForStep(armedStep), objHoldPages(armedStep, beat),
-      { demote: strip, stillTrue, refusable: true });
+    // THE ONE STEP THAT DOES NOT ASK FOR A HOLD (r15). obj.saferoom arms while
+    // the crawler is standing at a counter; a counter is a modal, and the lull
+    // gate refuses a modal — so requesting one could only burn the deadline and
+    // demote onto a strip the shop panel is covering. Its paused teaching is
+    // B5, which fires before the panel opens and pages (src/ui/guide.ts); what
+    // is left here is what always did the work at a counter — the persistent
+    // card, the standing ask, and the shelf's own Mordecai row inside the panel.
+    if (armedStep === "obj.saferoom") strip();
+    else {
+      holdRequest(holdKeyForStep(armedStep), objHoldPages(armedStep, beat), {
+        demote: strip, stillTrue, refusable: true,
+        onShow: () => coach?.supersede(OBJ_INTRO_SUPERSEDES[armedStep]),
+      });
+    }
   }
   if (res.completed) {
     // THE FACT-SPEND: the step was performed, so it is done forever — the one
@@ -10262,8 +10336,9 @@ if (holdSavedResume && objectives && !objectives.finished) {
   if (step && !objectives.isDone(step)) {
     const beat = OBJ_INTRO_BEATS[step];
     holdRequest(holdKeyForStep(step), objHoldPages(step, beat), {
+      onShow: () => coach?.supersede(OBJ_INTRO_SUPERSEDES[step]),
       demote: () => showTutorialCard(
-        { text: renderBeat(beat), kind: "tip", priority: "normal" },
+        { text: objItemLabel(renderBeat(beat)), kind: "tip", priority: "normal" },
         { momentMs: 60000, stillTrue: () => objectives?.currentStep()?.id === step },
       ),
       stillTrue: () => !!objectives && !objectives.isDone(step),
@@ -14138,7 +14213,18 @@ async function main(): Promise<void> {
             || lp.glyphs.slots.some((s) => s.some(Boolean)) || lp.glyphs.ultimate.some(Boolean)))
             || (state.safeRoom?.available.includes("glyph_cache") ?? false)),
       });
-      if (beat) { guideSrBeatThisVisit = true; guideShow(beat); }
+      if (beat) {
+        guideSrBeatThisVisit = true;
+        // B5 IS A HOLD (r15). The safe room has already stopped the world and
+        // the shop panel has not opened yet, which is the only paused moment
+        // the shelf lesson gets — `obj.saferoom`'s own introduction arms at a
+        // counter, and a counter is a modal the lull gate refuses. So this beat
+        // took that step's slot in the six and it PAGES; if the cap is spent or
+        // the player refused the interruption, `take` says no and it is the
+        // shipped two-line conversation it has always been.
+        const holds = beat.key === "tut.saferoom" && holdSched.take(HOLD_SAFEROOM_KEY);
+        guideShow(beat, undefined, holds);
+      }
     }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending && !dlgOpen) {
       srTab = guideSrTab ?? "shop"; // every safe room opens on today's shelf

@@ -296,12 +296,21 @@ design doc — see `PHYSICALITY.md`.
     (a) how often the deadline actually fires. If it is common, the lull gate
         is too strict and the curriculum is quietly reverting to the exact
         strip delivery the owner rejected — a demotion is a fallback, not a fix.
-    (b) whether `obj.saferoom`'s hold ever opens at all. Its step arms while
-        the crawler is AT a counter, and a counter is a modal, which the lull
-        gate refuses — so in practice that one may always demote. That may be
-        correct (the shop panel IS the lesson) or it may mean the safe room
-        wants its beat BEFORE the panel opens, next to B5.
-    Also unproven in r14's battery: the world/HUD POINTER end to end (the
-    obj.five → `#cockpit` spotlight is three kills deep, out of reach of a 3fps
-    software-GL harness — only the CSS-specificity half was measured on a real
-    frame) and a hold arriving at a genuinely dangerous moment.
+    (b) ~~whether `obj.saferoom`'s hold ever opens at all~~ **ANSWERED AND
+        CLOSED (r15): it never could.** Its step arms while the crawler is AT a
+        counter, a counter is a modal, and the lull gate refuses a modal — so
+        it could only burn its deadline and demote onto a strip the shop panel
+        is covering. The safe room's beat moved to where the pause already
+        exists: B5 (`tut.saferoom`) fires between the room stopping the world
+        and the panel opening, and it PAGES. The cap did not move; the member
+        did (`HOLD_SAFEROOM_KEY`). Measured in `tools/_tut_r15_curriculum.mjs`.
+    ~~Also unproven in r14's battery: the world/HUD POINTER end to end.~~
+    **The HUD half is now proven, and it was BROKEN (r15).** The r14 read was
+    `opacity: 1.00` on the pointed-at element, which was true and irrelevant:
+    `#dialogue.tut` is z 29 and paints its own scrim plus two 9%-tall letterbox
+    bars, so the spotlight on `#cockpit` was under the bottom bar, `#holdring`
+    (z 28) was under it too, and the objectives card (z 26) sat under the
+    scrim. The lit element, `#coach` and the ring now outrank the panel, and
+    the probe asks `elementFromPoint` instead of `opacity`. **Still unproven:**
+    the WORLD pointer (obj.payday's descent page → the exit beacon) and a hold
+    arriving at a genuinely dangerous moment.

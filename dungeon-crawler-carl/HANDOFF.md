@@ -137,6 +137,14 @@ design that got us here:
   > stops, the player steps through it with Space, and the strip is what a beat
   > falls back to when it can never hold (co-op, a refusal, 25s of unbroken
   > combat). The strip itself is unchanged and still owns every REACTIVE line.
+  >
+  > **r15 re-authored the CURRICULUM for that delivery** (TUTORIAL.md r15): a
+  > paused page names the player's live binds as key caps and points at what it
+  > names, the dash/draft/descent each got a page of their own, the explanation
+  > that was smuggled into the quips came back out, and the safe room's hold
+  > slot moved to B5 — the only paused moment the shelf lesson actually has.
+  > It also found the r14 POINTER broken end to end: the spotlight was under
+  > the panel's own letterbox bar while measuring `opacity: 1.00`.
 - **Objectives.** A small persistent card: a titled step with 2-3 checkable
   items, staying until all are done. ~~Play never pauses.~~ **r14: a step's
   FIRST delivery pauses; the card is what remembers it afterwards, and its
