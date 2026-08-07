@@ -17,7 +17,7 @@ rejected variant for the record.
 | Thing | Today | Source |
 |---|---|---|
 | Floor grid | 72×72 = 5,184 tiles (all floors) | `CONFIG.floorGridW/H` |
-| Collapse budget | 120s − 1.6s/floor, floor 60s, × the late-floor TIME GRANT from floor 10 (+10% → +25%): floors 10-18 sit flat at ~116s | `floorTimeBudget` |
+| Collapse budget | 120s − 1.6s/floor, floor 60s, × the late-floor TIME GRANT from floor 10 (+10% → +15%): floors 10-18 run 116.2s → 106.7s | `floorTimeBudget` |
 | Walk speed | 4.2 tiles/s → ~17s to cross a floor | `CONFIG.playerSpeed` |
 | Monsters | 24 + 6/floor, cap 110 (≈1 per 47 tiles deep) | `CONFIG.monster*` |
 | Monster AI | every monster steps every tick; aggro range 8 | `ai.ts` |

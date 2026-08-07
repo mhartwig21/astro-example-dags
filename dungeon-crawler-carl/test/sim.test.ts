@@ -1337,17 +1337,19 @@ describe("the late-floor TIME GRANT (owner verdict 2026-08-07)", () => {
   // THE TABLE. Owner, after playing the integrated build: "floor timers need
   // to get a bit longer in later levels. It takes time to kill later mobs and
   // bosses... I think a 10 scaling to 25% increase start at level 10 may be a
-  // good idea." Floors 1-9 are the shipped falloff, untouched; floors 10-18
-  // carry a grant lerping +10% -> +25%. This is the discoverable per-floor
-  // second count — read it here, retune it from the three timerGrant* knobs
-  // in config.ts.
+  // good idea." Revised the same day after more play on a strong build: "It's
+  // actually not as bad as I thought with a good build... maybe the floor 18
+  // should be a 15% increase." Floors 1-9 are the shipped falloff, untouched;
+  // floors 10-18 carry a grant lerping +10% -> +15%. This is the discoverable
+  // per-floor second count — read it here, retune it from the three
+  // timerGrant* knobs in config.ts.
   const TABLE: [floor: number, before: number, after: number][] = [
     [1, 120.0, 120.00], [2, 118.4, 118.40], [3, 116.8, 116.80],
     [4, 115.2, 115.20], [5, 113.6, 113.60], [6, 112.0, 112.00],
     [7, 110.4, 110.40], [8, 108.8, 108.80], [9, 107.2, 107.20],
-    [10, 105.6, 116.16], [11, 104.0, 116.35], [12, 102.4, 116.48],
-    [13, 100.8, 116.55], [14, 99.2, 116.56], [15, 97.6, 116.51],
-    [16, 96.0, 116.40], [17, 94.4, 116.23], [18, 92.8, 116.00],
+    [10, 105.6, 116.16], [11, 104.0, 115.05], [12, 102.4, 113.92],
+    [13, 100.8, 112.77], [14, 99.2, 111.60], [15, 97.6, 110.41],
+    [16, 96.0, 109.20], [17, 94.4, 107.97], [18, 92.8, 106.72],
   ];
 
   it("matches the per-floor budget table exactly", () => {
@@ -1392,9 +1394,11 @@ describe("the late-floor TIME GRANT (owner verdict 2026-08-07)", () => {
       );
       expect(floorTimeBudget(floor), `floor ${floor} lost time`).toBeGreaterThanOrEqual(before - 1e-9);
     }
-    // The grant outruns the falloff: the deep band is now flat-ish, not a
-    // shrinking clock (~116s from floor 10 down).
-    expect(floorTimeBudget(CONFIG.finalFloor)).toBeGreaterThan(floorTimeBudget(CONFIG.timerGrantFromFloor - 1));
+    // The grant very nearly cancels the falloff: at +15% the deep band decays
+    // from 116.2s to 106.7s, so floor 18's clock lands within a second of
+    // floor 9's — the deep game stops tightening without ever loosening.
+    expect(Math.abs(floorTimeBudget(CONFIG.finalFloor) - floorTimeBudget(CONFIG.timerGrantFromFloor - 1)))
+      .toBeLessThan(1);
   });
 });
 

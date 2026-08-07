@@ -54,6 +54,10 @@ export const CONFIG = {
   // integrated build): "floor timers need to get a bit longer in later
   // levels. It takes time to kill later mobs and bosses... I think a 10
   // scaling to 25% increase start at level 10 may be a good idea."
+  // REVISED the same day, after more play on a STRONG build: "It's actually
+  // not as bad as I thought with a good build... maybe the floor 18 should be
+  // a 15% increase." So the ramp keeps its start and loses two thirds of its
+  // top: +10% at floor 10 -> +15% at floor 18.
   //
   // From `timerGrantFromFloor` the falloff budget above is multiplied by a
   // grant that LERPS from +grantStart to +grantEnd at `finalFloor`. Floors
@@ -64,7 +68,7 @@ export const CONFIG = {
   // test/sim.test.ts ("the late-floor TIME GRANT").
   timerGrantFromFloor: 10, // first floor that gets any grant
   timerGrantStart: 0.1, // +10% on that floor...
-  timerGrantEnd: 0.25, // ...lerping to +25% on finalFloor
+  timerGrantEnd: 0.15, // ...lerping to +15% on finalFloor
   warningFraction: 0.4, // enter WARNING when remaining < 40% of the floor's budget
   collapseDpsBase: 6, // damage/sec at start of collapse
   collapseDpsRamp: 4, // extra damage/sec added for each second spent in collapse
