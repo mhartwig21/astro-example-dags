@@ -4,8 +4,28 @@
  * longer teaches anything, on any surface — COURTESY EXPLANATION is dead as
  * a format. The System keeps its announcer register for EVENTS (ringside
  * intros, achievements, hype); Mordecai owns every teaching line, live on the
- * non-pausing strip (main3d's #tutorial card surface) and at rest through the
+ * strip (main3d's #tutorial card surface) and at rest through the
  * modal #dialogue panel (src/ui/guide.ts).
+ *
+ * THE STRIP IS NO LONGER WHERE A LESSON IS DELIVERED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build and named the layer:
+ * "no one reads long text while they're actively fighting in an ARPG." The
+ * word "non-pausing" is retired from this header. The split now:
+ *
+ *   INSTRUCTIONAL → HOLD.  The five OBJ_INTRO_BEATS below are a step's FIRST
+ *     delivery and they stop the world on the #dialogue panel, paged along the
+ *     instruction/wry seam this file already enforces. The player steps
+ *     through them deliberately.
+ *   REACTIVE → STRIP.  Everything else in COACH_BEATS, and every
+ *     COACH_TIP_BEATS translation, stays exactly where it is and never pauses
+ *     anything: pausing on `lowhp` would stop the world at the worst possible
+ *     moment and hand out a free heal; pausing on `boss` would stop a boss
+ *     fight. THE STANDING ASK is likewise untouched — it is a projection, not
+ *     a delivery, and it is the handrail the hold's front door leads to.
+ *
+ * The strip is also the DEMOTION path: a beat that can never hold (co-op, a
+ * profile that refused the interruption, 25s of unbroken combat) arrives here
+ * as the card it always was. Nothing in this file changed shape for that.
  *
  * THE RIDDLE FIX IS STRUCTURAL, NOT STYLISTIC (owner: "Mordecai is some
  * times talking in riddles"). Every teaching beat is data with a shape the

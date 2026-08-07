@@ -10,6 +10,168 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r14 — THE HOLD (the owner stops the game)
+
+**The owner played the integrated build and reversed the delivery law.**
+Verbatim: *"For Mordecai -- I was thinking the tutorial would actually involve
+pauses of the game and you'd have to go through them (or could dismiss him) so
+people actually read. As it stands it's just like Mordecai replaced the courtesy
+explanations for like for like but no one reads long text while they're actively
+fighting in an ARPG."*
+
+Read that as what it is. It is not a polish note. It says the last four rounds
+fixed the wrong layer: the PROSE was fine and r10-r13 sharpened it, while the
+DELIVERY — a card on a strip during combat — was the reason nobody read it.
+**This retires HANDOFF §3a's "a lightweight in-play strip, not the modal
+`#dialogue` panel that pauses the world" and "Play never pauses."** §3a's prose
+stays; its delivery law is gone, and every header that asserted it
+(`guide.ts`, `objectives.ts`, `coach.ts`, CLAUDE.md, the strip's own comments in
+main3d/iso) was edited in the same PR — leaving them is how the next agent
+rebuilds the thing the owner just rejected.
+
+**ZERO SIM CHANGES. `RULES_HASH` DID NOT ROTATE. No run proof is retired.**
+The pause is the ABSENCE of `step()`, not a new system: main3d's solo loop
+already zeroes its accumulator while `dlgOpen`, and `guideShow` already sets it
+— B0's campfire has paused the world since r6. A held frame produces zero sim
+sub-steps, so `sampleIntent` is never called and nothing reaches the recorder: a
+held run and an unheld run of the same seed are byte-identical on the wire
+(COMPETITIVE.md MUST-3).
+
+### What ships
+
+- **`src/ui/hold.ts`** — the pure half, in the coach/objectives mould: the lull
+  test, the scheduler (`hold` / `wait` / `demote`), the pager (one line = one
+  page, a 400ms input flush, no maximum dwell), the beat-to-target table, the
+  refusal's prose, and the resume record. `test/hold.test.ts` (36 tests).
+- **One adapter in `main3d.ts`**, beside `guideShow`, plus `body.hold` and the
+  pointer. **Zero new conditions in the announcement router** — the sibling
+  stream's area is untouched, because `tutorialBlocked()` already returns true
+  while `dlgOpen` and so the card pump waits for free.
+- **`iso.html`**: the advance chevron, the `body.hold` spotlight exemptions,
+  `#holdring`, and the amended zone-map note on `#dialogue`.
+
+### The laws, and where each one came from
+
+1. **WHAT HOLDS: instructional to a hold, reactive to the strip.** Exactly six
+   holds in a first session and it is a hard cap: the campfire B0 plus the five
+   `OBJ_INTRO_BEATS`. `lowhp`, `contact`, `elite`, `boss`, `pickup`, the three
+   knockdown diagnoses and every tip translation stay on the strip and never
+   pause anything — pausing on `lowhp` would stop the world at the worst
+   possible moment and hand out a free heal.
+2. **THE HOLD REPLACES THE STEP INTRO, NOT THE STANDING ASK.** r10-r13 stay
+   entirely load-bearing: the ask is still a projection rebuilt every frame, the
+   per-item escalation latch still survives a pre-empt, `ASK_LOST_KEY` and
+   `ASK_DRAFT_KEY` still pre-empt. The hold is the front door; the ask is the
+   handrail; the checklist is what remembers.
+3. **MID-COMBAT IT WAITS FOR A LULL, THEN HOLDS** — nothing within 8 tiles (the
+   coach's 3 is "already being hit"), no encounter/cinematic/modal, HP above
+   0.78 (r13's severity-4 "blind to danger state"), not in collapse. A due beat
+   that finds no lull in ~25s **demotes to a strip card** rather than forcing a
+   pause. The lull gate is also what buys a SAFE RESUME: nothing is within 8
+   tiles and nothing moves while the panel is up, so no invulnerability grace is
+   needed — which is exactly what keeps this a zero-sim-change feature.
+4. **ANTI-ACCIDENT, and it is the r6-fix-1 lesson re-applied.** A ~400ms input
+   flush per page (a player mid-combat mashing Space would otherwise blow
+   through a whole beat in one frame), `e.repeat` ignored outright, and
+   `input.clearHeld()` on the opening edge so keys already down cannot act.
+5. **THREE VERBS, THREE SCOPES, THREE CONTROLS.** Advance (Space/Enter/tap — it
+   is reading, not dismissal). SKIP THIS BEAT (ESC, one press, non-destructive:
+   the curriculum continues). STOP INTERRUPTING ME — a `.dlg-skip` control off
+   the number row that only OPENS a confirmation whose safe answer is slot 1.
+   That is the exact shape r6-fix-1 shipped after a double-tapped `2` destroyed
+   an entire curriculum.
+6. **THE REFUSAL IS A MODALITY REFUSAL, NOT A CURRICULUM REFUSAL.** `tut.nohold`
+   demotes future beats to the shipped strip and does nothing else — the
+   checklist stays, Mordecai keeps teaching. `GUIDE_SKIP_KEY`, which silences
+   everything, remains only at the campfire. The undo is the shipped two-press
+   K-panel `SHOW ME AGAIN` (`tut.nohold` added to its forget list), and the
+   confirmation NAMES that undo before it takes the answer — and refuses to take
+   it at all until the sentence has finished typing.
+7. **THE CLOCK SAYS SO.** `timeRemaining -= dt` lives inside `step()`, so the
+   collapse clock stops by arithmetic — but a countdown that silently stops is
+   indistinguishable from one that broke, so the `.hh-phase.held` chip r7
+   shipped for the floor-1 hold is reused for the length of every hold.
+8. **TEACHING CLOCKS ARE FED ZERO** for the whole of a hold:
+   `Objectives.addVisibleMs` (or a 20-second read pays the 4s dwell gate and a
+   step completes out from under its own introduction) and
+   `StandingAsk.observe` (or a player is escalated to the concrete "you are
+   probably doing it wrong" form for the crime of reading).
+9. **A REFRESH MID-LESSON DOES NOT EAT THE LESSON.** A beat is ledgered when it
+   is SHOWN — that convention stays — so a two-page hold reloaded on page one
+   would otherwise be spent with page two never read, forever, for that profile
+   (r5 blocker 1 arriving through a new door). The active hold's key and page
+   ride `dcc:hold:v1` and the beat re-opens where it was.
+10. **CO-OP: NO HOLDS, EVER.** `acc = 0` lives inside `if (!net)` and the
+    networked world never pauses; there is already no debut in co-op
+    (`isDebutRun` requires `!net`). Net beats take the SAME demotion path the
+    deadline uses, so there is one demotion mechanism and co-op is its second
+    caller rather than a special case.
+
+### The two-voice binding rule survived the new surface — structurally
+
+The riddle fix already splits every teaching beat into `instruction` (exactly
+one imperative sentence, the key in it) and `wry` (the register, never the
+key), and `test/coach.test.ts` holds that mechanically. **That seam IS the page
+break.** `objHoldPages` makes page one the instruction, alone, pointing at the
+thing it names, and page two the quip, pointing at the checklist that will
+remember it. A player who reads one page has the instruction; a player who reads
+both has Mordecai. So the pause mechanism inherited the prose format the riddle
+fix proved rather than inventing one, and paging it is what makes the rule
+VISIBLE instead of merely tested (`test/hold.test.ts`, "THE TWO-VOICE BINDING
+RULE SURVIVES THE PAUSE").
+
+### Measured
+
+`tools/_tut_r14_hold.mjs` — cold profile, ONE headless browser, port 5292,
+shipping server on `dist` (`STATIC_DIR=dist PORT=5292 npx tsx
+src/server/gameServer.ts`; **`vite preview` is banned on this project**).
+
+The falsifying sentences were written before the probe: *"it stopped the game
+while I was getting hit"* and *"I pressed space and the whole tutorial
+vanished."* ALL PASS:
+
+- the campfire opens as a hold and **pages** (2 pages), waiting on page one;
+- a Space pressed inside the opening flush advances **nothing**;
+- a Space **held** across a beat advances at most one page and never ends it;
+- the advance chevron has a real rect (622x15) on the page that owes one, and
+  the last page hands over to B0's shipped choices;
+- **the collapse clock did not move across a six-second read** (119.933 to
+  119.933) and the HUD read `HELD` while it was stopped;
+- the objectives card is on the glass under `body.hold` at effective opacity
+  1.00 (r13 filed it illegible behind `body.dlg` at severity 3 — measured as
+  pixels here, not asserted from CSS);
+- "Stop stopping the game." is a control with **no digit that can reach it**
+  (the numbered row is empty), taking it only ASKS, the safe answer is slot 1,
+  a destructive click landing mid-sentence finishes the sentence instead, and
+  backing out leaves both the holds and the beat intact;
+- ESC skips the beat and the sim is stepping again on the far side;
+- **no hold opened inside the lull gate** across 70 sampled play steps;
+- holds opened in the session: 2, cap 6;
+- under `?join=` (net) **zero holds** ever open.
+
+**Two defects the probe caught and the code fixed**, both invisible from
+inside: `updateDialogueUi` closed a step-introduction hold on the very next
+frame (there is no `GuideBeat` behind one), dropping `dlgOpen` — the pause gate
+— so a six-second read spent 1.3 seconds of collapse clock with the panel
+already fading; and the refusal's confirmation was answerable while the sentence
+naming its undo was still typing.
+
+### Honest limits (BACKLOG #32, #33)
+
+- **The six-hold cap and the 25s deadline are defensible, not measured** — no
+  cold cohort has run against this build. If the deadline fires often, the lull
+  gate is too strict and the curriculum is quietly reverting to the delivery the
+  owner rejected.
+- **`obj.saferoom`'s hold may always demote**: its step arms while the crawler
+  is at a counter, and a counter is a modal, which the lull gate refuses.
+- **The end-to-end POINTER is unproven.** Only the CSS-specificity half was
+  measured on a real frame (the `body.hold` exemption beats the blanket 35% dim:
+  0.35 to 1.00); `obj.five` pointing at `#cockpit` is three kills deep, out of
+  reach of a ~3fps software-GL harness.
+- **Co-op onboarding is unsolved and r14 did not solve it.** A first-ever
+  session that is a RUSH gets the strip curriculum. The `#rushgate` campfire and
+  the party-wide ready-pause are both filed, and neither was faked.
+
 ## r13 — THE COLLAPSE NAMES ITSELF (the seventh critic round's fixable causes)
 
 The seventh critic round scored 7.0 — up from 6.5, and **NOT SHIPPABLE**. It
@@ -860,7 +1022,7 @@ Three things follow, and they are binding on every future round:
 Owner, verbatim: *"the system courtesy explanations should entirely be
 replaced by Mordecai's guidance"* — so COURTESY EXPLANATION is dead as a
 teaching format, on every surface. Mordecai now has TWO surfaces: the LIVE
-STRIP (the `#tutorial` card surface, non-pausing — `src/ui/coach.ts` lines,
+STRIP (the `#tutorial` card surface — `src/ui/coach.ts` lines,
 curriculum tip translations, objective step lines) and the MODAL (`#dialogue`,
 at rest — `src/ui/guide.ts` beats: campfire, draft, safe rooms, verdict,
 check-in). A persistent OBJECTIVES card (`src/ui/objectives.ts` + right-rail
@@ -884,7 +1046,7 @@ to be.
 | | The System (SHOW) | Mordecai — STRIP | Mordecai — MODAL |
 |---|---|---|---|
 | Register | Dry bureaucratic menace; show-aware but bored (VOICE.md) | Instruction first, quip second; no exclamation marks | Gruff, economical, protective; judgement, not mechanics |
-| Channel | `state.announcements` → banners / ticker / log (EVENTS only, never teaching) | `#tutorial` card surface (non-pausing) + `#objectives` card | `#dialogue` panel (pauses solo world) + B8 verdict aside |
+| Channel | `state.announcements` → banners / ticker / log (EVENTS only, never teaching) | `#tutorial` card surface (reactive lines; never pauses) + `#objectives` card | `#dialogue` panel — **THE HOLD** (r14): it pauses the solo world and the player steps through it, and it is where every INSTRUCTIONAL beat is now delivered. Plus the B8 verdict aside |
 | When | The instant an event happens | The instant a rule touches you | At rest — campfire, draft pause, safe room, verdict, check-in |
 | Teaches | NOTHING (this is the rebuild's law) | Controls, mechanisms, the objective steps | Judgment + the meta: what to pick, what to spend, why the cameras pay |
 | Skip | — | Any input / auto-dismiss; B0 skip silences all of it | ESC or the farewell choice — one input, always last in the list |

@@ -265,3 +265,43 @@ design doc — see `PHYSICALITY.md`.
     affected literals; touching `src/sim/` moves no number, so `RULES_HASH`
     should not rotate, but re-run `npx tsx scripts/simhash.ts --write` and
     confirm rather than assume.
+
+32. **CO-OP ONBOARDING IS UNSOLVED, AND THE r14 HOLD DID NOT SOLVE IT.**
+    A teaching beat now stops the world so the player actually reads it
+    (`src/ui/hold.ts`, TUTORIAL.md r14) — but `acc = 0` lives inside main3d's
+    `if (!net)` branch and the server sim is authoritative and shared, so there
+    are NO holds in co-op and there cannot be without a server change. Pausing
+    one client would not desync anything; it would leave that player standing
+    still while monsters hit them, which is a blindfold, not a pause. So a
+    player whose first-ever session is a co-op RUSH gets the STRIP curriculum —
+    the exact delivery the owner rejected. Two honest ways forward, neither
+    faked in r14:
+    (a) **cheap, host-only:** ride `#rushgate` (THE STARTING GUN), which exists
+        only before the race's first sim tick with nothing running behind it —
+        the campfire beat could play there. It requires widening the guide's
+        `!net` gate (main3d, `const guide = ...`), which is why it was not
+        taken blind in a round that had no co-op cold pass to measure it with.
+    (b) **the real one, and it is a SERVER change:** a party-wide "everyone
+        ready" pause — `src/server/gameServer.ts` would have to hold the world
+        for a beat and every client would have to agree it happened. Out of
+        scope for a host-side round; do not fake it with a per-client freeze.
+    Whichever is taken, do not report the `#rushgate` campfire as "co-op
+    onboarding solved". It is one beat before the gun, not a curriculum.
+
+33. **THE SIX-HOLD CAP AND THE 25s DEMOTION DEADLINE ARE UNMEASURED.**
+    `HOLD_MAX_SESSION` and `HOLD_DEADLINE_MS` (`src/ui/hold.ts`) are
+    defensible, not measured: nobody has watched a cold cohort against this
+    build. Two specific questions a cold pass should answer, because both have
+    a failure mode that is invisible from the inside:
+    (a) how often the deadline actually fires. If it is common, the lull gate
+        is too strict and the curriculum is quietly reverting to the exact
+        strip delivery the owner rejected — a demotion is a fallback, not a fix.
+    (b) whether `obj.saferoom`'s hold ever opens at all. Its step arms while
+        the crawler is AT a counter, and a counter is a modal, which the lull
+        gate refuses — so in practice that one may always demote. That may be
+        correct (the shop panel IS the lesson) or it may mean the safe room
+        wants its beat BEFORE the panel opens, next to B5.
+    Also unproven in r14's battery: the world/HUD POINTER end to end (the
+    obj.five → `#cockpit` spotlight is three kills deep, out of reach of a 3fps
+    software-GL harness — only the CSS-specificity half was measured on a real
+    frame) and a hold arriving at a genuinely dangerous moment.

@@ -5,8 +5,20 @@
  *
  * A pure sequencer in the Guide/Coach mold: facts in, edges out, no DOM, no
  * sim writes, unit-testable. The host renders the current step as a small
- * PERSISTENT card (#objectives, right rail) — play never pauses, nothing
- * auto-dismisses; the card stays until the step's items are all done.
+ * PERSISTENT card (#objectives, right rail) — nothing auto-dismisses; the card
+ * stays until the step's items are all done.
+ *
+ * "PLAY NEVER PAUSES" WAS THIS HEADER'S LAW AND IT IS RETIRED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build: "no one reads long text
+ * while they're actively fighting in an ARPG." A step's FIRST delivery — its
+ * intro beat — now stops the world on the #dialogue panel and is stepped
+ * through by the player; the CARD is unchanged and is what remembers the ask
+ * afterwards. The hold explains, the card remembers.
+ *
+ * The one thing this module owes the pause: `addVisibleMs` must be fed ZERO for
+ * the whole of a hold. Otherwise a twenty-second read pays the 4s
+ * OBJ_MIN_VISIBLE_MS gate and a step completes out from under its own
+ * introduction — which is r1 blocker 1 arriving through a new door.
  *
  * The rules, held structurally:
  *  - EVERY STEP DECLARES WHERE IT IS TRUE, AND THE CARD SHOWS ONLY A STEP THE

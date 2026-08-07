@@ -3,7 +3,7 @@
  * MODAL surface (the #dialogue panel, at rest).
  *
  * THE LAW, rewritten by the tutorial rebuild (HANDOFF §3a — ONE VOICE):
- * Mordecai teaches EVERYWHERE now. In play he owns the non-pausing strip
+ * Mordecai teaches EVERYWHERE now. In play he owns the strip
  * (src/ui/coach.ts: instruction-first teaching lines, curriculum tip
  * translations, objective step lines); at rest he owns this panel. The
  * System no longer teaches on any surface — COURTESY EXPLANATION is dead as
@@ -13,6 +13,16 @@
  * MODAL carries judgement (what to pick, what to spend, why the cameras
  * pay). No modal beat may restate a strip line's mechanism — the paraphrase
  * test in test/guide.test.ts holds the modal side of that seam.
+ *
+ * ...AND THE STRIP IS NO LONGER WHERE A LESSON IS DELIVERED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build: "no one reads long text
+ * while they're actively fighting in an ARPG." So an INSTRUCTIONAL beat now
+ * stops the world and is stepped through on THIS panel — `dlgOpen` is already
+ * the solo loop's pause gate, so B0 has behaved this way since r6 and the five
+ * objective-step introductions join it. The strip keeps every REACTIVE line
+ * (contact, lowhp, elite, boss, the knockdown diagnoses, the tip
+ * translations) and is also the demotion path when a hold cannot happen.
+ * B0's `lines` are PAGES now: one line, one page, advanced by the player.
  *
  * Structure in the Coach/Onramp mold: a pure module — facts in, at most
  * one beat out per call, unit-testable without a DOM. The host renders beats

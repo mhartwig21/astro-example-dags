@@ -124,8 +124,23 @@ design that got us here:
   the `src/ui/guide.ts` header). That rule must go if he is the teacher — he
   needs a lightweight in-play strip, not the modal `#dialogue` panel that
   pauses the world.
+
+  > **RETIRED BY THE OWNER, r14 — THE HOLD.** He played the integrated build
+  > and said it plainly: *"I was thinking the tutorial would actually involve
+  > pauses of the game and you'd have to go through them (or could dismiss him)
+  > so people actually read. As it stands it's just like Mordecai replaced the
+  > courtesy explanations for like for like but no one reads long text while
+  > they're actively fighting in an ARPG."* The paragraph above named the wrong
+  > layer: the PROSE was fine and four rounds polished it, while the DELIVERY —
+  > a strip card during combat — was what nobody read. A teaching beat now
+  > INTERRUPTS (`src/ui/hold.ts` + the adapter beside `guideShow`): the sim
+  > stops, the player steps through it with Space, and the strip is what a beat
+  > falls back to when it can never hold (co-op, a refusal, 25s of unbroken
+  > combat). The strip itself is unchanged and still owns every REACTIVE line.
 - **Objectives.** A small persistent card: a titled step with 2-3 checkable
-  items, staying until all are done. Play never pauses.
+  items, staying until all are done. ~~Play never pauses.~~ **r14: a step's
+  FIRST delivery pauses; the card is what remembers it afterwards, and its
+  dwell clock is fed zero for the length of a hold.**
 - **The riddle fix is structural, not stylistic.** `guide.ts` currently FORBIDS
   Mordecai from teaching mechanics (there is a two-voice test in
   `test/guide.test.ts` enforcing it), which is exactly why every line he has is
