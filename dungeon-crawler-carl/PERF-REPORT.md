@@ -443,6 +443,18 @@ have swapped real small-caps for synthesized ones invisibly to any byte count.
 Built with `--layout-features='*'`. And Cinzel is a **variable** font
 (`font-weight: 400 900`); it is not instanced.
 
+> **Superseded at integration (try-it).** The asset-budget round shipped its
+> own WOFF2 subsets of the same four faces, and those are what the merged
+> branch serves: a slightly tighter subset (172,832 B cold, vs 225,284 B
+> here), with the TTF masters moved out of `public/fonts/` to
+> `tools/fonts-src/` so they are build input only and the `@font-face` rules
+> carry no `.ttf` fallback. `tools/fonts/subset.py` is removed with them —
+> `tools/subset-fonts.mjs` is the one surviving generator. The two warnings
+> above still hold and were re-verified against the shipped files: feature
+> lists match the TTF masters except `ss05`, so `smcp`/`c2sc`/`tnum` are
+> intact, and Cinzel still carries its `wght` axis. The `.woff2` MIME entry
+> this round added to the production server is kept.
+
 *Pre-existing bug found, not introduced:* the LIVE FEED ticker renders mojibake
 em-dashes (`â€"`) on **both** arms, i.e. already on main. The same corruption
 appears in a `src/sim/config.ts` comment, so it may be a source-file encoding
@@ -454,6 +466,16 @@ problem rather than a runtime one. Worth its own ticket.
 900,618 bytes** (-75.9%), buffered-ahead 262.5 → 64.0 s, loop-seam delta 95.1
 → 0.4 dB, peak -7.2 → -7.5 dBFS. `residentPcmBytes` unmoved at 14.8 MB (this
 is a wire fix, not a memory fix).
+
+> **Superseded at integration (try-it).** The release round trimmed the same
+> bed independently and its cut is the one that ships: **88.40 s / 1,235,092
+> bytes**, cut point chosen by a continuation-correlation search over 60–90 s
+> rather than by a bar-count argument, 1.2 s crossfade, seam measured at
+> **0.8 dB** with no click. So the mid-fight fetch reads **3,737,204 →
+> 1,235,092 bytes (-66.9%)**, not -75.9%: ~334 KB of the win here is given
+> back for a longer loop and a seam somebody actually measured after the fact.
+> Everything else in this section — the vacuous-probe correction and the
+> floor % 3 rule — is unchanged and still the thing to read before re-probing.
 
 *Two corrections to that brief, both measured.* (a) The stated verification
 probe would have passed **vacuously**: the director picks

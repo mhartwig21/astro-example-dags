@@ -237,8 +237,11 @@ export const AUDIO_MANIFEST = {
   // Battle rotation (regular combat; picked per floor — see director.ts).
   music_battle_a: { url: "/audio/music/battle_theme_a.ogg", bus: "music", volume: 0.5, loop: true },
   music_battle_b: { url: "/audio/music/battle_music.ogg", bus: "music", volume: 0.5, loop: true },
-  // TRIMMED 262.45s -> 64.0s (perf-mobile opt8, HANDOFF §3d; the cut lives in
+  // TRIMMED 262.45s -> 88.40s (HANDOFF §3d; the cut lives in
   // tools/audio/fix-beds.mjs and is documented as a derivative in ASSETS.md).
+  // Two rounds trimmed this bed independently; the SHIPPED file is the longer,
+  // measured one — its cut point comes from a continuation-correlation search
+  // and its seam is measured at 0.8dB with no click, not assumed.
   // Nothing here changes: same id, same url, same volume — it is the FILE that
   // got shorter. Streaming does not make an over-long bed free, because the
   // director picks this one by BATTLE_TRACKS[floor % 3] mid-fight, and the
