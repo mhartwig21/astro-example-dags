@@ -4906,6 +4906,33 @@ function updateTimer(state: GameState, dt: number): void {
       if (!p.alive) continue;
       addHype(state, p, CONFIG.show.hypeCollapsePerSec * dt); // clutch escape = ratings gold
       const dmg = dps * dt;
+      // THE DEATH, NAMED — and the collapse must name ITSELF (r13, critic
+      // severity 5). This loop deliberately bypasses damagePlayerHit (the
+      // dungeon, not an attacker, is dealing this damage), and that funnel is
+      // the ONLY writer of `lastHitSrc`. So a collapse execution rendered
+      // whatever monster last grazed the crawler, with that hit's stale
+      // hpBefore — two of three measured collapse deaths read "SHOT — 17
+      // damage, from 0% HP" and "SHOT — 12 damage, from 74% HP", the second of
+      // which is arithmetically impossible. The verdict screen is the one
+      // screen a player is guaranteed to read, and the collapse timer is the
+      // mechanic the first session most needs to learn, so it was teaching the
+      // wrong lesson at the best possible moment. `social.ts`'s
+      // `if (raw === "collapse") return "THE COLLAPSE"` was written for this
+      // path and was unreachable on it.
+      //
+      // Ticks ACCUMULATE: one frame of collapse damage is a rounding error, so
+      // the card would otherwise read "THE COLLAPSE — 2 damage, from 1% HP".
+      // The reading a player can parse is the whole bite — how much of the bar
+      // the floor ate, and what it started from. A monster hit in the middle
+      // re-takes the field (damagePlayerHit overwrites), and the accumulation
+      // restarts from there, which is also the honest account.
+      const carry = p.lastHitSrc && p.lastHitSrc.by === "collapse" ? p.lastHitSrc : null;
+      p.lastHitSrc = {
+        by: "collapse",
+        dmg: (carry?.dmg ?? 0) + dmg,
+        hpBefore: carry?.hpBefore ?? p.hp,
+        maxHp: p.maxHp,
+      };
       p.hp -= dmg;
       p.damageTaken += dmg;
       hit(state, p.pos, Math.max(1, Math.round(dmg)), "player", { killed: p.hp <= 0 });

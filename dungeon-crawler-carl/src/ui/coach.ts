@@ -739,6 +739,28 @@ export class StandingAsk {
   private hot = false;
   private cards = 0;
   private sinceCard = 0;
+  /**
+   * THE ESCALATION IS PER ITEM, AND IT SURVIVES A PRE-EMPT (r13, critic
+   * severity 5 — "the escalation is not reverting, it is being EVICTED").
+   *
+   * r10 wrote the escalated form down as PERMANENT for an item, and it
+   * demonstrably was not: the pre-empts (a banked draft, a lost crawler) take
+   * the slot, which is a KEY CHANGE, and a key change resets `hot` — so when
+   * the pre-empt stood down, the item the player was actually stuck on
+   * re-entered at its SOFT form and had to earn its 25 seconds all over again.
+   * A cold profile measured the consequence exactly: the same concrete
+   * sentence delivered at 100.5s, 175.7s, 281.6s and 380.6s across a
+   * 258-second stall on one item. Delivering an escalation four times is not
+   * an escalation, it is a loop.
+   *
+   * A key change is still PROGRESS for a key the player has never been stuck
+   * on (that test is the r10 law and stays green). It is not amnesia for one
+   * they have: an item that has earned its escalation keeps it, and its card
+   * budget, for the rest of the session. The item can never come back after it
+   * is checked, so this cannot nag past its own lesson.
+   */
+  private hotKeys = new Set<string>();
+  private cardsByKey = new Map<string, number>();
 
   /** The ask key currently live ("" for none). */
   get current(): string {
@@ -760,9 +782,11 @@ export class StandingAsk {
   observe(key: string, dtMs: number): AskEdge | null {
     if (key !== this.key) {
       this.key = key;
-      this.ms = 0;
-      this.hot = false;
-      this.cards = 0;
+      // An item this player has already been stuck on comes back STUCK — the
+      // pre-empt borrowed the slot, it did not teach the lesson (see hotKeys).
+      this.hot = this.hotKeys.has(key);
+      this.ms = this.hot ? (OBJ_ASKS[key]?.after ?? ASK_STUCK_MS) : 0;
+      this.cards = this.cardsByKey.get(key) ?? 0;
       this.sinceCard = 0;
       return null;
     }
@@ -772,14 +796,19 @@ export class StandingAsk {
     this.sinceCard += dtMs;
     if (!this.hot && this.ms >= (beat.after ?? ASK_STUCK_MS)) {
       this.hot = true;
+      this.hotKeys.add(key);
       this.cards = 1;
+      this.cardsByKey.set(key, this.cards);
       this.sinceCard = 0;
       return { key, text: this.line() };
     }
     // STILL STUCK ON THE SAME THING: re-assert the concrete form rather than
-    // going quiet — bounded, because the plate never stopped carrying it.
+    // going quiet — bounded, because the plate never stopped carrying it. The
+    // budget is per ITEM and banked with it, so a pre-empt cycling in and out
+    // cannot refund the nag either.
     if (this.hot && this.cards < ASK_MAX_CARDS && this.sinceCard >= ASK_REPEAT_MS) {
       this.cards++;
+      this.cardsByKey.set(key, this.cards);
       this.sinceCard = 0;
       return { key, text: this.line() };
     }

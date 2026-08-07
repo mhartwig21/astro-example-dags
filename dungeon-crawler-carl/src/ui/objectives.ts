@@ -280,6 +280,9 @@ export class Objectives {
   private doneSteps: Set<string>;
   /** Per-run item latches, "stepId/itemId". */
   private itemDone = new Set<string>();
+  /** Items that were checked by their ALTERNATIVE fact, so the card can keep
+   *  printing the wording the player actually earned. */
+  private itemAlt = new Set<string>();
   /** Per-session intro latch: a step introduces itself once, not once per run. */
   private introduced = new Set<ObjStepId>();
   /** Card-on-glass time the host has reported, per step (ms). The completion
@@ -336,10 +339,17 @@ export class Objectives {
     const done = new Set<string>();
     const alt = new Set<string>();
     for (const it of step.items) {
-      if (this.itemDone.has(`${step.id}/${it.id}`)) done.add(it.id);
-      // An item already checked keeps the wording it was checked under; only
-      // an OPEN item re-reads the world for which ask is honest right now.
-      else if (it.alt && this.lastFacts[it.alt.altFact]) alt.add(it.id);
+      if (this.itemDone.has(`${step.id}/${it.id}`)) {
+        done.add(it.id);
+        // ...and it keeps the wording it was CHECKED under. That used to be a
+        // comment describing a bug: a checked item silently reverted to the
+        // primary wording, so an item satisfied by the alternative act printed
+        // a struck-through claim about an act the player never performed
+        // ("Spend some gold ✓" for a crawler who read the shelf and bought
+        // nothing). A checklist that lies about what you did is worse than one
+        // that stays open.
+        if (this.itemAlt.has(`${step.id}/${it.id}`)) alt.add(it.id);
+      } else if (it.alt && this.lastFacts[it.alt.altFact]) alt.add(it.id);
     }
     return { step, done, alt };
   }
@@ -404,6 +414,7 @@ export class Objectives {
       if (this.itemDone.has(k)) continue;
       if (facts[it.id] || (it.alt && facts[it.alt.id])) {
         this.itemDone.add(k);
+        if (!facts[it.id] && it.alt && facts[it.alt.id]) this.itemAlt.add(k);
         checked.push(it.id);
       }
     }

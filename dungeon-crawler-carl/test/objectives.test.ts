@@ -344,6 +344,33 @@ describe("an item the economy has priced out of reach falls back (r1)", () => {
     expect(res.completed).toBe("obj.saferoom");
   });
 
+  /**
+   * A CHECKED ITEM KEEPS THE WORDING IT WAS EARNED UNDER (r13, critic
+   * severity 4). The alt wording was chosen from the LIVE facts, so an item
+   * satisfied by reading the shelf reverted to "Spend some gold ✓" the moment
+   * it checked — a struck-through claim about a purchase the player declined
+   * to make. The host now closes this step on a real read of the shelf
+   * (main3d: `browse`), so the wording is the difference between a checklist
+   * that reports and one that fabricates.
+   */
+  it("an item checked by the ALT act keeps the alt wording after it is struck", () => {
+    // No dwell: the step stays open (the paint gate), so the card is still
+    // showing the item it just checked — which is the frame this is about.
+    const o = atSafeRoom();
+    o.update({ inSafeRoom: true, shop: true, browse: true, brokeAtShop: false });
+    const v = o.view()!;
+    expect(v.done.has("spend")).toBe(true);
+    expect(v.alt.has("spend")).toBe(true); // "Look over the shelf", not "Spend some gold"
+  });
+
+  it("...and an item checked by the PRIMARY act keeps the primary wording", () => {
+    const o = atSafeRoom();
+    o.update({ inSafeRoom: true, shop: true, spend: true, brokeAtShop: true });
+    const v = o.view()!;
+    expect(v.done.has("spend")).toBe(true);
+    expect(v.alt.has("spend")).toBe(false);
+  });
+
   it("the card prints the alternative wording only while the host says so", () => {
     const o = atSafeRoom();
     o.update({ inSafeRoom: true, brokeAtShop: true });

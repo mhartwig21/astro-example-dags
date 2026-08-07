@@ -608,6 +608,42 @@ describe("THE TEACHING CHANNEL IS CONTINUOUS (r10 root cause)", () => {
     expect(a.line()).toBe(OBJ_ASKS["obj.move/blood"].ask); // and back to instruction alone
   });
 
+  /**
+   * AN ESCALATION THAT REPEATS IS NOT AN ESCALATION (r13, critic severity 5).
+   *
+   * r10 wrote the concrete form down as PERMANENT for an item. It was not: a
+   * pre-empt (a banked draft, a lost crawler) taking the slot is a key change,
+   * and a key change reset the escalation — so the item the player was
+   * genuinely stuck on came back SOFT and had to earn its 25 seconds again.
+   * Measured: the identical concrete sentence delivered at 100.5s, 175.7s,
+   * 281.6s and 380.6s inside one 258-second stall on a single item.
+   */
+  it("a pre-empt BORROWS the slot; it does not un-teach the item under it", () => {
+    const a = new StandingAsk();
+    a.observe("obj.five/dash", 0);
+    a.observe("obj.five/dash", ASK_STUCK_MS);
+    expect(a.escalated).toBe(true);
+    const concrete = a.line();
+    // A draft is banked; the pre-empt takes the slot and stands down again.
+    a.observe(ASK_DRAFT_KEY, 16);
+    expect(a.escalated).toBe(false); // the draft ask is its own, fresh, item
+    a.observe("obj.five/dash", 16);
+    expect(a.escalated).toBe(true); // ...and the stall underneath it is not new
+    expect(a.line()).toBe(concrete);
+  });
+
+  it("...and the card budget is banked with the item, so cycling cannot refund the nag", () => {
+    const a = new StandingAsk();
+    a.observe("obj.five/dash", 0);
+    let edges = 0;
+    for (let i = 0; i < 40; i++) {
+      if (a.observe("obj.five/dash", ASK_REPEAT_MS)) edges++;
+      a.observe(ASK_DRAFT_KEY, 16); // the pre-empt cycles in and out
+      a.observe("obj.five/dash", 16);
+    }
+    expect(edges).toBe(ASK_MAX_CARDS);
+  });
+
   it("re-asserting is bounded; the standing instruction is not", () => {
     const a = new StandingAsk();
     a.observe("obj.move/kills3", 0);

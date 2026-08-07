@@ -5546,6 +5546,41 @@ describe("first-contact System tips", () => {
     expect(r.announcements.some((a) => a.kind === "tip")).toBe(false);
   });
 
+  /**
+   * THE DEATH SCREEN MAY NOT NAME THE WRONG KILLER (r13, critic severity 5).
+   *
+   * `lastHitSrc` was written by exactly one function — the damage funnel — and
+   * the collapse loop deliberately bypasses it, so a collapse execution
+   * rendered whatever monster last grazed the crawler together with THAT hit's
+   * stale hpBefore. Two of three measured collapse deaths read "SHOT — 17
+   * damage, from 0% HP" and "SHOT — 12 damage, from 74% HP" (a 12-damage hit
+   * cannot kill from 74%). The collapse timer is the mechanic a first session
+   * most needs to learn and the verdict is the screen it is guaranteed to
+   * read, so this was the game teaching the wrong lesson at the best moment it
+   * gets. `social.ts`'s `raw === "collapse"` branch existed the whole time and
+   * was unreachable on the one path it was written for.
+   */
+  it("a collapse execution names THE COLLAPSE, not the last monster that grazed you", () => {
+    const g = createGame(9751);
+    const p = g.players[0];
+    g.monsters.length = 0; // nothing alive to take the kill or re-take the field
+    damagePlayerHit(g, p, 6, { roll: false, src: "shot" });
+    expect(p.lastHitSrc?.by).toBe("shot"); // the stale attribution, as it was
+    const grazed = p.lastHitSrc!.hpBefore;
+    p.hp = Math.min(p.hp, 12);
+    const hpAtCollapse = p.hp;
+    g.timeRemaining = 0;
+    for (let i = 0; i < 2000 && p.alive; i++) step(g, idle(), 1 / 60);
+    expect(p.alive).toBe(false);
+    expect(p.lastHitSrc?.by).toBe("collapse");
+    // ...and the reading is one a player can parse: the floor's whole bite,
+    // measured from the bar it started eating — not a single frame's rounding
+    // error against a stale percentage.
+    expect(p.lastHitSrc!.hpBefore).toBeCloseTo(hpAtCollapse, 5);
+    expect(p.lastHitSrc!.hpBefore).not.toBeCloseTo(grazed, 5);
+    expect(p.lastHitSrc!.dmg).toBeGreaterThanOrEqual(hpAtCollapse);
+  });
+
   it("the first banked draft comes with the badge explanation, once ever (TUTORIAL.md B3)", () => {
     const g = createGame(977);
     const p = g.players[0];

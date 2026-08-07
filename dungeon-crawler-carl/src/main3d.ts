@@ -8758,6 +8758,27 @@ let objPrevOpenPicks = 0;
  *  objFloorBase). */
 let objFavBase = -1;
 /**
+ * THE SHOW MAY NOT BE BORN COMPLETED (r13, critic severity 5 — the third
+ * recurrence of r6-fix-1's finding 1, now on the closer).
+ *
+ * `hype` was a LEVEL test (`p.hype >= interferenceHypeFloor`) against a
+ * run-cumulative reading, so for a crawler who was already fighting well the
+ * item was true at the arming edge: a cold profile armed THE SHOW already
+ * reading "[x] Push your hype over 25 | [x] Convert a favorite", was seen on
+ * exactly one sampled frame, and wrote the key to the ledger under a second
+ * later — with hype reading 0 by then. The step whose whole job is to teach
+ * the game's identity was spent without ever being read, and no dwell timer
+ * can fix that, because the facts were already true before the card existed.
+ *
+ * So the item is a DELTA measured from the moment the card arms: the reading
+ * must be over the System's line AND have climbed `OBJ_SHOW_HYPE_GAIN` since
+ * this card started asking. Whatever the player did to move it, they did it
+ * while the ask was on the glass. (`fan` was already a delta off objFavBase —
+ * this is the same law applied to the item that was missing it.)
+ */
+let objHypeBase = -1;
+const OBJ_SHOW_HYPE_GAIN = 5;
+/**
  * DEATH DOES NOT ERASE TUITION (r2 BLOCKER). "Put down three monsters" was
  * counted from `p.kills`, which is a RUN stat, so every death reset it — and
  * two of three cold sessions therefore never reached the step that teaches the
@@ -8809,6 +8830,7 @@ function resetCoachSampling(): void {
   objDraftClaimed = false;
   objPrevOpenPicks = 0;
   objFavBase = -1;
+  objHypeBase = -1;
   objShopMs = 0;
   // The dead crawler's kills are banked before the counter goes back to zero.
   objKillsBanked += objKillsThisRun;
@@ -9591,6 +9613,7 @@ function objectivesSync(): void {
   if (objGoldBase < 0) objGoldBase = p.goldSpent ?? 0;
   if (objFloorBase < 0) objFloorBase = state.floor;
   if (objFavBase < 0) objFavBase = p.favorites;
+  if (objHypeBase < 0) objHypeBase = p.hype;
   // A draft CLAIM is the open picks emptying (chooseUpgrade clears the set) —
   // which happens under a MODAL, with the sim paused, so it is sampled here.
   const openPicks = p.pendingUpgrades.length;
@@ -9623,15 +9646,31 @@ function objectivesSync(): void {
     // testifies, and it can only testify from a frame the sim is not running)
     shop: srEl.style.display === "flex",
     spend: (p.goldSpent ?? 0) > objGoldBase,
-    // ...and the fallback the economy sometimes forces: nothing on any shelf
-    // is inside this crawler's purse, so the lesson is READING the shelf.
-    // Three seconds of the panel open is a look, not a glance.
-    browse: objShopMs > 3000 && cheapestShelfPrice(state) > p.gold,
+    // ...and the READ of the shelf, which is the lesson when a purchase does
+    // not happen — for either of the two reasons it does not happen.
+    //
+    // THE STEP HAD NO EXIT FOR A CRAWLER WHO DECLINES TO BUY (r13, critic
+    // severity 4). "Spend some gold" only ever checked on a purchase, and this
+    // fallback additionally required `brokeAtShop` — which r7's debut stipend
+    // and r9's shelf guarantee make structurally FALSE at the first shelf, on
+    // purpose. So the one step with a pre-empt could only be closed by an act
+    // the player may reasonably decline: a cold profile opened the shelf three
+    // times carrying 95 gold, bought nothing, and never completed the step in
+    // a 450-second session. Reading a shelf you can afford and choosing to
+    // save is a legitimate — and correct — thing for a crawler to do, and the
+    // curriculum has to accept it. Eight seconds of the panel actually open,
+    // banked across visits (the clock re-bases on the step's arming edge), is
+    // a READ rather than a glance; the checklist then keeps the wording the
+    // player earned (`Objectives.itemAlt`) instead of claiming a purchase.
+    browse: objShopMs > 8000,
     brokeAtShop: cheapestShelfPrice(state) > p.gold,
     // S5 THE SHOW: the boredom line is the sim's own interference floor, and
     // a favorite is counted from the step's start so an old fan can't
     // pre-check the lesson.
-    hype: p.hype >= CONFIG.interferenceHypeFloor,
+    // ...and the hype reading must have MOVED on this card's watch, not merely
+    // been true when the card arrived (objHypeBase — the step was otherwise
+    // spendable without ever being read).
+    hype: p.hype >= CONFIG.interferenceHypeFloor && p.hype >= objHypeBase + OBJ_SHOW_HYPE_GAIN,
     fan: p.favorites >= objFavBase + 1,
   });
 
@@ -9646,6 +9685,7 @@ function objectivesSync(): void {
     // this is only about the zero point of the diff.)
     objFloorBase = state.floor;
     objFavBase = p.favorites;
+    objHypeBase = p.hype;
     objInvBase = p.inventory.length;
     objEquipBase = EQUIP_SLOTS.map((sl) => p.equipment[sl]?.id ?? "").join("|");
     objGoldBase = p.goldSpent ?? 0;

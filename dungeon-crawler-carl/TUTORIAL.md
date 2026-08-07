@@ -10,6 +10,102 @@ code are deleted (BACKLOG.md convention); what remains is the enduring canon
 (the one-voice law, the register bible), the implementation map, and the open
 edges for later rounds.
 
+## r13 — THE COLLAPSE NAMES ITSELF (the seventh critic round's fixable causes)
+
+The seventh critic round scored 7.0 — up from 6.5, and **NOT SHIPPABLE**. It
+confirmed the round's real wins on the glass (floor-1 trap dead, 0 step-reset
+cycles, 4/4 reached the stairs, 4/4 could afford the first shelf, the kit
+LEARNED — not armed — by 4/4) and then caught the same lie one layer down:
+*"the metric is no longer 'armed'; it is 'ledgered' — and ledgering is not
+learning either."* Curriculum learned honestly: **1 of 4**. Four causes were
+fixable in one pass without a new idea; they are below. The rest are named as
+still-owed, at the bottom, in the critic's own counts.
+
+**`RULES_HASH` ROTATED AGAIN** (`f74b6823 → aacfeb19`; the branch's full chain
+is now `98b1470a → 414aae37 → f74b6823 → aacfeb19`). One sim change, item 1,
+and it retires every run proof recorded under the previous era
+(COMPETITIVE.md §2.6a). **Unit-measured only — no cold cohort has run against
+this build, and no frame of it has been photographed.** That is the next
+battery's job and it is the honest limit of every claim in this section.
+
+1. **THE DEATH SCREEN NAMED THE WRONG KILLER ON EVERY COLLAPSE DEATH** (the
+   critic's severity 5, unlisted by the battery and verified in source before
+   it was verified on a frame): `r12_C_30_verdict_1.png` reads *"SHOT — 17
+   damage, from 0% HP."* on a logged collapse execution; `r12_A_30` reads
+   *"SHOT — 12 damage, from 74% HP"*, which is arithmetically impossible.
+   `damagePlayerHit` is the ONLY writer of `p.lastHitSrc`, and the collapse
+   loop bypasses that funnel on purpose (the dungeon deals that damage, not an
+   attacker) — so a collapse death rendered whatever monster last grazed the
+   crawler, with that hit's stale `hpBefore`. `social.ts`'s
+   `if (raw === "collapse") return "THE COLLAPSE"` had been dead code on the
+   one path it was written for, under a comment asserting the line "is DATA,
+   not a render-layer guess". **The collapse loop writes its own
+   `lastHitSrc` now**, and the ticks ACCUMULATE — one frame of collapse damage
+   is a rounding error, so the honest reading is the whole bite and the bar it
+   started from, not "2 damage, from 1% HP". A monster hit in the middle
+   re-takes the field and the accumulation restarts from there. This is the
+   only sim change and the only reason the era moved. The fix is host-agnostic
+   by construction: it is data, at the source, exactly as the comment claimed.
+   (`test/sim.test.ts`: "a collapse execution names THE COLLAPSE, not the last
+   monster that grazed you".)
+2. **THE ESCALATION WAS NOT REVERTING — IT WAS BEING EVICTED.** r10 wrote the
+   concrete form down as PERMANENT for an item. It was not: a pre-empt (a
+   banked draft, a lost crawler) taking the ask slot is a KEY CHANGE, and a key
+   change reset `hot` — so the item the player was genuinely stuck on came back
+   SOFT and had to earn its 25 seconds again. Measured: the identical concrete
+   sentence delivered at 100.5s, 175.7s, 281.6s and 380.6s inside one
+   258-second stall on a single item (`obj.five/dash`). `StandingAsk` keeps a
+   per-item escalation latch and per-item card budget (`hotKeys`,
+   `cardsByKey`): an item that has earned its escalation keeps it, and its
+   budget, for the session — so a pre-empt BORROWS the slot instead of
+   un-teaching what is under it, and cycling cannot refund the nag. A key
+   change is still progress for a key the player has never been stuck on,
+   which is r10's law and stays green.
+3. **THE SHOW COULD STILL BE SPENT WITHOUT BEING READ** (r6-fix-1 finding 1,
+   third recurrence, now on the closer). `hype` was a LEVEL test against a
+   run-cumulative reading, so a crawler already fighting well armed the step
+   with the box already ticked — one cold profile armed THE SHOW reading
+   `[x][x]`, was observed on exactly ONE sampled frame, and ledgered 0.8s
+   later with hype reading 0. No dwell timer can fix that: the facts were true
+   before the card existed. **The item is a DELTA from the arming edge now**
+   (`objHypeBase` + `OBJ_SHOW_HYPE_GAIN`): the reading must be over the
+   System's line AND have climbed since this card started asking, so whatever
+   the player did to move it, they did it while the ask was on the glass.
+   (`fan` was already a delta; this is the same law applied to the item that
+   was missing it.) **The other half of the critic's finding is NOT fixed**:
+   the prose slot is still not reserved for The Show while The Show is the
+   active step, and across 21 frames the teaching channel never once explained
+   hype, viewers or favorites. Named as owed, not claimed.
+4. **`obj.saferoom` HAD NO EXIT FOR A CRAWLER WHO DECLINES TO BUY.** "Spend
+   some gold" only ever checked on a purchase, and its `browse` alt
+   additionally required `brokeAtShop` — which r7's stipend and r9's shelf
+   guarantee make structurally FALSE at the first shelf, on purpose. So the one
+   step with a pre-empt could only be closed by an act a player may reasonably
+   decline: a cold profile opened the shelf three times carrying 95 gold,
+   bought nothing, and never completed the step in a 450-second session.
+   Reading a shelf you can afford and choosing to save is a correct thing for a
+   crawler to do and the curriculum has to accept it: **eight seconds of the
+   panel actually open, banked across visits, is a READ** and closes the item.
+   With it, the checklist stops lying about what you did — `Objectives.itemAlt`
+   latches the wording an item was CHECKED under, so an item satisfied by
+   reading the shelf prints "Look over the shelf ✓" instead of reverting to a
+   struck-through claim about a purchase that never happened.
+
+**STILL NOT SHIPPABLE, and these are the critic's remaining items, not a
+summary of them**: the shop's named pick is out-shouted by DESCEND and
+contradicts the panel's own MORDECAI'S PICKS (sev 4); "push your hype over 25"
+has no visible causal feedback and was unreachable for 2 of 4 profiles (sev 4);
+the teaching channel is blind to danger state — inventory prose at 19% HP with
+0:10 on the collapse clock (sev 4); the objectives card is illegible behind
+`body.dlg` (sev 3); the exit beacon does not render the distance the instrument
+claims it renders and lands inside the ability hotbar (sev 3); ladder-submission
+consent on a first-timer's third death (sev 2); stale/headless asks on
+session-final frames (sev 2); the mercy ladder escalates on DYING when the
+failure mode is a healthy player who is stuck (sev 2); and the curriculum has
+no second act for a player who clears it in 98 seconds (sev 1). Above all: the
+escalation now survives eviction, but **after N failed deliveries the channel
+must change MODALITY, not wording** — that is not in this round.
+
 ## r11 — THE EXIT: wayfinding, and a mercy that escalates
 
 The sixth critic round scored 6.5 and named the new failure in one sentence:
