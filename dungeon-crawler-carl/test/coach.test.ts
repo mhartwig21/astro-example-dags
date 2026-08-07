@@ -19,13 +19,16 @@ import { describe, expect, it } from "vitest";
 import {
   ASK_DRAFT_KEY, ASK_LOST_KEY, ASK_MAX_CARDS, ASK_REPEAT_MS, ASK_STUCK_MS,
   COACH_BEATS, COACH_MAX_PROMPTS, COACH_SHOP_BEATS, COACH_TIP_BEATS, COACH_TIP_IDS,
-  Coach, OBJ_ASKS, OBJ_DONE_LINES, OBJ_INTRO_BEATS, StandingAsk,
+  Coach, OBJ_ASKS, OBJ_DONE_LINES, OBJ_INTRO_BEATS, OBJ_INTRO_PAGES,
+  OBJ_INTRO_SUPERSEDES, StandingAsk,
   TOPIC_BAG, TOPIC_COLLAPSE, TOPIC_SHOW, castKeyIndex,
   castSlotIndices, coachTipLine, diagnoseKnockdown, renderBeat, shopBeatLine,
   type CoachEvent, type TeachBeat,
 } from "../src/ui/coach";
 import { DEFAULT_BINDINGS, keyLabel } from "../src/input/bindings";
-import { OBJECTIVE_STEPS, OBJ_LABEL_TOKENS, OBJ_STEP_IDS } from "../src/ui/objectives";
+import {
+  OBJECTIVE_STEPS, OBJ_LABEL_TOKENS, OBJ_STEP_IDS, type ObjStepId,
+} from "../src/ui/objectives";
 
 const LIVE = { move: "WASD", attack: "Left click or Space", flask: "X", bag: "I" };
 const desktop = (): Coach => new Coach({ ...LIVE });
@@ -69,10 +72,18 @@ const ALL_BEATS: [string, TeachBeat][] = [
   // hides the strip), but a beat is a beat: same shape, same binding rule.
   ...Object.entries(COACH_SHOP_BEATS).map(([k, b]) => [`shop:${k}`, b] as [string, TeachBeat]),
 ];
+/** A step's whole HOLD, in the order the player steps through it: the
+ *  instruction, the pages a pause pays for, then the quip (r15). */
+const holdText = (id: ObjStepId): string =>
+  [OBJ_INTRO_BEATS[id].instruction, ...OBJ_INTRO_PAGES[id], OBJ_INTRO_BEATS[id].wry ?? ""].join(" ");
+
 /** Every player-facing line the module can emit. */
 const ALL_LINES: string[] = [
   ...ALL_BEATS.map(([, b]) => renderBeat(b, "K")),
   ...Object.values(OBJ_DONE_LINES),
+  // The middle pages are player-facing prose too, and they are held to the same
+  // register bible as everything else — a page that shouts is still shouting.
+  ...Object.values(OBJ_INTRO_PAGES).flat(),
 ];
 
 describe("the inverted binding rule: he TEACHES first (the riddle fix)", () => {
@@ -716,9 +727,15 @@ describe("THE SHOW is taught, not merely surfaced", () => {
 
   it("the hype tip defines the word it uses, and so does the closing step", () => {
     expect(coachTipLine("hype")).toMatch(/crowd|attention/i);
-    const show = renderBeat(OBJ_INTRO_BEATS["obj.show"]);
+    // The closing step is a HOLD, so its definitions live on the page the pause
+    // pays for rather than crammed into the quip (r15) — the beat is the whole
+    // beat, and that is what the player steps through.
+    const show = holdText("obj.show");
     expect(show).toMatch(/favorite/i);
     expect(show).toMatch(/attention|crowd/i);
+    // ...and the number the step is asking for is the sim's own line, not a
+    // literal somebody has to keep in sync.
+    expect(show).toContain("{hypeline}");
   });
 });
 
@@ -801,6 +818,128 @@ describe("the debut mercy DIAGNOSES instead of repeating itself", () => {
     expect(line).toMatch(/stairs/i);
     expect(desktop().note("downdash", 1, "Shift")).toMatch(/dash/i);
     expect(desktop().note("downflask", 1)).toContain("X"); // the flask control
+  });
+});
+
+/**
+ * THE CURRICULUM RE-AUTHORED FOR THE PAUSE (r15). r14 changed the DELIVERY and
+ * left the words: five beats still written to fit one glanced-at strip line,
+ * now painted on a surface that stopped the world and is waiting for a
+ * keypress. These tests hold what the pause bought and what it costs.
+ */
+describe("a step's hold is written for a stopped world", () => {
+  it("every step declares its pages and what its hold takes off the strip", () => {
+    for (const id of OBJ_STEP_IDS) {
+      expect(OBJ_INTRO_PAGES[id], `${id} pages`).toBeTruthy();
+      expect(OBJ_INTRO_SUPERSEDES[id], `${id} supersedes`).toBeTruthy();
+    }
+  });
+
+  it("every {token} in a hold is one the host knows how to substitute", () => {
+    // The same law the checklist and the standing ask obey: a paused page that
+    // names a bind this crawler does not have is worse than one that names
+    // none, because the game stopped to say it.
+    const known = new Set<string>(OBJ_LABEL_TOKENS);
+    for (const id of OBJ_STEP_IDS) {
+      for (const m of holdText(id).matchAll(/\{([^}]+)\}/g)) {
+        expect(known.has(m[1]), `${id} token {${m[1]}}`).toBe(true);
+      }
+      // {key} is the STRIP's single-control placeholder; a paged beat names
+      // several controls and takes them from the objectives vocabulary instead.
+      expect(holdText(id), id).not.toContain("{key}");
+    }
+  });
+
+  it("EVERYTHING THE CHECKLIST WILL ASK FOR BY KEY, THE HOLD NAMED FIRST", () => {
+    // "Go do x, y, z" is explained while the game is stopped and tracked while
+    // it is not (the last page points at the card). A key that appears on a
+    // checklist item the player was never shown is the old failure: a four-word
+    // checkbox naming a control nothing ever introduced.
+    for (const step of OBJECTIVE_STEPS) {
+      const hold = holdText(step.id);
+      for (const it of step.items) {
+        for (const m of `${it.label} ${it.alt?.label ?? ""}`.matchAll(/\{([a-z]+)\}/g)) {
+          expect(hold, `${step.id}/${it.id} asks for {${m[1]}} the hold never named`)
+            .toContain(`{${m[1]}}`);
+        }
+      }
+    }
+  });
+
+  it("THE DASH IS IN THE FIRST HOLD, not the one three kills down the spine", () => {
+    // r1 major, re-applied on the new surface: survival tools are not rewards
+    // for surviving. The strip taught this at T+10s into a live floor and a cold
+    // profile still went 258 seconds without pressing it once (r13). The first
+    // hold fires at second zero with nothing in range, and it is the only beat
+    // in the session every player is guaranteed to get.
+    const first = holdText("obj.move");
+    expect(first).toContain("{dash}");
+    expect(first).toMatch(/dash/i);
+    expect(first).toContain("{move}");
+    expect(first).toContain("{strike}");
+    // ...and the kit step still drills it key by key, with its own page.
+    expect(OBJ_INTRO_PAGES["obj.five"].join(" ")).toMatch(/dash/i);
+    expect(holdText("obj.five")).toContain("{cast}");
+  });
+
+  it("the two verbs nobody learned get a page each: the draft and the stairs", () => {
+    // r10 severity 8 (every cold profile finished holding unclaimed drafts) and
+    // r11 severity 9 (two of four deaths were collapse-timer executions with
+    // zero wayfinding). Both are single sentences on a checklist today; both are
+    // a paused page with a pointer on the thing now.
+    const payday = OBJ_INTRO_PAGES["obj.payday"].join(" ");
+    expect(payday).toContain("{draft}");
+    expect(payday).toMatch(/draft/i);
+    expect(payday).toContain("{stairs}");
+    expect(payday).toMatch(/map|marked|gold/i);
+  });
+
+  it("THE QUIP IS A QUIP AGAIN: no wry carries the step's definitions", () => {
+    // What the strip's one line forced: obj.five's register slot carried the
+    // definition of THE FIVE and the padlocked slots; obj.show's carried three.
+    // Explanation smuggled into the quip is prose that only existed because the
+    // strip was one line, and the pages are where it lives now.
+    for (const id of OBJ_STEP_IDS) {
+      const wry = OBJ_INTRO_BEATS[id].wry ?? "";
+      expect(wry, `${id} wry`).not.toMatch(/\{[a-z]+\}/); // never a control
+      // A quip is short. The step's teaching is the instruction and the pages.
+      expect(wry.length, `${id} wry length`).toBeLessThan(180);
+    }
+    expect(OBJ_INTRO_PAGES["obj.five"].join(" ")).toMatch(/THE FIVE/);
+    expect(OBJ_INTRO_BEATS["obj.five"].wry).not.toMatch(/four slots/i);
+  });
+
+  it("a HOLD retires the strip lines it just delivered; a DEMOTION retires nothing", () => {
+    // The floor-1 script (walk, swing, dash) IS what obj.move's paused pages
+    // say. Saying both is the trickle the owner rejected plus the same lesson
+    // twice — but only when the hold actually opened. A beat that demoted
+    // (co-op, a refusal, 25s of unbroken combat) leaves the script whole,
+    // because on that path the script is the delivery.
+    expect(OBJ_INTRO_SUPERSEDES["obj.move"]).toEqual(["start", "contact", "dashkit"]);
+    const held = desktop();
+    held.supersede(OBJ_INTRO_SUPERSEDES["obj.move"]);
+    for (const ev of OBJ_INTRO_SUPERSEDES["obj.move"]) {
+      expect(held.isSuperseded(ev), ev).toBe(true);
+      expect(prompt(held, ev), ev).toBeNull();
+    }
+    expect(held.spent).toBe(0); // declined, never spent
+    // ...and it outlives the post-death re-teach: the player did not miss it in
+    // the noise, the game stopped and made them step through it.
+    held.reteachPrompts();
+    expect(prompt(held, "dashkit")).toBeNull();
+    // The demotion path: nothing was superseded, so r1's script is untouched.
+    const demoted = desktop();
+    for (const ev of OBJ_INTRO_SUPERSEDES["obj.move"]) {
+      expect(prompt(demoted, ev), ev).toBeTruthy();
+    }
+  });
+
+  it("...and a supersede is not a topic: it never silences a lesson it did not deliver", () => {
+    const o = desktop();
+    o.supersede(["dashkit"]);
+    expect(o.topicTaught(TOPIC_COLLAPSE)).toBe(false);
+    expect(prompt(o, "linger")).toBeTruthy(); // the exit lesson is nobody's hold
+    expect(prompt(o, "lowhp")).toBeTruthy();  // and neither is the flask
   });
 });
 

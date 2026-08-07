@@ -150,8 +150,24 @@ CSS): every fixed overlay claims exactly one zone; new overlays must pick a
 zone there first. Announcements route by priority: high → the one center
 banner, normal → the toast column (filtered by the K-panel verbosity
 setting). `kind:"tip"` never rides either: it is translated into Mordecai's
-voice and painted on his non-pausing strip (the `#tutorial` card surface) or
-dropped — the System teaches nothing (TUTORIAL.md, ONE VOICE).
+voice and painted on his strip (the `#tutorial` card surface) or dropped — the
+System teaches nothing (TUTORIAL.md, ONE VOICE).
+
+**A teaching beat INTERRUPTS (TUTORIAL.md r14 — THE HOLD; curriculum r15).**
+The owner played the build and said nobody reads long text mid-fight, so an
+*instructional* beat — the campfire, four of the five objective-step
+introductions, and the safe room's B5 — stops the sim and is stepped through
+page by page on the `#dialogue` panel (`src/ui/hold.ts` + one adapter beside
+`guideShow`). Six holds in a first session, hard cap. A page names the
+player's live binds (the objectives card's `{tokens}`, drawn as key caps) and
+points at what it names: the spotlight outranks the panel, and the checklist
+under it tracks what the page just asked for. `dlgOpen` is already the solo loop's pause
+gate, so the pause is the ABSENCE of `step()` and costs no sim change: the
+collapse clock, cooldowns and AI all stop by arithmetic, a held run replays
+byte-exactly, and `RULES_HASH` does not rotate. *Reactive* beats (lowhp,
+contact, elite, boss, the tip translations) never pause and stay on the strip,
+which is also where a beat lands when it cannot hold — co-op, a profile that
+took "stop stopping the game", or 25 seconds of unbroken combat.
 
 Routing is not the whole story: **`src/ui/notify.ts` decides whether the glass
 can afford the line at all** (owner verdict 2026-08-07, AAA-AUDIT #7). A

@@ -4,8 +4,32 @@
  * longer teaches anything, on any surface — COURTESY EXPLANATION is dead as
  * a format. The System keeps its announcer register for EVENTS (ringside
  * intros, achievements, hype); Mordecai owns every teaching line, live on the
- * non-pausing strip (main3d's #tutorial card surface) and at rest through the
+ * strip (main3d's #tutorial card surface) and at rest through the
  * modal #dialogue panel (src/ui/guide.ts).
+ *
+ * THE STRIP IS NO LONGER WHERE A LESSON IS DELIVERED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build and named the layer:
+ * "no one reads long text while they're actively fighting in an ARPG." The
+ * word "non-pausing" is retired from this header. The split now:
+ *
+ *   INSTRUCTIONAL → HOLD.  The OBJ_INTRO_BEATS below are a step's FIRST
+ *     delivery and they stop the world on the #dialogue panel. The player steps
+ *     through them deliberately: page one is the instruction, alone, pointing
+ *     at what it names; then OBJ_INTRO_PAGES, the pages a pause can afford
+ *     (r15); then the wry, pointing at the checklist that will remember it.
+ *     `obj.saferoom` is the one step whose introduction is not a hold — the
+ *     safe room's paused teaching is B5, which pauses before the shop panel
+ *     opens (src/ui/guide.ts).
+ *   REACTIVE → STRIP.  Everything else in COACH_BEATS, and every
+ *     COACH_TIP_BEATS translation, stays exactly where it is and never pauses
+ *     anything: pausing on `lowhp` would stop the world at the worst possible
+ *     moment and hand out a free heal; pausing on `boss` would stop a boss
+ *     fight. THE STANDING ASK is likewise untouched — it is a projection, not
+ *     a delivery, and it is the handrail the hold's front door leads to.
+ *
+ * The strip is also the DEMOTION path: a beat that can never hold (co-op, a
+ * profile that refused the interruption, 25s of unbroken combat) arrives here
+ * as the card it always was. Nothing in this file changed shape for that.
  *
  * THE RIDDLE FIX IS STRUCTURAL, NOT STYLISTIC (owner: "Mordecai is some
  * times talking in riddles"). Every teaching beat is data with a shape the
@@ -465,32 +489,75 @@ export function coachTipLine(tipId: string): string | null {
 // as it arms, and signs it off when the player has DONE all of it.
 // ---------------------------------------------------------------------------
 
-/** Step intro beats: the same structural shape, one per objective step. */
+/**
+ * Step intro beats: the same structural shape, one per objective step —
+ * RE-AUTHORED FOR THE PAUSE (r15).
+ *
+ * These five stopped being strip cards in r14 and became the pages of a HOLD
+ * (src/ui/hold.ts): the world is stopped, the player steps through them, and
+ * the panel is pointing at the thing being named. r14 changed the DELIVERY and
+ * left the words alone, which left them written for a surface that no longer
+ * carries them — a single line, glanced at mid-fight, so every one of them had
+ * to fit the whole step into one sentence and a quip.
+ *
+ * What the pause pays for, and what it therefore costs:
+ *  - THE INSTRUCTION MAY NAME ITS KEY. Every one of these was keyless, because
+ *    a strip card names at most one control and the step needs three. They
+ *    carry the objectives card's `{tokens}` now (OBJ_LABEL_TOKENS, substituted
+ *    by the host against the crawler's live binds and device), so the paused
+ *    page and the checklist under it name the same key by construction.
+ *  - THE QUIP GETS TO BE A QUIP AGAIN. `obj.five`'s wry used to carry the
+ *    definition of THE FIVE and the padlocked slots, because there was nowhere
+ *    else to put them; `obj.show`'s carried three definitions. Explanation
+ *    smuggled into the register slot is prose that only existed because the
+ *    strip was one line, and it moves to a page of its own below.
+ *  - THE LAST PAGE HANDS OFF TO THE CHECKLIST (hold.ts §8), so "go do x, y, z"
+ *    is explained while the game is stopped and then tracked while it is not.
+ *
+ * `instruction` still obeys the binding rule exactly — ONE imperative sentence,
+ * and it is page one, alone, pointing at what it names. That is what a player
+ * who reads nothing else walks away with.
+ */
 export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
+  // THE FIRST HOLD, AND THE ONLY ONE EVERY SESSION IS GUARANTEED TO GET: it
+  // fires at second zero, before anything is in range, so it needs no lull
+  // (hold.ts's one immediate exception). Everything a crawler must own inside
+  // the first minute is here, which is why the dash is here and not two steps
+  // down the spine (r1 major, re-applied: survival tools are not rewards for
+  // surviving — and this time the lesson lands with the world stopped instead
+  // of on a strip card ten seconds into a fight).
   "obj.move": {
-    verb: "Move", needsKey: false,
-    instruction: "Move out, draw blood, and put three kills on the board.",
-    wry: "The dungeon grades on participation first.",
+    verb: "Walk", needsKey: false,
+    instruction: "Walk with {move}, and hit whatever gets inside arm's reach with {strike}.",
+    wry: "Everything on that list is a thing you do, not a thing you read. The dungeon grades on participation first.",
   },
   // "THE FIVE" WAS JARGON THAT LISTED THREE THINGS (r2 minor). The step's card
   // read "The Five 0/3" with nothing on screen having ever defined the phrase.
-  // The card is titled YOUR KIT now, and the arming line spends one clause on
-  // what the System means by five — four slots and an ultimate — so the two
-  // padlocks on the hotbar are an explanation instead of a riddle.
+  // The card is titled YOUR KIT, and the definition — four slots and an
+  // ultimate, two of them dark — now has a page of its own with the hotbar lit
+  // behind it, instead of riding in the quip because the card had one line.
   "obj.five": {
     verb: "Work", needsKey: false,
-    instruction: "Work through your kit once — strike, dash, and cast each sit on their own key.",
-    wry: "The System calls a full loadout The Five: four slots and an ultimate. You own three keys today; the padlocked two get issued when you have earned something to put in them.",
+    instruction: "Work down your own row once: {strike} swings, {dash} carries you out, {cast} throws the ability you own.",
+    wry: "Three keys, three ticks. After that it is reps, and reps are the part nobody films.",
   },
   "obj.payday": {
     verb: "Loot", needsKey: false,
-    instruction: "Loot some gear, claim a draft, and take the stairs down.",
-    wry: "Depth pays. The surface never did.",
+    instruction: "Loot what drops, claim the draft it earns you, and take the stairs down.",
+    wry: "Paid, drafted, and one floor deeper. That is the whole career; the rest of it is these three things with bigger numbers on them.",
   },
   // The step is the SAFE ROOM, so it ends in the safe room (r2 major: the
   // third item used to be "take the stairs down", which cannot be done from
   // inside the room the step is about — so the step could not close where it
   // was taught, and the descent lesson was already obj.payday's).
+  //
+  // ...AND IT IS THE ONE STEP WHOSE INTRODUCTION IS NOT A HOLD (r15). Its card
+  // arms while the crawler is standing at a counter, and a counter is a modal,
+  // which the lull gate refuses — so its hold could only ever wait out the
+  // deadline and demote onto a strip the shop panel is covering. The paused
+  // teaching for this room is B5 (`tut.saferoom`), which pauses BEFORE the
+  // panel opens and now pages; this beat stays what it always was underneath —
+  // the card's instruction and the queue's fallback.
   "obj.saferoom": {
     verb: "Open", needsKey: false,
     instruction: "Open the shop and turn some of that gold into gear.",
@@ -498,9 +565,83 @@ export const OBJ_INTRO_BEATS: Record<ObjStepId, TeachBeat> = {
   },
   "obj.show": {
     verb: "Fight", needsKey: false,
-    instruction: "Fight loud enough to push your hype over the line and convert a favorite.",
-    wry: "Hype is the crowd's attention and it decays when you go quiet; a favorite is a viewer who stays yours and keeps paying. Below the line the System gets creative on your behalf. You want it bored.",
+    instruction: "Fight fast and loud until your hype reading is over {hypeline}.",
+    wry: "Nobody down here is paying to watch a careful crawler. Ask anyone still getting sponsored.",
   },
+};
+
+/**
+ * THE PAGES A HOLD CAN AFFORD (r15) — the middle of the beat, between the
+ * instruction and the quip.
+ *
+ * A paused page is READ, so it may carry two or three sentences, name a key,
+ * and be pointed at the thing it is naming (hold.ts's OBJ_HOLD_PAGE_TARGETS
+ * gives each of these its own target). This is where the beats the last four
+ * rounds could not land finally get room: the dash a cold profile went 258
+ * seconds without pressing, the draft every cold profile finished the session
+ * still holding, and the stairs two of four deaths never found.
+ *
+ * THEY ARE THE HOLD'S ONLY, AND THAT IS DELIBERATE. A demoted beat (co-op, a
+ * refusal, twenty-five seconds of unbroken combat) is a strip card, and a strip
+ * card that took four sentences during a fight is precisely the delivery the
+ * owner rejected — so the demotion keeps carrying instruction + quip, and the
+ * lessons on these pages keep their shipped reactive carriers on the strip
+ * (`dashkit`, the `draftBanked` translation, `linger`/`collapse`,
+ * OBJ_ASKS' escalations). Nothing here is a lesson's only delivery.
+ */
+export const OBJ_INTRO_PAGES: Record<ObjStepId, readonly string[]> = {
+  // THE DASH, INTRODUCED BEFORE THE FIRST PACK RATHER THAN AFTER IT. The strip
+  // taught this at T+10s into a live floor and a cold profile still went 258
+  // seconds without pressing it once. Here the world is stopped, the hotbar is
+  // the only un-dimmed thing on the glass, and the key has a page to itself.
+  "obj.move": [
+    "The other key you already own is {dash}. That is a dash — a short move with the hits turned off for as long as it runs. Press it once before anything is chasing you, so your hands know where it is when something is.",
+  ],
+  "obj.five": [
+    "Do the dash first, standing still, with nothing near you. You are untouchable for the whole length of it, and a corridor with nothing in it is the cheapest place you will ever learn that.",
+    "The System calls a full loadout THE FIVE: four slots and an ultimate. Two of yours are dark and stay that way until you have earned something to put in them, so three keys is the entire job today.",
+  ],
+  "obj.payday": [
+    // r10, severity 8: every cold profile ended its first session holding
+    // unclaimed drafts — the game's core progression verb, learned by nobody.
+    "A level-up does not level you. It mints a draft and waits: press {draft} to open it and take one of the cards. Until you do, you are carrying a level you are not wearing.",
+    // r11, severity 9: two of four deaths were collapse-timer executions at
+    // full HP with zero wayfinding. The stairs get a page, and the page points
+    // at them — the one target the pointer takes into the world.
+    "The way off this floor is marked in gold, on your glass and on your map. Walk onto it and press {stairs}. Down is the only direction anybody has ever been paid for.",
+  ],
+  "obj.saferoom": [],
+  "obj.show": [
+    "That reading is the crowd's attention, and {hypeline} is the line where the System stops finding you interesting. Under it, the production starts arranging entertainment on your behalf. Over it, viewers stay long enough to become favorites, and favorites are the ones who keep paying.",
+  ],
+};
+
+/**
+ * WHAT A HOLD TAKES OFF THE STRIP (r15) — and only once it has actually opened.
+ *
+ * `start`, `contact` and `dashkit` are the floor-1 script: walk, swing, dash.
+ * They are also, sentence for sentence, what `obj.move`'s paused introduction
+ * now says with the world stopped. Leaving both in is the trickle the owner
+ * rejected plus the same lesson twice, thirty seconds apart.
+ *
+ * So the hold SUPERSEDES them — at the moment it opens, never at the moment it
+ * is queued. If it demotes instead (co-op, a profile that refused the
+ * interruption, twenty-five seconds of unbroken combat) nothing is superseded
+ * and the shipped floor-1 script is exactly what it was, post-death re-teach
+ * included. The beats that would have been duplicates ARE the fallback, which
+ * is why the demotion path is not a lesser curriculum.
+ *
+ * This is deliberately NOT the topic ledger. A topic is claimed by whichever
+ * beat paints and survives a death by design; a supersede is a claim by a
+ * DIFFERENT surface about a specific line, and conflating them would quietly
+ * retire the post-death re-teach r1 shipped for a player who died on step one.
+ */
+export const OBJ_INTRO_SUPERSEDES: Record<ObjStepId, readonly CoachEvent[]> = {
+  "obj.move": ["start", "contact", "dashkit"],
+  "obj.five": [],
+  "obj.payday": [],
+  "obj.saferoom": [],
+  "obj.show": [],
 };
 
 /** Step sign-offs: one line each, register-bound, no teaching duty. */
@@ -875,6 +1016,9 @@ export class Coach {
    *  Never cleared by a death: the lesson landed, and re-teaching it is the
    *  duplication this ledger exists to stop. */
   private topics = new Set<string>();
+  /** Lines a HOLD has delivered with the world stopped (r15) — retired here,
+   *  and not brought back by the post-death re-teach. */
+  private superseded = new Set<CoachEvent>();
 
   /** How many times the floor-1 script has been re-armed after a death. */
   private reteaches = 0;
@@ -948,6 +1092,23 @@ export class Coach {
     return this.topics.has(topic);
   }
 
+  /**
+   * A HOLD JUST DELIVERED THESE LESSONS WITH THE WORLD STOPPED (r15, see
+   * OBJ_INTRO_SUPERSEDES). The strip's version of each is retired for the rest
+   * of the session — including across the post-death re-teach, because the
+   * player did not miss it in the noise: the game stopped and made them step
+   * through it. Called only when a hold actually OPENS; a demoted beat
+   * supersedes nothing, and the floor-1 script is untouched for that player.
+   */
+  supersede(evs: Iterable<CoachEvent>): void {
+    for (const ev of evs) this.superseded.add(ev);
+  }
+
+  /** Has a paused beat already taught this line's lesson? */
+  isSuperseded(ev: CoachEvent): boolean {
+    return this.superseded.has(ev);
+  }
+
   /** Claim a topic for a line that reached the glass from OUTSIDE this class
    *  (the host's sim-tip path). Idempotent. */
   teachTopic(topic: string): void {
@@ -984,6 +1145,8 @@ export class Coach {
     if (prompt && floor !== 1) return null; // depth is where the game teaches itself
     if (prompt && this.promptsCommitted() >= COACH_MAX_PROMPTS) return null;
     if (this.fired.has(ev) || this.offered.has(ev)) return null;
+    // ...or a HOLD already taught it with the world stopped (r15).
+    if (this.superseded.has(ev)) return null;
     // ONE LESSON, ONE DELIVERY: another beat already taught this topic.
     const topic = COACH_BEATS[ev].topic;
     if (topic && this.topics.has(topic)) return null;

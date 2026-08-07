@@ -473,6 +473,11 @@
       /* A marker over a cinematic or a paused world is furniture, not guidance. */
       body.cine #exitmark, body.checkin #exitmark, body.modal #exitmark,
       body.dlg #exitmark { display: none !important; }
+      /* ...UNLESS THE HELD PAGE IS POINTING AT THE STAIRS (TUTORIAL.md r14 §5).
+         The beacon IS the pointer for a `world` target, and the panel is
+         bottom-anchored, so the top of the glass is free to be pointed into.
+         Two classes beat one, so this wins the !important fight above. */
+      body.dlg.hold-world #exitmark { display: flex !important; opacity: 1 !important; }
       /* Two slow warm breaths so a static frame still reads as a live beacon,
          with no motion for anyone who has asked the OS for none. */
       #exitmark i { animation: exitpulse 1.9s ease-in-out infinite; }
@@ -583,7 +588,7 @@
                                  spent — and the checkable items: persistent, never
                                  auto-dismissed; compact/phone drops the checkboxes and
                                  keeps the ask) and #tutorial
-                                 (MORDECAI'S STRIP: dismissible non-pausing teaching
+                                 (MORDECAI'S STRIP: dismissible reactive teaching
                                  cards — coach lines, curriculum tip translations,
                                  objective step lines — one at a time). The checklist
                                  is the ONE transient-looking layer that survives a
@@ -604,7 +609,20 @@
                                   toggled by the "ledger" binding, default L)
                                 · #dialogue 22 (Roam NPC
                                   conversation — letterboxed cut, portrait left;
-                                  .tut tutorial beats lift it to 29, over #menu)
+                                  .tut tutorial beats lift it to 29, over #menu.
+                                  It is ALSO THE HOLD (TUTORIAL.md r14): dlgOpen
+                                  is the solo loop's pause gate, so a teaching
+                                  beat painted here stops the sim while the
+                                  player steps through it. body.hold spotlights
+                                  the one element the page points at, #holdring
+                                  (z 31) rings it, and the panel stays
+                                  bottom-anchored so the top ~55% of the glass
+                                  is the paused world being pointed into.
+                                  r15: the spotlight OUTRANKS this panel — the
+                                  lit element and #coach go to z 30 and the ring
+                                  to 31, because .tut's own scrim and letterbox
+                                  bars were painting over the thing being
+                                  pointed at while it measured opacity 1.00)
                                 · #saferoom 24 · #draft 25 · #keys 26
                                 · #rushgate 26 (THE STARTING GUN — rivals pre-run
                                   hold; never coexists with #keys: it exists only
@@ -619,7 +637,8 @@
                                   pointer-events off elsewhere so the campfire lineup on the
                                   canvas beneath stays clickable)
                                 · #loading 29 (SIGNAL ACQUISITION — boot only, above even check-in)
-           world markers (z 6): #exitmark — THE EXIT BEACON, the debut's
+           world markers (z 6,      #exitmark — THE EXIT BEACON, the debut's
+             30 under a hold):
                                   wayfinding to the stairs (main3d renderExitMark;
                                   TUTORIAL.md r11). World-anchored, not a HUD
                                   corner: it follows the projected stairs and
@@ -677,7 +696,9 @@
         box-shadow: 0 0 40px rgba(255,54,200,0.45), 0 6px 26px rgba(0,0,0,0.65); }
       .ann.banner.key::before { content: "◆ SYSTEM "; color: #ff36c8; }
 
-      /* MORDECAI'S STRIP (kind:"tip" cards): the non-pausing teaching surface.
+      /* MORDECAI'S STRIP (kind:"tip" cards): the REACTIVE teaching surface; it
+         never pauses anything, and since r14 (THE HOLD) it is no longer where a
+         LESSON is delivered — see #dialogue in the zone map.
          Every card is his — the System no longer teaches on any surface (ONE
          VOICE, HANDOFF §3a). Once-ever lines get an explicit dismiss instead
          of an auto-fade — an instruction you have to acknowledge, not miss in
@@ -772,7 +793,13 @@
          is drawn the way the hotbar and the draft badge draw it, so it can be
          found without reading the sentence. Shared with the objectives card
          (.obj-key) — one key affordance across the teaching column. */
-      .tut-key, .obj-key { display: inline-block; font-family: var(--display);
+      /* ...and the DIALOGUE panel draws it the same way (r15). Since r14 that
+         panel is where an instruction is delivered — the world is stopped and
+         Mordecai is naming a key — so the one word the player has to press must
+         not be a word in the middle of a sentence there either. The typewriter
+         marks its control labels and reveals a cap one character at a time
+         (main3d's DLG_KEYCAP). */
+      .tut-key, .obj-key, .dlg-key { display: inline-block; font-family: var(--display);
         font-size: 0.92em; font-weight: 700; letter-spacing: 0.06em; font-variant: normal;
         color: #f5e6bf; background: linear-gradient(180deg, #3a2d1c, #17110a);
         border: 1px solid #8a6d3b; border-top-color: #b8945a; border-bottom-color: #453520;
@@ -6383,6 +6410,63 @@
       .dlg-skip:hover { color: var(--ink-dim); border-bottom-color: var(--bronze-hi); }
       @media (pointer: coarse) { .dlg-skip { padding: 10px 0; font-size: 12.5px; } }
       .dlg-hint { margin-top: 9px; font-size: 10.5px; color: var(--ink-faint); text-align: right; }
+      /* ---- THE HOLD (TUTORIAL.md r14) --------------------------------------
+         Owner, after playing the integrated build: "the tutorial would actually
+         involve pauses of the game and you'd have to go through them (or could
+         dismiss him) so people actually read ... no one reads long text while
+         they're actively fighting in an ARPG." So a teaching beat INTERRUPTS,
+         and the player steps through it. The surface is this panel, unchanged
+         in every particular except the three controls below. */
+      /* THE ADVANCE CHEVRON. Bottom-right of the panel, appearing only when the
+         page is typed AND its 400ms input flush is paid: a control that offers
+         a press the panel would swallow teaches that the panel is broken. */
+      .dlg-adv { display: none; margin-top: 9px; text-align: right;
+        font-family: var(--display); font-variant: small-caps; font-weight: 600;
+        font-size: 11.5px; letter-spacing: 0.2em; color: var(--gold-hi);
+        text-shadow: 0 0 10px rgba(212,175,55,0.35);
+        animation: dlg-adv-in 0.22s ease both; }
+      @keyframes dlg-adv-in { from { opacity: 0; transform: translateX(-4px); } }
+      body.hold .dlg-hint { font-size: 10.5px; }
+      /* THE SPOTLIGHT EXEMPTION IS MANDATORY, NOT DECORATION. body.modal dims
+         the whole cockpit to 35% (see the modal-focus block below); a beat that
+         says "press SHIFT" with the hotbar at 35% behind a scrim is the old
+         failure in a new costume. body.hold restores FULL opacity to the ONE
+         element the page points at and leaves the rest dimmed, so the dim
+         becomes the spotlight's negative space. It must out-specify an id
+         selector, hence !important — this is a pixel check, not a CSS claim. */
+      body.hold .holdlit {
+        opacity: 1 !important; filter: none !important; visibility: visible !important;
+        z-index: 30 !important; }
+      /* ...AND IT HAS TO BEAT THE PANEL, NOT ONLY THE DIM (r15, measured on a
+         real frame). The exemption above was written against the 35% modal dim
+         and stopped there: #dialogue.tut is z 29 and paints its own scrim and
+         its 9%-tall letterbox bars over everything below it, so a page pointing
+         at #cockpit lit an element the BOTTOM BAR was sitting on, the ring at
+         z 28 was under the bar as well, and the objectives card (body.dlg
+         #coach, z 26) sat under the scrim reading grey. Every one of those
+         measured `opacity: 1.00` while being invisible — r13 filed the card
+         illegible at severity 3 and an opacity probe called it fixed. A
+         spotlight the surface that cast it can paint over is not a spotlight,
+         so the pointed-at element, the ring and the checklist all outrank the
+         panel while a hold is up. The probe now asks elementFromPoint. */
+      body.hold #coach { z-index: 30; }
+      body.dlg.hold-world #exitmark { z-index: 30; }
+      #holdring { position: fixed; inset: 0; z-index: 31; pointer-events: none;
+        display: none; }
+      #holdring .hr-box { position: absolute; border: 1px solid var(--gold-hi);
+        border-radius: 4px; box-shadow: 0 0 0 1px rgba(8,5,3,0.85),
+          0 0 18px rgba(212,175,55,0.35), inset 0 0 14px rgba(212,175,55,0.12);
+        animation: hold-ring 2.4s ease-in-out 2; }
+      #holdring .hr-line { position: absolute; height: 1px; transform-origin: 0 50%;
+        background: linear-gradient(90deg, rgba(212,175,55,0.75), rgba(212,175,55,0.06));
+        display: none; }
+      /* Two warm sweeps, no motion, no new box — the .obj-ask.pulse treatment.
+         The pointer is STATIC per page: the world is not moving. */
+      @keyframes hold-ring {
+        0%, 100% { box-shadow: 0 0 0 1px rgba(8,5,3,0.85), 0 0 12px rgba(212,175,55,0.22),
+          inset 0 0 10px rgba(212,175,55,0.08); }
+        50% { box-shadow: 0 0 0 1px rgba(8,5,3,0.85), 0 0 26px rgba(212,175,55,0.5),
+          inset 0 0 18px rgba(212,175,55,0.18); } }
       /* Guide moment: Mordecai's frame runs WARM — ember keyline + hearth glow,
          and the kicker names the man, not the channel. */
       #dialogue.guide .dlg-portrait { border-color: #b8945a; border-top-color: #e2b06a;
@@ -7537,8 +7621,16 @@
          chevron rotated toward them when they are off-frame or behind you.
          Exists only while exitLit() is true and removes itself for good once
          obj.payday is on the ledger. -->
-    <div id="exitmark" aria-hidden="true"><i></i><b>EXIT</b><em></em></div>
-    <div id="keymark" aria-hidden="true"><i></i><b>KEY</b><em></em></div>
+    <!-- data-overlay="none": a world marker, never an input surface. It sits at
+         z 6, but a hold pointing INTO the world lifts it over the panel's scrim
+         (body.dlg.hold-world, r15) — which puts it in the zone map's ledger. -->
+    <div id="exitmark" data-overlay="none" aria-hidden="true"><i></i><b>EXIT</b><em></em></div>
+    <!-- ...and its twin (key-visible): same projection, same edge-pinning, the
+         seal's colour. No hold ever points at it, so it takes no hold-world
+         lift — `body.dlg #keymark` hides it outright while the world is
+         stopped, which is the right answer for a wayfinding glyph during a
+         lesson. -->
+    <div id="keymark" data-overlay="none" aria-hidden="true"><i></i><b>KEY</b><em></em></div>
     <div id="downed" data-overlay="none"></div>
     <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>
@@ -7569,10 +7661,25 @@
           <div class="dlg-kicker" id="dlg-kicker">◆ SETTLEMENT CHANNEL ◆</div>
           <div class="dlg-text" id="dlg-text"></div>
           <div class="dlg-choices" id="dlg-choices"></div>
-          <div class="dlg-hint"><kbd>1</kbd>–<kbd>9</kbd> answer · <kbd>Esc</kbd> farewell</div>
+          <!-- THE ADVANCE AFFORDANCE (TUTORIAL.md r14). A held beat stops the
+               world and waits for the player, so the press it is waiting for
+               must be VISIBLE or the feature is a hang — a worse failure than
+               the one it fixes. Painted only once the page has finished typing
+               AND its input flush is paid; the last page reads BACK TO IT. -->
+          <div class="dlg-adv" id="dlg-adv"></div>
+          <div class="dlg-hint" id="dlg-hint"><kbd>1</kbd>–<kbd>9</kbd> answer · <kbd>Esc</kbd> farewell</div>
         </div>
       </div>
     </div>
+    <!-- THE HOLD'S POINTER (TUTORIAL.md r14 §5): a ring on the ONE HUD element
+         the paused page is talking about, plus a leader line back to the panel.
+         Pausing is what makes "do x, y, z" followable, so the beat gets to
+         point; body.hold exempts the ringed element from the modal dim, and the
+         dim becomes the spotlight's negative space instead of a blanket. -->
+    <!-- data-overlay="none": it is pointer-events:none decoration that only
+         exists WHILE #dialogue (already a modal) owns the frame. Registering it
+         as a modal would leave body.modal set by a ring. -->
+    <div id="holdring" data-overlay="none" aria-hidden="true"><i class="hr-box"></i><i class="hr-line"></i></div>
     <!-- ROAM: contract ledger (right rail) + settlement arrival plaque. -->
     <div id="quests">
       <button class="q-head" id="q-head"><i class="dia q-dia"></i> CONTRACTS <span id="q-n"></span><i class="q-carrot"></i></button>

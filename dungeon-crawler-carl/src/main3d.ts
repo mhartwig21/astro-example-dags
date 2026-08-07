@@ -70,12 +70,22 @@ import { CompetitiveClient } from "./net/competitiveClient";
 import * as social from "./ui/social";
 import {
   ASK_DRAFT_KEY, ASK_LOST_KEY, COACH_TIP_BEATS, Coach, OBJ_DONE_LINES, OBJ_INTRO_BEATS,
-  StandingAsk, castKeyIndex, castSlotIndices, coachTipLine, diagnoseKnockdown,
-  renderBeat, shopBeatLine,
+  OBJ_INTRO_SUPERSEDES, StandingAsk, castKeyIndex, castSlotIndices, coachTipLine,
+  diagnoseKnockdown, renderBeat, shopBeatLine,
   type CoachControls, type CoachEvent,
 } from "./ui/coach";
 import { OBJ_STEP_IDS, Objectives } from "./ui/objectives";
-import { GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, Guide, type GuideBeat, type GuideChoice } from "./ui/guide";
+import {
+  GUIDE_BEATS, GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, Guide,
+  type GuideBeat, type GuideChoice,
+} from "./ui/guide";
+import {
+  HOLD_CAMPFIRE_KEY, HOLD_ESC_HINT, HOLD_NOHOLD_KEY, HOLD_REFUSE_ASK, HOLD_REFUSE_DONE,
+  HOLD_REFUSE_LABEL, HOLD_REFUSE_SAFE, HOLD_REFUSE_TAKE, HOLD_RESUME_KEY, HOLD_SAFEROOM_KEY,
+  HoldPager, HoldScheduler, advanceLabel, decodeHoldResume, encodeHoldResume,
+  holdKeyForGuide, holdKeyForStep, linesHoldPages, objHoldPages,
+  type HoldPage, type HoldTarget, type HoldWorld,
+} from "./ui/hold";
 import { NetClient, loadToken, storeToken } from "./net/netClient";
 import { registerMobDef } from "./content/mobs";
 import { registerRoomTemplate } from "./content/rooms";
@@ -6532,8 +6542,24 @@ let dlgFullText: string[] = [];
 let dlgShown = 0; // characters revealed so far, across every line
 let dlgTypeTimer = 0;
 
+/**
+ * A CONTROL IS A CAP, NOT A WORD — on this surface too (r15).
+ *
+ * The strip and the objectives card have drawn the key the line names as a KEY
+ * CAP since r2, and the panel could not, because the typewriter reveals a plain
+ * string character by character. Now that the panel is where an INSTRUCTION is
+ * delivered (r14 — THE HOLD), "press Shift" buried in a sentence is the one
+ * word the player must not have to hunt for.
+ *
+ * So a hold page marks its control labels with this sentinel and the renderer
+ * splits on it. The marks are not characters: they are stripped before the
+ * reveal budget is counted, so the typewriter's timing is exactly what it was
+ * and a cap types in one character at a time like everything around it.
+ */
+const DLG_KEYCAP = "\u0001";
+
 function dlgTotalChars(): number {
-  return dlgFullText.reduce((n, l) => n + l.length, 0);
+  return dlgFullText.reduce((n, l) => n + l.replace(/\u0001/g, "").length, 0);
 }
 
 function dlgRenderText(): void {
@@ -6541,9 +6567,17 @@ function dlgRenderText(): void {
   let html = "";
   for (const line of dlgFullText) {
     if (budget <= 0) break;
-    const take = Math.min(line.length, budget);
-    budget -= take;
-    html += `<div class="dlg-line">${esc(line.slice(0, take))}</div>`;
+    // Even runs are prose, odd runs are key caps (the sentinel wraps a label).
+    const runs = line.split(DLG_KEYCAP);
+    let out = "";
+    for (let i = 0; i < runs.length && budget > 0; i++) {
+      const take = Math.min(runs[i].length, budget);
+      budget -= take;
+      if (take <= 0) continue;
+      const chunk = esc(runs[i].slice(0, take));
+      out += i % 2 ? `<kbd class="dlg-key">${chunk}</kbd>` : chunk;
+    }
+    html += `<div class="dlg-line">${out}</div>`;
   }
   dlgTextEl.innerHTML = html;
   dlgTextEl.classList.toggle("typing", dlgShown < dlgTotalChars());
@@ -6633,11 +6667,29 @@ dlgChoicesEl.addEventListener("click", (e) => {
   const btn = (e.target as HTMLElement).closest(".dlg-choice, .dlg-skip") as HTMLElement | null;
   if (!btn?.dataset.choice) return;
   // A tutorial beat borrows the surface, not the sim: answers route to the
-  // guide adapter below, never to state.dialogue.
+  // guide adapter below, never to state.dialogue. The HOLD's own controls
+  // (the modality refusal and its confirmation) get first refusal — B0 carries
+  // both a hold and its shipped choices, and only the hold knows which is which.
+  if (holdAnswer(btn.dataset.choice)) return;
   if (guideBeat) guideAnswer(btn.dataset.choice);
   else answerDialogue(btn.dataset.choice);
 });
-dlgTextEl.addEventListener("click", () => dlgFinishType());
+// POINTER / TOUCH PARITY (r14): a tap anywhere on the panel body advances a
+// held page, exactly as Space does — the choices row is excluded, because a tap
+// on a choice is an answer and must not also turn the page. A click on the
+// WORLD does nothing: #dialogue is a full-frame fixed overlay, so it eats the
+// event before the canvas can read it as an aim or a move.
+dlgTextEl.addEventListener("click", () => {
+  if (holdActive()) { holdAdvance(); return; }
+  dlgFinishType();
+});
+dlgEl.addEventListener("click", (e) => {
+  if (!holdActive()) return;
+  const t = e.target as HTMLElement;
+  if (t.closest("#dlg-choices") || t.closest("#dlg-text")) return;
+  if (!t.closest(".dlg-panel") && !t.closest("#dlg-adv")) return;
+  holdAdvance();
+});
 // The dialogue owns the keyboard while open (captureMode holds game binds):
 // 1-9 answer, Space/Enter skip the typewriter, Esc is a polite farewell.
 // Guide beats additionally SWALLOW their keys (stopImmediatePropagation):
@@ -6645,6 +6697,10 @@ dlgTextEl.addEventListener("click", () => dlgFinishType());
 // (casting stage) must not fire through the panel.
 window.addEventListener("keydown", (e) => {
   if (!dlgOpen) return;
+  // A HOLD OWNS THE KEYBOARD OUTRIGHT (TUTORIAL.md r14): autorepeat ignored,
+  // every input swallowed until the page's flush is paid, Space/Enter advance,
+  // ESC skips the beat, digits reach only a real numbered row.
+  if (holdKeydown(e)) return;
   if (e.key === "Escape") {
     if (guideBeat) guideClose(); // ESC = farewell, one input, everywhere
     else {
@@ -6672,7 +6728,14 @@ window.addEventListener("keydown", (e) => {
 
 /** Per-frame dialogue sync: the sim session is the truth, the panel follows. */
 function updateDialogueUi(s: GameState): void {
-  if (guideBeat) return; // a tutorial beat holds the surface; the sim has no session
+  // A tutorial beat holds the surface and the sim has no session — for a
+  // GUIDE beat (B0 and friends) and equally for a step-introduction HOLD, which
+  // has no GuideBeat behind it at all. Measured, r14: without the second half
+  // this closed the panel on the very next frame, `dlgOpen` went false, and the
+  // collapse clock spent 1.3 seconds of a six-second read. The pause gate is
+  // dlgOpen; anything that can drop dlgOpen out from under a hold is the whole
+  // feature failing quietly.
+  if (guideBeat || holdActive()) return;
   const session = s.runKind === "roam" ? s.dialogue ?? null : null;
   if (!session || session.playerId !== me(s).id || session.done) {
     if (dlgOpen) closeDialogueUi();
@@ -6769,7 +6832,7 @@ function guideRenderChoices(): void {
  *  and ONLY then (r5 blocker 1): the refusal below is a real path (another
  *  beat or a Roam conversation owns the panel), and a beat that never reached
  *  the glass goes back to the sequencer unspent. */
-function guideShow(beat: GuideBeat, after?: () => void): void {
+function guideShow(beat: GuideBeat, after?: () => void, paged = false): void {
   if (guideBeat || dlgOpen) { guide?.release(beat.key); return; } // one beat at a time; never over Roam chat
   guideBeat = beat;
   guideAfter = after ?? null;
@@ -6787,6 +6850,12 @@ function guideShow(beat: GuideBeat, after?: () => void): void {
   input.captureMode = true; // digits answer, not cast, while the panel is up
   dlgEl.style.display = "flex";
   requestAnimationFrame(() => dlgEl.classList.add("show"));
+  // A PAGED beat is a HOLD (TUTORIAL.md r14): one line, one page, stepped by
+  // the player. Two guide beats take this branch — B0's campfire and, since
+  // r15, B5's safe room, which is the shelf lesson's only paused moment. The
+  // rest are at-rest conversations that already ride a pause the player chose
+  // (a draft, the check-in menu) and are unchanged.
+  if (paged) { holdBegin(holdKeyForGuide(beat.key), linesHoldPages(beat.lines)); return; }
   dlgStartType(beat.lines);
   guideRenderChoices();
 }
@@ -6794,6 +6863,7 @@ function guideShow(beat: GuideBeat, after?: () => void): void {
 /** Close the active beat (farewell / ESC) and run its continuation. */
 function guideClose(): void {
   if (!guideBeat) return;
+  holdTeardown(); // B0 is a HOLD: its choices close the panel through here
   const after = guideAfter;
   guideBeat = null;
   guideAfter = null;
@@ -6857,11 +6927,37 @@ function guideAnswer(choiceId: string): void {
   guideClose();
 }
 
-/** B0 — the campfire intro: organic fresh crawlers, at the casting stage. */
+/** B0 — the campfire intro: organic fresh crawlers, at the casting stage.
+ *  It is a HOLD and always was: there is no dungeon behind the campfire, so it
+ *  needs no lull — but it pages now, and it counts against the six.
+ *
+ *  A REFRESH MID-BEAT RESUMES IT. The beat is ledgered the moment it is SHOWN
+ *  (the tips convention, unchanged), so without the resume record an F5 on page
+ *  one would spend a two-page introduction with page two never read, forever,
+ *  for that profile. */
 function maybeCampfireBeat(): void {
-  if (!guide || linkArrival || !freshCrawler) return;
+  if (!guide || linkArrival) return;
+  const resume = holdSavedResume?.key === HOLD_CAMPFIRE_KEY ? holdSavedResume.page : -1;
+  if (resume >= 0 && guide.has("tut.campfire")) {
+    if (guideBeat || dlgOpen || !holdSched.take(HOLD_CAMPFIRE_KEY)) { holdClearResume(); return; }
+    // Re-seat the beat WITHOUT re-ledgering it: it is already spent, and the
+    // choices (including "Skip the hand-holding") must be on the last page or
+    // the resumed beat is a lesser thing than the one that was interrupted.
+    const beat = GUIDE_BEATS["tut.campfire"];
+    guideBeat = beat;
+    guideAfter = null;
+    guideChoices = [...beat.choices];
+    holdOpenPanel(HOLD_CAMPFIRE_KEY, {
+      pages: linesHoldPages(beat.lines), demote: () => { /* a resume never demotes */ },
+      resumePage: resume,
+    });
+    return;
+  }
+  if (!freshCrawler) return;
   const beat = guide.campfire();
-  if (beat) guideShow(beat);
+  if (!beat) return;
+  if (!holdSched.take(HOLD_CAMPFIRE_KEY)) { guideShow(beat); return; }
+  guideShow(beat, undefined, true);
 }
 
 /** B9 — the second organic check-in, panel stage, with a finished run.
@@ -6880,6 +6976,457 @@ function maybeMenuBeat(): void {
     const beat = guide.menuReturn(loadHistory().length);
     if (beat) guideShow(beat);
   }, 1600);
+}
+
+// ======================= THE HOLD (TUTORIAL.md r14) ========================
+// The pause contract, host side. The pure half is src/ui/hold.ts; this is the
+// one adapter it asked for, and it sits here — beside guideShow — because a
+// hold IS a guide beat rendered through the shipped #dialogue presentation.
+//
+// THE PAUSE NEEDS NO NEW PAUSE SYSTEM. `dlgOpen` already zeroes the solo
+// loop's accumulator (the `acc = 0` line in the frame loop), so a beat painted
+// through this surface stops the sim for free. Render does NOT stop: a frozen
+// frame reads as a crash, the typewriter needs rAF, and the pointer re-projects
+// every frame. The camera does not move because the SIM does not move.
+//
+// MERGE HYGIENE: this adds ZERO conditions to the announcement router. The card
+// pump already waits on `tutorialBlocked()`, which is true while dlgOpen, so a
+// hold pauses the strip for free — nothing in showAnnouncement /
+// presentSimOutput / the toast meter needs to know this feature exists.
+const holdRefusedAtBoot = knownTips().includes(HOLD_NOHOLD_KEY);
+const holdSched = new HoldScheduler({ refused: holdRefusedAtBoot, net: !!net });
+/** What a due beat needs from the host once it finally gets a lull — or, when
+ *  it never does, the strip card it is owed instead. */
+interface HoldPending {
+  pages: HoldPage[];
+  /** The delivery this beat falls back to: co-op, a refusal, the deadline. */
+  demote: () => void;
+  /** Re-asked at the moment of opening: the world may have moved past it. */
+  stillTrue?: () => boolean;
+  /** Run on the OPENING edge, never on the queueing one (r15): what this beat
+   *  takes off the strip now that it is delivering the lesson with the world
+   *  stopped. A demoted beat runs it never, which is why the strip's floor-1
+   *  script is still whole for a player who can never be held. */
+  onShow?: () => void;
+  /** A refresh mid-lesson resumes on the page it was reading. */
+  resumePage?: number;
+  /** Only the step introductions carry the modality refusal; B0's campfire
+   *  already offers the bigger one ("Skip the hand-holding"), and two
+   *  destructive controls on one panel is the r6-fix-1 accident with extra
+   *  steps. */
+  refusable?: boolean;
+}
+const holdPend = new Map<string, HoldPending>();
+
+const dlgAdvEl = document.getElementById("dlg-adv")!;
+const dlgHintEl = document.getElementById("dlg-hint")!;
+/** The conversation's own hint ("1–9 answer · Esc farewell"), restored when the
+ *  hold hands the panel back — a held page has no number row to advertise. */
+const DLG_HINT_HTML = dlgHintEl.innerHTML;
+const holdRingEl = document.getElementById("holdring")!;
+const holdBoxEl = holdRingEl.querySelector("i.hr-box") as HTMLElement;
+const holdLineEl = holdRingEl.querySelector("i.hr-line") as HTMLElement;
+
+let holdPager: HoldPager | null = null;
+let holdKey = "";
+let holdRefusable = false;
+/** The refusal's confirmation owns the panel: digits answer, the pages wait. */
+let holdConfirming = false;
+/** The HUD element this page is pointing at (un-dimmed while it is). */
+let holdLitEl: HTMLElement | null = null;
+
+/** Is a teaching hold on the glass right now? Read by the paint clocks, the
+ *  collapse chip and the exit beacon. */
+function holdActive(): boolean {
+  return holdPager !== null;
+}
+
+/** Does the page on the glass point into the WORLD? (The exit beacon is
+ *  otherwise hidden behind body.dlg by design.) */
+function holdPointsAtWorld(): boolean {
+  return holdPager?.page.target.kind === "world";
+}
+
+// ---- the resume record: a refresh mid-lesson does not eat the lesson -------
+function holdSaveResume(): void {
+  if (!holdPager || !holdKey) return;
+  try {
+    localStorage.setItem(HOLD_RESUME_KEY, encodeHoldResume({ key: holdKey, page: holdPager.index }));
+  } catch { /* private mode: the beat still plays, it just cannot be resumed */ }
+}
+function holdClearResume(): void {
+  try { localStorage.removeItem(HOLD_RESUME_KEY); } catch { /* best-effort */ }
+}
+const holdSavedResume = (() => {
+  try { return decodeHoldResume(localStorage.getItem(HOLD_RESUME_KEY)); } catch { return null; }
+})();
+
+/**
+ * OPEN A HOLD. The panel is the shipped `.guide .tut` #dialogue — letterboxed
+ * cut, 200x250 painted portrait, engraved nameplate, ember frame, typewriter,
+ * z 29 over the check-in menu — plus `body.hold`, which is what turns the
+ * blanket modal dim into a SPOTLIGHT (iso.html).
+ *
+ * KEYS ALREADY DOWN CANNOT ACT ON IT. `input.clearHeld()` on the opening edge
+ * plus the pager's 400ms flush is the whole anti-accident defence: a player
+ * mid-combat who was mashing Space when the world stopped must not blow
+ * through an entire beat in one frame and never know it existed.
+ */
+function holdBegin(key: string, pages: HoldPage[], o: { refusable?: boolean; page?: number } = {}): void {
+  holdKey = key;
+  holdPager = new HoldPager(pages);
+  if (o.page) holdPager.seek(o.page);
+  holdRefusable = !!o.refusable;
+  holdConfirming = false;
+  document.body.classList.add("hold");
+  input.clearHeld(); // a key held when the world stopped is not an answer
+  holdRenderPage();
+  holdSaveResume();
+}
+
+/**
+ * A PAGE NAMES THE PLAYER'S OWN KEYS, LIVE (r15). The curriculum's pages carry
+ * the objectives card's `{tokens}` — the same table, the same substitution, so
+ * the paused page and the checklist under it can never name different keys, and
+ * neither can name a bind this crawler does not have. Substituted at PAINT
+ * rather than at build: a beat may wait up to twenty-five seconds for a lull,
+ * and a rebind in that window must not leave a stale key on the one surface
+ * that stopped the game to say it.
+ *
+ * Controls come back wrapped in the typewriter's key-cap sentinel; a number
+ * ({hypeline}) and a heading ({bearing}) are prose and do not, and on touch
+ * every token expands to a phrase rather than a cap.
+ */
+function holdPageText(text: string): string {
+  return text.split(/(\{[a-z]+\})/g).map((part) => {
+    if (!/^\{[a-z]+\}$/.test(part)) return part;
+    const sub = objItemLabel(part);
+    if (part === "{hypeline}" || part === "{bearing}" || touchMode) return sub;
+    return DLG_KEYCAP + sub + DLG_KEYCAP;
+  }).join("");
+}
+
+/** Paint the current page: its text, its pointer, and its control. */
+function holdRenderPage(): void {
+  if (!holdPager) return;
+  const page = holdPager.page;
+  dlgStartType([holdPageText(page.text)]);
+  holdAimAt(page.target);
+  holdRenderControls();
+}
+
+/**
+ * THE ADVANCE AFFORDANCE, or the feature is a hang. The chevron appears only
+ * once the page has finished typing AND the flush is paid — a control that
+ * offers a press the panel would swallow teaches that the panel is broken. The
+ * LAST page is labelled rather than implicit, so the next press is known to
+ * return a live dungeon instead of more text.
+ */
+function holdRenderControls(): void {
+  if (!holdPager) return;
+  if (holdConfirming) { dlgAdvEl.style.display = "none"; return; }
+  // The campfire's last page hands over to its own numbered choices — they ARE
+  // its advance, and they are the shipped B0 control.
+  const choices = guideBeat && holdPager.last;
+  if (choices) {
+    guideRenderChoices();
+    dlgAdvEl.style.display = "none";
+    dlgHintEl.innerHTML = DLG_HINT_HTML;
+    return;
+  }
+  // THE ESCAPE HATCH IS ADVERTISED, and it is the SMALL one: ESC skips THIS
+  // BEAT, one press, no confirmation — safe to be one input precisely because
+  // it is not destructive. The big one ("Stop stopping the game") is the
+  // control below, off the number row, and it costs two.
+  dlgHintEl.innerHTML = `<kbd>Esc</kbd> ${esc(HOLD_ESC_HINT.replace(/^Esc\s+/, ""))}`;
+  const ready = holdPager.ready && dlgShown >= dlgTotalChars();
+  dlgAdvEl.textContent = advanceLabel(holdPager.last);
+  dlgAdvEl.style.display = ready ? "block" : "none";
+  // ...and the modality refusal, off the number row, at the foot of the panel.
+  dlgChoicesEl.innerHTML = holdRefusable
+    ? `<button class="dlg-skip" data-choice="holdnope">${esc(HOLD_REFUSE_LABEL)}</button>`
+    : "";
+}
+
+/** THE POINTER. Static per page (the world is not moving); the ring re-projects
+ *  every frame because the renderer keeps drawing. */
+function holdAimAt(t: HoldTarget): void {
+  if (holdLitEl) { holdLitEl.classList.remove("holdlit"); holdLitEl = null; }
+  document.body.classList.toggle("hold-world", t.kind === "world");
+  if (t.kind !== "hud") return;
+  const el = document.getElementById(t.id);
+  // A beat may only point at something that is actually on the glass: an
+  // invisible ring is a lie about where to look.
+  if (!el || el.offsetWidth < 1) return;
+  el.classList.add("holdlit");
+  holdLitEl = el;
+}
+
+/** Per rendered frame while a hold is up: the ring over the pointed-at element
+ *  and the leader line back to the panel. */
+function holdRenderPointer(): void {
+  if (!holdPager || !holdLitEl) {
+    if (holdRingEl.style.display !== "none") holdRingEl.style.display = "none";
+    return;
+  }
+  const r = holdLitEl.getBoundingClientRect();
+  if (r.width < 2 || r.height < 2) { holdRingEl.style.display = "none"; return; }
+  holdRingEl.style.display = "block";
+  const pad = 7;
+  holdBoxEl.style.left = `${Math.round(r.left - pad)}px`;
+  holdBoxEl.style.top = `${Math.round(r.top - pad)}px`;
+  holdBoxEl.style.width = `${Math.round(r.width + pad * 2)}px`;
+  holdBoxEl.style.height = `${Math.round(r.height + pad * 2)}px`;
+  const panel = dlgEl.querySelector(".dlg-panel") as HTMLElement | null;
+  if (!panel) { holdLineEl.style.display = "none"; return; }
+  const pr = panel.getBoundingClientRect();
+  const ax = r.left + r.width / 2, ay = r.top + r.height / 2;
+  const bx = pr.left + pr.width / 2, by = pr.top;
+  const len = Math.hypot(bx - ax, by - ay);
+  holdLineEl.style.display = len > 90 ? "block" : "none";
+  holdLineEl.style.left = `${Math.round(ax)}px`;
+  holdLineEl.style.top = `${Math.round(ay)}px`;
+  holdLineEl.style.width = `${Math.round(len)}px`;
+  holdLineEl.style.transform = `rotate(${Math.atan2(by - ay, bx - ax)}rad)`;
+}
+
+/**
+ * ADVANCE — Space, Enter, or a tap on the panel body, and nothing else. The
+ * shipped double duty is kept: the first press finishes the typewriter, the
+ * next turns the page. NO TIMER EVER ADVANCES A PAGE.
+ */
+function holdAdvance(): void {
+  if (!holdPager || holdConfirming) return;
+  if (!holdPager.ready) return; // the flush swallows it whole
+  if (dlgShown < dlgTotalChars()) { dlgFinishType(); holdRenderControls(); return; }
+  const r = holdPager.advance();
+  if (r === "swallowed") return;
+  if (r === "next") { holdRenderPage(); holdSaveResume(); return; }
+  holdEnd();
+}
+
+/**
+ * SKIP THIS BEAT (ESC) — one press, no confirmation, and safe to be one input
+ * precisely BECAUSE IT IS NOT DESTRUCTIVE: the curriculum continues, the next
+ * beat still fires, the checklist stands, and the beat is already ledgered as
+ * shown. ESC has been "a polite farewell, one input, everywhere" since r6.
+ */
+function holdTeardown(): void {
+  if (!holdPager) return;
+  holdPager = null;
+  holdKey = "";
+  holdConfirming = false;
+  holdRefusable = false;
+  holdClearResume();
+  holdSched.setHolding(false);
+  document.body.classList.remove("hold", "hold-world");
+  if (holdLitEl) { holdLitEl.classList.remove("holdlit"); holdLitEl = null; }
+  holdRingEl.style.display = "none";
+  dlgAdvEl.style.display = "none";
+  dlgHintEl.innerHTML = DLG_HINT_HTML;
+}
+
+function holdEnd(): void {
+  if (!holdPager) return;
+  const wasGuide = !!guideBeat;
+  holdTeardown();
+  // RESUME IS ANIMATED, NOT INSTANT. guideClose / closeDialogueUi run the
+  // shipped 220ms letterbox fade, and `dlgOpen` — the pause gate — is only
+  // dropped by that path, so nobody swings at a panel that is still fading.
+  if (wasGuide) guideClose();
+  else closeDialogueUi();
+}
+
+/**
+ * STOP INTERRUPTING ME — the destructive one, and the r6-fix-1 pattern is
+ * CALLED here rather than re-invented. It is not on the number row, not ESC and
+ * not Space; taking it only OPENS a confirmation whose SAFE answer is slot 1;
+ * only the second explicit input consumes it. Double-tapping `2` at a campfire
+ * once destroyed an entire curriculum, and that is the accident this shape
+ * exists to make impossible.
+ */
+function holdRefuseAsk(): void {
+  if (!holdPager) return;
+  holdConfirming = true;
+  dlgStartType([HOLD_REFUSE_ASK]);
+  dlgAdvEl.style.display = "none";
+  dlgHintEl.innerHTML = DLG_HINT_HTML;
+  dlgChoicesEl.innerHTML =
+    `<button class="dlg-choice bye" data-choice="holdno"><span class="dnum">1</span>` +
+    `<span class="dlabel">${esc(HOLD_REFUSE_SAFE)}</span></button>` +
+    `<button class="dlg-choice" data-choice="holdyes"><span class="dnum">2</span>` +
+    `<span class="dlabel">${esc(HOLD_REFUSE_TAKE)}</span></button>`;
+}
+
+/** The second input. A MODALITY refusal, never a curriculum refusal: every
+ *  later beat demotes to the shipped strip and nothing else changes. */
+function holdRefuseTake(): void {
+  holdSched.refuse();
+  recordTips([HOLD_NOHOLD_KEY]);
+  holdConfirming = false;
+  dlgStartType([HOLD_REFUSE_DONE]);
+  dlgChoicesEl.innerHTML =
+    `<button class="dlg-choice bye" data-choice="holdbye"><span class="dnum">1</span>` +
+    `<span class="dlabel">Back to it.</span></button>`;
+}
+
+/** Panel answers that belong to the hold, not to a guide beat. Returns false
+ *  when the id is somebody else's (B0's own choices route to guideAnswer). */
+function holdAnswer(id: string): boolean {
+  if (!holdPager) return false;
+  if (id === "holdnope") { holdRefuseAsk(); return true; }
+  if (id === "holdno") {
+    // BACKING OUT RESTORES THE ORIGINAL PAGE, controls and all — treating it as
+    // an ordinary reply would leave the destructive answer alone in slot 1,
+    // which is the migration bug one screen down.
+    holdConfirming = false;
+    holdRenderPage();
+    return true;
+  }
+  if (id === "holdyes") {
+    // A DESTRUCTIVE ANSWER MAY NOT BE TAKEN BEFORE ITS WARNING HAS FINISHED
+    // ARRIVING (measured, r14 acceptance: the ask is ~230 characters and the
+    // typewriter was still on "Then I'll" when the button was already live).
+    // The confirmation's whole job is to name the undo BEFORE it takes the
+    // answer; a click that lands mid-sentence finishes the sentence instead,
+    // which is the panel's own shipped double duty.
+    if (dlgShown < dlgTotalChars()) { dlgFinishType(); return true; }
+    holdRefuseTake();
+    return true;
+  }
+  if (id === "holdbye") { holdEnd(); return true; }
+  return false;
+}
+
+/**
+ * THE HOLD OWNS THE KEYBOARD while it is up. Three laws, each a restatement of
+ * one this feature already learned the hard way:
+ *  - `e.repeat` is ignored outright (r6-fix-1 blocker 2: holding W deleted
+ *    every teaching card 1.2s after it appeared — autorepeat is the keyboard
+ *    talking, not the player);
+ *  - nothing acts before the page's flush is paid;
+ *  - digits reach ONLY a real numbered row (the campfire's choices, the
+ *    refusal's confirmation), never a control that has no index.
+ */
+function holdKeydown(e: KeyboardEvent): boolean {
+  if (!holdPager) return false;
+  e.stopImmediatePropagation();
+  if (e.repeat) return true;
+  if (!holdPager.ready) return true; // the flush swallows every input
+  if (e.key === "Escape") {
+    // ESC inside the confirmation backs OUT of the confirmation, not out of the
+    // beat: an escape hatch that skips two levels at once is a trap.
+    if (holdConfirming) { holdConfirming = false; holdRenderPage(); return true; }
+    holdEnd();
+    return true;
+  }
+  if (e.key === " " || e.key === "Enter") {
+    if (holdConfirming) return true; // a destructive answer is never Enter
+    holdAdvance();
+    return true;
+  }
+  const n = Number(e.key);
+  if (Number.isInteger(n) && n >= 1 && n <= 9) {
+    const btns = dlgChoicesEl.querySelectorAll<HTMLButtonElement>(".dlg-choice");
+    btns[n - 1]?.click();
+  }
+  return true;
+}
+
+/**
+ * A BEAT IS DUE. Under net, past the cap, or after the refusal, `request`
+ * answers `demote` and the strip delivers it in the same breath — ONE demotion
+ * mechanism, and co-op is its second caller rather than a special case.
+ */
+function holdRequest(key: string, pages: HoldPage[], o: Omit<HoldPending, "pages">): void {
+  const pend: HoldPending = { pages, ...o };
+  if (holdSched.request(key, key === holdKeyForStep("obj.move")) === "demote") {
+    pend.demote();
+    return;
+  }
+  holdPend.set(key, pend);
+}
+
+/** The world facts the lull test reads — every one already read elsewhere. */
+function holdWorld(): HoldWorld {
+  const p = state.status === "playing" ? me(state) : null;
+  let near = Infinity;
+  if (p) {
+    for (const m of state.monsters) {
+      if (m.hp <= 0) continue;
+      near = Math.min(near, Math.max(Math.abs(m.pos.x - p.pos.x), Math.abs(m.pos.y - p.pos.y)));
+    }
+  }
+  return {
+    playing: state.status === "playing" && !menuOpen,
+    net: !!net,
+    nearestMonster: near,
+    encounter: !!state.encounter || document.body.classList.contains("cine")
+      || bossintroEl.classList.contains("show"),
+    modal: atShopCounter() || document.body.classList.contains("modal"),
+    hpFrac: p && p.maxHp > 0 ? p.hp / p.maxHp : 1,
+    collapse: state.phase === "collapse",
+  };
+}
+
+/**
+ * Once per RENDERED frame. `dtMs` is live on-glass time and it is fed ZERO
+ * while a hold is up — otherwise a second beat's 25-second deadline would tick
+ * away behind the panel delivering the first one.
+ */
+function holdTick(dtMs: number): void {
+  if (holdPager) {
+    holdPager.tick(dtMs);
+    // The chevron appears the instant the page is both typed and unlocked.
+    // Never while a numbered row is the control: re-rendering B0's choices
+    // would restore the list a "asked and answered" reply had just filtered,
+    // which is the r6-fix-1 migration bug wearing this feature's costume.
+    if (!holdConfirming && !(guideBeat && holdPager.last)
+      && dlgAdvEl.style.display === "none"
+      && holdPager.ready && dlgShown >= dlgTotalChars()) holdRenderControls();
+    holdRenderPointer();
+  }
+  const res = holdSched.tick(holdWorld(), holdPager ? 0 : dtMs);
+  for (const key of res.demote) {
+    const pend = holdPend.get(key);
+    holdPend.delete(key);
+    pend?.demote();
+  }
+  if (!res.open) return;
+  const pend = holdPend.get(res.open);
+  holdPend.delete(res.open);
+  if (!pend) { holdSched.setHolding(false); return; }
+  // Re-asked at the LAST possible instant: a lull can arrive after the step it
+  // was going to introduce has already been done.
+  if (pend.stillTrue && !pend.stillTrue()) {
+    holdSched.setHolding(false);
+    pend.demote();
+    return;
+  }
+  if (guideBeat || dlgOpen) { // something else owns the panel; try again later
+    holdSched.setHolding(false);
+    holdPend.set(res.open, pend);
+    holdSched.request(res.open);
+    return;
+  }
+  holdOpenPanel(res.open, pend);
+}
+
+/** Dress the shipped #dialogue panel as Mordecai and hand it to the pager. */
+function holdOpenPanel(key: string, pend: HoldPending): void {
+  setDialogueOpen(true);
+  dlgSessionId = -1;
+  dlgLinesKey = "";
+  dlgEl.classList.add("guide", "tut");
+  dlgPortraitImg.src = "/icons/portraits/mordecai.svg";
+  dlgNameEl.textContent = "Mordecai";
+  dlgRoleEl.textContent = "Guide";
+  dlgKickerEl.textContent = "◆ THE GUIDE ◆";
+  input.captureMode = true;
+  dlgEl.style.display = "flex";
+  requestAnimationFrame(() => dlgEl.classList.add("show"));
+  holdBegin(key, pend.pages, { refusable: pend.refusable, page: pend.resumePage });
+  pend.onShow?.();
 }
 
 // ---- Contract ledger (right rail, collapsible) ----
@@ -8472,7 +9019,11 @@ function showBanner(a: Announcement, cls = "ann banner"): void {
   }, BANNER_HOLD_MS);
 }
 
-// MORDECAI'S STRIP (kind:"tip"): the non-pausing teaching surface, one card
+// MORDECAI'S STRIP (kind:"tip"): the REACTIVE teaching surface, one card
+// at a time, and it never pauses anything. It stopped being where a LESSON is
+// delivered in r14 (THE HOLD): a step's first delivery interrupts on the
+// #dialogue panel, and this surface carries the reactions — plus every beat
+// that could not hold (co-op, a refusal, 25s of unbroken combat).
 // at a time — coach lines, curriculum tip translations, objective step
 // intros/sign-offs, all in his frame. The queue/pacing/visibility machinery
 // below is five rounds of measured behavior and is voice-agnostic; only the
@@ -8850,7 +9401,8 @@ document.getElementById("m-standings")!.addEventListener("click", () => { void o
 document.getElementById("m-careerset")!.addEventListener("click", () => { void openCareerSet(); });
 
 // ---- THE COACH (the tutorial rebuild, HANDOFF §3a): Mordecai's in-play
-// teaching channel, on the non-pausing strip (#tutorial card surface). The
+// teaching channel, on the strip (#tutorial card surface — reactive lines
+// only since r14; the instructional ones HOLD). The
 // first five minutes for someone a card dragged in — the ONRAMP's measured
 // mechanics with Mordecai's words. First-contact detection is exactly the
 // doc's: no account token and no local history = fresh crawler — sampled
@@ -9342,7 +9894,7 @@ function coachObserve(intent: Intent): void {
 
 // ---- THE OBJECTIVES CARD (HANDOFF §3a: "goes and does x, y, z") ----------
 // A small persistent card, right rail: the current step's title + checkable
-// items. Play never pauses; nothing auto-dismisses; the card stays until the
+// items. Nothing auto-dismisses; the card stays until the
 // step is done and unmounts forever when the curriculum is. The sequencer is
 // pure (src/ui/objectives.ts); everything here is fact plumbing + paint.
 const objectivesEl = document.getElementById("objectives")!;
@@ -9560,11 +10112,23 @@ let objShopMs = 0;
 function objectivesPaintTick(now: number): void {
   const dtMs = objVisPrev > 0 ? Math.min(250, now - objVisPrev) : 0;
   objVisPrev = now;
+  // THE HOLD RUNS ON THE SAME REAL CLOCK, and it runs first: it is the surface
+  // that decides whether every other teaching clock is fed anything at all.
+  holdTick(dtMs);
   if (srEl.style.display === "flex") objShopMs += dtMs;
   if (!objectives || objectives.finished) return;
   // ON THE GLASS means on the glass, in a live dungeon: the check-in menu
   // hides the card (CSS), and a verdict screen is not reading time either.
-  const live = state.status === "playing" && !document.body.classList.contains("checkin");
+  //
+  // ...AND A HOLD PAYS ON-GLASS TIME TO EXACTLY ONE CLOCK: the beat's own dwell
+  // floor (TUTORIAL.md r14 §1d). Feeding these two during a hold would mean a
+  // twenty-second read pays the 4s OBJ_MIN_VISIBLE_MS gate — a step completing
+  // out from under its own introduction — and escalates the standing ask to the
+  // concrete "you are probably doing it wrong" form for the crime of reading.
+  // r10 chose real on-glass ms "so nobody is escalated at over an instruction
+  // they were never shown"; this is the same principle, inverted.
+  const live = state.status === "playing" && !holdActive()
+    && !document.body.classList.contains("checkin");
   // THE STALL DETECTOR, on the same real clock, BEFORE the ask that reads it:
   // "has this crawler stopped getting closer to the way out?" Fed zero while
   // the world is not live or the player is at a counter, so time spent shopping
@@ -9776,8 +10340,15 @@ let exitMarkText = "";
 function renderExitMark(): void {
   // It is a world marker, so it stands down for anything that owns the glass:
   // a modal, the check-in menu, a shop counter, a cinematic.
-  const on = exitLit() && !menuOpen && !document.body.classList.contains("modal")
-    && !document.body.classList.contains("checkin") && !atShopCounter();
+  //
+  // ONE EXEMPTION, AND IT IS THE POINT OF THE SPOTLIGHT (r14 §5): a held page
+  // that POINTS AT THE STAIRS needs the beacon it is pointing with. The world
+  // is paused behind a bottom-anchored panel, so the top of the glass is free
+  // to be pointed into — a beat that says "take the stairs down" over a hidden
+  // marker is the old failure wearing the new costume.
+  const on = exitLit() && !menuOpen && !document.body.classList.contains("checkin")
+    && (holdPointsAtWorld()
+      || (!document.body.classList.contains("modal") && !atShopCounter()));
   if (!on) {
     if (exitMarkShown) { exitMarkEl.style.display = "none"; exitMarkShown = false; }
     return;
@@ -10127,8 +10698,41 @@ function objectivesSync(): void {
     // would queue and then paint one floor later, telling a player in a
     // corridor to open a shop they have left. The persistent card carries the
     // instruction meanwhile — that is what it is for.
-    showTutorialCard({ text: renderBeat(beat), kind: "tip", priority: "normal" },
-      { momentMs: 60000, stillTrue: () => objectives?.currentStep()?.id === armedStep });
+    const stillTrue = (): boolean => objectives?.currentStep()?.id === armedStep;
+    // THE STRIP IS THE DEMOTION, NOT THE DELIVERY (TUTORIAL.md r14). The owner
+    // played the shipped build and said it plainly: "no one reads long text
+    // while they're actively fighting in an ARPG." So a step's FIRST delivery
+    // is a HOLD — the world stops, the player steps through it, and the last
+    // page hands off to the checklist it just introduced. This card is what
+    // that beat falls back to when it can never hold: co-op, a profile that
+    // refused the interruption, or twenty-five seconds of unbroken combat.
+    //
+    // ...and the demotion carries INSTRUCTION + QUIP, never the hold's middle
+    // pages (r15). Those pages exist because a stopped world can be read; a
+    // four-sentence card during a fight is the exact delivery the owner
+    // rejected. Everything on them keeps its shipped reactive carrier on this
+    // same strip — the dash prompt, the draft translation, the standing ask's
+    // escalations — so a player who can never be held loses the pause, not the
+    // curriculum. The tokens are substituted here for the same reason the pages
+    // substitute them: a card may not name a bind this crawler does not have.
+    const strip = (): void => {
+      showTutorialCard({ text: objItemLabel(renderBeat(beat)), kind: "tip", priority: "normal" },
+        { momentMs: 60000, stillTrue });
+    };
+    // THE ONE STEP THAT DOES NOT ASK FOR A HOLD (r15). obj.saferoom arms while
+    // the crawler is standing at a counter; a counter is a modal, and the lull
+    // gate refuses a modal — so requesting one could only burn the deadline and
+    // demote onto a strip the shop panel is covering. Its paused teaching is
+    // B5, which fires before the panel opens and pages (src/ui/guide.ts); what
+    // is left here is what always did the work at a counter — the persistent
+    // card, the standing ask, and the shelf's own Mordecai row inside the panel.
+    if (armedStep === "obj.saferoom") strip();
+    else {
+      holdRequest(holdKeyForStep(armedStep), objHoldPages(armedStep, beat), {
+        demote: strip, stillTrue, refusable: true,
+        onShow: () => coach?.supersede(OBJ_INTRO_SUPERSEDES[armedStep]),
+      });
+    }
   }
   if (res.completed) {
     // THE FACT-SPEND: the step was performed, so it is done forever — the one
@@ -10143,6 +10747,36 @@ function objectivesSync(): void {
 // The card exists from boot (an empty checklist is still an instruction) —
 // hidden by CSS behind modals, unmounted forever once the curriculum is done.
 renderObjectivesCard();
+
+/**
+ * A REFRESH MID-LESSON DOES NOT EAT THE LESSON (r14).
+ *
+ * A beat is ledgered the moment it is SHOWN, and that convention stays — but a
+ * five-page hold reloaded on page two would otherwise be spent with three
+ * pages never read, permanently, for that profile. That is r5 blocker 1's
+ * defect (a beat deleted forever by a presentation that never finished) with a
+ * refresh in place of a fast R. The active hold's key and page ride their own
+ * browser key; on the next boot the beat goes back into the queue and re-opens
+ * at the page it was on, at the next honest lull.
+ */
+if (holdSavedResume && objectives && !objectives.finished) {
+  const step = OBJ_STEP_IDS.find((id) => holdKeyForStep(id) === holdSavedResume.key);
+  if (step && !objectives.isDone(step)) {
+    const beat = OBJ_INTRO_BEATS[step];
+    holdRequest(holdKeyForStep(step), objHoldPages(step, beat), {
+      onShow: () => coach?.supersede(OBJ_INTRO_SUPERSEDES[step]),
+      demote: () => showTutorialCard(
+        { text: objItemLabel(renderBeat(beat)), kind: "tip", priority: "normal" },
+        { momentMs: 60000, stillTrue: () => objectives?.currentStep()?.id === step },
+      ),
+      stillTrue: () => !!objectives && !objectives.isDone(step),
+      resumePage: holdSavedResume.page,
+      refusable: true,
+    });
+  } else {
+    holdClearResume();
+  }
+}
 
 // ACCEPT A CHALLENGE (8.2): ?c=<code> is a seed plus a claim in eighty
 // characters. It re-dresses the DAILY tile into the challenge that was sent,
@@ -11491,7 +12125,11 @@ renderConsentToggle();
       }, 4000);
       return;
     }
-    forgetTips([...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, ...OBJ_STEP_IDS]);
+    // ...and `tut.nohold` rides the same list (r14 §4). ONE CONTROL, ONE
+    // MEANING: the modality refusal's undo is the undo that already exists, and
+    // the confirmation names this panel by name before it takes the answer.
+    forgetTips([...GUIDE_BEAT_KEYS, GUIDE_SKIP_KEY, HOLD_NOHOLD_KEY, ...OBJ_STEP_IDS]);
+    holdClearResume();
     recordTips([OBJ_ENROLLED_KEY]); // enrolled again, whatever this profile was
     pushLogLine("MORDECAI: from the top, then. Try to look surprised.");
     location.reload();
@@ -13112,7 +13750,12 @@ function updateHud(s: GameState): void {
   // clock instead of going lethal. The sim already announced why; the readout
   // has to agree with the announcement, because a countdown that silently
   // stops is indistinguishable from a countdown that broke.
-  const heldClock = !!s.firstRunClockHeld && s.floor === 1 && stayT <= 0;
+  // ...and a TEACHING HOLD stops it too, by the same arithmetic and with the
+  // same honesty debt (TUTORIAL.md r14 §1b). `timeRemaining -= dt` lives inside
+  // step(), step() is not called while the panel is up, so the countdown is
+  // already stopped — reusing the chip the debut trained is what stops a
+  // stopped clock from reading as a broken one. A hold cannot punish reading.
+  const heldClock = stayT <= 0 && ((!!s.firstRunClockHeld && s.floor === 1) || holdActive());
   const phaseKey = stayT > 0 ? "stayed" : heldClock ? "held" : s.phase;
   setHudText(
     hhPhase, "phase",
@@ -13222,6 +13865,21 @@ if (new URLSearchParams(location.search).has("debug")) {
       runEvent,
       runContractNote,
       submitResult,
+      // THE HOLD (TUTORIAL.md r14). A claim about delivery is a claim about
+      // pixels, and this is the read that lets a probe make one: how many holds
+      // this session has actually opened (the six-hold cap), which beat is on
+      // the glass and on which page, whether its input flush is still
+      // swallowing, and whether the profile refused the interruption. Read-only.
+      holdState: () => ({
+        opened: holdSched.openedCount,
+        pending: holdSched.pendingKeys,
+        refused: holdSched.isRefused,
+        key: holdKey,
+        page: holdPager?.index ?? -1,
+        pages: holdPager?.pages.length ?? 0,
+        ready: holdPager?.ready ?? false,
+        last: holdPager?.last ?? false,
+      }),
       addPlayer: (name: string) => addPlayer(state, name),
       step: (intents: Parameters<typeof step>[1], dt: number) => step(state, intents, dt),
       equip: (item: Item) => equipItem(me(state), item), // stage gear for UI tests
@@ -13983,7 +14641,18 @@ async function main(): Promise<void> {
             || lp.glyphs.slots.some((s) => s.some(Boolean)) || lp.glyphs.ultimate.some(Boolean)))
             || (state.safeRoom?.available.includes("glyph_cache") ?? false)),
       });
-      if (beat) { guideSrBeatThisVisit = true; guideShow(beat); }
+      if (beat) {
+        guideSrBeatThisVisit = true;
+        // B5 IS A HOLD (r15). The safe room has already stopped the world and
+        // the shop panel has not opened yet, which is the only paused moment
+        // the shelf lesson gets — `obj.saferoom`'s own introduction arms at a
+        // counter, and a counter is a modal the lull gate refuses. So this beat
+        // took that step's slot in the six and it PAGES; if the cap is spent or
+        // the player refused the interruption, `take` says no and it is the
+        // shipped two-line conversation it has always been.
+        const holds = beat.key === "tut.saferoom" && holdSched.take(HOLD_SAFEROOM_KEY);
+        guideShow(beat, undefined, holds);
+      }
     }
     if (srEl.style.display !== "flex" && inSafeRoom && !draftPending && !dlgOpen) {
       srTab = guideSrTab ?? "shop"; // every safe room opens on today's shelf

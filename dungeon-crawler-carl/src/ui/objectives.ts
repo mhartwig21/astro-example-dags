@@ -5,8 +5,20 @@
  *
  * A pure sequencer in the Guide/Coach mold: facts in, edges out, no DOM, no
  * sim writes, unit-testable. The host renders the current step as a small
- * PERSISTENT card (#objectives, right rail) — play never pauses, nothing
- * auto-dismisses; the card stays until the step's items are all done.
+ * PERSISTENT card (#objectives, right rail) — nothing auto-dismisses; the card
+ * stays until the step's items are all done.
+ *
+ * "PLAY NEVER PAUSES" WAS THIS HEADER'S LAW AND IT IS RETIRED (r14 — THE HOLD,
+ * src/ui/hold.ts). The owner played the shipped build: "no one reads long text
+ * while they're actively fighting in an ARPG." A step's FIRST delivery — its
+ * intro beat — now stops the world on the #dialogue panel and is stepped
+ * through by the player; the CARD is unchanged and is what remembers the ask
+ * afterwards. The hold explains, the card remembers.
+ *
+ * The one thing this module owes the pause: `addVisibleMs` must be fed ZERO for
+ * the whole of a hold. Otherwise a twenty-second read pays the 4s
+ * OBJ_MIN_VISIBLE_MS gate and a step completes out from under its own
+ * introduction — which is r1 blocker 1 arriving through a new door.
  *
  * The rules, held structurally:
  *  - EVERY STEP DECLARES WHERE IT IS TRUE, AND THE CARD SHOWS ONLY A STEP THE
@@ -156,7 +168,17 @@ export interface ObjectiveStep {
  *  S1–S2 are floor 1's first two fights; S3 closes on the first descent; S4
  *  arms in the safe room that descent routes through; S5 is floor 2+ combat,
  *  where hype and favorites actually flow — so the guided spine dissolves
- *  exactly as the game starts teaching itself. */
+ *  exactly as the game starts teaching itself.
+ *
+ *  ...AND EACH STEP IS INTRODUCED BY A PAUSE, THEN TRACKED BY THIS CARD (r14
+ *  + r15). S1's hold fires at second zero, before anything is in range, which
+ *  is why the dash is taught there rather than behind three kills. S4 is the
+ *  exception and it is a structural one: its card arms while the crawler is at
+ *  a counter, and a counter is a modal the lull gate refuses, so the safe
+ *  room's paused teaching is B5 (src/ui/guide.ts) and this step's instruction
+ *  lives on the card, the standing ask, and the shelf's own Mordecai row —
+ *  all three of which survive the shop panel. The hold explains; the card
+ *  remembers; every key an item names, the hold named first (coach.test.ts). */
 export const OBJECTIVE_STEPS: readonly ObjectiveStep[] = [
   {
     id: "obj.move", title: "Get Moving",
