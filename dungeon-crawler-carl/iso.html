@@ -478,6 +478,49 @@
       #exitmark i { animation: exitpulse 1.9s ease-in-out infinite; }
       @keyframes exitpulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
       @media (prefers-reduced-motion: reduce) { #exitmark i { animation: none; } }
+
+      /* THE KEY BEACON (owner: "it should show on the mini map and be
+         obvious"). The exit beacon's twin — same zone, same box, same paces
+         grammar — because a player who has read one has read the other. The
+         differences are all deliberate: the seal hue (nothing else in the game
+         wears it), a heavier chevron and a chip behind the label so it survives
+         a late-floor frame full of fire, and a faster pulse than the exit's two
+         slow breaths, because this one is urgent — the floor is not leaveable
+         until it is picked up. */
+      #keymark { position: fixed; left: 0; top: 0; display: none;
+        flex-direction: column; align-items: center; gap: 1px;
+        pointer-events: none; z-index: 6; will-change: transform;
+        text-shadow: 0 1px 3px #000, 0 0 10px rgba(0,0,0,0.9); }
+      #keymark i { display: block; width: 0; height: 0;
+        border-left: 9px solid transparent; border-right: 9px solid transparent;
+        border-bottom: 14px solid #ff36c8;
+        filter: drop-shadow(0 0 8px rgba(255,54,200,0.9)); }
+      #keymark b { font-family: var(--display); font-size: 11px; letter-spacing: 0.16em;
+        color: #ffd6f4; background: rgba(60,4,42,0.72);
+        border: 1px solid rgba(255,54,200,0.85); border-radius: 3px;
+        padding: 1px 6px; box-shadow: 0 0 10px rgba(255,54,200,0.35); }
+      #keymark em { font-style: normal; font-size: 10px; color: #f0b8e0;
+        letter-spacing: 0.06em; }
+      /* THE RANGE SURVIVES THE EDGE. The exit beacon drops its distance when it
+         pins, because there the chevron IS the message — the stairs are a place
+         you are walking to anyway. This marker's whole job is the opposite: the
+         edge case IS "the key is somewhere off screen", and a bearing with no
+         range does not answer that. It stays, and it gets a chip so it reads
+         over the dungeon it is pinned against. */
+      #keymark.edge b { font-size: 10px; }
+      #keymark.edge em { display: block; color: #ffd6f4;
+        background: rgba(60,4,42,0.72); border-radius: 3px; padding: 0 5px;
+        border: 1px solid rgba(255,54,200,0.5); }
+      /* Pinned, the chevron is doing the pointing — make it worth seeing. */
+      #keymark.edge i { border-left-width: 11px; border-right-width: 11px;
+        border-bottom-width: 17px;
+        filter: drop-shadow(0 0 12px rgba(255,54,200,1)); }
+      body.cine #keymark, body.checkin #keymark, body.modal #keymark,
+      body.dlg #keymark { display: none !important; }
+      #keymark i { animation: keypulse 1.1s ease-in-out infinite; }
+      @keyframes keypulse { 0%, 100% { opacity: 1; transform-origin: 50% 50%; }
+        50% { opacity: 0.35; } }
+      @media (prefers-reduced-motion: reduce) { #keymark i { animation: none; } }
       /* Fat display face, white-gold core, heavy dark outline — combat numbers
          must be findable over midtone foliage in motion (AAA r2 blocker). */
       /* NOTE: the numerals themselves are canvas glyphs (paintNumeral in
@@ -581,6 +624,15 @@
                                   exitLit() is true — a fresh crawler who has not
                                   yet taken a staircase — and stands down under
                                   every modal, the check-in and any cinematic
+                                #keymark — THE KEY BEACON, the same marker
+                                  aimed at the stairs-district key (main3d
+                                  renderKeyMark). Shares the zone and the
+                                  grammar; wears the seal hue instead of gold,
+                                  sits one band lower on the frame edge so the
+                                  two can never overlap, and unlike the exit it
+                                  never retires — it is up whenever a dropped
+                                  key is unclaimed, or (as SEALED) when the
+                                  crawler is standing at a locked door
            cursor layer (z 30): #itemtip — pointer-events:none tooltip, follows the mouse
            orientation gate (z 40): #rotate — phone portrait only; outranks everything
          New overlays must pick a zone here first. */
@@ -604,6 +656,14 @@
       .ann::before { content: "◆ SYSTEM "; color: #c9a24b; font-weight: 700; }
       .ann.banner { font-size: 19px; font-weight: 600; padding: 14px 28px; letter-spacing: 0.8px;
         border-width: 2px; box-shadow: 0 0 34px rgba(201,162,75,0.35), 0 6px 26px rgba(0,0,0,0.6); }
+      /* THE SEAL'S OWN HEADLINE. A key line reaching the banner is already the
+         promotion (showAnnouncement); wearing the seal hue is what connects the
+         sentence to the pink pillar that just lit up across the room and to the
+         glyph that just appeared on the chart. Same banner furniture, one
+         colour swap — the System is still the one talking. */
+      .ann.banner.key { border-color: #ff36c8; color: #ffd6f4;
+        box-shadow: 0 0 40px rgba(255,54,200,0.45), 0 6px 26px rgba(0,0,0,0.65); }
+      .ann.banner.key::before { content: "◆ SYSTEM "; color: #ff36c8; }
 
       /* MORDECAI'S STRIP (kind:"tip" cards): the non-pausing teaching surface.
          Every card is his — the System no longer teaches on any surface (ONE
@@ -7454,6 +7514,7 @@
          Exists only while exitLit() is true and removes itself for good once
          obj.payday is on the ledger. -->
     <div id="exitmark" aria-hidden="true"><i></i><b>EXIT</b><em></em></div>
+    <div id="keymark" aria-hidden="true"><i></i><b>KEY</b><em></em></div>
     <div id="downed" data-overlay="none"></div>
     <div id="itemtip" data-overlay="none"></div>
     <div id="toasts"></div>
