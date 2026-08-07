@@ -458,6 +458,15 @@ an overlap or a headroom reading. Nobody in the build loop can hear; §1.3a is
 the only register where quality is ever settled, and this layer has no row
 there yet.
 
+**`MIX-REPORT.md` (repo root) is the owner-facing summary of this section and
+its UI twin** — both verdicts verbatim, an independent verification pass over
+the shipping build (`tools/_shots/mixverify/`), frames read by eye
+(`tools/_shots/mixfilm/`), the numbered list of what only the owner's ear and
+eye can settle, and the tuning knob behind each question. The verification pass
+re-confirmed every row below and closed the headroom breach at the boss
+(peakPre **1.146 → 0.874**); the row to watch is f15_pack at **0.983**, inside
+the contract but only just.
+
 **The verdict that opened it** (2026-08-07, after playing the integrated
 build): *"The sound effects for kills is way too much I think... there needs
 to be a masking layer which prioritizes certain sounds over others."*

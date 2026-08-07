@@ -201,6 +201,17 @@ banner's text — two System sentences on the same pixels — which the
 census photographed and nobody had named. `body.bosscall` stands the
 banner down.
 
+**VERIFIED INDEPENDENTLY** (`MIX-REPORT.md` §4.2/§5, dumps in
+`tools/_shots/mixverify/` and `tools/_shots/mixfilm/`): unrelated chatter over
+a live boss bar re-measured **0.0% in every scenario**, `TOAST_MAX = 3` is now
+true of the product (max 3 in five of six scenarios), and a filmstrip through a
+20-kill wipe and a boss intro was read frame by frame — the plate is never
+overlapped and the `UNLOAD / EXPOSED CORE` call-out is alone on its pixels.
+**Two cosmetic collisions found and NOT fixed** (neither occurs during a
+climax, and both sit outside this gap): the `+N more` chip is overlapped by the
+newest toast's box, and the item-pickup tooltip paints through the toast
+column's lowest slot. Magnified proof: `tools/_shots/mixfilm/crop_toastcol.png`.
+
 **8. Loot has no ground presentation. (sev 4)**
 The "first loot" beat is an unlabeled tiny prop with no beam, no nameplate,
 no rarity color on the ground (`tools/_shots/audit_first/08_first_loot.png`);
